@@ -83,7 +83,22 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
     })
 
-    it('does not link the title in edit mode even when titleHref is set', () => {
+    it('does not link the title in dashboard edit mode even when titleHref is set', () => {
+        render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Top issues"
+                titleHref="/error_tracking"
+                showEditingControls
+                isDashboardEditMode
+            />
+        )
+
+        expect(screen.queryByRole('link', { name: /Top issues/i })).not.toBeInTheDocument()
+        expect(screen.getByText('Top issues')).toBeInTheDocument()
+    })
+
+    it('links the title in view mode when editing controls are shown', () => {
         render(
             <WidgetCardHeader
                 layout="dashboard_tile"
@@ -93,8 +108,7 @@ describe('WidgetCardHeader', () => {
             />
         )
 
-        expect(screen.queryByRole('link', { name: /Top issues/i })).not.toBeInTheDocument()
-        expect(screen.getByText('Top issues')).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
     })
 
     it('renders simple layout without inline refresh', () => {

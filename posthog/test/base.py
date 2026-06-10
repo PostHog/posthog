@@ -67,11 +67,12 @@ from posthog.clickhouse.preaggregation.sql import (
     SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
 )
 from posthog.clickhouse.query_log_archive import (
-    QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_MV,
-    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
-    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_OPS_MV,
+    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
@@ -86,7 +87,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -198,6 +198,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
@@ -721,7 +722,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance
@@ -1732,9 +1733,7 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
-            ),
+            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
@@ -1756,7 +1755,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -1779,6 +1779,9 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
+                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
+            ),
         ]
     )
 

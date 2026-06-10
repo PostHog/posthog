@@ -22,7 +22,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
@@ -907,6 +907,158 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_called_once()
         mock_create_webhook.assert_called_once()
+
+    def test_update_schema_to_webhook_existing_function_reconciles_events(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        # hog_function_created=False → existing webhook, so the reconcile path (not create) runs.
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(
+                StripeSource, "create_webhook", return_value=WebhookCreationResult(success=True)
+            ) as mock_create_webhook,
+            mock.patch.object(
+                StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)
+            ) as mock_sync_events,
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200
+        # Existing webhook: reconcile events, never re-create.
+        mock_sync_events.assert_called_once()
+        mock_create_webhook.assert_not_called()
+
+    def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(
+                StripeSource,
+                "sync_webhook_events",
+                return_value=WebhookSyncResult(success=False, error="add Write permission"),
+            ),
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        # Reconcile failure must not hard-fail the schema enable.
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+    def test_update_schema_to_webhook_reconcile_raising_does_not_block(self):
+        # The dangerous case: sync_webhook_events RAISES (bad creds, OAuth expired, network)
+        # before any internal handling. This must never roll back the schema enable.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(StripeSource, "sync_webhook_events", side_effect=ValueError("Missing Stripe API key")),
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     def test_update_schema_to_incremental_does_not_trigger_webhook(self):
         source = ExternalDataSource.objects.create(

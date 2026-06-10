@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
 
-export const QUOTA_WARN_THRESHOLD = 0.8
+export const QUOTA_WARN_THRESHOLD = 0.85
 
 const MIN_DAYS_FOR_PROJECTED_DATE = 3
 
@@ -45,7 +45,7 @@ export function projectQuota(
     const periodLengthDays = periodStart && periodEnd ? Math.max(periodEnd.diff(periodStart, 'day', true), 1) : 30
     const daysElapsed = periodStart ? Math.max(now.diff(periodStart, 'day', true), 0) : 0
     const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
-    const resetsOn = periodEnd ? periodEnd.format('MMM D') : null
+    const resetsOn = periodEnd ? periodEnd.format('MMMM D') : null
     const projectionConfident = daysElapsed >= MIN_DAYS_FOR_PROJECTED_DATE
 
     const historicalDailyBurn = daysElapsed > 0 ? used / daysElapsed : 0
@@ -73,4 +73,24 @@ export function projectQuota(
         daysRemaining,
         combinedDailyRate,
     }
+}
+
+/**
+ * Disabled-reason / tooltip for scan triggers based on the monthly observation quota.
+ * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
+ */
+export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+    if (!quota || quota.monthly_quota <= 0) {
+        return {}
+    }
+    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    if (quota.exhausted) {
+        return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
+    }
+    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
+        return {
+            tooltip: `${quota.remaining.toLocaleString()} observations left this month (resets ${resetsOn})`,
+        }
+    }
+    return {}
 }

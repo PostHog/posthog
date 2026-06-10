@@ -95,6 +95,7 @@ export enum EndpointTab {
     CONFIGURATION = 'configuration',
     VERSIONS = 'versions',
     PLAYGROUND = 'playground',
+    LOGS = 'logs',
     HISTORY = 'history',
 }
 
