@@ -84,7 +84,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         mock_log.assert_called_once()
         kwargs = mock_log.call_args.kwargs
         self.assertEqual(kwargs["level"], "INFO")
-        self.assertEqual(kwargs["log_source_id"], str(endpoint.id))
+        self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
         self.assertTrue(kwargs["instance_id"])
         self.assertIn("Endpoint executed", kwargs["message"])
         self.assertIn("path=inline", kwargs["message"])
@@ -103,7 +103,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         mock_log.assert_called_once()
         kwargs = mock_log.call_args.kwargs
         self.assertEqual(kwargs["level"], "ERROR")
-        self.assertEqual(kwargs["log_source_id"], str(endpoint.id))
+        self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
         self.assertIn("Endpoint execution failed", kwargs["message"])
         self.assertIn("error=", kwargs["message"])
 

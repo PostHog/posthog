@@ -11,7 +11,5 @@ export function EndpointLogs(): JSX.Element {
         return <></>
     }
 
-    return (
-        <LogsViewer sourceType="endpoints" sourceId={endpoint.id} groupByInstanceId instanceLabel="execution" />
-    )
+    return <LogsViewer sourceType="endpoints" sourceId={endpoint.id} groupByInstanceId instanceLabel="execution" />
 }

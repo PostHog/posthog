@@ -67,7 +67,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{name}'
         list: true
         title: Get endpoint logs
         description: >
