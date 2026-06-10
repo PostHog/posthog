@@ -95,7 +95,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                         onClick={handleFeedbackClicked}
                         data-attr="dashboard-add-widget-feedback"
                     >
-                        Can't find what you're looking for? Give feedback
+                        Missing a widget? Let us know
                     </LemonButton>
                     <div className="flex-1" />
                     <LemonButton type="secondary" onClick={onClose}>
