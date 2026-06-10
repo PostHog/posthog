@@ -267,11 +267,7 @@ class CreateFeatureFlagTool(MaxTool):
                 "_should_create_usage_dashboard": False,
             }
 
-            # Evaluation contexts control where a flag evaluates at runtime. Projects can require at
-            # least one on every new flag, so forward what the model provided and otherwise fall back
-            # to the project's configured defaults — mirroring how the web UI pre-fills new flags.
-            # `None` means the model didn't specify contexts, so apply the project defaults. An
-            # explicit empty list means "no contexts" and is left untouched.
+            # Unspecified (None) falls back to the project defaults; an explicit empty list is left as-is.
             evaluation_contexts = flag_schema.evaluation_contexts
             if evaluation_contexts is None:
                 evaluation_contexts = await self._get_default_evaluation_contexts()
