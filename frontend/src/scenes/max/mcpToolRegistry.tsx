@@ -49,27 +49,17 @@ class MapBackedRegistry implements McpToolRegistry {
 /**
  * Single module-level registry of MCP tool-name → renderer. All entries are registered at module
  * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered
- * per tool (behind `phai-sandbox-tool-{slug}` flags); any tool without one falls through to
- * `FallbackMcpToolRenderer`.
+ * per tool; any tool without one falls through to `FallbackMcpToolRenderer`.
  */
 export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 
-// Custom adapters are registered here as they land. Each lives behind a `phai-sandbox-tool-{slug}`
-// gate (runtime config, not here). The single-exec inner tool names exist in two conventions —
-// hyphenated and snake_case — so we register both aliases to be robust to whichever the MCP
-// server emits.
+// Custom adapters are registered here as they land. The single-exec inner tool names exist in two
+// conventions — hyphenated (the MCP yaml definitions) and snake_case (legacy Max tools) — so we
+// register both aliases where both are real tool names.
 
 // --- Data tools: insight ---
-// VisualizationArtifactAnswer renderer — create / update / query / read insight.
-for (const key of [
-    'insight-create',
-    'insight-update',
-    'insight-query',
-    'insight-read',
-    'create_insight',
-    'edit_insight',
-    'read_insight',
-]) {
+// VisualizationArtifactAnswer renderer — create / update / read insight.
+for (const key of ['insight-create', 'insight-update', 'insight-get', 'create_insight']) {
     mcpToolRegistry.register({
         key,
         displayName: 'Insight',

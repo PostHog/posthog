@@ -9,11 +9,10 @@ describe('mcpToolRegistry data-tool adapters', () => {
     const cases: [string, React.ComponentType<any>][] = [
         ['insight-create', CreateInsightAdapter],
         ['insight-update', CreateInsightAdapter],
-        ['insight-query', CreateInsightAdapter],
+        ['insight-get', CreateInsightAdapter],
         ['create_insight', CreateInsightAdapter],
-        ['edit_insight', CreateInsightAdapter],
-        ['read_insight', CreateInsightAdapter],
         ['dashboard-create', UpsertDashboardAdapter],
+        ['dashboard-update', UpsertDashboardAdapter],
         ['upsert_dashboard', UpsertDashboardAdapter],
         ['query-session-recordings-list', SearchSessionRecordingsAdapter],
         ['search_session_recordings', SearchSessionRecordingsAdapter],
@@ -36,5 +35,8 @@ describe('mcpToolRegistry data-tool adapters', () => {
         expect(lookupMcpToolRenderer('mcp__user-installed__something').Renderer).toBe(FallbackMcpToolRenderer)
         // An inner tool we have not wired an adapter for also falls through.
         expect(lookupMcpToolRenderer('experiment-create').Renderer).toBe(FallbackMcpToolRenderer)
+        // Names that exist in no tool definition stay unregistered.
+        expect(mcpToolRegistry.lookup('insight-query')).toBeNull()
+        expect(mcpToolRegistry.lookup('read_insight')).toBeNull()
     })
 })

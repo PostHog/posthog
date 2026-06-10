@@ -1,3 +1,5 @@
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
+
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
 import {
     ArtifactContentType,
@@ -6,6 +8,7 @@ import {
     AssistantMessageType,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
+import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { McpToolCallMessage } from '../../maxTypes'
@@ -33,8 +36,8 @@ export interface VisualizationArtifactExtraction {
 /**
  * Pulls a `VisualizationArtifactContent` out of an insight tool's `rawOutput`. The backend MCP
  * server returns the artifact directly in the existing schema shape. Saved insights
- * (create/update) carry an `artifact_id` and source `Insight`; ephemeral queries
- * (`insight-query`) carry neither and render inline.
+ * (create / update / get) carry a `short_id` in the REST payload (or an explicit `artifact_id`);
+ * query-only outputs carry neither and render inline as ephemeral visualizations.
  */
 export function extractVisualizationArtifact(message: McpToolCallMessage): VisualizationArtifactExtraction | null {
     const output = asRecord(message.rawOutput)
@@ -48,7 +51,7 @@ export function extractVisualizationArtifact(message: McpToolCallMessage): Visua
     }
 
     const artifactId = asString(output.artifact_id) ?? asString(output.short_id) ?? message.id
-    const isSaved = output.source === ArtifactSource.Insight || asString(output.artifact_id) !== undefined
+    const isSaved = asString(output.short_id) !== undefined || asString(output.artifact_id) !== undefined
     const source = isSaved ? ArtifactSource.Insight : ArtifactSource.State
 
     const content: VisualizationArtifactContent = {
@@ -69,7 +72,7 @@ export function extractVisualizationArtifact(message: McpToolCallMessage): Visua
     return { envelope, content }
 }
 
-/** Dashboard create/update output — `{ dashboard_id | id, url, name }`. */
+/** Dashboard create/update output — the REST payload (`id`, `name`) plus the MCP server's `_posthogUrl` enrichment. */
 export interface DashboardExtraction {
     id?: string | number
     name?: string
@@ -81,28 +84,67 @@ export function extractDashboard(message: McpToolCallMessage): DashboardExtracti
     if (!output) {
         return null
     }
-    const id = (output.dashboard_id ?? output.id) as string | number | undefined
+    const id = (output.id ?? output.dashboard_id) as string | number | undefined
     return {
         id,
         name: asString(output.name) ?? asString(message.innerInput?.name),
-        url: asString(output.url),
+        url: asString(output._posthogUrl) ?? asString(output.url),
     }
 }
 
 /**
- * Recording-search output carries the resolved `RecordingUniversalFilters`. The widget renders
- * the live playlist from these filters.
+ * Resolves the `RecordingUniversalFilters` the playlist widget renders. The query-wrapper tool
+ * echoes the executed `RecordingsQuery` back under `rawOutput.query`, which we convert; a
+ * ready-made universal filters object under `rawOutput.filters` is passed through. Anything else
+ * falls back to the generic card rather than feeding the playlist a shape it can't use.
  */
 export function extractRecordingFilters(message: McpToolCallMessage): RecordingUniversalFilters | null {
     const output = asRecord(message.rawOutput)
-    const filters = output?.filters ?? message.rawOutput
-    return asRecord(filters) ? (filters as RecordingUniversalFilters) : null
+    if (!output) {
+        return null
+    }
+
+    const directFilters = asRecord(output.filters)
+    if (directFilters && 'filter_group' in directFilters && Array.isArray(directFilters.duration)) {
+        return directFilters as unknown as RecordingUniversalFilters
+    }
+
+    const query = asRecord(output.query)
+    if (query && query.kind === NodeKind.RecordingsQuery) {
+        const recordingsQuery = query as unknown as RecordingsQuery
+        // The shared converter intentionally drops list-level fields (its caller manages them
+        // separately) — carry them over so the widget reflects what the agent actually searched.
+        return {
+            ...recordingsQueryToUniversalFilters(recordingsQuery),
+            date_from: recordingsQuery.date_from ?? null,
+            date_to: recordingsQuery.date_to ?? null,
+            order: recordingsQuery.order,
+            order_direction: recordingsQuery.order_direction,
+            limit: recordingsQuery.limit,
+            session_ids: recordingsQuery.session_ids,
+        }
+    }
+
+    return null
 }
 
+const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchResponse)[] = [
+    'issues',
+    'search_query',
+    'status',
+    'date_from',
+    'order_by',
+]
+
 /**
- * Error-tracking search output is a `MaxErrorTrackingSearchResponse` directly. Returned as-is
- * for `ErrorTrackingFiltersWidget`.
+ * Error-tracking search output is a `MaxErrorTrackingSearchResponse` (a filters echo plus issue
+ * previews) for `ErrorTrackingFiltersWidget`. Outputs that carry none of its fields — e.g. a raw
+ * REST issues list — fall back to the generic card instead of rendering empty filter chips.
  */
 export function extractErrorTrackingResponse(message: McpToolCallMessage): MaxErrorTrackingSearchResponse | null {
-    return asRecord(message.rawOutput) as MaxErrorTrackingSearchResponse | null
+    const output = asRecord(message.rawOutput)
+    if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
+        return null
+    }
+    return output as MaxErrorTrackingSearchResponse
 }
