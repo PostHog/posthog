@@ -7,10 +7,6 @@
 category: Agent stack
 feature: agent_platform
 url_prefix: /agent_applications
-# Gate the whole agent-platform MCP surface behind a flag until the platform is
-# GA. The product DB is dev-only (gated in charts), so on prod these endpoints
-# would 500 — keep the tools hidden until the flag is created and enabled.
-feature_flag: agent-platform-mcp
 ui_apps: {}
 tools:
     agent-applications-approvals-decide:
@@ -171,6 +167,19 @@ tools:
             Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the
             running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call
             `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.
+    agent-applications-revisions-agent-md-update:
+        operation: agent_applications_revisions_agent_md_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace agent.md
+        description: >
+            Body `{ content: "…" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves
+            skills, tools, and spec untouched. Draft-only.
     agent-applications-revisions-archive-create:
         operation: agent_applications_revisions_archive_create
         enabled: true
@@ -195,10 +204,10 @@ tools:
             idempotent: true
         title: Get the typed bundle
         description: >
-            Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to
-            edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry
-            `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source`
-            (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).
+            Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit
+            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`,
+            `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is
+            the author-facing slice (skills/tools are server-derived at freeze).
     agent-applications-revisions-bundle-update:
         operation: agent_applications_revisions_bundle_update
         enabled: true
@@ -210,92 +219,10 @@ tools:
             idempotent: false
         title: Full-replace the typed bundle
         description: >
-            Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not
-            in the payload is deleted. For incremental edits use the single-resource PUTs
+            Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in
+            the payload is deleted. For incremental edits use the single-resource PUTs
             (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled
             synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.
-    agent-applications-revisions-agent-md-update:
-        operation: agent_applications_revisions_agent_md_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Replace agent.md
-        description: >
-            Body `{ content: "…" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt;
-            leaves skills, tools, and spec untouched. Draft-only.
-    agent-applications-revisions-spec-update:
-        operation: agent_applications_revisions_spec_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Replace the author-facing spec
-        description: >
-            Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations,
-            secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're
-            derived at freeze from the typed resources. Draft-only.
-    agent-applications-revisions-skills-update:
-        operation: agent_applications_revisions_skills_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Upsert one skill
-        description: >
-            Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does.
-            `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes
-            from the URL. Draft-only.
-    agent-applications-revisions-skills-destroy:
-        operation: agent_applications_revisions_skills_destroy
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete one skill
-        description: >
-            Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't
-            exist. Draft-only.
-    agent-applications-revisions-tools-update:
-        operation: agent_applications_revisions_tools_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Upsert one custom tool
-        description: >
-            Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an
-            AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in
-            the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`.
-            Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.
-    agent-applications-revisions-tools-destroy:
-        operation: agent_applications_revisions_tools_destroy
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete one custom tool
-        description: >
-            Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
-            Draft-only.
     agent-applications-revisions-clone-from-create:
         operation: agent_applications_revisions_clone_from_create
         enabled: true
@@ -346,10 +273,6 @@ tools:
     agent-applications-revisions-destroy:
         operation: agent_applications_revisions_destroy
         enabled: false
-    # The legacy file/* tools (file-update, file-retrieve, file-destroy) were
-    # removed alongside the typed bundle authoring API rollout. Authors no
-    # longer write file paths — they write typed resources via
-    # `agent-applications-revisions-{agent-md,spec,skills,tools}-{update,destroy}`.
     agent-applications-revisions-freeze-create:
         operation: agent_applications_revisions_freeze_create
         enabled: true
@@ -391,24 +314,6 @@ tools:
             Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's
             in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last
             looked.
-    agent-applications-revisions-slack-manifest:
-        operation: agent_applications_revisions_slack_manifest
-        enabled: true
-        scopes:
-            - agents:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Generate the Slack app manifest for a revision
-        description: >
-            Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack
-            trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for
-            https://api.slack.com/apps?new_app=1 → "From an app manifest" — its OAuth scopes and bot event
-            subscriptions are derived from the agent's slack trigger config (mention_only / auto_resume_threads /
-            ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user
-            the manifest plus the create-from-manifest link; surface `notes` (e.g. invite the bot to its channels).
-            400 if the revision has no slack trigger.
     agent-applications-revisions-new-draft-create:
         operation: agent_applications_revisions_new_draft_create
         enabled: true
@@ -465,6 +370,64 @@ tools:
             Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision
             id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
             `agent-applications-revisions-bundle-retrieve`.
+    agent-applications-revisions-skills-destroy:
+        operation: agent_applications_revisions_skills_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one skill
+        description: >
+            Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't
+            exist. Draft-only.
+    agent-applications-revisions-skills-update:
+        operation: agent_applications_revisions_skills_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Upsert one skill
+        description: >
+            Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does.
+            `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes
+            from the URL. Draft-only.
+    agent-applications-revisions-slack-manifest:
+        operation: agent_applications_revisions_slack_manifest
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Generate the Slack app manifest for a revision
+        description: >
+            Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack
+            trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 →
+            "From an app manifest" — its OAuth scopes and bot event subscriptions are derived from the agent's slack
+            trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to
+            exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface
+            `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.
+    agent-applications-revisions-spec-update:
+        operation: agent_applications_revisions_spec_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace the author-facing spec
+        description: >
+            Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations,
+            secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're
+            derived at freeze from the typed resources. Draft-only.
     agent-applications-revisions-system-prompt:
         operation: agent_applications_revisions_system_prompt
         enabled: true
@@ -481,6 +444,34 @@ tools:
             promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for
             debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell
             whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.
+    agent-applications-revisions-tools-destroy:
+        operation: agent_applications_revisions_tools_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one custom tool
+        description: >
+            Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
+            Draft-only.
+    agent-applications-revisions-tools-update:
+        operation: agent_applications_revisions_tools_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Upsert one custom tool
+        description: >
+            Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an
+            AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the
+            422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do
+            NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.
     agent-applications-revisions-update:
         operation: agent_applications_revisions_update
         enabled: false
@@ -558,6 +549,9 @@ tools:
         enabled: false
     agent-applications-update:
         operation: agent_applications_update
+        enabled: false
+    agent-fleet-approvals-list:
+        operation: agent_fleet_approvals_list
         enabled: false
     agent-fleet-live-sessions:
         operation: agent_fleet_live_sessions
