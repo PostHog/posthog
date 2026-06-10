@@ -108,26 +108,6 @@ tools:
             event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule
             is attached (workflows-schedule-create).
         ui_app: workflow
-    workflows-create-email-template:
-        operation: messaging_templates_create
-        enabled: true
-        scopes:
-            - hog_flow:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        url_prefix: /workflows/library/templates
-        enrich_url: '{id}'
-        title: Create email template
-        description: >
-            Save an email template you authored to the workflows library. Provide name and content.email with subject,
-            a plain-text fallback, and content.email.design (Unlayer design JSON) — the server renders the sent HTML
-            from the design and the template stays editable in PostHog's visual editor. Liquid supported throughout.
-            Alternatively author content.email.html directly (full document, inline CSS + table layout; sent verbatim)
-            when you need pixel control the block editor can't express. Use the template in a workflow's function_email
-            action.
-        ui_app: email-template
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -144,23 +124,6 @@ tools:
             condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check
             status=='active' plus an active entry in 'schedules' to confirm it will actually fire.
         ui_app: workflow
-    workflows-get-email-template:
-        operation: messaging_templates_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        url_prefix: /workflows/library/templates
-        enrich_url: '{id}'
-        title: Get email template
-        description: >
-            Get an email template by ID, including content.email (subject, html, text, and the editor's design when
-            present). Fetch before updating — content is replaced as a whole, so build your update payload from this
-            response.
-        ui_app: email-template
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
@@ -223,24 +186,6 @@ tools:
             List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows
             the audience filters and variable overrides the run used, plus when it was created. The status field is not
             tracked — use workflows-logs / workflows-stats for the outcome of a run.
-    workflows-list-email-templates:
-        operation: messaging_templates_list
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        url_prefix: /workflows/library/templates
-        enrich_url: '{id}'
-        title: List email templates
-        description: >
-            List email templates in the workflows library — metadata only; fetch a template's HTML with
-            workflows-get-email-template. Templates are referenced from a workflow's function_email action.
-        response:
-            exclude: [content, created_by]
     workflows-list-invocations:
         operation: hog_flows_invocation_results_retrieve
         enabled: true
@@ -325,24 +270,6 @@ tools:
         exclude_params:
             - status
         ui_app: workflow
-    workflows-update-email-template:
-        operation: messaging_templates_partial_update
-        enabled: true
-        scopes:
-            - hog_flow:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        url_prefix: /workflows/library/templates
-        enrich_url: '{id}'
-        title: Update email template
-        description: >
-            Update an email template by ID. content is replaced as a whole, never merged — call
-            workflows-get-email-template first and send back the complete content.email. Edit the design and omit html:
-            the server re-renders the sent HTML from the design. Sending html without design makes that HTML canonical
-            and detaches the template from the visual editor.
-        ui_app: email-template
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
         enabled: true
