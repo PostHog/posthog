@@ -334,3 +334,9 @@ products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 posthog/api/documentation.py @PostHog/team-devex
 posthog/api/mixins.py @PostHog/team-devex
 posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Conversations (support product) - owned by @PostHog/conversations
+# products/conversations/** and products/business_knowledge/** are auto-assigned from their
+# product.yaml owners; these email templates live outside the product directory so are listed here.
+posthog/templates/email/new_conversation_ticket.html @PostHog/conversations
+posthog/templates/email/conversation_restore.html @PostHog/conversations
