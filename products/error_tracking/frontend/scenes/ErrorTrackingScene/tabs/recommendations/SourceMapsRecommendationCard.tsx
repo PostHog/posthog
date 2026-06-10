@@ -40,7 +40,14 @@ export function SourceMapsRecommendationCard({
                     of frames were unresolved in the last {lookback_hours} hours
                 </div>
             </div>
-            <div className="flex justify-center mt-2">
+            <div className="flex justify-center gap-2 mt-2">
+                <LemonButton
+                    type="secondary"
+                    to="https://posthog.com/docs/error-tracking/upload-source-maps"
+                    targetBlank
+                >
+                    Read docs
+                </LemonButton>
                 <LemonButton type="primary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>
                     Fix with wizard
                 </LemonButton>

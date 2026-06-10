@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconMagicWand } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { isSourceMapsRecommendation, recommendationsTabLogic } from '../recommendations/recommendationsTabLogic'
 import { SourceMapsFixModal } from '../recommendations/SourceMapsFixModal'
@@ -23,6 +23,7 @@ export function SourceMapsBanner(): JSX.Element | null {
     }
 
     const percent = Math.round((sourceMaps.meta.unresolved_pct ?? 0) * 100)
+    const lookbackHours = sourceMaps.meta.lookback_hours
 
     return (
         <>
@@ -36,8 +37,20 @@ export function SourceMapsBanner(): JSX.Element | null {
                     onClick: () => openModal('issues_list'),
                 }}
             >
-                We detected that {percent}% of your stack frames in the last {sourceMaps.meta.lookback_hours} hours are
-                missing source maps, so their stack traces aren't readable. Run the setup wizard to upload them.
+                <div className="flex items-center justify-between gap-2">
+                    <span>
+                        We detected that {percent}% of your stack frames in the last {lookbackHours} hours are missing
+                        source maps, so their stack traces aren't readable. Run the wizard or follow the docs to upload
+                        them.
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        to="https://posthog.com/docs/error-tracking/upload-source-maps"
+                        targetBlank
+                    >
+                        Read docs
+                    </LemonButton>
+                </div>
             </LemonBanner>
             <SourceMapsFixModal />
         </>
