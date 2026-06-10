@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -53,6 +54,40 @@ function errorRateClass(rate: number): string {
     return 'text-danger'
 }
 
+function CategoryScopeBar(): JSX.Element {
+    const { availableCategories, availableCategoriesLoading, selectedCategories, scopeShare } =
+        useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories } = useActions(mcpAnalyticsToolQualityLogic)
+
+    const hasScope = selectedCategories.length > 0
+    const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
+
+    return (
+        <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-[280px] flex-1 max-w-[480px]">
+                <LemonInputSelect
+                    mode="multiple"
+                    value={selectedCategories}
+                    onChange={setSelectedCategories}
+                    options={availableCategories.map((category) => ({ key: category, label: category }))}
+                    loading={availableCategoriesLoading}
+                    placeholder="All categories"
+                    data-attr="mcp-tool-quality-category-scope"
+                />
+            </div>
+            {hasScope && sharePct !== null ? (
+                <Tooltip
+                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls in the last 7 days were in the selected categories`}
+                >
+                    <div className="text-sm text-muted">
+                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage (last 7d)
+                    </div>
+                </Tooltip>
+            ) : null}
+        </div>
+    )
+}
+
 export function MCPAnalyticsToolQuality(): JSX.Element {
     const { toolQualityQuery, toolQualitySort, topToolsQuery, errorTrendQuery, durationTrendQuery } =
         useValues(mcpAnalyticsToolQualityLogic)
@@ -60,6 +95,7 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <CategoryScopeBar />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="bg-bg-light border rounded p-2 min-h-[260px] flex flex-col">
                     <div className="text-muted text-xs font-medium uppercase mb-2 px-2 pt-1">Top tools by calls</div>

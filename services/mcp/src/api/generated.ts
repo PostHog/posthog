@@ -2893,6 +2893,8 @@ export namespace Schemas {
 
     export interface LifecycleFilter {
       showLegend?: boolean | null;
+      /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+      showPercentagesOnSeries?: boolean | null;
       showValuesOnSeries?: boolean | null;
       stacked?: boolean | null;
       toggledLifecycles?: LifecycleToggle[] | null;
@@ -3830,17 +3832,41 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
+    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
+
+
+    export const WidgetDateRangeDateFrom = {
+      '1h': '-1h',
+      '3h': '-3h',
+      '24h': '-24h',
+      '7d': '-7d',
+      '14d': '-14d',
+      '30d': '-30d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      date_from?: WidgetDateRangeDateFrom;
+    }
+
+    export interface WidgetFilterEntry {
+      /** @minLength 1 */
+      filterId: string;
+      /** @minLength 1 */
+      propertyName: string;
+      /** @minLength 1 */
+      optionId: string;
+      operator: PropertyOperator;
+      value?: string | string[] | null;
+    }
+
     /**
-     * * `last_seen` - last_seen
-     * * `first_seen` - first_seen
-     * * `occurrences` - occurrences
-     * * `users` - users
-     * * `sessions` - sessions
+     * Issue ranking column.
      */
-    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+    export type ErrorTrackingListWidgetConfigOrderBy = typeof ErrorTrackingListWidgetConfigOrderBy[keyof typeof ErrorTrackingListWidgetConfigOrderBy];
 
 
-    export const ErrorTrackingIssueOrderByEnum = {
+    export const ErrorTrackingListWidgetConfigOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
@@ -3849,29 +3875,23 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `ASC` - ASC
-     * * `DESC` - DESC
+     * Sort direction for orderBy.
      */
-    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
 
 
-    export const OrderDirectionEnum = {
+    export const ErrorTrackingListWidgetConfigOrderDirection = {
       Asc: 'ASC',
       Desc: 'DESC',
     } as const;
 
     /**
-     * * `archived` - archived
-     * * `active` - active
-     * * `resolved` - resolved
-     * * `pending_release` - pending_release
-     * * `suppressed` - suppressed
-     * * `all` - all
+     * Issue status filter.
      */
-    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
 
 
-    export const ErrorTrackingIssueStatusEnum = {
+    export const ErrorTrackingListWidgetConfigStatus = {
       Archived: 'archived',
       Active: 'active',
       Resolved: 'resolved',
@@ -3880,118 +3900,39 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `user` - user
-     * * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
 
 
-    export const AssigneeTypeEnum = {
+    export const WidgetAssigneeFilterType = {
       User: 'user',
       Role: 'role',
     } as const;
 
-    export interface ErrorTrackingAssignee {
-      /** User ID or role UUID to filter by. */
-      id: string | number | null;
-      /** Assignee target type: user or role.
-       *
-       * * `user` - user
-       * * `role` - role */
-      type: AssigneeTypeEnum;
+    export interface WidgetAssigneeFilter {
+      id: string | number;
+      type: WidgetAssigneeFilterType;
     }
 
-    export interface WidgetFilterConfigEntry {
-      /** Filter UUID; must match the widgetFilters map key. */
-      filterId: string;
-      /** Event property key (for example $environment). */
-      propertyName: string;
-      /** Selected option id from the filter definition. */
-      optionId: string;
-      /** Property filter operator (for example exact, is_not, icontains). */
-      operator: string;
-      /** Filter value as a string, list of strings, or null. */
-      value?: unknown;
-    }
-
-    /**
-     * * `-14d` - -14d
-     * * `-1h` - -1h
-     * * `-24h` - -24h
-     * * `-30d` - -30d
-     * * `-3h` - -3h
-     * * `-7d` - -7d
-     * * `-90d` - -90d
-     */
-    export type DateFromEnum = typeof DateFromEnum[keyof typeof DateFromEnum];
-
-
-    export const DateFromEnum = {
-      '14d': '-14d',
-      '1h': '-1h',
-      '24h': '-24h',
-      '30d': '-30d',
-      '3h': '-3h',
-      '7d': '-7d',
-      '90d': '-90d',
-    } as const;
-
-    export interface WidgetDateRange {
-      /** Relative lookback window (for example '-7d'). Omit to use the project default range.
-       *
-       * * `-14d` - -14d
-       * * `-1h` - -1h
-       * * `-24h` - -24h
-       * * `-30d` - -30d
-       * * `-3h` - -3h
-       * * `-7d` - -7d
-       * * `-90d` - -90d */
-      date_from?: DateFromEnum | null;
-    }
-
-    /**
-     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
-     */
-    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface ErrorTrackingListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
       /**
-         * Maximum number of issues to return (page size).
+         * Maximum number of issues to return.
          * @minimum 1
          * @maximum 25
          */
       limit?: number;
-      /** Issue ranking column.
-       *
-       * * `first_seen` - first_seen
-       * * `last_seen` - last_seen
-       * * `occurrences` - occurrences
-       * * `sessions` - sessions
-       * * `users` - users */
-      orderBy?: ErrorTrackingIssueOrderByEnum;
-      /** Sort direction for orderBy.
-       *
-       * * `ASC` - ASC
-       * * `DESC` - DESC */
-      orderDirection?: OrderDirectionEnum;
-      /** Issue status filter.
-       *
-       * * `archived` - archived
-       * * `active` - active
-       * * `resolved` - resolved
-       * * `pending_release` - pending_release
-       * * `suppressed` - suppressed
-       * * `all` - all */
-      status?: ErrorTrackingIssueStatusEnum;
+      /** Issue ranking column. */
+      orderBy?: ErrorTrackingListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
+      /** Issue status filter. */
+      status?: ErrorTrackingListWidgetConfigStatus;
       /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
-      assignee?: ErrorTrackingAssignee | null;
-      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
-      /** Relative date range for issues (date_from only on widgets). */
-      dateRange?: WidgetDateRange | null;
-      /** When omitted, follows the project default for filtering test accounts. */
-      filterTestAccounts?: boolean;
+      assignee?: WidgetAssigneeFilter | null;
     }
 
     export interface ErrorTrackingListWidgetAddRequestOpenApi {
@@ -4008,7 +3949,7 @@ export namespace Schemas {
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the error tracking list widget. */
+      /** Configuration for the top issues widget. */
       config: ErrorTrackingListWidgetConfig;
     }
 
@@ -4020,57 +3961,47 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `activity_score` - activity_score
-     * * `click_count` - click_count
-     * * `console_error_count` - console_error_count
-     * * `duration` - duration
-     * * `recording_duration` - recording_duration
-     * * `start_time` - start_time
+     * Recording ranking column.
      */
-    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
 
 
-    export const SessionReplayListWidgetConfigOrderByEnum = {
+    export const SessionReplayListWidgetConfigOrderBy = {
+      StartTime: 'start_time',
       ActivityScore: 'activity_score',
+      RecordingDuration: 'recording_duration',
+      Duration: 'duration',
       ClickCount: 'click_count',
       ConsoleErrorCount: 'console_error_count',
-      Duration: 'duration',
-      RecordingDuration: 'recording_duration',
-      StartTime: 'start_time',
     } as const;
 
     /**
-     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     * Sort direction for orderBy.
      */
-    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
+
+
+    export const SessionReplayListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface SessionReplayListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /**
          * Maximum number of recordings to return.
          * @minimum 1
          * @maximum 25
          */
       limit?: number;
-      /** Recording ranking column.
-       *
-       * * `activity_score` - activity_score
-       * * `click_count` - click_count
-       * * `console_error_count` - console_error_count
-       * * `duration` - duration
-       * * `recording_duration` - recording_duration
-       * * `start_time` - start_time */
-      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
-      /** Sort direction for orderBy.
-       *
-       * * `ASC` - ASC
-       * * `DESC` - DESC */
-      orderDirection?: OrderDirectionEnum;
-      /** Optional relative date range override. */
-      dateRange?: WidgetDateRange | null;
-      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
-      /** When omitted, follows the project default for filtering test accounts. */
-      filterTestAccounts?: boolean;
+      /** Recording ranking column. */
+      orderBy?: SessionReplayListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -4087,7 +4018,7 @@ export namespace Schemas {
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the session replay list widget. */
+      /** Configuration for the recent recordings widget. */
       config: SessionReplayListWidgetConfig;
     }
 
@@ -4098,7 +4029,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7187,6 +7118,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `sandbox` - sandbox
      * * `user_interview` - user_interview
+     * * `customer_analytics` - customer_analytics
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -7204,6 +7136,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
       UserInterview: 'user_interview',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface AggregatedSpanRow {
@@ -7879,6 +7812,18 @@ export namespace Schemas {
       /** @nullable */
       download_url: string | null;
     }
+
+    /**
+     * * `user` - user
+     * * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
 
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
@@ -12541,6 +12486,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `error_tracking_list` - error_tracking_list
+     * * `session_replay_list` - session_replay_list
+     */
+    export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
+
+
+    export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
+      ErrorTrackingList: 'error_tracking_list',
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface DashboardPatchWidgetOpenApi {
+      /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
+      id?: string;
+      /** Widget type identifier (cannot be changed on update).
+       *
+       * * `error_tracking_list` - error_tracking_list
+       * * `session_replay_list` - session_replay_list */
+      widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+      /** Widget-specific configuration. Shape depends on the tile's widget_type. */
+      config?: DashboardWidgetConfig;
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+    }
+
+    export interface DashboardPatchTileOpenApi {
+      /** Dashboard tile ID to update. */
+      id?: number;
+      /** Nested widget row updates. */
+      widget?: DashboardPatchWidgetOpenApi;
+    }
+
+    /**
      * * `team` - Only team
      * * `global` - Global
      * * `feature_flag` - Feature Flag
@@ -13406,6 +13390,85 @@ export namespace Schemas {
      * * `Resend` - Resend
      * * `PgAnalyze` - PgAnalyze
      * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13559,6 +13622,85 @@ export namespace Schemas {
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
       WorkOS: 'WorkOS',
+      AmazonS3: 'AmazonS3',
+      GoogleCloudStorage: 'GoogleCloudStorage',
+      Databricks: 'Databricks',
+      Dynamics365: 'Dynamics365',
+      SalesforceMarketingCloud: 'SalesforceMarketingCloud',
+      Db2: 'Db2',
+      Heap: 'Heap',
+      AdobeAnalytics: 'AdobeAnalytics',
+      Matomo: 'Matomo',
+      Optimizely: 'Optimizely',
+      Adyen: 'Adyen',
+      GoCardless: 'GoCardless',
+      Mollie: 'Mollie',
+      CheckoutCom: 'CheckoutCom',
+      Branch: 'Branch',
+      Criteo: 'Criteo',
+      Outbrain: 'Outbrain',
+      Taboola: 'Taboola',
+      AdRoll: 'AdRoll',
+      DisplayVideo360: 'DisplayVideo360',
+      GoogleAdManager: 'GoogleAdManager',
+      CampaignManager360: 'CampaignManager360',
+      SearchAds360: 'SearchAds360',
+      AdobeCommerce: 'AdobeCommerce',
+      AmazonSellingPartner: 'AmazonSellingPartner',
+      Ebay: 'Ebay',
+      Commercetools: 'Commercetools',
+      LightspeedRetail: 'LightspeedRetail',
+      ShipStation: 'ShipStation',
+      ConstantContact: 'ConstantContact',
+      Mailgun: 'Mailgun',
+      Eloqua: 'Eloqua',
+      Sailthru: 'Sailthru',
+      Ortto: 'Ortto',
+      Attentive: 'Attentive',
+      Kustomer: 'Kustomer',
+      Dixa: 'Dixa',
+      Gladly: 'Gladly',
+      Qualtrics: 'Qualtrics',
+      Delighted: 'Delighted',
+      AzureDevOps: 'AzureDevOps',
+      Rollbar: 'Rollbar',
+      Opsgenie: 'Opsgenie',
+      IncidentIo: 'IncidentIo',
+      Pingdom: 'Pingdom',
+      Cloudflare: 'Cloudflare',
+      CosmosDB: 'CosmosDB',
+      PlanetScale: 'PlanetScale',
+      SapHana: 'SapHana',
+      Rippling: 'Rippling',
+      HiBob: 'HiBob',
+      Personio: 'Personio',
+      Deel: 'Deel',
+      AdpWorkforceNow: 'AdpWorkforceNow',
+      Paylocity: 'Paylocity',
+      Gusto: 'Gusto',
+      CultureAmp: 'CultureAmp',
+      Lattice: 'Lattice',
+      SageIntacct: 'SageIntacct',
+      FreshBooks: 'FreshBooks',
+      Expensify: 'Expensify',
+      Ramp: 'Ramp',
+      Brex: 'Brex',
+      Coupa: 'Coupa',
+      SapConcur: 'SapConcur',
+      Apollo: 'Apollo',
+      Crunchbase: 'Crunchbase',
+      ZoomInfo: 'ZoomInfo',
+      Clari: 'Clari',
+      Chorus: 'Chorus',
+      Coda: 'Coda',
+      Guru: 'Guru',
+      Dropbox: 'Dropbox',
+      Docusign: 'Docusign',
+      PandaDoc: 'PandaDoc',
+      SapErp: 'SapErp',
+      SapSuccessFactors: 'SapSuccessFactors',
+      OracleEbs: 'OracleEbs',
+      OracleFusion: 'OracleFusion',
       Custom: 'Custom',
     } as const;
 
@@ -13719,6 +13861,85 @@ export namespace Schemas {
        * * `Resend` - Resend
        * * `PgAnalyze` - PgAnalyze
        * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -14730,6 +14951,8 @@ export namespace Schemas {
     export interface EndpointRunResponse {
       /** URL-safe endpoint name that was executed. */
       name: string;
+      /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+      execution_id?: string;
       /** Query result rows. Each row is a list of values matching the columns order. */
       results?: unknown[];
       /** Column names from the query SELECT clause. */
@@ -15095,6 +15318,16 @@ export namespace Schemas {
       volume_buckets?: ErrorTrackingVolumeBucket[];
     }
 
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number | null;
+      /** Assignee target type: user or role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
     export interface ErrorTrackingAssigneeResponse {
       /** Assignee user ID or role UUID. */
       id?: string | number | null;
@@ -15458,6 +15691,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `ASC` - ASC
+     * * `DESC` - DESC
+     */
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+
+
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
      * * `summary` - summary
      * * `stack` - stack
      * * `raw` - raw
@@ -15615,6 +15860,24 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * * `last_seen` - last_seen
+     * * `first_seen` - first_seen
+     * * `occurrences` - occurrences
+     * * `users` - users
+     * * `sessions` - sessions
+     */
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+
+
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -15652,6 +15915,26 @@ export namespace Schemas {
       /** IDs of the new issues created by the split. */
       new_issue_ids: string[];
     }
+
+    /**
+     * * `archived` - archived
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `pending_release` - pending_release
+     * * `suppressed` - suppressed
+     * * `all` - all
+     */
+    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+
+
+    export const ErrorTrackingIssueStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
 
     /**
      * * `active` - active
@@ -15780,13 +16063,32 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    export type ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType = typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    export interface ErrorTrackingListWidgetCatalogEntryOpenApi {
+      widget_type: ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ErrorTrackingListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
     /**
      * * `error_tracking_list` - error_tracking_list
      */
-    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum];
+    export type ErrorTrackingListWidgetTypeEnum = typeof ErrorTrackingListWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetTypeEnum];
 
 
-    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = {
+    export const ErrorTrackingListWidgetTypeEnum = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
@@ -17001,7 +17303,7 @@ export namespace Schemas {
       start_date?: string | null;
       /** @nullable */
       end_date?: string | null;
-      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
       readonly feature_flag: MinimalFeatureFlag;
       readonly holdout: ExperimentHoldout;
@@ -17036,7 +17338,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -17628,6 +17930,85 @@ export namespace Schemas {
        * * `Resend` - Resend
        * * `PgAnalyze` - PgAnalyze
        * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -17755,11 +18136,18 @@ export namespace Schemas {
 
     export type FeatureFlagFilters = { [key: string]: unknown };
 
-    export type FeatureFlagExperimentSetMetadataItem = { [key: string]: unknown };
-
     export type FeatureFlagSurveys = { [key: string]: unknown };
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
+
+    export interface FeatureFlagExperimentSetMetadata {
+      /** ID of the experiment linked to this flag. */
+      id: number;
+      /** Name of the experiment linked to this flag. */
+      name: string;
+      /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
+      is_running: boolean;
+    }
 
     /**
      * * `feature_flags` - feature_flags
@@ -17802,7 +18190,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
-      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown;
@@ -18296,6 +18684,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -19312,18 +19705,18 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-         * Hash TTL in seconds (60 to ~94M / 3y).
+         * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
       /**
-         * Min matching events before triggering (k-anonymity).
+         * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
          * @nullable
          */
       threshold?: number | null;
-      /** HogQL template, e.g. '{person.properties.email}'. */
+      /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
       hash: string;
       /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
@@ -19502,7 +19895,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -20504,6 +20897,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type TraceOrderColumn = typeof TraceOrderColumn[keyof typeof TraceOrderColumn];
+
+
+    export const TraceOrderColumn = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface TraceSpansQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -20541,7 +20942,10 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: LogsOrderBy | null;
+      /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+      orderBy?: TraceOrderColumn | null;
+      /** Order direction. Defaults to DESC. */
+      orderDirection?: OrderDirection2 | null;
       /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
@@ -21394,6 +21798,28 @@ export namespace Schemas {
     export const JsonrpcEnum = {
       '20': '2.0',
     } as const;
+
+    /**
+     * One chunk in a drill-down window over a single knowledge document.
+     *
+     * Output-only — the rows come from the `get_document_window` logic helper
+     * (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+     * read serializer rather than a `ModelSerializer`.
+     */
+    export interface KnowledgeDocumentWindow {
+      /** Stable identifier of this chunk. Same value used in search results. */
+      readonly chunk_id: string;
+      /** Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window. */
+      readonly ordinal: number;
+      /** The chunk's text content. */
+      readonly content: string;
+      /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+      readonly heading_path: string;
+      /** Human label of the knowledge source this chunk belongs to. */
+      readonly source_name: string;
+      /** Title of the document this chunk belongs to. */
+      readonly document_title: string;
+    }
 
     /**
      * * `text` - Text
@@ -25298,6 +25724,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -27516,6 +27943,34 @@ export namespace Schemas {
     }
 
     /**
+     * A single message in a ticket thread (output-only).
+     */
+    export interface TicketMessage {
+      /** Message (comment) UUID. */
+      readonly id: string;
+      /** Plain-text message body. */
+      readonly content: string;
+      /** TipTap rich content JSON, if any. */
+      readonly rich_content: unknown;
+      /** One of: customer, support, AI. */
+      readonly author_type: string;
+      /** Display name of the author. */
+      readonly author_name: string;
+      /** True for internal notes not visible to the customer. */
+      readonly is_private: boolean;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketMessage[];
+    }
+
+    /**
      * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
      */
     export type TicketViewFilters = { [key: string]: unknown };
@@ -28727,92 +29182,6 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
-    export type PatchedDashboardFilters = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardVariables = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null;
-
-    export type PatchedDashboardTilesItem = { [key: string]: unknown };
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface PatchedDashboard {
-      readonly id?: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      description?: string;
-      pinned?: boolean;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** @nullable */
-      last_accessed_at?: string | null;
-      /** @nullable */
-      readonly last_viewed_at?: string | null;
-      readonly is_shared?: boolean;
-      deleted?: boolean;
-      readonly creation_mode?: CreationModeEnum;
-      readonly filters?: PatchedDashboardFilters;
-      /** @nullable */
-      readonly variables?: PatchedDashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
-      /**
-         * ID of the color theme used for chart visualizations.
-         * @nullable
-         */
-      data_color_theme_id?: number | null;
-      tags?: unknown[];
-      restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      readonly access_control_version?: string;
-      /** @nullable */
-      last_refresh?: string | null;
-      /** @nullable */
-      readonly persisted_filters?: PatchedDashboardPersistedFilters;
-      /** @nullable */
-      readonly persisted_variables?: PatchedDashboardPersistedVariables;
-      readonly team_id?: number;
-      /**
-         * List of quick filter IDs associated with this dashboard
-         * @nullable
-         */
-      quick_filter_ids?: string[] | null;
-      /** @nullable */
-      readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
-      /** Template key to create the dashboard from a predefined template. */
-      use_template?: string;
-      /**
-         * ID of an existing dashboard to duplicate.
-         * @nullable
-         */
-      use_dashboard?: number | null;
-      /** When deleting, also delete insights that are only on this dashboard. */
-      delete_insights?: boolean;
-      _create_in_folder?: string;
-    }
-
     export interface PatchedDashboardTemplate {
       readonly id?: string;
       /**
@@ -29677,7 +30046,7 @@ export namespace Schemas {
       start_date?: string | null;
       /** @nullable */
       end_date?: string | null;
-      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
       readonly feature_flag?: MinimalFeatureFlag;
       readonly holdout?: ExperimentHoldout;
@@ -29712,7 +30081,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -29972,6 +30341,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface PatchedFileSystem {
@@ -30165,7 +30539,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
       readonly trigger?: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -31149,6 +31523,47 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    /**
+     * OpenAPI-only PATCH body for dashboards (agents/MCP).
+     *
+     * Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
+     * replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
+     */
+    export interface PatchedPatchedDashboardOpenApi {
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      /** Custom color mapping for breakdown values. */
+      breakdown_colors?: unknown;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: string[];
+      restriction_level?: EffectivePrivilegeLevelEnum;
+      /**
+         * List of quick filter IDs associated with this dashboard.
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+      tiles?: DashboardPatchTileOpenApi[];
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+    }
+
     export interface PatchedPersistedFolder {
       readonly id?: string;
       /** Which persisted folder this is for the user (home, pinned, custom_products).
@@ -32113,6 +32528,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
@@ -38944,13 +39360,32 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetCatalogEntryOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface SessionReplayListWidgetCatalogEntryOpenApi {
+      widget_type: SessionReplayListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: SessionReplayListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
     /**
      * * `session_replay_list` - session_replay_list
      */
-    export type SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum];
+    export type SessionReplayListWidgetTypeEnum = typeof SessionReplayListWidgetTypeEnum[keyof typeof SessionReplayListWidgetTypeEnum];
 
 
-    export const SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = {
+    export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -41210,6 +41645,21 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    /**
+     * Payload for posting a reply or internal note to a ticket.
+     */
+    export interface TicketReplyRequest {
+      /**
+         * Reply content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
+      is_private?: boolean;
+      /** Optional TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -41665,25 +42115,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export interface WidgetCatalogEntry {
-      /** Stable widget type identifier used in API requests. */
-      widget_type: string;
-      /** Product area key for grouping related widget variants. */
-      group_id: string;
-      /** Human-readable product area label. */
-      group_label: string;
-      /** Widget variant label within the product area. */
-      label: string;
-      /** Short description of what the widget shows. */
-      description: string;
-      /** JSON schema hints for config fields (types, choices, bounds). Not a strict validator. */
-      config_schema_hints: unknown;
-      /**
-         * Product access resource required to view or run this widget, if any.
-         * @nullable
-         */
-      required_product_access?: string | null;
-    }
+    export type WidgetCatalogEntry = ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -42308,6 +42740,18 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * * `timestamp` - timestamp
+     * * `duration` - duration
+     */
+    export type _TracingQueryBodyOrderByEnum = typeof _TracingQueryBodyOrderByEnum[keyof typeof _TracingQueryBodyOrderByEnum];
+
+
+    export const _TracingQueryBodyOrderByEnum = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -42315,19 +42759,29 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by HTTP status codes. */
       statusCodes?: number[];
-      /** Order results by timestamp. Defaults to latest.
+      /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
-       * * `latest` - latest
-       * * `earliest` - earliest */
-      orderBy?: OrderByEnum;
+       * * `timestamp` - timestamp
+       * * `duration` - duration */
+      orderBy?: _TracingQueryBodyOrderByEnum;
+      /** Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).
+       *
+       * * `ASC` - ASC
+       * * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
       /** Filter to a specific trace ID (hex string). */
       traceId?: string;
       /** Max results (1-1000). Defaults to 100. */
       limit?: number;
-      /** Pagination cursor from previous response. */
+      /** Keyset pagination cursor from a previous timestamp-ordered response. */
       after?: string;
+      /**
+         * Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
@@ -43111,6 +43565,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
@@ -46418,6 +46904,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
+    /**
      * Filter to observations of a specific session recording.
      */
     session_id?: string;
@@ -47674,6 +48164,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type BusinessKnowledgeDocumentsWindowListParams = {
+    /**
+     * Zero-based chunk ordinal to center the window on (from a search result).
+     */
+    around_ordinal: number;
+    /**
+     * Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].
+     */
+    radius?: number;
+    };
+
     export type BusinessKnowledgeSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -47875,9 +48376,17 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     * JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.
      */
     tags?: string;
+    /**
+     * JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.
+     */
+    tags_all?: string;
+    /**
+     * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
+     */
+    tags_exclude?: string;
     };
 
     export type ConversationsTicketsListChannelDetail = typeof ConversationsTicketsListChannelDetail[keyof typeof ConversationsTicketsListChannelDetail];
@@ -47913,6 +48422,17 @@ export namespace Schemas {
       Breached: 'breached',
       OnTrack: 'on-track',
     } as const;
+
+    export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type ConversationsViewsListParams = {
     /**
@@ -48522,6 +49042,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EndpointsOpenapiSpecRetrieveParams = {
@@ -52936,6 +53488,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
     /**
      * Filter to observations of a specific session recording.
      */

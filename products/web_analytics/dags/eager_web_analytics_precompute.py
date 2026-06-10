@@ -75,7 +75,10 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     WebStatsBreakdown.PAGE,
     WebStatsBreakdown.INITIAL_PAGE,
     WebStatsBreakdown.EXIT_PAGE,
-    WebStatsBreakdown.SCREEN_NAME,
+    # SCREEN_NAME is deliberately excluded. It reads `$screen_name`, a
+    # mobile-only ($screen) property that is empty for web teams, and there is
+    # no precompute family for it — warming it only ever ran a raw query that
+    # populated nothing. It stays available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
     # INITIAL_REFERRING_URL is deliberately excluded. Unlike its domain
@@ -179,6 +182,15 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # through to the raw stats query and the paths preagg table stays cold.
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
+        # EXIT_PAGE is served by the simple precompute, which bakes the cleaned-or-raw
+        # path into the stored breakdown value and the job hash (unlike PAGE/INITIAL_PAGE,
+        # whose paths precompute stores raw paths and cleans at read time). The End-paths
+        # tile sends `doPathCleaning=isPathCleaningEnabled` (true for teams with cleaning
+        # rules), so without this the warmer fills the raw variant while the dashboard
+        # reads the cleaned one and misses. True is a no-op for teams without cleaning
+        # rules (`apply_path_cleaning` returns the bare expression → identical hash).
+        if breakdown == WebStatsBreakdown.EXIT_PAGE:
+            query["doPathCleaning"] = True
         queries.append(query)
 
     warmed = 0
