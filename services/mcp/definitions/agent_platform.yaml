@@ -7,10 +7,6 @@
 category: Agent stack
 feature: agent_platform
 url_prefix: /agent_applications
-# Gate the whole agent-platform MCP surface behind a flag until the platform is
-# GA. The product DB is dev-only (gated in charts), so on prod these endpoints
-# would 500 — keep the tools hidden until the flag is created and enabled.
-feature_flag: agent-platform-mcp
 ui_apps: {}
 tools:
     agent-applications-approvals-decide:
