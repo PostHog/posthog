@@ -362,25 +362,22 @@ class TestSummarizeDescription:
         assert result.description == "Short summary."
 
     @pytest.mark.asyncio
-    async def test_retries_when_first_summary_too_long(self):
-        client = self._mock_client(["a" * 300, "Concise."])
+    @pytest.mark.parametrize(
+        "responses,expected_description",
+        [
+            (["Short summary."], "Short summary."),  # success on the first attempt
+            (["a" * 300, "Concise."], "Concise."),  # recovery after one overshoot
+        ],
+    )
+    async def test_does_not_capture_exception_unless_attempts_exhausted(self, responses, expected_description):
+        client = self._mock_client(responses)
         output = _make_output(description="x" * 500)
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
             result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
 
-        assert result.description == "Concise."
+        assert result.description == expected_description
         # A recovered overshoot must not be reported to error tracking — that was the noise source.
-        mock_analytics.capture_exception.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_does_not_capture_exception_on_success(self):
-        client = self._mock_client(["Short summary."])
-        output = _make_output(description="x" * 500)
-
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
-            await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
-
         mock_analytics.capture_exception.assert_not_called()
 
     @pytest.mark.asyncio
