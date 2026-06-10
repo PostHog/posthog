@@ -9,11 +9,18 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_registry import RESOLVERS
-from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
-from posthog.hogql.database.models import LazyJoin, Table, TableNode
-from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS, GROUP_N
+from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd, Table, TableNode
+from posthog.hogql.database.schema.groups import join_with_group_n_table
+from posthog.hogql.database.warehouse_join_resolvers import (
+    data_warehouse_resolver_params,
+    resolve_data_warehouse_experiments_join,
+)
+from posthog.hogql.errors import ResolutionError
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -36,6 +43,76 @@ class TestLazyJoinResolvers(SimpleTestCase):
         lazy_join = LazyJoin(from_field=["id"], join_table="x", resolver="does_not_exist")
         with self.assertRaises(ValueError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
+
+    def test_group_n_join_requires_group_index(self):
+        lazy_join = LazyJoin(from_field=["key"], join_table="groups", resolver=GROUP_N)
+        join_to_add = LazyJoinToAdd(
+            from_table="events",
+            to_table="group_0",
+            lazy_join=lazy_join,
+            lazy_join_type=None,  # type: ignore[arg-type]
+            fields_accessed={"key": ["key"]},
+        )
+        with self.assertRaises(ResolutionError):
+            join_with_group_n_table(join_to_add, HogQLContext(team_id=1), ast.SelectQuery(select=[]))
+
+    def test_experiments_join_builds_asof_join_with_timestamp_bounds(self):
+        lazy_join = LazyJoin(
+            from_field=["id"],
+            join_table="events",
+            resolver=DATA_WAREHOUSE_EXPERIMENTS,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key="user_id",
+                joining_table_key="distinct_id",
+                joining_table_name="events",
+                configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
+            ),
+        )
+        join_to_add = LazyJoinToAdd(
+            from_table="subscriptions",
+            to_table="events",
+            lazy_join=lazy_join,
+            lazy_join_type=None,  # type: ignore[arg-type]
+            fields_accessed={"distinct_id": ["distinct_id"]},
+        )
+
+        def timestamp_bound(op: ast.CompareOperationOp, value: str) -> ast.CompareOperation:
+            return ast.CompareOperation(
+                op=op,
+                left=ast.Alias(alias="created_at", expr=ast.Field(chain=["subscriptions", "created_at"])),
+                right=ast.Constant(value=value),
+            )
+
+        node = ast.SelectQuery(
+            select=[],
+            where=ast.And(
+                exprs=[
+                    timestamp_bound(ast.CompareOperationOp.GtEq, "2023-01-01"),
+                    timestamp_bound(ast.CompareOperationOp.LtEq, "2023-02-01"),
+                ]
+            ),
+        )
+
+        join_expr = resolve_data_warehouse_experiments_join(join_to_add, HogQLContext(team_id=1), node)
+
+        assert join_expr.join_type == "ASOF LEFT JOIN"
+        assert isinstance(join_expr.table, ast.SelectQuery)
+        assert isinstance(join_expr.table.where, ast.And)
+        # The subquery filters to exposure events and copies the query's timestamp bounds in,
+        # since the subquery can't reference the parent data warehouse table directly.
+        flag_filter, *bounds = join_expr.table.where.exprs
+        assert isinstance(flag_filter, ast.CompareOperation)
+        assert isinstance(flag_filter.right, ast.Constant)
+        assert flag_filter.right.value == "$feature_flag_called"
+        bound_values = [
+            (b.op, b.right.value)
+            for b in bounds
+            if isinstance(b, ast.CompareOperation) and isinstance(b.right, ast.Constant)
+        ]
+        assert bound_values == [
+            (ast.CompareOperationOp.GtEq, "2023-01-01"),
+            (ast.CompareOperationOp.LtEq, "2023-02-01"),
+        ]
 
 
 def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:

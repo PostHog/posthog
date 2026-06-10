@@ -398,8 +398,7 @@ class LazyJoin(FieldOrTable):
     def resolve_join_to_add(
         self, join_to_add: "LazyJoinToAdd", context: "HogQLContext", node: "SelectQuery"
     ) -> "JoinExpr":
-        # The registry imports the resolver modules, which import this module — defer to break the cycle.
-        from posthog.hogql.database.lazy_join_registry import get_lazy_join_resolver  # noqa: PLC0415
+        from posthog.hogql.database.lazy_join_registry import get_lazy_join_resolver  # noqa: PLC0415 — circular import
 
         return get_lazy_join_resolver(self.resolver)(join_to_add, context, node)
 

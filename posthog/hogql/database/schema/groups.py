@@ -50,7 +50,9 @@ def join_with_group_n_table(
 
     # Which $group_N events column to join on; carried as plain data instead of being
     # captured in a closure so the LazyJoin (and the Database holding it) stays serializable.
-    group_index = join_to_add.lazy_join.resolver_params["group_index"]
+    group_index = join_to_add.lazy_join.resolver_params.get("group_index")
+    if group_index is None:
+        raise ResolutionError("group_n lazy join requires resolver_params['group_index']")
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_ids")
