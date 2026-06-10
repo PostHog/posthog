@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
