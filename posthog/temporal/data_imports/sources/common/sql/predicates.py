@@ -324,7 +324,11 @@ def _column_types(schema_metadata: dict[str, Any] | None) -> dict[str, str]:
         return {}
     result: dict[str, str] = {}
     for column in columns:
-        if isinstance(column, dict) and isinstance(column.get("name"), str) and isinstance(column.get("data_type"), str):
+        if (
+            isinstance(column, dict)
+            and isinstance(column.get("name"), str)
+            and isinstance(column.get("data_type"), str)
+        ):
             result[column["name"]] = column["data_type"]
     return result
 
