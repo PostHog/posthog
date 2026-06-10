@@ -110,6 +110,8 @@ def extract_usages(
     file_text: str,
     file_path: str,
     variable_version_rules: tuple[VariableVersionRule, ...] = VARIABLE_VERSION_RULES,
+    *,
+    persisted_per_row: bool = True,
 ) -> list[ApiUsage]:
     """Pure: return the distinct external URL usages in one file's text.
 
@@ -148,6 +150,7 @@ def extract_usages(
             line=line,
             extractor=extractor,
             is_test_file=is_test_path(file_path),
+            persisted_per_row=persisted_per_row,
         )
         for (host, endpoint, version), (line, extractor) in sorted(seen.items(), key=lambda kv: kv[1][0])
     ]
