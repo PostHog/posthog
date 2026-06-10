@@ -73,6 +73,18 @@ describe('buildTrendsBarTimeSeries', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
     })
+
+    it('assigns every series the default axis when showMultipleYAxes is off', () => {
+        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED })
+        expect(series.map((s) => s.yAxisId)).toEqual(['left', 'left', 'left'])
+    })
+
+    it('puts each series past the first on its own axis when showMultipleYAxes is on', () => {
+        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes: true })
+        expect(series.map((s) => s.yAxisId)).toEqual(['left', 'y1', 'y2'])
+    })
 })
 
 describe('buildTrendsBarAggregatedSeries', () => {

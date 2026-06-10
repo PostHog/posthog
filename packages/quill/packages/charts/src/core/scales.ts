@@ -375,6 +375,10 @@ export interface BarScaleSet {
     value: D3YScale
     /** Sub-band for grouped layout — maps a series key to its offset inside a band. */
     group?: ScaleBand<string>
+    /** Per-axis value scales keyed by axis id. Only populated for grouped layouts with
+     *  more than one axis id across the visible series (`showMultipleYAxes`). `value` is
+     *  the primary (left) axis scale. */
+    yAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
 }
 
 /** Band-axis slot of one series's bar within a grouped band: `{ x, width }` along the band axis.
@@ -466,6 +470,36 @@ export function createBarScales(
         keptCount < labels.length ? { ...s, data: s.data.slice(0, keptCount) } : s
     const valueSeries = series.map(restrictToKept)
     const valueStackedSeries = stackedSeries?.map(restrictToKept)
+
+    // Multiple y-axes only make sense for grouped bars — each series keeps its own scale so
+    // series of different magnitudes are individually comparable. Stacked/percent layouts share
+    // one axis (stacking values on different scales is meaningless).
+    const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
+    const axisIds = new Set(visibleSeries.map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+    if (barLayout === 'grouped' && axisIds.size > 1) {
+        // DEFAULT_Y_AXIS_ID is always the left axis when present; remaining ids keep their
+        // first-encountered order and take the right position.
+        const orderedAxisIds = [
+            ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
+            ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
+        ]
+        const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
+        orderedAxisIds.forEach((axisId, axisIndex) => {
+            const axisSeries = visibleSeries.filter((s) => (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
+            const scale = buildBarValueScale(
+                axisSeries,
+                valueRange,
+                tickCount,
+                'grouped',
+                scaleType,
+                undefined,
+                axisIndex === 0 ? valueDomain : undefined
+            )
+            yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
+        })
+        const primary = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[orderedAxisIds[0]]
+        return { band, value: primary.scale, group, yAxes }
+    }
 
     return {
         band,
