@@ -12418,6 +12418,33 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Typed view of the `Dashboard.metadata` JSON blob, so generated clients get a real shape
+     * instead of `unknown`. Read-only — the server populates it at creation time.
+     */
+    export interface DashboardCreationMetadata {
+      /**
+         * Client that created the dashboard — an EventSource value such as 'web', 'api', 'mcp', 'wizard', 'terraform', or 'posthog_code'.
+         * @nullable
+         */
+      creation_source?: string | null;
+      /**
+         * Originating product when the dashboard was created on behalf of another feature (e.g. 'feature_flags', 'experiments').
+         * @nullable
+         */
+      creation_context?: string | null;
+      /**
+         * ID of the saved dashboard template the dashboard was created from, if any.
+         * @nullable
+         */
+      template_id?: string | null;
+      /**
+         * ID of the dashboard this one was duplicated from, if any.
+         * @nullable
+         */
+      duplicated_from_dashboard_id?: number | null;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -12470,6 +12497,8 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Provenance captured when the dashboard was created (creation source/context, template, duplication). */
+      readonly metadata: DashboardCreationMetadata;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -12524,6 +12553,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
+      /** Provenance captured when the dashboard was created (creation source/context, template, duplication). */
+      readonly metadata: DashboardCreationMetadata;
     }
 
     export interface DashboardCollaborator {
@@ -29120,6 +29151,8 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Provenance captured when the dashboard was created (creation source/context, template, duplication). */
+      readonly metadata?: DashboardCreationMetadata;
       /** @nullable */
       readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
