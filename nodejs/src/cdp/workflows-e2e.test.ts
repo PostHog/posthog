@@ -828,6 +828,180 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
+
+        describe('activation matrix: events / property / action combinations', () => {
+            // A real event-property condition (event.properties.plan == 'growth'), compiled by the
+            // Django serializer. Exercises property-based waits distinctly from event/action ones.
+            const propertyCondition = () => ({
+                filters: {
+                    properties: [{ key: 'plan', type: 'event', value: 'growth', operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'growth', 32, 'plan', 32, 'properties', 1, 2, 11],
+                },
+            })
+
+            // A trigger event that matches no events entry and no property condition, so the job parks.
+            const inertTrigger = (): ReturnType<typeof createGlobals> =>
+                createGlobals({ event: 'inert_trigger', properties: {} })
+            // Events the matcher SHOULD wake on.
+            const matchingEvent = (): ReturnType<typeof createGlobals> => createGlobals({ event: 'wakeup_event' })
+            const matchingActionEvent = (): ReturnType<typeof createGlobals> => createGlobals({ event: 'action_event' })
+            const eventSatisfyingProperty = (): ReturnType<typeof createGlobals> =>
+                createGlobals({ event: 'some_event', properties: { plan: 'growth' } })
+            // An event that matches nothing — must never wake a parked job.
+            const unrelatedEvent = (): ReturnType<typeof createGlobals> =>
+                createGlobals({ event: 'unrelated_event', properties: { plan: 'starter' } })
+
+            type Outcome = 'matched-on-entry' | 'matched-on-wake' | 'no-wake'
+            interface MatrixCase {
+                name: string
+                config: Record<string, any>
+                trigger: () => ReturnType<typeof createGlobals>
+                wake?: () => ReturnType<typeof createGlobals>
+                outcome: Outcome
+            }
+
+            const cases: MatrixCase[] = [
+                // ---- real combinations that SHOULD activate ----
+                {
+                    name: 'event only -> wakes on the configured event',
+                    config: { events: [eventNameFilter('wakeup_event')] },
+                    trigger: inertTrigger,
+                    wake: matchingEvent,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'property only -> matches on entry when the trigger satisfies it',
+                    config: { condition: propertyCondition() },
+                    trigger: eventSatisfyingProperty,
+                    outcome: 'matched-on-entry',
+                },
+                {
+                    name: 'property only -> wakes when a later event satisfies it',
+                    config: { condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: eventSatisfyingProperty,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'event + property -> wakes via the event',
+                    config: { events: [eventNameFilter('wakeup_event')], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: matchingEvent,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'event + property -> wakes via the property',
+                    config: { events: [eventNameFilter('wakeup_event')], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: eventSatisfyingProperty,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'action only -> wakes on the action event',
+                    config: { events: [actionFilter('action_event', 3)] },
+                    trigger: inertTrigger,
+                    wake: matchingActionEvent,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'property + action -> wakes via the action',
+                    config: { events: [actionFilter('action_event', 3)], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: matchingActionEvent,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'property + action -> wakes via the property',
+                    config: { events: [actionFilter('action_event', 3)], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: eventSatisfyingProperty,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'event + empty property -> empty condition suppressed, still wakes on the event',
+                    config: {
+                        events: [eventNameFilter('wakeup_event')],
+                        condition: { filters: emptyConditionFilters() },
+                    },
+                    trigger: inertTrigger,
+                    wake: matchingEvent,
+                    outcome: 'matched-on-wake',
+                },
+                {
+                    name: 'empty events + property -> empty events suppressed, still wakes on the property',
+                    config: { events: [emptyEventFilter()], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: eventSatisfyingProperty,
+                    outcome: 'matched-on-wake',
+                },
+                // ---- degenerate combinations that must NOT activate ----
+                {
+                    name: 'empty property only -> never fires on entry or wakes on any event',
+                    config: { condition: { filters: emptyConditionFilters() } },
+                    trigger: inertTrigger,
+                    wake: unrelatedEvent,
+                    outcome: 'no-wake',
+                },
+                {
+                    name: 'empty events only -> never wakes on an unrelated event',
+                    config: { events: [emptyEventFilter()] },
+                    trigger: inertTrigger,
+                    wake: unrelatedEvent,
+                    outcome: 'no-wake',
+                },
+                {
+                    name: 'empty events + empty property -> never activates',
+                    config: { events: [emptyEventFilter()], condition: { filters: emptyConditionFilters() } },
+                    trigger: inertTrigger,
+                    wake: unrelatedEvent,
+                    outcome: 'no-wake',
+                },
+                {
+                    name: 'event + property -> an unrelated event wakes neither',
+                    config: { events: [eventNameFilter('wakeup_event')], condition: propertyCondition() },
+                    trigger: inertTrigger,
+                    wake: unrelatedEvent,
+                    outcome: 'no-wake',
+                },
+            ]
+
+            it.each(cases)('$name', async ({ config, trigger, wake, outcome }) => {
+                await createWaitUntilWorkflow({ max_wait_duration: '5m', ...config })
+                await triggerWorkflow(trigger())
+
+                if (outcome === 'matched-on-entry') {
+                    // The executor evaluates the condition on entry and advances without parking.
+                    await waitForExpect(() => {
+                        expect(mockFetch).toHaveBeenCalledWith(
+                            'https://example.com/condition-matched',
+                            expect.anything()
+                        )
+                    }, 10000)
+                    return
+                }
+
+                // Every other case must park first — no activation on entry.
+                await expectParked()
+                await matcher.processBatch([wake!()])
+
+                if (outcome === 'matched-on-wake') {
+                    await waitForExpect(() => {
+                        expect(mockFetch).toHaveBeenCalledWith(
+                            'https://example.com/condition-matched',
+                            expect.anything()
+                        )
+                    }, 10000)
+                } else {
+                    // no-wake: give the worker room to (incorrectly) pick the job up — it must not.
+                    await new Promise((resolve) => setTimeout(resolve, 1000))
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(
+                        true
+                    )
+                    expect(mockFetch).not.toHaveBeenCalled()
+                }
+            })
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {
