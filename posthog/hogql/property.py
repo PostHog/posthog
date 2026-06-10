@@ -60,7 +60,6 @@ from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
-from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -1210,7 +1209,7 @@ def property_to_expr_core(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=data.team_context.project_id, id=property.value)
+        cohort_pk = data.cohort_id(property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(
@@ -1219,7 +1218,7 @@ def property_to_expr_core(
                 if property.negation or property.operator == PropertyOperator.NOT_IN.value
                 else ast.CompareOperationOp.InCohort
             ),
-            right=ast.Constant(value=cohort.pk),
+            right=ast.Constant(value=cohort_pk),
         )
 
     # TODO: Add support for these types: "recording"

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import (
     HogQLQueryModifiers,
     HogQLVariable,
+    InCohortVia,
     MaterializationMode,
     PersonsOnEventsMode,
     PropertyOperator,
@@ -17,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import ActionRef, InsightVariableInfo, PropertyTypes, StaticDataProvider
+from posthog.hogql.data_provider import ActionRef, CohortRef, InsightVariableInfo, PropertyTypes, StaticDataProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
 from posthog.hogql.parser import parse_select
@@ -161,6 +162,27 @@ class TestEngineIsolationGate(SimpleTestCase):
         )
         assert isinstance(expr, ast.CompareOperation)
         self.assertEqual(expr.right, ast.Constant(value=True))
+
+    def test_cohort_property_filter_via_provider(self) -> None:
+        expr = property_to_expr_core(Property(type="cohort", key="id", value=99), _provider(cohort_ids={99: 99}))
+        self.assertEqual(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.InCohort,
+                left=ast.Field(chain=["person_id"]),
+                right=ast.Constant(value=99),
+            ),
+        )
+
+    @parameterized.expand([("subquery",), ("leftjoin",), ("leftjoin_conjoined",)])
+    def test_in_cohort_compiles_across_modes(self, mode: str) -> None:
+        provider = _provider(cohort_refs={("id", 99): [CohortRef(id=99, is_static=False, version=5, name="my cohort")]})
+        context = self._print_context(provider)
+        context.modifiers.inCohortVia = InCohortVia(mode)
+        printed, _ = prepare_and_print_ast(
+            parse_select("SELECT event FROM events WHERE person_id IN COHORT 99"), context, dialect="clickhouse"
+        )
+        self.assertIn("cohort", printed.lower())
 
     def test_retention_action_entity_via_provider(self) -> None:
         pageview = ast.CompareOperation(

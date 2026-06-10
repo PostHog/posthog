@@ -10,6 +10,17 @@ if TYPE_CHECKING:
 
 PropertyKind = Literal["event", "person", "group"]
 ActionScope = Literal["team", "project"]
+CohortRefKind = Literal["id", "name"]
+
+
+@dataclass(frozen=True)
+class CohortRef:
+    """The cohort columns the engine reads when rewriting IN COHORT comparisons."""
+
+    id: int
+    is_static: bool
+    version: Optional[int]
+    name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +127,30 @@ class DataProvider(Protocol):
         """
         ...
 
+    def cohort_id(self, ref: int | str) -> int:
+        """Resolve a cohort property reference to the cohort's id; raises if it doesn't exist.
+
+        Unlike ``cohorts``, deleted cohorts still resolve — matching how cohort
+        property filters have always behaved.
+        """
+        ...
+
+    def cohorts(self, ref: int | str, by: CohortRefKind) -> list[CohortRef]:
+        """Non-deleted cohorts in the project matching an id or a name.
+
+        The list lets the engine keep its existing not-found and ambiguity errors.
+        """
+        ...
+
+    def inline_cohort(self, cohort_id: int, auto_gated: bool) -> Optional["ast.SelectQuery | ast.SelectSetQuery"]:
+        """The cohort's definition compiled to a select query, for inline evaluation.
+
+        Returns ``None`` when inlining shouldn't happen. With ``auto_gated`` the
+        decision belongs to the provider (on the Django side: a feature flag plus the
+        cohort's recent calculation history); without it the caller already decided.
+        """
+        ...
+
 
 @dataclass
 class StaticDataProvider:
@@ -137,6 +172,9 @@ class StaticDataProvider:
     insight_variables_by_id: dict[str, InsightVariableInfo] = field(default_factory=dict)
     # (query node, expansion) pairs — query nodes compare by value, so a plain list works.
     query_expansions: list[tuple[Any, "ast.SelectQuery | ast.SelectSetQuery"]] = field(default_factory=list)
+    cohort_ids: dict[int | str, int] = field(default_factory=dict)
+    cohort_refs: dict[tuple[CohortRefKind, int | str], list[CohortRef]] = field(default_factory=dict)
+    inline_cohort_queries: dict[int, "ast.SelectQuery | ast.SelectSetQuery"] = field(default_factory=dict)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
@@ -186,3 +224,12 @@ class StaticDataProvider:
             if candidate == query_node:
                 return expansion
         raise KeyError(f"No expansion provided for query node {type(query_node).__name__}")
+
+    def cohort_id(self, ref: int | str) -> int:
+        return self.cohort_ids[ref]
+
+    def cohorts(self, ref: int | str, by: CohortRefKind) -> list[CohortRef]:
+        return self.cohort_refs.get((by, ref), [])
+
+    def inline_cohort(self, cohort_id: int, auto_gated: bool) -> Optional["ast.SelectQuery | ast.SelectSetQuery"]:
+        return self.inline_cohort_queries.get(cohort_id)

@@ -1,12 +1,22 @@
+import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 from django.db.models import Prefetch, Q
 from django.db.models.functions.comparison import Coalesce
+from django.utils import timezone
 
 import posthoganalytics
 
-from posthog.hogql.data_provider import ActionRef, ActionScope, InsightVariableInfo, PropertyKind, PropertyTypes
+from posthog.hogql.data_provider import (
+    ActionRef,
+    ActionScope,
+    CohortRef,
+    CohortRefKind,
+    InsightVariableInfo,
+    PropertyKind,
+    PropertyTypes,
+)
 from posthog.hogql.team_context import HogQLTeamContext
 
 from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX
@@ -14,12 +24,58 @@ from posthog.models import PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 if TYPE_CHECKING:
     from posthog.hogql import ast
+
+INLINE_COHORT_THRESHOLD_SECONDS = 10
+
+
+def _is_inline_flag_enabled(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            "inline-cohort-calculation",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def _is_cohort_fast_enough_to_inline(cohort_id: int) -> bool:
+    seven_days_ago = timezone.now() - datetime.timedelta(days=7)
+    recent_calcs = list(
+        CohortCalculationHistory.objects.filter(
+            cohort_id=cohort_id,
+            finished_at__isnull=False,
+            started_at__gte=seven_days_ago,
+        )
+        .order_by("-started_at")
+        .values_list("error", "started_at", "finished_at")
+    )
+    if not recent_calcs:
+        return True
+
+    if recent_calcs[0][0] is not None:
+        return False
+
+    durations = sorted(
+        (finished_at - started_at).total_seconds() for error, started_at, finished_at in recent_calcs if error is None
+    )
+    return not durations or durations[len(durations) // 2] < INLINE_COHORT_THRESHOLD_SECONDS
 
 
 def _property_definitions_for_project(project_id: int):
@@ -228,3 +284,27 @@ class DjangoDataProvider:
         from posthog.hogql_queries.query_runner import get_query_runner  # noqa: PLC0415
 
         return get_query_runner(query_node, self.team).to_query()
+
+    def cohort_id(self, ref: int | str) -> int:
+        return Cohort.objects.get(team__project_id=self.team.project_id, id=ref).pk
+
+    def cohorts(self, ref: int | str, by: CohortRefKind) -> list[CohortRef]:
+        queryset = Cohort.objects.filter(team__project_id=self.team.project_id, deleted=False)
+        queryset = queryset.filter(name=ref) if by == "name" else queryset.filter(id=ref)
+        return [
+            CohortRef(id=id, is_static=is_static, version=version, name=name)
+            for id, is_static, version, name in queryset.values_list("id", "is_static", "version", "name")
+        ]
+
+    def inline_cohort(self, cohort_id: int, auto_gated: bool) -> Optional["ast.SelectQuery | ast.SelectSetQuery"]:
+        # Deferred: pulls in the query-runner universe; keep it off the import path.
+        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery  # noqa: PLC0415
+
+        if auto_gated:
+            if not _is_inline_flag_enabled(self.team):
+                return None
+            if not _is_cohort_fast_enough_to_inline(cohort_id):
+                return None
+
+        cohort = Cohort.objects.get(id=cohort_id, team__project_id=self.team.project_id)
+        return HogQLCohortQuery(cohort=cohort, team=self.team).get_query()

@@ -97,8 +97,6 @@ class MultipleInCohortResolver(TraversingVisitor):
     def _resolve_cohorts(
         self, compare_operations: list[ast.CompareOperation]
     ) -> list[tuple[int, StaticOrDynamic, int]]:
-        from products.cohorts.backend.models.cohort import Cohort
-
         cohorts: list[tuple[int, StaticOrDynamic, int]] = []
 
         for node in compare_operations:
@@ -107,34 +105,24 @@ class MultipleInCohortResolver(TraversingVisitor):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-                int_cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
-                ).values_list("id", "is_static", "version")
+                int_cohorts = self.context.data.cohorts(int(arg.value), by="id")
                 if len(int_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
                         raise QueryError("NOT IN COHORT is not supported by this cohort mode")
 
-                    id = int_cohorts[0][0]
-                    is_static = int_cohorts[0][1]
-                    version = int_cohorts[0][2] or 0
-
-                    cohorts.append((id, "static" if is_static else "dynamic", version))
+                    match = int_cohorts[0]
+                    cohorts.append((match.id, "static" if match.is_static else "dynamic", match.version or 0))
                     continue
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
-                str_cohorts = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id, deleted=False
-                ).values_list("id", "is_static", "version")
+                str_cohorts = self.context.data.cohorts(arg.value, by="name")
                 if len(str_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
                         raise QueryError("NOT IN COHORT is not supported by this cohort mode")
 
-                    id = str_cohorts[0][0]
-                    is_static = str_cohorts[0][1]
-                    version = str_cohorts[0][2] or 0
-
-                    cohorts.append((id, "static" if is_static else "dynamic", version))
+                    match = str_cohorts[0]
+                    cohorts.append((match.id, "static" if match.is_static else "dynamic", match.version or 0))
                     continue
                 elif len(str_cohorts) > 1:
                     raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
@@ -310,23 +298,20 @@ class InCohortResolver(TraversingVisitor):
             arg = node.right
             if not isinstance(arg, ast.Constant):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
-            from products.cohorts.backend.models.cohort import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-                cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
-                ).values_list("id", "is_static", "version", "name")
+                cohorts = self.context.data.cohorts(int(arg.value), by="id")
                 if len(cohorts) == 1:
                     self.context.add_notice(
                         start=arg.start,
                         end=arg.end,
-                        message=f"Cohort #{cohorts[0][0]} can also be specified as {escape_clickhouse_string(cohorts[0][3])}",
-                        fix=escape_clickhouse_string(cohorts[0][3]),
+                        message=f"Cohort #{cohorts[0].id} can also be specified as {escape_clickhouse_string(cohorts[0].name)}",
+                        fix=escape_clickhouse_string(cohorts[0].name),
                     )
                     self._add_join_for_cohort(
-                        cohort_id=cohorts[0][0],
-                        is_static=cohorts[0][1],
-                        version=cohorts[0][2],
+                        cohort_id=cohorts[0].id,
+                        is_static=cohorts[0].is_static,
+                        version=cohorts[0].version,
                         compare=node,
                         select=self.stack[-1],
                         negative=node.op == ast.CompareOperationOp.NotInCohort,
@@ -335,20 +320,18 @@ class InCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
-                cohorts2 = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id, deleted=False
-                ).values_list("id", "is_static", "version")
+                cohorts2 = self.context.data.cohorts(arg.value, by="name")
                 if len(cohorts2) == 1:
                     self.context.add_notice(
                         start=arg.start,
                         end=arg.end,
-                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
-                        fix=str(cohorts2[0][0]),
+                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0].id} to protect against renaming.",
+                        fix=str(cohorts2[0].id),
                     )
                     self._add_join_for_cohort(
-                        cohort_id=cohorts2[0][0],
-                        is_static=cohorts2[0][1],
-                        version=cohorts2[0][2],
+                        cohort_id=cohorts2[0].id,
+                        is_static=cohorts2[0].is_static,
+                        version=cohorts2[0].version,
                         compare=node,
                         select=self.stack[-1],
                         negative=node.op == ast.CompareOperationOp.NotInCohort,
