@@ -2,16 +2,17 @@ import json
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -419,6 +420,121 @@ class TestTeamSecretTokenPermission(BaseTest):
         self.assertFalse(result)
 
 
+class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
+    def setUp(self):
+        from posthog.permissions import APIScopePermission
+
+        self.permission = APIScopePermission()
+
+    def _make_psak_request(self, scopes=("endpoint:read",), team_id=1):
+        from posthog.auth import ProjectSecretAPIKeyAuthentication
+
+        request = Mock()
+        request.method = "POST"
+
+        authenticator = Mock(spec=ProjectSecretAPIKeyAuthentication)
+        psak = Mock()
+        psak.team_id = team_id
+        psak.scopes = list(scopes)
+        authenticator.project_secret_api_key = psak
+        request.successful_authenticator = authenticator
+        return request, psak
+
+    def test_default_deny_when_view_omits_psak_allowed_actions(self):
+        request, _ = self._make_psak_request()
+
+        view = Mock(spec=[])
+        view.action = "run"
+        view.scope_object = "endpoint"
+
+        self.assertFalse(self.permission.has_permission(request, view))
+        self.assertIn("does not support project secret API key", self.permission.message)
+
+    def test_team_check_attribute_error_denies(self):
+        from rest_framework.exceptions import PermissionDenied
+
+        request, _ = self._make_psak_request()
+
+        class NoTeamView:
+            @property
+            def team(self):
+                raise AttributeError("view has no team attribute")
+
+        with self.assertRaises(PermissionDenied) as ctx:
+            self.permission._check_project_secret_api_key_team(request, NoTeamView())
+
+        self.assertIn("only supported on project-based endpoints", str(ctx.exception.detail))
+
+    def test_team_check_key_error_denies(self):
+        from rest_framework.exceptions import PermissionDenied
+
+        request, _ = self._make_psak_request()
+
+        class NoTeamKwargView:
+            @property
+            def team(self):
+                raise KeyError("team_id")
+
+        with self.assertRaises(PermissionDenied) as ctx:
+            self.permission._check_project_secret_api_key_team(request, NoTeamKwargView())
+
+        self.assertIn("only supported on project-based endpoints", str(ctx.exception.detail))
+
+    def test_team_check_does_not_exist_denies(self):
+        from rest_framework.exceptions import PermissionDenied
+
+        from posthog.models.team import Team
+
+        request, _ = self._make_psak_request()
+
+        class StaleTeamView:
+            @property
+            def team(self):
+                raise Team.DoesNotExist
+
+        with self.assertRaises(PermissionDenied) as ctx:
+            self.permission._check_project_secret_api_key_team(request, StaleTeamView())
+
+        self.assertIn("only supported on project-based endpoints", str(ctx.exception.detail))
+
+    def test_allows_read_action_with_matching_scope_and_team(self):
+        request, _ = self._make_psak_request(scopes=("endpoint:read",), team_id=1)
+
+        view = Mock(spec=[])
+        view.action = "run"
+        view.scope_object = "endpoint"
+        view.scope_object_read_actions = ["run"]
+        view.psak_allowed_actions = ["run"]
+        view.team = Mock(id=1)
+
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    def test_denies_write_action_with_only_read_scope(self):
+        request, _ = self._make_psak_request(scopes=("endpoint:read",), team_id=1)
+
+        view = Mock(spec=[])
+        view.action = "create"
+        view.scope_object = "endpoint"
+        view.psak_allowed_actions = ["create"]
+        view.team = Mock(id=1)
+
+        self.assertFalse(self.permission.has_permission(request, view))
+        self.assertIn("missing required scope 'endpoint:write'", self.permission.message)
+
+    def test_team_check_denies_when_psak_team_differs(self):
+        from rest_framework.exceptions import PermissionDenied
+
+        request, _ = self._make_psak_request(team_id=1)
+
+        view = Mock(spec=[])
+        view.team = Mock(id=999)
+
+        with self.assertRaises(PermissionDenied) as ctx:
+            self.permission._check_project_secret_api_key_team(request, view)
+
+        self.assertIn("does not have access to the requested project", str(ctx.exception.detail))
+
+
 class TestTeamMemberAccessPermission(BaseTest):
     """Direct unit tests for TeamMemberAccessPermission.has_permission method"""
 
@@ -428,7 +544,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         self.permission = TeamMemberAccessPermission()
 
-    def _create_mock_request(self, authenticator_class=None, user=None):
+    def _create_mock_request(self, authenticator_class=None, user=None, psak_team_id=None):
         """Helper to create a mock request with specified authenticator"""
         request = Mock()
 
@@ -436,6 +552,8 @@ class TestTeamMemberAccessPermission(BaseTest):
         mock_authenticator = Mock()
         if authenticator_class:
             mock_authenticator.__class__ = authenticator_class
+        if psak_team_id is not None:
+            mock_authenticator.project_secret_api_key = Mock(team_id=psak_team_id)
         request.successful_authenticator = mock_authenticator
 
         # Set user if provided
@@ -449,8 +567,7 @@ class TestTeamMemberAccessPermission(BaseTest):
         view = Mock()
 
         if raise_exception:
-            # Configure the mock to raise the exception when team is accessed
-            view.team = Mock(side_effect=raise_exception)
+            type(view).team = PropertyMock(side_effect=raise_exception)
         else:
             view.team = team
 
@@ -476,8 +593,6 @@ class TestTeamMemberAccessPermission(BaseTest):
 
     def test_has_permission_with_team_secret_token_authenticator(self):
         """Should return True when using TeamSecretTokenAuthentication"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
         request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication)
         view = self._create_mock_view()
 
@@ -485,11 +600,35 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         self.assertTrue(result)
 
+    def test_has_permission_with_project_secret_api_key_matching_team(self):
+        request = self._create_mock_request(
+            authenticator_class=ProjectSecretAPIKeyAuthentication,
+            psak_team_id=1,
+        )
+        view = self._create_mock_view(team=self._create_mock_team(team_id=1))
+
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    def test_has_permission_with_project_secret_api_key_different_team(self):
+        request = self._create_mock_request(
+            authenticator_class=ProjectSecretAPIKeyAuthentication,
+            psak_team_id=1,
+        )
+        view = self._create_mock_view(team=self._create_mock_team(team_id=2))
+
+        self.assertFalse(self.permission.has_permission(request, view))
+
+    def test_has_permission_with_project_secret_api_key_missing_team(self):
+        request = self._create_mock_request(
+            authenticator_class=ProjectSecretAPIKeyAuthentication,
+            psak_team_id=1,
+        )
+        view = self._create_mock_view(raise_exception=Team.DoesNotExist("Team not found"))
+
+        self.assertFalse(self.permission.has_permission(request, view))
+
     def test_has_permission_with_non_team_secret_token_authenticator_and_valid_membership(self):
         """Should return True when not using project secret auth and user has valid membership"""
-        from posthog.auth import PersonalAPIKeyAuthentication
-        from posthog.models.organization import OrganizationMembership
-
         team = self._create_mock_team()
         user_permissions = self._create_mock_user_permissions(
             effective_membership_level=OrganizationMembership.Level.MEMBER
@@ -504,8 +643,6 @@ class TestTeamMemberAccessPermission(BaseTest):
 
     def test_has_permission_with_non_team_secret_token_authenticator_and_no_membership(self):
         """Should return False when not using project secret auth and user has no membership"""
-        from posthog.auth import PersonalAPIKeyAuthentication
-
         team = self._create_mock_team()
         user_permissions = self._create_mock_user_permissions(effective_membership_level=None)
 
@@ -518,8 +655,6 @@ class TestTeamMemberAccessPermission(BaseTest):
 
     def test_has_permission_with_team_does_not_exist_exception(self):
         """Should return True when view.team raises Team.DoesNotExist"""
-        from posthog.auth import PersonalAPIKeyAuthentication
-
         request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
         view = self._create_mock_view(raise_exception=Team.DoesNotExist("Team not found"))
 
@@ -529,9 +664,6 @@ class TestTeamMemberAccessPermission(BaseTest):
 
     def test_has_permission_with_admin_membership(self):
         """Should return True when user has admin membership level"""
-        from posthog.auth import PersonalAPIKeyAuthentication
-        from posthog.models.organization import OrganizationMembership
-
         team = self._create_mock_team()
         user_permissions = self._create_mock_user_permissions(
             effective_membership_level=OrganizationMembership.Level.ADMIN
