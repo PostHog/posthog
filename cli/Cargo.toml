@@ -26,7 +26,9 @@ clap = { version = "4.5.31", features = ["derive", "env"] }
 dirs = "6.0.0"
 inquire = "0.7.5"
 chrono = "0.4.42"
-posthog-symbol-data = "0.4.0"
+# Path dep until 0.5.0 (ElfDebugInfo) is published to crates.io; the
+# version field keeps `cargo publish` working once it is.
+posthog-symbol-data = { version = "0.5.0", path = "../rust/common/symbol_data" }
 walkdir = "2.5.0"
 globset = "0.4"
 ratatui = "0.29.0"
