@@ -4,14 +4,12 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, PropertyMock, patch
 
-from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
@@ -677,12 +675,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         self.assertTrue(result)
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     """Test that OAuth access tokens properly enforce API scopes via APIScopePermission"""
 
@@ -861,12 +853,6 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.assertEqual(response.status_code, 200)
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenWithOrganizationScoping(BaseTest):
     """Test that OAuth access tokens properly enforce organization scoping"""
 
@@ -920,12 +906,6 @@ class TestOAuthAccessTokenWithOrganizationScoping(BaseTest):
         self.assertEqual(response.status_code, 404)
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenWithTeamScoping(BaseTest):
     """Test that OAuth access tokens properly enforce team scoping"""
 
@@ -974,12 +954,6 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
         self.assertIn("does not have access to the requested project", response.json()["detail"])
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
     """Test that OAuth access tokens properly enforce scoping when both teams and orgs are defined"""
 
@@ -1044,12 +1018,6 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
         self.assertIn("only supported on project-based endpoints", response.json()["detail"])
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenExpiration(BaseTest):
     """Test that expired OAuth access tokens are properly rejected"""
 
@@ -1112,12 +1080,6 @@ class TestOAuthAccessTokenExpiration(BaseTest):
         self.assertEqual(response.status_code, 401)
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
 class TestOAuthAccessTokenUserMembership(BaseTest):
     """Test that OAuth tokens respect current user membership (not historical)"""
 
