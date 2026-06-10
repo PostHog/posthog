@@ -1128,6 +1128,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """
         ticket = self.get_object()
 
+        if not self.team.conversations_enabled:
+            return Response(
+                {"detail": "Conversations is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = TicketReplyRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
