@@ -28,6 +28,26 @@ Suggested entry format:
 
 ---
 
+## 2026-06-10: A minmax skip index on a mixed-content string column does not rescue unbounded point lookups; UUIDv7 ids carry their own time bound
+
+**Context.** Replay capture diagnostics (`frontend/src/scenes/session-recordings/components/replayCaptureDiagnosticsPanelLogic.ts`): `SELECT properties FROM events WHERE $session_id = {sid} ORDER BY timestamp DESC LIMIT 1` with no timestamp predicate. `$session_id` is a materialized column with `INDEX minmax_$session_id ... TYPE minmax GRANULARITY 1`, and session ids are UUIDv7 (time-ordered), so on paper the skip index should prune almost everything even without a timestamp bound.
+
+**Question.** Does the minmax skip index make the unbounded single-session lookup cheap, or does it still need a timestamp bound?
+
+**Numbers.** Median of 5, Test Cluster, team 2 (history back to 2020), a real high-volume session id, `use_query_condition_cache=0`:
+
+| Variant                     | Duration (ms) | Read rows | Read bytes |
+| --------------------------- | ------------- | --------- | ---------- |
+| no timestamp bound          | 16,485        | 2.44B     | 76.8 GB    |
+| `timestamp >=` 90d          | 4,993         | 452M      | 20.8 GB    |
+| UUIDv7-derived window (~7d) | 503           | 35.7M     | 10.4 GB    |
+
+**Caveats.** The exact pruning loss depends on the team's mix of `$session_id` values; a team with only UUIDv7 ids might see better index behavior. Not measured per-mix.
+
+**Takeaway.** The minmax index did not save the unbounded query: the column also holds the literal string `'null'` (millions of rows/day on team 2) and other non-UUID values, so each granule's `[min, max]` range is wide enough to contain any UUIDv7 and almost nothing is excluded. Minmax on strings only prunes when values correlate tightly with insertion order across the _whole_ column, not just the subset you care about. The structural fix is the same as any single-entity lookup: carry a timestamp bound. When the id is a UUIDv7, the client can derive that bound from the id's embedded 48-bit ms timestamp (plus clock-skew slack and a fallback window for non-parsing ids) — 33x faster and 68x fewer rows than the unbounded form here.
+
+---
+
 ## 2026-06-10: Pre-filtering a window-function scan with an IN-subquery doubled the cost; JSON parsing dominates, window sorts are cheap
 
 **Context.** MCP analytics "neighbors before/after" queries (`products/mcp_analytics/frontend/mcpAnalyticsToolDetailLogic.ts`): a CTE scans all 7 days of a team's `mcp_tool_call` events, computes `lagInFrame`/`leadInFrame` over every conversation, then filters to one target tool. Looked like wasted work — most conversations don't contain the target tool.
