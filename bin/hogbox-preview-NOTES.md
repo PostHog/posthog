@@ -4,6 +4,16 @@ Per-PR PostHog preview environments on [hogland](https://github.com/PostHog/hogl
 hogboxes (Firecracker microVMs), as an alternative to the ci-hobby DigitalOcean
 droplets.
 
+> **→ Productionised in [`tools/hogbox-preview/`](../tools/hogbox-preview/).**
+> The inline `bin/hogbox-preview.py` + `bin/hogbox-preview-scratch/` here are the
+> exploration that proved the recipe; the class-based, layer-agnostic version
+> (swap hogland ↔ DigitalOcean without touching the stack) lives in `tools/`.
+> The **edge/serving blocker is solved** — `box-front` shipped to hogland main, so
+> a box created with `--web-port` is reachable at its own
+> `https://<box>.boxes.hogland.<env>.posthog.dev/` (no SSH forward). Full SPA
+> renders end-to-end (2026-06-10), incl. **demo data via `manage.py n`** (same
+> step hobby/sandbox use — we now seed it, previously we didn't).
+
 ## TL;DR (2026-06-08)
 
 - **CI runner → hogland connectivity: GREEN** — `bin/hogbox-ci.py` +
@@ -37,7 +47,7 @@ droplets.
   the new `expires_at` field). Build a current one: in the hogland repo,
   `go build -o /tmp/hogland ./cmd/hogland`.
 - **Gotcha:** snapshot-build SSH-polls the seed box for a success marker; it uses
-  your *default* ssh key. We installed `/tmp/seed_key` as `~/.ssh/id_ed25519`.
+  your _default_ ssh key. We installed `/tmp/seed_key` as `~/.ssh/id_ed25519`.
 - The golden is on **prod-us**; the CI probe targets **dev**. Reconcile: build the
   golden on dev too (+ a TrustMapping there), or repoint the preview to prod-us.
 
@@ -46,12 +56,12 @@ droplets.
 Constraint (Julian): **don't invent a new serving path — use `hogli` daemonized
 OR docker.** Options, with the trade-off:
 
-| Path | Speed | Source | Serving |
-|---|---|---|---|
-| hobby (`docker-compose.hobby.yml`) | slow (full image build, ~tens of min) | built image | one URL, Caddy, prod |
-| `docker-compose.sandbox.yml` (`bin/sandbox`) | fast (image built once + caches) | **git CLONE into a volume** (Julian dislikes) | Caddy `:8000` + vite `JS_URL` |
-| **`docker-compose.dev-full.yml`** | fast (image once + live code) | **in-place `.:/app/posthog`** ✅ | **single `:8000`**, `./bin/docker-server-unit`, frontend from `frontend/dist` |
-| `hogli` dev stack (what the golden runs) | fastest | in-place, run from source | backend `:8010` + **vite `:8234`** (two ports) |
+| Path                                         | Speed                                 | Source                                        | Serving                                                                       |
+| -------------------------------------------- | ------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| hobby (`docker-compose.hobby.yml`)           | slow (full image build, ~tens of min) | built image                                   | one URL, Caddy, prod                                                          |
+| `docker-compose.sandbox.yml` (`bin/sandbox`) | fast (image built once + caches)      | **git CLONE into a volume** (Julian dislikes) | Caddy `:8000` + vite `JS_URL`                                                 |
+| **`docker-compose.dev-full.yml`**            | fast (image once + live code)         | **in-place `.:/app/posthog`** ✅              | **single `:8000`**, `./bin/docker-server-unit`, frontend from `frontend/dist` |
+| `hogli` dev stack (what the golden runs)     | fastest                               | in-place, run from source                     | backend `:8010` + **vite `:8234`** (two ports)                                |
 
 **Leading candidate: `docker-compose.dev-full.yml`** — full docker, **in-place
 source**, single port `:8000`. Caveats: last touched 2026-04-28 (lightly stale
@@ -96,6 +106,7 @@ full image rebuild). Settings: frontend served from `frontend/dist`
 4. The **serving/gateway** (tailnet root URL): Julian's separate PR.
 
 ### Known gotchas (all hit today)
+
 - **SDK restore "omit cpus/memory to inherit" is BROKEN** — `applyDefaults` fills
   1/1024/10 and the match-check rejects. Pass sizing that matches the snapshot
   exactly (16/64/100). Fix upstream in hogland.
@@ -110,6 +121,7 @@ full image rebuild). Settings: frontend served from `frontend/dist`
 
 Local-iteration scratch (read creds from `~/.config/hogland/config.json`; set
 `HOGENV=dev|prod-us`). Kept for reference / to pick up tomorrow:
+
 - `hog.py` — Hogland client factory (env switch + long timeout).
 - `preview.py` — restore/reuse golden → detached `hogli up` → poll web port →
   proxy probe. The proven orchestration.
