@@ -32,7 +32,7 @@ export function AccountBillingExpansion({
     kind: AccountBillingKind
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
-    const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId } = useValues(logic)
+    const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId, queryKeyFor } = useValues(logic)
     const { setDateRange } = useActions(logic)
 
     if (!externalId) {
@@ -56,21 +56,25 @@ export function AccountBillingExpansion({
                 dateTo={dateRange.date_to}
                 onChange={(from, to) => setDateRange(from, to)}
             />
-            {savedInsights.map((insight) => (
-                <div key={insight.short_id} className="flex flex-col gap-1">
-                    {showTitles && insight.name ? <h4 className="mb-0 text-sm">{insight.name}</h4> : null}
-                    {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
-                    <div className="h-80 flex flex-col overflow-hidden">
-                        <Query
-                            uniqueKey={`account-billing-${accountId}-${kind}-${insight.short_id}`}
-                            query={insight.query}
-                            variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
-                            readOnly
-                            embedded
-                        />
+            {savedInsights.map((insight) => {
+                const queryKey = queryKeyFor(insight.short_id)
+                return (
+                    <div key={insight.short_id} className="flex flex-col gap-1">
+                        {showTitles && insight.name ? <h4 className="mb-0 text-sm">{insight.name}</h4> : null}
+                        {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
+                        <div className="h-80 flex flex-col overflow-hidden">
+                            <Query
+                                key={queryKey}
+                                uniqueKey={queryKey}
+                                query={insight.query}
+                                variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
+                                readOnly
+                                embedded
+                            />
+                        </div>
                     </div>
-                </div>
-            ))}
+                )
+            })}
         </div>
     )
 }
