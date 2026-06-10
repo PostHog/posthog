@@ -599,19 +599,21 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     )}
                                     {!isNewCohort &&
                                         usedIn &&
-                                        (usedIn.feature_flags.length > 0 ||
+                                        (usedIn.feature_flags.results.length > 0 ||
                                             usedIn.insights.results.length > 0 ||
                                             usedIn.cohorts.results.length > 0) && (
                                             <LemonBanner type="info">
                                                 <div className="font-semibold mb-1">Used in</div>
                                                 <div className="space-y-2">
-                                                    {usedIn.feature_flags.length > 0 && (
+                                                    {usedIn.feature_flags.results.length > 0 && (
                                                         <div>
                                                             <div className="text-xs font-semibold uppercase opacity-60">
                                                                 Feature flags
+                                                                {usedIn.feature_flags.has_more &&
+                                                                    ` (${usedIn.feature_flags.results.length} of ${usedIn.feature_flags.total} shown)`}
                                                             </div>
                                                             <ul className="list-disc pl-4 mb-0 space-y-0.5">
-                                                                {usedIn.feature_flags.map((flag) => (
+                                                                {usedIn.feature_flags.results.map((flag) => (
                                                                     <li key={`flag-${flag.id}`}>
                                                                         <Link to={urls.featureFlag(flag.id)}>
                                                                             {flag.name || flag.key}

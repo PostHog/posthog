@@ -406,7 +406,17 @@ class CohortUsedInInsightSerializer(serializers.Serializer):
 
 class CohortUsedInCohortSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Cohort database ID")
-    name = serializers.CharField(help_text="Cohort display name")
+    name = serializers.CharField(help_text="Cohort display name; falls back to 'Unnamed' when empty")
+
+
+class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInFlagSerializer(
+        many=True, help_text="Feature flags referencing this cohort, capped at 100 results"
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of feature flags referencing this cohort, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more feature flags exist beyond the truncation cap")
 
 
 class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
@@ -426,9 +436,8 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
 
 
 class CohortUsedInResponseSerializer(serializers.Serializer):
-    feature_flags = CohortUsedInFlagSerializer(
-        many=True,
-        help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions",
+    feature_flags = CohortUsedInFlagsBlockSerializer(
+        help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
     )
     insights = CohortUsedInInsightsBlockSerializer(
         help_text="Insights referencing this cohort with truncation metadata"
@@ -1170,6 +1179,19 @@ class CohortSerializer(serializers.ModelSerializer):
 COHORT_USED_IN_PAGE_SIZE = 100
 
 
+def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
+    """Return up to COHORT_USED_IN_PAGE_SIZE rows plus the total count.
+
+    Fetches one row past the cap so the common short-list case derives the total
+    from the page itself; the expensive predicate only runs a second time (via
+    ``count()``) when the cap is actually exceeded.
+    """
+    page = list(qs[: COHORT_USED_IN_PAGE_SIZE + 1])
+    if len(page) <= COHORT_USED_IN_PAGE_SIZE:
+        return page, len(page)
+    return page[:COHORT_USED_IN_PAGE_SIZE], qs.count()
+
+
 def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
     """Return active, non-deleted feature flags that reference this cohort.
 
@@ -1642,24 +1664,28 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         flags_with_cohort = get_flags_using_cohort(cohort)
         flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_with_cohort]
 
-        insights_qs = get_insights_using_cohort(cohort)
-        insights_total = insights_qs.count()
+        insights_page, insights_total = _truncate_used_in_queryset(
+            get_insights_using_cohort(cohort).values("id", "short_id", "name", "derived_name")
+        )
         insights_data = [
             {
                 "id": insight["id"],
                 "short_id": insight["short_id"],
                 "name": insight.get("name") or insight.get("derived_name") or "Unnamed",
             }
-            for insight in insights_qs.values("id", "short_id", "name", "derived_name")[:COHORT_USED_IN_PAGE_SIZE]
+            for insight in insights_page
         ]
 
-        cohorts_qs = get_cohorts_using_cohort(cohort)
-        cohorts_total = cohorts_qs.count()
-        cohorts_data = list(cohorts_qs.values("id", "name")[:COHORT_USED_IN_PAGE_SIZE])
+        cohorts_page, cohorts_total = _truncate_used_in_queryset(get_cohorts_using_cohort(cohort).values("id", "name"))
+        cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
         return Response(
             {
-                "feature_flags": flags_data,
+                "feature_flags": {
+                    "results": flags_data[:COHORT_USED_IN_PAGE_SIZE],
+                    "total": len(flags_data),
+                    "has_more": len(flags_data) > COHORT_USED_IN_PAGE_SIZE,
+                },
                 "insights": {
                     "results": insights_data,
                     "total": insights_total,

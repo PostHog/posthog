@@ -322,6 +322,15 @@ export interface CohortUsedInFlagApi {
     name: string | null
 }
 
+export interface CohortUsedInFlagsBlockApi {
+    /** Feature flags referencing this cohort, capped at 100 results */
+    results: CohortUsedInFlagApi[]
+    /** Total number of feature flags referencing this cohort, before truncation */
+    total: number
+    /** True when more feature flags exist beyond the truncation cap */
+    has_more: boolean
+}
+
 export interface CohortUsedInInsightApi {
     /** Insight database ID */
     id: number
@@ -343,7 +352,7 @@ export interface CohortUsedInInsightsBlockApi {
 export interface CohortUsedInCohortApi {
     /** Cohort database ID */
     id: number
-    /** Cohort display name */
+    /** Cohort display name; falls back to 'Unnamed' when empty */
     name: string
 }
 
@@ -357,8 +366,8 @@ export interface CohortUsedInCohortsBlockApi {
 }
 
 export interface CohortUsedInResponseApi {
-    /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions */
-    feature_flags: CohortUsedInFlagApi[]
+    /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+    feature_flags: CohortUsedInFlagsBlockApi
     /** Insights referencing this cohort with truncation metadata */
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */

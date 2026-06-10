@@ -374,7 +374,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key }) => ({
+    loaders(({ actions, values, key, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -594,12 +594,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             null as CohortUsedInResponseApi | null,
             {
                 loadUsedIn: async () => {
-                    const { id } = values.cohort
+                    // On mount `values.cohort` is still NEW_COHORT (fetchCohort hasn't resolved),
+                    // so fall back to the id from props.
+                    const id = values.cohort.id !== 'new' ? values.cohort.id : props.id
                     if (!id || id === 'new') {
                         return null
                     }
                     try {
-                        return await cohortsUsedInRetrieve(String(values.currentProjectId), id)
+                        return await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
                     } catch (error) {
                         posthog.captureException(error, { feature: 'cohort-used-in' })
                         return null

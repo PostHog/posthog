@@ -11419,7 +11419,7 @@ export namespace Schemas {
     export interface CohortUsedInCohort {
       /** Cohort database ID */
       id: number;
-      /** Cohort display name */
+      /** Cohort display name; falls back to 'Unnamed' when empty */
       name: string;
     }
 
@@ -11438,10 +11438,19 @@ export namespace Schemas {
       /** Feature flag key (URL slug) */
       key: string;
       /**
-       * Feature flag display name
-       * @nullable
-       */
+         * Feature flag display name
+         * @nullable
+         */
       name: string | null;
+    }
+
+    export interface CohortUsedInFlagsBlock {
+      /** Feature flags referencing this cohort, capped at 100 results */
+      results: CohortUsedInFlag[];
+      /** Total number of feature flags referencing this cohort, before truncation */
+      total: number;
+      /** True when more feature flags exist beyond the truncation cap */
+      has_more: boolean;
     }
 
     export interface CohortUsedInInsight {
@@ -11463,8 +11472,8 @@ export namespace Schemas {
     }
 
     export interface CohortUsedInResponse {
-      /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions */
-      feature_flags: CohortUsedInFlag[];
+      /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+      feature_flags: CohortUsedInFlagsBlock;
       /** Insights referencing this cohort with truncation metadata */
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
