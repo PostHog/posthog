@@ -197,9 +197,15 @@ pub struct OutputErrProps {
     // Authenticity: set true only when the event carried a valid signature from one of the
     // team's registered Ed25519 keys (see crate::exception_signing). Server-controlled — listed
     // in RESERVED_PROPERTIES so any client-supplied value is stripped and can't be forged.
-    #[serde(rename = "$exception_verified", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$exception_verified",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub verified: Option<bool>,
-    #[serde(rename = "$exception_verified_key_id", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$exception_verified_key_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub verified_key_id: Option<String>,
 }
 
@@ -215,9 +221,21 @@ const RESERVED_PROPERTIES: [&str; 13] = [
     "$exception_values",
     "$exception_sources",
     "$exception_functions",
-    "$exception_verified",
-    "$exception_verified_key_id",
+    // Reference the canonical constants so this can't drift from exception_signing — if these
+    // weren't stripped, a client could forge the verified flag.
+    crate::exception_signing::VERIFIED_PROPERTY,
+    crate::exception_signing::VERIFIED_KEY_ID_PROPERTY,
 ];
+
+/// Drop any client-supplied reserved `$exception_*` properties, so server-controlled fields
+/// (fingerprint, issue id, verified, …) can never be forged by a client sending them directly.
+/// Applied in every path that turns event properties into output.
+pub(crate) fn strip_reserved_properties(other: HashMap<String, Value>) -> HashMap<String, Value> {
+    other
+        .into_iter()
+        .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
+        .collect()
+}
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -319,11 +337,7 @@ impl FingerprintedErrProps {
             .unwrap_or_else(|| self.exception_list.get_is_handled());
 
         // If users send properties that are reserved, it will results in property keys being duplicated
-        let sanitized_others = self
-            .other
-            .into_iter()
-            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
-            .collect();
+        let sanitized_others = strip_reserved_properties(self.other);
 
         OutputErrProps {
             exception_list: self.exception_list,
@@ -556,7 +570,28 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::RawErrProps;
+    use super::{strip_reserved_properties, RawErrProps};
+
+    #[test]
+    fn strip_reserved_properties_drops_forgeable_server_fields() {
+        let other = std::collections::HashMap::from([
+            ("$exception_verified".to_string(), serde_json::json!(true)),
+            (
+                "$exception_verified_key_id".to_string(),
+                serde_json::json!("forged"),
+            ),
+            (
+                "$exception_fingerprint".to_string(),
+                serde_json::json!("nope"),
+            ),
+            ("custom".to_string(), serde_json::json!("kept")),
+        ]);
+        let stripped = strip_reserved_properties(other);
+        assert!(!stripped.contains_key("$exception_verified"));
+        assert!(!stripped.contains_key("$exception_verified_key_id"));
+        assert!(!stripped.contains_key("$exception_fingerprint"));
+        assert_eq!(stripped.get("custom"), Some(&serde_json::json!("kept")));
+    }
 
     #[test]
     fn it_deserialises_error_props() {

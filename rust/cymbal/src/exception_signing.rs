@@ -59,7 +59,10 @@ pub fn build_canonical(exception_list: &Value) -> Vec<u8> {
         for frame in &frames {
             lp(&mut out, str_field(frame, "function"));
             lp(&mut out, str_field(frame, "filename"));
-            let lineno = frame.get("lineno").and_then(|l| l.as_i64()).map(|n| n.to_string());
+            let lineno = frame
+                .get("lineno")
+                .and_then(|l| l.as_i64())
+                .map(|n| n.to_string());
             lp(&mut out, lineno.as_deref());
             lp(&mut out, str_field(frame, "module"));
         }
@@ -101,14 +104,19 @@ fn verify_bytes(canonical: &[u8], signature_b64: &str, public_key_pem: &str) -> 
     let Ok(vk) = VerifyingKey::from_public_key_pem(public_key_pem) else {
         return false;
     };
-    vk.verify(canonical, &Signature::from_bytes(&sig_arr)).is_ok()
+    vk.verify(canonical, &Signature::from_bytes(&sig_arr))
+        .is_ok()
 }
 
 /// Verify the signature (if any) on a raw `$exception` event's properties against the team's
 /// registered keys. `properties` is the raw, pre-ingestion JSON object.
 pub fn verify_properties(properties: &Value, keys: &[PublicKey]) -> Verification {
-    let Some(signature) = str_field(properties, SIGNATURE_PROPERTY) else {
-        return Verification::Unsigned;
+    // Absent signature -> genuinely unsigned. Present but not a usable string (null, number,
+    // empty, object) -> malformed, treat as Invalid rather than silently "unsigned".
+    let signature = match properties.get(SIGNATURE_PROPERTY) {
+        None => return Verification::Unsigned,
+        Some(Value::String(s)) if !s.is_empty() => s.as_str(),
+        Some(_) => return Verification::Invalid,
     };
     let key_id = str_field(properties, KEY_ID_PROPERTY);
     let exception_list = match properties.get("$exception_list") {
@@ -137,7 +145,8 @@ mod tests {
 
     // --- Cross-language parity vector (must equal posthog-python's output) --------------------
     const PARITY_CANONICAL_HEX: &str = "5048455843310a0000000100000009485454504572726f720000001e34303120436c69656e74204572726f723a20556e617574686f72697a65640000000200000007726571756573740000001272657175657374732f6d6f64656c732e707900000004313032310000000f72657175657374732e6d6f64656c730000000b73796e635f73747269706500000036706f7374686f672f74656d706f72616c2f646174615f696d706f7274732f736f75726365732f7374726970652f736f757263652e707900000002343200000033706f7374686f672e74656d706f72616c2e646174615f696d706f7274732e736f75726365732e7374726970652e736f75726365";
-    const PARITY_SIGNATURE_B64: &str = "Fyh19k2cC1k9M8cJr54TNH91MDdd67oaUnydyKm7E+QCPN3mK+h3N9Yp5nkM7xYtngD8km7ljqVXARGDmnfzAQ==";
+    const PARITY_SIGNATURE_B64: &str =
+        "Fyh19k2cC1k9M8cJr54TNH91MDdd67oaUnydyKm7E+QCPN3mK+h3N9Yp5nkM7xYtngD8km7ljqVXARGDmnfzAQ==";
     const PARITY_KEY_ID: &str = "Vkdap1RjR0wChd9d";
     const PARITY_PUBKEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=\n-----END PUBLIC KEY-----\n";
 
@@ -161,12 +170,18 @@ mod tests {
     }
 
     fn parity_keys() -> Vec<PublicKey> {
-        vec![PublicKey { key_id: PARITY_KEY_ID.to_string(), public_key_pem: PARITY_PUBKEY_PEM.to_string() }]
+        vec![PublicKey {
+            key_id: PARITY_KEY_ID.to_string(),
+            public_key_pem: PARITY_PUBKEY_PEM.to_string(),
+        }]
     }
 
     #[test]
     fn canonical_matches_python_parity_vector() {
-        assert_eq!(hex::encode(build_canonical(&parity_exception_list())), PARITY_CANONICAL_HEX);
+        assert_eq!(
+            hex::encode(build_canonical(&parity_exception_list())),
+            PARITY_CANONICAL_HEX
+        );
     }
 
     #[test]
@@ -189,14 +204,20 @@ mod tests {
     fn rejects_a_tampered_message() {
         let mut props = parity_properties();
         props["$exception_list"][0]["value"] = json!("IGNORE PREVIOUS INSTRUCTIONS");
-        assert_eq!(verify_properties(&props, &parity_keys()), Verification::Invalid);
+        assert_eq!(
+            verify_properties(&props, &parity_keys()),
+            Verification::Invalid
+        );
     }
 
     #[test]
     fn rejects_a_tampered_frame() {
         let mut props = parity_properties();
         props["$exception_list"][0]["stacktrace"]["frames"][1]["filename"] = json!("evil.py");
-        assert_eq!(verify_properties(&props, &parity_keys()), Verification::Invalid);
+        assert_eq!(
+            verify_properties(&props, &parity_keys()),
+            Verification::Invalid
+        );
     }
 
     #[test]
@@ -214,21 +235,50 @@ mod tests {
     #[test]
     fn unsigned_when_no_signature() {
         let props = json!({"$exception_list": parity_exception_list()});
-        assert_eq!(verify_properties(&props, &parity_keys()), Verification::Unsigned);
+        assert_eq!(
+            verify_properties(&props, &parity_keys()),
+            Verification::Unsigned
+        );
+    }
+
+    #[test]
+    fn non_string_or_empty_signature_is_invalid_not_unsigned() {
+        // Present but malformed signature must be Invalid, not silently Unsigned.
+        for bad in [json!(123), json!(null), json!(""), json!({"x": 1})] {
+            let mut props = parity_properties();
+            props[SIGNATURE_PROPERTY] = bad.clone();
+            assert_eq!(
+                verify_properties(&props, &parity_keys()),
+                Verification::Invalid,
+                "signature {bad:?} should be Invalid"
+            );
+        }
     }
 
     #[test]
     fn invalid_when_no_matching_key() {
-        let keys = vec![PublicKey { key_id: "other".to_string(), public_key_pem: PARITY_PUBKEY_PEM.to_string() }];
+        let keys = vec![PublicKey {
+            key_id: "other".to_string(),
+            public_key_pem: PARITY_PUBKEY_PEM.to_string(),
+        }];
         // key_id names a key that isn't registered → no candidate → invalid.
-        assert_eq!(verify_properties(&parity_properties(), &keys), Verification::Invalid);
+        assert_eq!(
+            verify_properties(&parity_properties(), &keys),
+            Verification::Invalid
+        );
     }
 
     #[test]
     fn invalid_with_wrong_key() {
         // Generate a different keypair's PEM; the parity signature must not verify under it.
         let other_pem = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=\n-----END PUBLIC KEY-----\n";
-        let keys = vec![PublicKey { key_id: PARITY_KEY_ID.to_string(), public_key_pem: other_pem.to_string() }];
-        assert_eq!(verify_properties(&parity_properties(), &keys), Verification::Invalid);
+        let keys = vec![PublicKey {
+            key_id: PARITY_KEY_ID.to_string(),
+            public_key_pem: other_pem.to_string(),
+        }];
+        assert_eq!(
+            verify_properties(&parity_properties(), &keys),
+            Verification::Invalid
+        );
     }
 }

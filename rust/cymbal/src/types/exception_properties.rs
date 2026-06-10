@@ -12,7 +12,7 @@ use crate::{
     issue_resolution::Issue,
     langs::apple::AppleDebugImage,
     recursively_sanitize_properties,
-    types::{event::AnyEvent, ExceptionList, OutputErrProps},
+    types::{event::AnyEvent, strip_reserved_properties, ExceptionList, OutputErrProps},
 };
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
@@ -116,7 +116,9 @@ impl ExceptionProperties {
             proposed_fingerprint,
             fingerprint_record: self.fingerprint_record.clone().unwrap_or_default(),
             issue_id,
-            other: self.props.clone(),
+            // Strip reserved $exception_* keys so a client can't forge server-controlled fields
+            // (e.g. $exception_verified) in the HTTP ingestion path, which uses this to_output.
+            other: strip_reserved_properties(self.props.clone()),
             handled,
             releases,
             types,
