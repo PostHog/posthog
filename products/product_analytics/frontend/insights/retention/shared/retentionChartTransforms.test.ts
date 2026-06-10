@@ -328,14 +328,62 @@ describe('retentionChartTransforms', () => {
 
         // TZ is pinned to UTC in jest.config, so these locale strings are deterministic.
         it.each([
-            { name: 'Day period', cohort: withDate('2024-03-15'), num: 1, period: 'Day', expected: 'Cohort 1 (Mar 15)' },
-            { name: 'Week falls back to day format', cohort: withDate('2024-03-15'), num: 2, period: 'Week', expected: 'Cohort 2 (Mar 15)' },
-            { name: 'Month period', cohort: withDate('2024-03-15'), num: 3, period: 'Month', expected: 'Cohort 3 (Mar 2024)' },
-            { name: 'Hour period', cohort: withDate('2024-03-15T13:00:00Z'), num: 4, period: 'Hour', expected: 'Cohort 4 (Mar 15, 1 PM)' },
-            { name: 'breakdown + date', cohort: withDate('2024-03-15', 'Chrome'), num: 1, period: 'Day', expected: 'Cohort 1 (Chrome, Mar 15)' },
-            { name: 'breakdown, no date', cohort: withDate(null, 'Chrome'), num: 1, period: 'Day', expected: 'Cohort 1 (Chrome)' },
-            { name: 'empty-string breakdown is ignored', cohort: withDate('2024-03-15', ''), num: 1, period: 'Day', expected: 'Cohort 1 (Mar 15)' },
-            { name: 'invalid date, no breakdown', cohort: withDate('not-a-date'), num: 1, period: 'Day', expected: 'Cohort 1' },
+            {
+                name: 'Day period',
+                cohort: withDate('2024-03-15'),
+                num: 1,
+                period: 'Day',
+                expected: 'Cohort 1 (Mar 15)',
+            },
+            {
+                name: 'Week falls back to day format',
+                cohort: withDate('2024-03-15'),
+                num: 2,
+                period: 'Week',
+                expected: 'Cohort 2 (Mar 15)',
+            },
+            {
+                name: 'Month period',
+                cohort: withDate('2024-03-15'),
+                num: 3,
+                period: 'Month',
+                expected: 'Cohort 3 (Mar 2024)',
+            },
+            {
+                name: 'Hour period',
+                cohort: withDate('2024-03-15T13:00:00Z'),
+                num: 4,
+                period: 'Hour',
+                expected: 'Cohort 4 (Mar 15, 1 PM)',
+            },
+            {
+                name: 'breakdown + date',
+                cohort: withDate('2024-03-15', 'Chrome'),
+                num: 1,
+                period: 'Day',
+                expected: 'Cohort 1 (Chrome, Mar 15)',
+            },
+            {
+                name: 'breakdown, no date',
+                cohort: withDate(null, 'Chrome'),
+                num: 1,
+                period: 'Day',
+                expected: 'Cohort 1 (Chrome)',
+            },
+            {
+                name: 'empty-string breakdown is ignored',
+                cohort: withDate('2024-03-15', ''),
+                num: 1,
+                period: 'Day',
+                expected: 'Cohort 1 (Mar 15)',
+            },
+            {
+                name: 'invalid date, no breakdown',
+                cohort: withDate('not-a-date'),
+                num: 1,
+                period: 'Day',
+                expected: 'Cohort 1',
+            },
             { name: 'null date, no breakdown', cohort: withDate(null), num: 7, period: 'Day', expected: 'Cohort 7' },
         ])('formats $name', ({ cohort, num, period, expected }) => {
             expect(formatRetentionCohortLabel(cohort, num, period)).toBe(expected)
