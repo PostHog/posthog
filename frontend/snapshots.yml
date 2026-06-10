@@ -5382,6 +5382,10 @@ snapshots:
         hash: v1.k794b7964.3c6b02398e9549974a8f79fd1a2d33c994c561817036e93fdf931f6209bebead.SfSciYNGfgRXpksGf8rxFEKBp30Czke2bKIseYIBLrk
     scenes-app-mcp-analytics--dashboard--light:
         hash: v1.k794b7964.09589f49fe0b959b79652e6dadf9e38981aecdf5fa383dc7a1bbfd4c1e0649aa.abSoArXwTLreeJ_FkcqqbgT3I2mTbbgPy_uvrfYJous
+    scenes-app-mcp-analytics--sessions--dark:
+        hash: v1.k794b7964.a033f7dca28cc0bfea783c71c6c2cbed6c58f87d705aa4772742c6f7136a437a.vFUlACgvfOrTJfC2Ogf7u7myI9SL_njtFgyBD88-TqE
+    scenes-app-mcp-analytics--sessions--light:
+        hash: v1.k794b7964.497d9ae69307438f3ef9ebfc80bb948ffd70d285eda4192f6b2e21f1a66d3eba.XI5y0bJbIitncOcXS_6Gxcr4pgGCK1moA7JIAstwuL4
     scenes-app-notebooks--bullet-list--dark:
         hash: v1.k794b7964.c7c5dfe337693536142bc9639702709b7d216d904d2da3f43ab4c96680cdc432.eeLoK54C3FeTqq7GXQs6uG1crx5J-sP4v1G16Q9Gsw0
     scenes-app-notebooks--bullet-list--light:

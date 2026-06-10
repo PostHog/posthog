@@ -306,6 +306,32 @@ class TestHogFlowAPI(APIBaseTest):
         }
         assert flow_conversion["bytecode"] == expected_conversion_bytecode
 
+    def test_hog_flow_conversion_event_object_in_filters_is_relocated(self):
+        # A client (e.g. MCP) that sends an event-based conversion goal as an object in the property
+        # slot must not persist the malformed shape: it is relocated to conversion.events and compiled,
+        # and conversion.filters is cleared. Mirrors the one-time backfill in migration 0009. Without
+        # this guard the object would fail property-list validation (non-draft) or silently persist.
+        event_obj = {
+            "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+            "source": "events",
+        }
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {"filters": event_obj, "window_minutes": None}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conversion = response.json()["conversion"]
+        assert conversion["filters"] == [], conversion
+        assert len(conversion["events"]) == 1, conversion
+        moved = conversion["events"][0]["filters"]
+        assert moved["events"] == event_obj["events"]
+        assert moved["bytecode"], moved
+        assert "purchase" in moved["bytecode"]
+
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
             "_H",
