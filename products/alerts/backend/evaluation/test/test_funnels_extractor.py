@@ -88,9 +88,10 @@ def test_non_steps_viz_raises():
         _extract(_steps(100, 40), viz="time_to_convert")
 
 
-def test_relative_condition_raises():
+@pytest.mark.parametrize("condition_type", [AlertConditionType.RELATIVE_INCREASE, AlertConditionType.RELATIVE_DECREASE])
+def test_relative_condition_raises(condition_type):
     with pytest.raises(AlertExtractionError, match="absolute value conditions"):
-        _extract(_steps(100, 40), condition_type=AlertConditionType.RELATIVE_DECREASE)
+        _extract(_steps(100, 40), condition_type=condition_type)
 
 
 def test_breakdown_yields_one_series_per_value():

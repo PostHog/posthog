@@ -1,6 +1,13 @@
 from typing import Any, cast
 
-from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery, FunnelVizType
+from posthog.schema import (
+    AlertCondition,
+    AlertConditionType,
+    FunnelConversionMetric,
+    FunnelsAlertConfig,
+    FunnelsQuery,
+    FunnelVizType,
+)
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -99,7 +106,7 @@ def _conversion_rate(steps: list[dict[str, Any]], config: FunnelsAlertConfig) ->
     if step_index < 0 or step_index >= step_count:
         raise AlertExtractionError(f"funnel_step {step_index} is out of range (funnel has {step_count} steps).")
 
-    if config.metric == "conversion_from_previous":
+    if config.metric == FunnelConversionMetric.CONVERSION_FROM_PREVIOUS:
         if step_index == 0:
             raise AlertExtractionError(
                 "conversion_from_previous is undefined at the first step (there is no prior step); "

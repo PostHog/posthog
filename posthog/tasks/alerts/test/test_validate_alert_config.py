@@ -310,9 +310,18 @@ class TestValidateAlertConfig:
                 "Funnel alert config requires a FunnelsQuery insight",
             ),
             (
-                "funnels_relative_condition_rejected",
+                "funnels_relative_decrease_rejected",
                 _funnels_query(),
                 _base_condition("relative_decrease"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "Funnel alerts only support absolute value conditions",
+            ),
+            (
+                "funnels_relative_increase_rejected",
+                _funnels_query(),
+                _base_condition("relative_increase"),
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
@@ -326,6 +335,15 @@ class TestValidateAlertConfig:
                 _base_threshold(),
                 "daily",
                 "undefined at the first step",
+            ),
+            (
+                "funnels_negative_step_rejected",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": -1},
+                _base_threshold(),
+                "daily",
+                "funnel_step must be >= 0",
             ),
         ]
     )
