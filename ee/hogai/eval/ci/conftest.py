@@ -10,6 +10,8 @@ from posthog.schema import FailureMessage, HumanMessage
 
 from posthog.models import Organization, Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
+
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent import AssistantGraph
@@ -27,7 +29,6 @@ from ee.hogai.eval.data_setup import (
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation, CoreMemory
 
 handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY") and os.environ.get("EVAL_MODE") != "offline":
@@ -110,19 +111,19 @@ def call_root_for_insight_generation(demo_org_team_user):
 def demo_org_team_user(
     set_up_evals,  # noqa: F811
     django_db_blocker,
-) -> Generator[tuple[Organization, Team, User], None, None]:
+) -> Generator[tuple[Organization, Team, User]]:
     yield create_demo_org_team_user(django_db_blocker)
 
 
 @pytest.fixture(scope="session", autouse=True)
-def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
+def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory]:
     yield create_core_memory(demo_org_team_user[1], django_db_blocker)
 
 
 @pytest.fixture
 def dashboard_with_insights(
     demo_org_team_user,
-) -> Generator[DashboardWithInsightsFixture, None, None]:
+) -> Generator[DashboardWithInsightsFixture]:
     """Creates a dashboard with 3 insights and 1 replacement insight for testing UpsertDashboardTool."""
     yield create_dashboard_with_insights(*demo_org_team_user)
     # No manual cleanup needed - Django's test framework handles rollback automatically

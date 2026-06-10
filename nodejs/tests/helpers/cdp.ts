@@ -12,6 +12,7 @@ import { InternalCaptureService } from '../../src/common/services/internal-captu
 import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub } from '../../src/types'
+import { GroupReadRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonReadRepository } from '../../src/worker/ingestion/persons/repositories/person-repository'
 
 /**
@@ -32,9 +33,15 @@ function buildTestCdpProducerRegistry(
 }
 
 /**
- * No-op PersonReadRepository for tests that don't exercise person lookups.
- * Tests that need person resolution should override via spread.
+ * No-op read repositories for tests that don't exercise person/group lookups.
+ * Tests that need real resolution should override via spread.
  */
+const noopGroupReadRepository: GroupReadRepository = {
+    fetchGroupsByKeys: () => Promise.resolve([]),
+    fetchGroupTypesByTeamIds: () => Promise.resolve({}),
+    fetchGroupTypesByProjectIds: () => Promise.resolve({}),
+}
+
 const noopPersonReadRepository: PersonReadRepository = {
     fetchPerson: () => Promise.resolve(undefined),
     fetchPersonsByDistinctIds: () => Promise.resolve([]),
@@ -53,7 +60,7 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         internalCaptureService: new InternalCaptureService(hub),
         personRepository: noopPersonReadRepository,
         geoipService: hub.geoipService,
-        groupRepository: hub.groupRepository,
+        groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
     }
 }

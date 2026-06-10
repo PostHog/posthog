@@ -6,9 +6,9 @@ from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.batch_exports.models import BatchExportFileDownload, BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
     ExportInputs,

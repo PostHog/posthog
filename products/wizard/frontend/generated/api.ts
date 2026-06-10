@@ -21,7 +21,7 @@ export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -89,7 +89,7 @@ export const getWizardSessionsStreamRetrieveUrl = (projectId: string, params: Wi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -102,8 +102,8 @@ export const getWizardSessionsStreamRetrieveUrl = (projectId: string, params: Wi
 
 /**
  * Server-Sent Events stream of wizard session updates for a (workflow_id, skill_id) pair. On connect, the current latest session (if any) is emitted as the first event; subsequent upserts are streamed in real time. The server closes the connection after 1800 seconds with an `event: end` line so the client (EventSource) can reconnect.
-
-**SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer the entire infinite stream. Use the URL builder (`getWizardSessionsStreamRetrieveUrl`) with the browser's `EventSource` API instead.
+ *
+ * **SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer the entire infinite stream. Use the URL builder (`getWizardSessionsStreamRetrieveUrl`) with the browser's `EventSource` API instead.
  */
 export const wizardSessionsStreamRetrieve = async (
     projectId: string,
