@@ -76,9 +76,12 @@ export class Clickhouse {
         this.client.close()
     }
 
-    // Memoized so repeated truncates don't re-query the database name. Reset
-    // on failure so a transient connection error doesn't get cached as a
-    // permanently rejected promise.
+    // Memoized so repeated truncates don't re-query the database name. The
+    // onRejected handler resets the cache when the `query` itself fails (a
+    // transient connection error), so it isn't cached as a permanently rejected
+    // promise. An assertTestDatabaseName failure throws from onFulfilled and
+    // stays cached on purpose: it's a deterministic verdict on a fixed database
+    // name, so re-querying would only reach the same conclusion.
     private databaseGuard?: Promise<void>
     private ensureTestDatabase(): Promise<void> {
         this.databaseGuard ??= this.query<{ name: string }>('SELECT currentDatabase() AS name').then(
