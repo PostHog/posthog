@@ -571,6 +571,20 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual(createTestEventHeaders({ timestamp: '1234567890' }))
     })
 
+    it('should parse ai byte-size headers as integers', () => {
+        const headers: MessageHeader[] = [
+            { ai_bytes_uncompressed: Buffer.from('2048'), ai_bytes_compressed: Buffer.from('512') },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual(createTestEventHeaders({ ai_bytes_uncompressed: 2048, ai_bytes_compressed: 512 }))
+    })
+
+    it('should ignore non-numeric ai byte-size headers', () => {
+        const headers: MessageHeader[] = [{ ai_bytes_uncompressed: Buffer.from('not-a-number') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual(createTestEventHeaders())
+    })
+
     it('should parse all supported headers', () => {
         const headers: MessageHeader[] = [
             {

@@ -168,6 +168,7 @@ pub fn process_single_event(
         redirect_to_topic: None,
         skip_heatmap_processing: false,
         overflow_reason: None,
+        ai_capture_bytes: None,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {

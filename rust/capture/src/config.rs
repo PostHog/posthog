@@ -217,6 +217,13 @@ pub struct Config {
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
 
+    // When enabled, the AI capture endpoints stamp the uncompressed and
+    // compressed request byte sizes onto produced events so the ingestion
+    // consumer can record per-team LLM analytics usage into app_metrics2.
+    // Off by default: zero behavioral change to the AI path when disabled.
+    #[envconfig(default = "false")]
+    pub ai_usage_metrics_enabled: bool,
+
     // AI endpoint S3 blob storage configuration
     pub ai_s3_bucket: Option<String>,
     #[envconfig(default = "llma/")]

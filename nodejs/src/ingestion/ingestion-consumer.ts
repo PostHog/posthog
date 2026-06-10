@@ -277,6 +277,7 @@ export class IngestionConsumer {
                 this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
                 this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
+            aiUsageMetricsEnabled: this.config.INGESTION_AI_USAGE_METRICS_ENABLED,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,

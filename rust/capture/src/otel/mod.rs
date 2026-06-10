@@ -21,6 +21,7 @@ use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
+use crate::v0_request::AiCaptureBytes;
 
 pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
@@ -209,6 +210,20 @@ pub async fn otel_handler(
     // batch path: spans with different `token:distinct_id` keys can land
     // with different `overflow_reason` stamps in the same batch.
     stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
+
+    // Attribute the whole request's byte size to the first span only, so the
+    // ingestion consumer counts each OTEL request once (all spans share a team).
+    // OTEL bodies are not gzip-decompressed here, so compressed == uncompressed.
+    if state.ai_usage_metrics_enabled {
+        if let Some(first) = processed_events.first_mut() {
+            histogram!("capture_ai_request_bytes_uncompressed").record(body_len as f64);
+            histogram!("capture_ai_request_bytes_compressed").record(body_len as f64);
+            first.metadata.ai_capture_bytes = Some(AiCaptureBytes {
+                uncompressed: body_len as i64,
+                compressed: body_len as i64,
+            });
+        }
+    }
 
     state.sink.send_batch(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");

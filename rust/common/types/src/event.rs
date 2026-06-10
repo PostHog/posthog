@@ -124,9 +124,24 @@ pub struct CapturedEventHeaders {
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
     pub content_encoding: Option<String>,
+    /// Uncompressed byte size of the request payload this event came in on.
+    /// Only stamped by the AI capture endpoints when usage-metric tracking is
+    /// enabled; consumed downstream to bill LLM analytics ingestion volume.
+    pub ai_bytes_uncompressed: Option<i64>,
+    /// Compressed (on-the-wire) byte size of the request payload this event
+    /// came in on. See `ai_bytes_uncompressed`.
+    pub ai_bytes_compressed: Option<i64>,
 }
 
 impl CapturedEventHeaders {
+    pub fn set_ai_bytes_uncompressed(&mut self, value: i64) {
+        self.ai_bytes_uncompressed = Some(value);
+    }
+
+    pub fn set_ai_bytes_compressed(&mut self, value: i64) {
+        self.ai_bytes_compressed = Some(value);
+    }
+
     pub fn set_force_disable_person_processing(&mut self, value: bool) {
         self.force_disable_person_processing = Some(value);
     }
@@ -228,6 +243,20 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: Some(encoding.as_str()),
             });
         }
+        if let Some(bytes) = headers.ai_bytes_uncompressed {
+            let val = bytes.to_string();
+            owned = owned.insert(Header {
+                key: "ai_bytes_uncompressed",
+                value: Some(val.as_str()),
+            });
+        }
+        if let Some(bytes) = headers.ai_bytes_compressed {
+            let val = bytes.to_string();
+            owned = owned.insert(Header {
+                key: "ai_bytes_compressed",
+                value: Some(val.as_str()),
+            });
+        }
 
         owned
     }
@@ -265,6 +294,12 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             dlq_step: headers_map.get("dlq_step").cloned(),
             dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
             content_encoding: headers_map.get("content-encoding").cloned(),
+            ai_bytes_uncompressed: headers_map
+                .get("ai_bytes_uncompressed")
+                .and_then(|v| v.parse::<i64>().ok()),
+            ai_bytes_compressed: headers_map
+                .get("ai_bytes_compressed")
+                .and_then(|v| v.parse::<i64>().ok()),
         }
     }
 }
@@ -326,6 +361,8 @@ impl CapturedEvent {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
         }
     }
 
@@ -526,6 +563,49 @@ impl CapturedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_headers() -> CapturedEventHeaders {
+        CapturedEventHeaders {
+            token: None,
+            distinct_id: None,
+            session_id: None,
+            timestamp: None,
+            event: None,
+            uuid: None,
+            now: None,
+            force_disable_person_processing: None,
+            historical_migration: None,
+            skip_heatmap_processing: None,
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
+            content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
+        }
+    }
+
+    #[test]
+    fn test_ai_byte_headers_roundtrip_through_owned_headers() {
+        let mut headers = empty_headers();
+        headers.set_ai_bytes_uncompressed(4096);
+        headers.set_ai_bytes_compressed(1024);
+
+        let owned: OwnedHeaders = headers.into();
+        let parsed = CapturedEventHeaders::from(owned);
+
+        assert_eq!(parsed.ai_bytes_uncompressed, Some(4096));
+        assert_eq!(parsed.ai_bytes_compressed, Some(1024));
+    }
+
+    #[test]
+    fn test_ai_byte_headers_absent_when_unset() {
+        let owned: OwnedHeaders = empty_headers().into();
+        let parsed = CapturedEventHeaders::from(owned);
+
+        assert_eq!(parsed.ai_bytes_uncompressed, None);
+        assert_eq!(parsed.ai_bytes_compressed, None);
+    }
 
     #[test]
     fn test_extract_distinct_id_whitespace_only_returns_none() {

@@ -430,6 +430,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let redirect_to_topic = metadata.redirect_to_topic;
         let skip_heatmap_processing = metadata.skip_heatmap_processing;
         let overflow_reason = metadata.overflow_reason;
+        let ai_capture_bytes = metadata.ai_capture_bytes;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
@@ -443,6 +444,13 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         if skip_heatmap_processing {
             headers.set_skip_heatmap_processing(true);
+        }
+
+        // Stamp AI usage byte sizes when the AI endpoints measured them, so the
+        // ingestion consumer can attribute LLM analytics volume to a team.
+        if let Some(bytes) = ai_capture_bytes {
+            headers.set_ai_bytes_uncompressed(bytes.uncompressed);
+            headers.set_ai_bytes_compressed(bytes.compressed);
         }
 
         // Check for redirect_to_dlq first - takes priority over all other routing
@@ -921,6 +929,7 @@ mod tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            ai_capture_bytes: None,
         };
 
         let event = ProcessedEvent {
@@ -1073,6 +1082,8 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -1095,6 +1106,8 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -1125,6 +1138,8 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
         };
 
         // Convert to owned headers and back
@@ -1160,6 +1175,8 @@ mod tests {
             dlq_step: Some("test step".to_string()),
             dlq_timestamp: Some(dlq_timestamp.clone()),
             content_encoding: None,
+            ai_bytes_uncompressed: None,
+            ai_bytes_compressed: None,
         };
 
         // Convert to owned headers and back
@@ -1170,6 +1187,77 @@ mod tests {
         assert_eq!(parsed_headers.dlq_reason, Some("test reason".to_string()));
         assert_eq!(parsed_headers.dlq_step, Some("test step".to_string()));
         assert_eq!(parsed_headers.dlq_timestamp, Some(dlq_timestamp));
+    }
+
+    fn ai_test_event(
+        ai_capture_bytes: Option<crate::v0_request::AiCaptureBytes>,
+    ) -> ProcessedEvent {
+        let event = CapturedEvent {
+            uuid: uuid_v7(),
+            distinct_id: "ai_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: "{}".to_string(),
+            now: "2024-01-01T00:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "$ai_generation".to_string(),
+            timestamp: chrono::Utc::now(),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+        let metadata = ProcessedEventMetadata {
+            data_type: DataType::AnalyticsMain,
+            session_id: None,
+            computed_timestamp: None,
+            event_name: "$ai_generation".to_string(),
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            redirect_to_topic: None,
+            skip_heatmap_processing: false,
+            overflow_reason: None,
+            ai_capture_bytes,
+        };
+        ProcessedEvent { event, metadata }
+    }
+
+    #[tokio::test]
+    async fn test_ai_usage_bytes_headers_stamped_when_present() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+        use crate::v0_request::AiCaptureBytes;
+
+        let producer = MockKafkaProducer::new();
+        let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+        sink.send(ai_test_event(Some(AiCaptureBytes {
+            uncompressed: 2048,
+            compressed: 512,
+        })))
+        .await
+        .unwrap();
+
+        let records = producer.get_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].headers.ai_bytes_uncompressed, Some(2048));
+        assert_eq!(records[0].headers.ai_bytes_compressed, Some(512));
+    }
+
+    #[tokio::test]
+    async fn test_ai_usage_bytes_headers_absent_when_unset() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        let producer = MockKafkaProducer::new();
+        let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+        sink.send(ai_test_event(None)).await.unwrap();
+
+        let records = producer.get_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].headers.ai_bytes_uncompressed, None);
+        assert_eq!(records[0].headers.ai_bytes_compressed, None);
     }
 
     #[cfg(test)]
@@ -1236,6 +1324,7 @@ mod tests {
                 redirect_to_topic: input.redirect_to_topic.clone(),
                 skip_heatmap_processing: false,
                 overflow_reason: input.overflow_reason.clone(),
+                ai_capture_bytes: None,
             };
 
             ProcessedEvent { event, metadata }

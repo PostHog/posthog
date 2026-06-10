@@ -890,6 +890,10 @@ export interface EventHeaders {
     force_disable_person_processing: boolean
     historical_migration: boolean
     skip_heatmap_processing: boolean
+    /** Uncompressed request byte size, stamped by AI capture when usage metrics are enabled. */
+    ai_bytes_uncompressed?: number
+    /** Compressed (on-the-wire) request byte size, stamped by AI capture when usage metrics are enabled. */
+    ai_bytes_compressed?: number
 }
 
 export interface IncomingEvent {

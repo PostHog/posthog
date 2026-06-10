@@ -142,6 +142,7 @@ mod tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            ai_capture_bytes: None,
         };
 
         ProcessedEvent { event, metadata }

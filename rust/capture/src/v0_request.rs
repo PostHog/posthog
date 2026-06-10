@@ -237,6 +237,15 @@ pub enum OverflowReason {
     ReplayLimited,
 }
 
+/// Request byte sizes measured at the AI capture endpoints, carried through to
+/// the kafka sink so they can be stamped as headers for downstream usage
+/// metering. Only populated when `ai_usage_metrics_enabled` is set.
+#[derive(Debug, Clone, Copy)]
+pub struct AiCaptureBytes {
+    pub uncompressed: i64,
+    pub compressed: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessedEventMetadata {
     pub data_type: DataType,
@@ -259,6 +268,9 @@ pub struct ProcessedEventMetadata {
     /// [`OverflowReason`] for who sets this and what each variant maps to in
     /// the kafka sink.
     pub overflow_reason: Option<OverflowReason>,
+    /// Request byte sizes for AI usage metering, stamped onto kafka headers by
+    /// the sink. `None` for all non-AI paths and when the feature is disabled.
+    pub ai_capture_bytes: Option<AiCaptureBytes>,
 }
 
 #[cfg(test)]

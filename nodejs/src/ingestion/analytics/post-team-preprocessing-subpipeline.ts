@@ -9,8 +9,10 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { AiUsageBatchAppMetrics } from '../common/ai-usage/batch-app-metrics'
 import { EventFilterManager } from '../common/event-filters'
 import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
+import { createTrackAiUsageMetricsStep } from '../common/steps/ai-usage-metrics-steps'
 import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
@@ -33,6 +35,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
     event: PluginEvent
     team: Team
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
+    aiUsageBatchAppMetrics: AiUsageBatchAppMetrics
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
@@ -48,6 +51,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformerService
     cdpHogWatcherSampleRate: number
+    aiUsageMetricsEnabled: boolean
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
@@ -67,6 +71,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        aiUsageMetricsEnabled,
     } = config
 
     return (
@@ -83,6 +88,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
                     .pipe(createApplyEventFiltersStep(eventFilterManager))
+                    .pipe(createTrackAiUsageMetricsStep(aiUsageMetricsEnabled))
             })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events

@@ -178,6 +178,13 @@ export type IngestionConsumerConfig = {
      */
     INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
 
+    /**
+     * When enabled, record per-team LLM analytics request byte sizes (uncompressed +
+     * compressed, stamped by AI capture) into app_metrics2. Off by default; the
+     * matching capture flag (AI_USAGE_METRICS_ENABLED) must also be on for sizes to arrive.
+     */
+    INGESTION_AI_USAGE_METRICS_ENABLED: boolean
+
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
@@ -278,6 +285,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
         INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
         INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
+        INGESTION_AI_USAGE_METRICS_ENABLED: false,
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,

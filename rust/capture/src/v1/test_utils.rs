@@ -794,6 +794,7 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
+            ai_usage_metrics_enabled: false,
             ai_blob_storage: None,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,

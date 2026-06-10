@@ -14,6 +14,27 @@ behind env-var flags so it can be turned on/off without a code change.
 The feature is **off by default**. When off, there is zero behavioral or throughput change
 to the AI ingestion path.
 
+## Implemented (as shipped)
+
+The recommended design below was implemented. Final decisions that differ from / refine the
+draft:
+
+- **Capture flag**: `AI_USAGE_METRICS_ENABLED` (Rust `Config::ai_usage_metrics_enabled`),
+  matching the existing `AI_*` capture config naming (no `CAPTURE_` prefix).
+- **Consumer flag**: `INGESTION_AI_USAGE_METRICS_ENABLED`.
+- **Transport**: Kafka headers `ai_bytes_uncompressed` / `ai_bytes_compressed`, carried from
+  the AI endpoints to the sink via a new `ProcessedEventMetadata.ai_capture_bytes` field and
+  added to `CapturedEventHeaders`. No event-body pollution.
+- **Metrics written**: `app_source="llm_analytics"`, `metric_kind="usage"`,
+  `metric_name ∈ { "bytes_received", "bytes_received_compressed" }`. The draft's
+  `events_received` was dropped to avoid ambiguity with OTEL (one request → many spans).
+- **Consumer aggregation**: a dedicated per-batch `AiUsageBatchAppMetrics` (mirrors the
+  existing `EventFiltersBatchAppMetrics` before/after-batch pattern) rather than the shared
+  `AppMetricsAggregator`, since the joined pipeline already uses the batch-context pattern.
+- **OTEL**: the whole request's size is stamped onto the first span only, so per-team byte
+  totals count each request once. OTEL bodies are not gzip-decompressed, so compressed ==
+  uncompressed there.
+
 ## Background: how logs does it today
 
 The logs pipeline splits the work across the Rust capture layer and a Node consumer:

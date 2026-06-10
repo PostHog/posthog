@@ -318,6 +318,7 @@ pub async fn build_components(
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
+        config.ai_usage_metrics_enabled,
         ai_blob_storage,
         config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,

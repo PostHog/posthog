@@ -22,6 +22,10 @@ const AI_BLOB_SIZE_BYTES: &str = "capture_ai_blob_size_bytes";
 const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_event";
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
+// Usage metrics (only recorded when ai_usage_metrics_enabled)
+const AI_REQUEST_BYTES_UNCOMPRESSED: &str = "capture_ai_request_bytes_uncompressed";
+const AI_REQUEST_BYTES_COMPRESSED: &str = "capture_ai_request_bytes_compressed";
+
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
@@ -33,7 +37,7 @@ use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::{AiCaptureBytes, DataType, ProcessedEvent, ProcessedEventMetadata};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {
@@ -157,6 +161,11 @@ async fn ai_handler_inner(
     if body.is_empty() {
         return Err(CaptureError::EmptyPayload);
     }
+
+    // Compressed (on-the-wire) size of the request, captured before decompression
+    // and before `body` is consumed. Equals the uncompressed size when the client
+    // did not gzip. Only used for usage metering when the feature is enabled.
+    let compressed_size = body.len();
 
     // Authenticate before any CPU/memory-intensive decompression work
     let auth_header = headers
@@ -356,8 +365,15 @@ async fn ai_handler_inner(
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, mut processed_event) =
-        build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
+    let (accepted_parts, mut processed_event) = build_kafka_event(
+        parsed,
+        token,
+        &client_ip,
+        &state,
+        &applied_restrictions,
+        compressed_size,
+        body_size,
+    )?;
 
     // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
     // pipeline stamps overflow reasons inside `process_events`, but AI
@@ -478,12 +494,15 @@ fn is_valid_blob_content_type(content_type: &str) -> bool {
 }
 
 /// Build a Kafka event from parsed multipart data
+#[allow(clippy::too_many_arguments)]
 fn build_kafka_event(
     parsed: ParsedMultipartData,
     token: &str,
     client_ip: &str,
     state: &AppState,
     restrictions: &AppliedRestrictions,
+    compressed_bytes: usize,
+    uncompressed_bytes: usize,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -550,6 +569,19 @@ fn build_kafka_event(
         historical_migration: false,
     };
 
+    // Record request byte sizes for LLM analytics usage metering. Gated so the
+    // AI path is unchanged when the feature is off.
+    let ai_capture_bytes = if state.ai_usage_metrics_enabled {
+        histogram!(AI_REQUEST_BYTES_UNCOMPRESSED).record(uncompressed_bytes as f64);
+        histogram!(AI_REQUEST_BYTES_COMPRESSED).record(compressed_bytes as f64);
+        Some(AiCaptureBytes {
+            uncompressed: uncompressed_bytes as i64,
+            compressed: compressed_bytes as i64,
+        })
+    } else {
+        None
+    };
+
     // Create metadata
     let metadata = ProcessedEventMetadata {
         data_type: DataType::AnalyticsMain,
@@ -562,6 +594,7 @@ fn build_kafka_event(
         redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason: None,
+        ai_capture_bytes,
     };
 
     // Create ProcessedEvent

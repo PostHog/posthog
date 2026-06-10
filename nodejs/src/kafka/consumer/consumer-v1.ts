@@ -902,6 +902,16 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.historical_migration = value === 'true'
             } else if (key === 'skip_heatmap_processing') {
                 result.skip_heatmap_processing = value === 'true'
+            } else if (key === 'ai_bytes_uncompressed') {
+                const parsed = parseInt(value, 10)
+                if (!isNaN(parsed)) {
+                    result.ai_bytes_uncompressed = parsed
+                }
+            } else if (key === 'ai_bytes_compressed') {
+                const parsed = parseInt(value, 10)
+                if (!isNaN(parsed)) {
+                    result.ai_bytes_compressed = parsed
+                }
             }
         })
     })

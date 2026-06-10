@@ -119,7 +119,8 @@ async fn setup_analytics_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        None, // no blob storage for analytics
+        false, // ai_usage_metrics_enabled
+        None,  // no blob storage for analytics
         Some(10),
         None,
         256,              // body_read_chunk_size_kb
@@ -462,6 +463,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
+        false, // ai_usage_metrics_enabled
         None,
         Some(10),
         None,

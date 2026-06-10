@@ -185,6 +185,7 @@ async fn setup_ai_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
+        false, // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()),
         Some(10),
         None,
@@ -503,6 +504,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
+        false, // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()),
         Some(10),
         None,
@@ -578,6 +580,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         false,
         0.0_f32,
         26_214_400,
+        false, // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()),
         Some(10),
         None,

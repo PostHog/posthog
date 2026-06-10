@@ -174,6 +174,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         false,            // is_mirror_deploy
         0.0_f32,          // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
+        false,            // ai_usage_metrics_enabled
         Some(Arc::new(MockBlobStorage::new(
             "test-bucket".to_string(),
             "llma/".to_string(),

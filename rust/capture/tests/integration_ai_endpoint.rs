@@ -187,6 +187,7 @@ fn setup_ai_test_router() -> Router {
         false,
         0.0_f32,
         26_214_400,                       // 25MB default for AI endpoint
+        false,                            // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -1649,6 +1650,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         false,
         0.0_f32,
         26_214_400,                       // 25MB default for AI endpoint
+        false,                            // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -2563,6 +2565,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,                            // is_mirror_deploy
         0.0,                              // verbose_sample_percent
         26_214_400,                       // ai_max_sum_of_parts_bytes
+        false,                            // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -2772,6 +2775,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
+        false,                            // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -2926,6 +2930,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         false,
         0.0_f32,
         26_214_400,
+        false, // ai_usage_metrics_enabled
         Some(create_mock_blob_storage()),
         Some(10),
         None,

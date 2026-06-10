@@ -11,6 +11,11 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    AiUsageBatchContext,
+    createAiUsageBatchAppMetricsBeforeBatchStep,
+    createFlushAiUsageBatchAppMetricsStep,
+} from '../common/steps/ai-usage-metrics-steps'
 import { createDenyEventsStep } from '../common/steps/deny-events'
 import {
     EventFiltersBatchContext,
@@ -76,6 +81,8 @@ export interface JoinedIngestionPipelineConfig {
         | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
+    /** Record per-team LLM analytics request byte sizes into app_metrics2. */
+    aiUsageMetricsEnabled: boolean
     perDistinctIdOptions: EventPipelineRunnerOptions
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
@@ -142,6 +149,7 @@ export function createJoinedIngestionPipeline<
         groupId,
         outputs,
         splitAiEventsConfig,
+        aiUsageMetricsEnabled,
         perDistinctIdOptions,
         concurrentBatches,
     } = config
@@ -182,6 +190,7 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        aiUsageMetricsEnabled,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
@@ -201,11 +210,14 @@ export function createJoinedIngestionPipeline<
         TInput,
         void,
         TContext,
-        EventFiltersBatchContext,
+        EventFiltersBatchContext & AiUsageBatchContext,
         TContext,
         OverflowOutput | AsyncOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+        (beforeBatch) =>
+            beforeBatch
+                .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                .pipe(createAiUsageBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -263,7 +275,8 @@ export function createJoinedIngestionPipeline<
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushAiUsageBatchAppMetricsStep()),
         // Batch stores (personsStore, groupStore) are singletons that don't support
         // concurrent batches yet — they accumulate state across events and flush once.
         // The Rust consumer's per-worker Semaphore caps in-flight batches at the
