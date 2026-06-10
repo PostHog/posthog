@@ -16,12 +16,14 @@
 
 Canonical rule (also SKILL.md rule 1):
 
-- Backend: `required_product_access` on each `WIDGET_REGISTRY` entry → `get_widget_product_access_error` in `widget_access.py` for `run_widgets` and tile mutations
+- Backend: `required_product_access` on each `WidgetSpec` in `registry.py` (surfaced via `WIDGET_REGISTRY` / `get_widget_registry_entry`) → `get_widget_product_access_error` in `widget_access.py` for `run_widgets` and tile mutations
 - Frontend: matching `productAccess` on catalog + registry; `userHasDashboardWidgetProductAccess` in `DashboardWidgetItem.tsx`; extend `DashboardWidgetProductAccess` and `WIDGET_PRODUCT_ACCESS_CHECKS` when adding a gated product
 - **`required_scopes` on registry entries is documentation only** — never use it for enforcement
 - **Never** add per-type `if widget_type == …` in `dashboard.py`
 
 **Frontend `locked` alone is insufficient** — backend must enforce the same gate.
+
+**Error tracking list tile** — row status/assignee mutations: dashboard edit **or** Error tracking Editor (`userCanMutateErrorTrackingIssuesOnDashboard` in `widgetProductAccess.ts`). Tile filter PATCH still needs dashboard edit.
 
 ## Copy / move / duplicate
 

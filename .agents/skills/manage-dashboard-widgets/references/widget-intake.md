@@ -1,18 +1,35 @@
 # Widget intake — questions before coding
 
-Use when `/dashboard-widgets` **Path: Ship** ([SKILL.md §2](../SKILL.md#2-ship-a-new-widget_type)) — a **new `widget_type`**. Not for updates to shipped types.
+Use when `/manage-dashboard-widgets` **Path: Ship** ([SKILL.md §2](../SKILL.md#2-ship-a-new-widget_type)) — a **new `widget_type`**. Not for updates to shipped types.
 
 ## Agent workflow
 
 1. Parse the request into [spec fields](#spec-fields-to-lock) (product area, label intent).
 2. **[Discover product UI in the repo](#discover-product-ui-in-the-repo)** — before generic "what should the tile show?" questions.
-3. Apply [defaults from SKILL.md §2.2](../SKILL.md#22-infer--defaults).
-4. **Infer** `groupId` + add-modal placement ([rules](#infer-groupid-add-modal)) — never AskQuestion this.
-5. **Infer** `implementation_template` ([rules](#infer-implementation-template)) — never AskQuestion this.
-6. **[Resolve ambiguity](#resolve-ambiguity-ask-dont-guess)** — ask plain questions for anything still unclear; do not guess or offload to "pick for me" options.
-7. Post the spec summary below and get explicit confirmation before checklist §1.
+3. Apply [defaults and inference](#defaults-and-inference) — includes `groupId`, copy spine, list UX (never AskQuestion banned topics).
+4. **[Resolve ambiguity](#resolve-ambiguity-ask-dont-guess)** — ask plain questions for open fields; max 6 per round.
+5. Post the spec summary below and get explicit confirmation before checklist §1.
 
 Do not open the checklist until the engineer confirms (or says "defaults fine").
+
+## Defaults and inference
+
+Apply when confident after discovery; if ambiguous, [ask](#resolve-ambiguity-ask-dont-guess) — do not silently default.
+
+| Derive              | Default                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `widget_type`       | Unique `snake_case` from label                                                                                                             |
+| `groupId`           | [Infer rules](#infer-groupid-add-modal) — same section as sibling in product area                                                          |
+| Copy spine          | `error_tracking_list` → `widgets/error_tracking/` — [template rules](#infer-implementation-template)                                       |
+| Copy spine (replay) | `session_replay_list` when recordings, throttles, or session RBAC                                                                          |
+| Config              | List: `limit`, `orderBy`, `orderDirection`, `dateRange`, `filterTestAccounts`, optional `widgetFilters`                                    |
+| List UX             | Tile filter bar on card (not edit modal); pagination footer; `titleHref` in view mode — [list-widget-patterns.md](list-widget-patterns.md) |
+| RBAC                | Same `required_product_access` as sibling                                                                                                  |
+| Layout              | Sibling `defaultLayout`; explicit `minH` for dense lists — [layout-and-ux.md](layout-and-ux.md)                                            |
+| Setup gating        | Match sibling — [availability-and-gating.md](availability-and-gating.md)                                                                   |
+| `sharedPlaceholder` | Platform default                                                                                                                           |
+| Product UI          | Reuse scene list/card/empty/skeleton — [composition.md § Product visual parity](composition.md#product-visual-parity)                      |
+| Chart / graph body  | **Do not ship** — [architecture.md § Charts](architecture.md#charts--use-insight-tiles-not-widgets)                                        |
 
 ## Discover product UI in the repo
 
@@ -162,47 +179,20 @@ Include in the spec recap — engineer signs off:
 | **Query runner**                   | Exact function `run_*` calls — no parallel query path                                                 |
 | **Product UI reference**           | From [repo discovery](#discover-product-ui-in-the-repo) — scene + components                          |
 
-## Ask when not stated
+## Open fields (may need questions)
 
-Use as a **checklist of what might still be open** after discover + infer — not a form to dump on the user. Skip rows already locked. Work through [resolve ambiguity](#resolve-ambiguity-ask-dont-guess); cap **6 questions per round**.
+After discover + [defaults](#defaults-and-inference), skip locked rows. Cap **6 questions per round** — see [resolve ambiguity](#resolve-ambiguity-ask-dont-guess).
 
-### Product placement
+| Area            | Ask when still open                                                                    |
+| --------------- | -------------------------------------------------------------------------------------- |
+| Placement       | Label + description for Add widget picker (not internal `widget_type`)                 |
+| Data / UI       | Tile body component + scene (multiple discovery candidates); query runner if ambiguous |
+| Config          | Editable fields, defaults, anything that looks configurable but should stay fixed v1   |
+| Chrome / layout | `defaultLayout` / `minH` vs sibling; `titleHref` if discovery has no scene route       |
+| Access          | RBAC vs sibling; setup gate pattern; throttles; custom denial copy                     |
+| Sharing / MCP   | Custom `sharedPlaceholder`; extra `WidgetSpec.description` beyond `config_schema`      |
 
-1. **Label + description** — Picker name and one-line description (what users see in **Add widget**). Not the internal `widget_type`. Ask only if the request does not imply these.
-
-### Data and UI
-
-2. **Tile body** — Filled by [repo discovery](#discover-product-ui-in-the-repo). Ask only when multiple candidates or nothing found; options must name **components + scene**. Chart-primary discovery → stop ([architecture.md § Charts](architecture.md#charts--use-insight-tiles-not-widgets)).
-3. **Query source of truth** — Usually inferred from the same scene as the UI; ask only if discovery surfaces multiple runners.
-4. **Result shape** — Same as sibling `{ results: [...] }` or different? (Often infer from chosen UI + runner.)
-
-### Config and edit modal
-
-5. **Editable config** — Limit, sort, date range, filter test accounts, product-specific filters?
-6. **Defaults** — Default limit, sort, date range when tile is first added?
-7. **Hardcoded for v1** — Anything that looks configurable but should stay fixed?
-
-### Tile chrome and layout
-
-8. **Default size** — Match sibling `defaultLayout` or different `w`/`h`?
-9. **Minimum resize** — Explicit catalog `minH`? (Platform floor is 4 rows.)
-10. **Header "View" link** — `titleHref` to a product scene? (Often infer from discovery.)
-
-### Access, setup, limits
-
-11. **Product RBAC** — Same `productAccess` as sibling or different?
-12. **Setup before data** — Project prerequisite? Catalog `availability` vs inline gate in `Component` ([availability-and-gating.md](availability-and-gating.md)).
-13. **Listing throttles** — Same as standalone product API (replay pattern)?
-14. **Denied access copy** — Generic lock or custom message?
-
-### Sharing and agents
-
-15. **Public/shared dashboards** — Default placeholder or custom **`sharedPlaceholder`**?
-16. **MCP catalog copy** — Extra `config_schema_hints` beyond validate defaults?
-
-### Defer to Phase 2 (mention, do not block v1)
-
-Storybook, overview fixtures, OpenAPI/MCP regen — after MVP tests unless engineer asks.
+Chart-primary discovery or request → stop ([architecture.md § Charts](architecture.md#charts--use-insight-tiles-not-widgets)). Defer Storybook, fixtures, OpenAPI regen to post-MVP unless engineer asks.
 
 ## Spec fields to lock
 

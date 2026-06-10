@@ -99,9 +99,7 @@ Do not add NEW badges on individual catalog variants inside `AddWidgetModal`.
 
 ## Config updates
 
-- `updateWidgetTile` in `dashboardLogic` → `updateDashboardWidgetTile` (one PATCH) → `refreshDashboardWidgets` when config changed
-- Widget settings modal: Zod validate → `LemonField` errors; disable save while `saving` / invalid
-- Title, description, `filterTestAccounts`, and type-specific fields all live in the settings modal (`EditWidgetModal*` sections) — not inline on the card
+Runtime PATCH flow and save guards: [managing-existing-widgets.md § Config update flow](managing-existing-widgets.md#config-update-flow-runtime). Edit modal field layout: [§ Edit modal layout](managing-existing-widgets.md#edit-modal-layout) there.
 
 ## Remove and undo
 
@@ -110,7 +108,7 @@ Do not add NEW badges on individual catalog variants inside `AddWidgetModal`.
 
 ## ⋯ menu parity (`DashboardWidgetItem`)
 
-- View (if `titleHref`)
+- View (if `titleHref` — title link behavior: [composition.md § Header title navigation](composition.md#header-title-navigation))
 - Edit (opens widget settings modal)
 - Duplicate
 - Show/hide description (toggle visibility; edit text in settings modal)
@@ -127,7 +125,7 @@ See [composition.md](composition.md) for header layout details.
 
 Store time period in `config.dateRange` (insight-shaped `{ date_from, date_to?, explicitDate? }`).
 
-Supported relative `date_from` values (shortest first): `-1h`, `-3h`, `-24h`, `-7d`, `-14d`, `-30d`, `-90d` — defined in FE `configSchemas.ts` (`WIDGET_DATE_FROM_VALUES` / `WIDGET_DATE_RANGE_SELECT_OPTIONS`) and BE `backend/constants.py` (`WIDGET_DATE_FROM_VALUES`). Keep both in sync when adding or removing values; update BE `config_schema_hints` and `widget_openapi_serializers.py` too.
+Supported relative `date_from` values (shortest first): `-1h`, `-3h`, `-24h`, `-7d`, `-14d`, `-30d`, `-90d` — defined in BE `backend/constants.py` + Pydantic `WidgetDateFrom` in `widget_specs/common.py`. `hogli build:openapi` regenerates `widget-date-from-options.json`; `widgetConfigShared.ts` re-exports `WIDGET_DATE_RANGE_SELECT_OPTIONS` (labels) and infers the value type from generated Zod.
 
 Format for display via `WidgetCardHeader` — reads `config.dateRange` + catalog `headerMeta` and formats with `dateFilterToText`.
 
