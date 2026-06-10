@@ -310,6 +310,9 @@ async def test_non_saturated_batch_dispatches_and_clears_tiebreaker() -> None:
 
     assert len(mocks.child_calls) == 2
     assert mocks.child_calls[0]["id"] == f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a"
+    # Each child is stamped with the scanner id so the in-flight count can find it.
+    child_attrs = mocks.child_calls[0]["kwargs"]["search_attributes"]
+    assert any(p.key.name == "PostHogScannerId" and p.value == str(inputs.scanner_id) for p in child_attrs)
     advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
     assert advance_call.new_last_swept_at == candidates[-1].session_end
     assert advance_call.new_last_seen_session_id == ""
@@ -405,7 +408,7 @@ async def test_inflight_headroom_caps_candidate_limit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_count_in_flight_queries_by_workflow_id_prefix() -> None:
+async def test_count_in_flight_queries_by_scanner_id_search_attribute() -> None:
     scanner_id = uuid.uuid4()
     client = MagicMock()
     client.count_workflows = AsyncMock(return_value=MagicMock(count=7))
@@ -417,7 +420,7 @@ async def test_count_in_flight_queries_by_workflow_id_prefix() -> None:
 
     assert result == 7
     query = client.count_workflows.await_args.args[0]
-    assert f'WorkflowId STARTS_WITH "replay-vision-apply-scanner-{scanner_id}-"' in query
+    assert f'PostHogScannerId = "{scanner_id}"' in query
     assert 'ExecutionStatus = "Running"' in query
 
 

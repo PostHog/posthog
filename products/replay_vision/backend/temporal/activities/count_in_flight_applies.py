@@ -3,10 +3,7 @@ from temporalio import activity
 
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.temporal.constants import (
-    APPLY_SCANNER_WORKFLOW_NAME,
-    apply_scanner_workflow_id_prefix,
-)
+from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_WORKFLOW_NAME
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs
 
 logger = structlog.get_logger(__name__)
@@ -14,16 +11,14 @@ logger = structlog.get_logger(__name__)
 
 @activity.defn
 async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -> int:
-    """Count this scanner's currently-running apply-scanner workflows via Temporal visibility.
+    """Count this scanner's currently-running apply-scanner workflows via the PostHogScannerId search attribute.
 
-    Uses the shared workflow-id prefix rather than a custom search attribute, so no namespace
-    attribute has to be registered. Returns 0 if the count can't be obtained — better to let the
-    sweep proceed than to wedge it on a visibility hiccup.
+    Returns 0 if the count can't be obtained — better to let the sweep proceed than to wedge it on a
+    visibility hiccup.
     """
-    prefix = apply_scanner_workflow_id_prefix(inputs.scanner_id)
     query = (
         f'WorkflowType = "{APPLY_SCANNER_WORKFLOW_NAME}" '
-        f'AND WorkflowId STARTS_WITH "{prefix}" '
+        f'AND PostHogScannerId = "{inputs.scanner_id}" '
         f'AND ExecutionStatus = "Running"'
     )
     try:

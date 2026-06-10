@@ -9,7 +9,11 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes, Workfl
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_SCANNER_ID_KEY,
+    POSTHOG_SESSION_RECORDING_ID_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -104,6 +108,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
                         SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=candidate.session_id),
+                        SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
                     ]
                 ),
             )
