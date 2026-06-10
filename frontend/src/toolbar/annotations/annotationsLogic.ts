@@ -13,7 +13,7 @@ import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 
 import type { annotationsLogicType } from './annotationsLogicType'
 
-interface PageContext {
+export interface PageContext {
     url: string
     host: string
     pathname: string
