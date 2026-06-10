@@ -184,8 +184,9 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return logic.count_issues_created_since(team_id=team_id, since=since)
 
 
-def list_issue_ids_created_since(team_id: int, since: datetime) -> list[UUID]:
-    return logic.list_issue_ids_created_since(team_id=team_id, since=since)
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
+    return [_to_issue_preview(issue) for issue in issues]
 
 
 def get_issue_counts_by_team() -> list[tuple[int, int]]:

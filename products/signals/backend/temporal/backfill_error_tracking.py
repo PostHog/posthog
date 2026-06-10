@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -33,75 +32,39 @@ class EmitBackfillSignalInput:
 @scoped_temporal()
 @close_db_connections
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
-    """Fetch the 100 most recent error tracking issues ordered by first seen."""
+    """Fetch the 100 most recently created error tracking issues from the last 30 days."""
     from django.utils import timezone
 
-    from posthog.schema import DateRange, ErrorTrackingQuery
-
-    from posthog.models import Team
     from posthog.sync import database_sync_to_async
 
     from products.error_tracking.backend.facade import api as error_tracking_api
-    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
     backfill_window_days = 30
 
-    team = await Team.objects.aget(id=input.team_id)
-
-    def _run_query():
-        runner = ErrorTrackingQueryRunner(
-            team=team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                # withFirstEvent reads each issue's event blobs, so keep the scanned window bounded.
-                dateRange=DateRange(date_from=f"-{backfill_window_days}d"),
-                orderBy="first_seen",
-                orderDirection="DESC",
-                volumeResolution=1,
-                limit=100,
-                useQueryV2=False,
-                withFirstEvent=True,
-                withAggregations=False,
-            ),
+    def _fetch_issues() -> list[ErrorTrackingIssueData]:
+        # Issue metadata and fingerprints live in Postgres, so the backfill doesn't need
+        # to scan events at all — that scan would also misattribute old issues with
+        # recent occurrences as newly created.
+        previews = error_tracking_api.list_issues_created_since(
+            team_id=input.team_id,
+            since=timezone.now() - timedelta(days=backfill_window_days),
+            limit=100,
         )
-        response = runner.calculate()
-        # The events window alone also surfaces old issues with recent occurrences; only
-        # issues actually created in the window should emit issue_created signals.
-        recent_issue_ids = {
-            str(issue_id)
-            for issue_id in error_tracking_api.list_issue_ids_created_since(
-                team_id=input.team_id, since=timezone.now() - timedelta(days=backfill_window_days)
-            )
-        }
-        return [result for result in response.results if str(result.id) in recent_issue_ids]
 
-    results = await database_sync_to_async(_run_query)()
-
-    issues: list[ErrorTrackingIssueData] = []
-    for result in results:
-        fingerprint = ""
-        if result.first_event and result.first_event.properties:
-            try:
-                props = (
-                    json.loads(result.first_event.properties)
-                    if isinstance(result.first_event.properties, str)
-                    else result.first_event.properties
+        issues: list[ErrorTrackingIssueData] = []
+        for preview in previews:
+            fingerprints = error_tracking_api.list_fingerprints(team_id=input.team_id, issue_id=preview.id)
+            issues.append(
+                ErrorTrackingIssueData(
+                    issue_id=str(preview.id),
+                    name=preview.name or "Unknown",
+                    description=preview.description or "",
+                    fingerprint=fingerprints[0].fingerprint if fingerprints else "",
                 )
-                fp = props.get("$exception_fingerprint", "")
-                fingerprint = fp if isinstance(fp, str) else str(fp)
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        issues.append(
-            ErrorTrackingIssueData(
-                issue_id=result.id,
-                name=result.name or "Unknown",
-                description=result.description or "",
-                fingerprint=fingerprint,
             )
-        )
+        return issues
 
-    return issues
+    return await database_sync_to_async(_fetch_issues)()
 
 
 @activity.defn
