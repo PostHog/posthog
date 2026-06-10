@@ -450,7 +450,7 @@ class TestEmailReplySignalGuard(BaseTest):
             ("customer_email_blocked", "customer", True, True, 0),
         ]
     )
-    def test_email_outbox_guard(self, _name, author_type, from_email, has_created_by, expected_count, _mock_on_commit):
+    def test_email_outbox_guard(self, _mock_on_commit, _name, author_type, from_email, has_created_by, expected_count):
         ctx: dict = {"author_type": author_type, "is_private": False}
         if from_email:
             ctx["from_email"] = True
