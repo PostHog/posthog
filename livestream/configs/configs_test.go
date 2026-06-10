@@ -53,7 +53,8 @@ func TestLoadConfig(t *testing.T) {
 					URL: "pg url",
 				},
 				JWT: JWTConfig{
-					Secret: "token",
+					Secret:          "token",
+					SecretFallbacks: []string{"<previous secret key>"},
 				},
 				SessionRecording: SessionRecordingConfig{
 					MaxLRUEntries: 2_000_000_000,
