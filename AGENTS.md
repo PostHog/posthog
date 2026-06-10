@@ -166,3 +166,4 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
+- `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
