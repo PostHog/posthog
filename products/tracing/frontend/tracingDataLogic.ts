@@ -1,5 +1,6 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -46,20 +47,19 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
-export interface TracingDataLogicProps {
-    tabId?: string
+function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
+    if (count === 0) {
+        posthog.capture('tracing no results returned', { query_type: queryType })
+    } else {
+        posthog.capture('tracing results returned', { count, query_type: queryType })
+    }
 }
 
 export const tracingDataLogic = kea<tracingDataLogicType>([
-    props({} as TracingDataLogicProps),
-    key((p) => p.tabId ?? 'default'),
-    path((tabId) => ['products', 'tracing', 'frontend', 'tracingDataLogic', tabId]),
+    path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
-    connect((p: TracingDataLogicProps) => ({
-        values: [
-            tracingFiltersLogic({ tabId: p.tabId }),
-            ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
-        ],
+    connect(() => ({
+        values: [tracingFiltersLogic(), ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
     })),
 
     actions({
@@ -498,9 +498,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSpanTreeAbortController(controller)
         },
+        fetchSpansSuccess: () => {
+            captureTracingResults(values.rootSpans.length, 'spans')
+        },
+        fetchAggregationSuccess: ({ aggregation }) => {
+            captureTracingResults(aggregation.current.length, 'aggregation')
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
+                posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
         fetchSparklineFailure: ({ error }) => {

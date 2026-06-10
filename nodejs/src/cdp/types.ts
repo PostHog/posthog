@@ -229,6 +229,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
         | 'email_failed'
@@ -253,7 +254,7 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
@@ -332,7 +333,19 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
+        // Set by the subscription matcher consumer when it wakes a wait_until_condition
+        // job because a matching event arrived (as opposed to a scheduled timeout firing).
+        eventMatched?: boolean
+        // Name of the event that triggered the wake, so the executor can surface
+        // "woken by event: X" in logs instead of echoing the trigger event.
+        eventMatchedEvent?: string
+        // UUID of the exact event that triggered the wake, so the logs view can link to
+        // it precisely (the name alone is ambiguous when a person fires it repeatedly).
+        eventMatchedEventUuid?: string
     }
+    // Set by the subscription matcher consumer when an incoming event matched the
+    // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
+    conversionMatched?: boolean
     variables?: Record<string, any>
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
@@ -360,6 +373,7 @@ export type HogFunctionInputSchemaType = {
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

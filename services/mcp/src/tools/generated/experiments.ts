@@ -315,6 +315,7 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                 query: {
                     archived: params.archived,
                     created_by_id: params.created_by_id,
+                    event: params.event,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
@@ -477,6 +478,7 @@ const experimentSavedMetricsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         const filtered = {
@@ -642,7 +644,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             filters: true,
             deleted: true,
             type: true,
-            exposure_criteria: true,
             scheduling_config: true,
             _create_in_folder: true,
             primary_metrics_ordered_uuids: true,
@@ -673,6 +674,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
+            }
+            if (params.exposure_criteria !== undefined) {
+                body['exposure_criteria'] = params.exposure_criteria
             }
             if (params.metrics !== undefined) {
                 body['metrics'] = params.metrics

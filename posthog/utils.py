@@ -40,7 +40,7 @@ import orjson
 import lzstring
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
@@ -489,6 +489,7 @@ def _build_template_context(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.user_home_settings import UserHomeSettings
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -581,6 +582,22 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
+                with tracer.start_as_current_span("template.promoted_product_intent"):
+                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
+
+                    # Best-effort — the promoted-product sidebar entry is experimental.
+                    # If the lookup fails for any reason, hide it for this request
+                    # rather than 500ing the page render.
+                    try:
+                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
+                    except Exception:
+                        capture_exception()
+                        posthog_app_context["promoted_product_intent"] = None
+
+                with tracer.start_as_current_span("template.user_home_settings"):
+                    home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
+                    posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
@@ -664,29 +681,65 @@ def render_template(
     return response
 
 
-async def initialize_self_capture_api_token():
-    """
-    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
-    """
+def resolve_self_capture_team() -> Optional["Team"]:
+    """Resolve the team a local/self-hosted instance should treat as its own.
 
+    Mirrors the self-capture chain: the most-recently-active user's current team,
+    then the first team on the instance, then None. Safe before migrations have run
+    and when no users/teams exist. Loads a full Team row (no `.only(...)`) so callers
+    can read any field without a deferred-field lazy query on a background thread.
+    """
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
     try:
         user = (
-            await User.objects.filter(last_login__isnull=False)
-            .order_by("-last_login")
-            .select_related("current_team")
-            .afirst()
+            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
         )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
         if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+            return user.current_team
+        return Team.objects.first()
+    except ProgrammingError:
+        # Tables absent before migrations have run; `.first()` returns None otherwise.
+        return None
+
+
+def get_self_capture_team_id() -> Optional[int]:
+    """team_id form of `resolve_self_capture_team()` — the team self-capture events route to.
+
+    For the team whose flag definitions represent this instance, use `get_dogfood_flags_team_id`.
+    """
+    team = resolve_self_capture_team()
+    return team.id if team is not None else None
+
+
+def resolve_dogfood_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag DEFINITIONS represent this instance's own flags.
+
+    For internal feature_enabled() dogfooding on local/self-hosted. This is the same
+    team `sync_feature_flags_from_api` writes imported flags to: `project.teams.first()`
+    — the first/oldest team by PK. Deliberately NOT current_team-based (that is
+    `resolve_self_capture_team`, which routes analytics events and can point at a team
+    holding no flag definitions). Safe before migrations have run / when no teams exist.
+    """
+    Team = apps.get_model("posthog", "Team")
+    try:
+        # Order by PK to match the sync write target (`project.teams.first()`).
+        return Team.objects.order_by("pk").first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
+def get_dogfood_flags_team_id() -> Optional[int]:
+    """team_id form of `resolve_dogfood_flags_team()`, for the flag-cache provider."""
+    team = resolve_dogfood_flags_team()
+    return team.id if team is not None else None
+
+
+async def initialize_self_capture_api_token():
+    """Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way."""
+    team = await sync_to_async(resolve_self_capture_team)()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:
@@ -1336,6 +1389,21 @@ def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> No
         logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
 
 
+def safe_cache_add(cache_key: str, value: Any, timeout: int | None = None) -> bool:
+    """Best-effort atomic set-if-absent. Returns True if this caller set the key
+    (i.e. won the race), False if it was already present — useful for cross-process
+    throttles where a wave of workers must act at most once per window.
+
+    On a cache failure, returns True so the caller still proceeds (e.g. captures the
+    error) rather than silently dropping the signal, matching the fail-visible
+    behaviour of the other safe_cache_* helpers."""
+    try:
+        return bool(cache.add(cache_key, value, timeout))
+    except Exception:
+        logger.warning("safe_cache_add_failure", cache_key=cache_key, exc_info=True)
+        return True
+
+
 def safe_cache_delete(cache_key: str) -> None:
     """Best-effort cache delete. Logs a warning on failure so Redis blips
     are visible during incidents without breaking the calling request."""
@@ -1343,6 +1411,19 @@ def safe_cache_delete(cache_key: str) -> None:
         cache.delete(cache_key)
     except Exception:
         logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
+
+
+def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int) -> bool:
+    """Capture an exception at most once per ``ttl`` window across processes (gated on
+    an atomic set-if-absent in the cache). Returns True if this caller captured, False
+    if it was throttled, so the caller can record which happened.
+
+    The atomic add means a wave of workers failing at once captures only once, instead
+    of each racing past a non-atomic get-then-set."""
+    captured = safe_cache_add(throttle_key, True, ttl)
+    if captured:
+        capture_exception(exc)
+    return captured
 
 
 def is_anonymous_id(distinct_id: str) -> bool:
@@ -1371,7 +1452,7 @@ class GenericEmails:
     """
 
     def __init__(self):
-        with open(get_absolute_path("helpers/generic_emails.txt")) as f:
+        with open(get_absolute_path("helpers/generic_emails.txt"), encoding="utf-8") as f:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:

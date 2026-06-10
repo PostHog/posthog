@@ -33,10 +33,6 @@ class _SlackThreadContextBase(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
-        self._flag_patcher = patch(
-            "posthoganalytics.feature_enabled", side_effect=lambda flag, *a, **k: flag == "tasks"
-        )
-        self._flag_patcher.start()
         # Production gate is `team_id == 2 AND CLOUD_DEPLOYMENT == "US"`; tests
         # can't easily force the test row to id 2, so substitute self.team.id
         # for the constant while keeping the deployment clause intact.
@@ -48,7 +44,6 @@ class _SlackThreadContextBase(TestCase):
 
     def tearDown(self):
         self._gate_patcher.stop()
-        self._flag_patcher.stop()
         super().tearDown()
 
 
@@ -63,9 +58,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         *,
         slack_mention_workflow_id: str | None = "posthog-code-mention-T_SLACK:Ev01",
     ) -> tuple[Task, TaskRun, SlackThreadTaskMapping]:
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         task = Task.objects.create(
             team=self.team,
             title="Investigate flaky test",

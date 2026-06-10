@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from posthog.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription
 
 
 def create_subscription(**kwargs: Any) -> Subscription:

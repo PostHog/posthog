@@ -98,9 +98,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
-    Deployments: () => import('../../products/deployments/frontend/Deployments'),
-    DeploymentProject: () => import('../../products/deployments/frontend/DeploymentProject'),
-    Deployment: () => import('../../products/deployments/frontend/Deployment'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -132,7 +129,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
-    ReplayVisionTemplates: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerTemplatesScene'),
+    ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
@@ -223,9 +220,6 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
-    '/deployments': ['Deployments', 'deployments'],
-    '/deployments/:projectId': ['DeploymentProject', 'deploymentProject'],
-    '/deployments/:projectId/:deploymentId': ['Deployment', 'deployment'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -258,7 +252,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/metrics': ['Metrics', 'metrics'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
+    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
+    '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
@@ -428,6 +424,7 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/replay-vision/templates': '/replay-vision/new/template',
     '/user_interviews': '/user_research',
 }
 
@@ -539,7 +536,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         activityScope: 'KnowledgeSource',
         description:
-            'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
+            'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     Transformations: {
         projectBased: true,
@@ -600,14 +597,6 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
-    Deployments: {
-        projectBased: true,
-        name: 'Deployments',
-        iconType: 'deployments',
-        description: 'Connect a GitHub repository to start deploying your site.',
-    },
-    DeploymentProject: { projectBased: true, name: 'Deployment project' },
-    Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -705,7 +694,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Replay vision',
         projectBased: true,
         description:
-            'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
+            'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
     },
@@ -715,8 +704,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    ReplayVisionTemplates: {
-        name: 'Replay vision templates',
+    ReplayVisionScannerEditor: {
+        name: 'Replay vision scanner editor',
         projectBased: true,
         iconType: 'replay_vision',
         layout: 'app-container',
@@ -941,9 +930,6 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
-    deployments: (): string => '/deployments',
-    deploymentProject: (projectId: string): string => `/deployments/${projectId}`,
-    deployment: (projectId: string, deploymentId: string): string => `/deployments/${projectId}/${deploymentId}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1173,7 +1159,10 @@ export const productUrls = {
     replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
-    replayVisionTemplates: (): string => '/replay-vision/templates',
+    replayVisionTemplates: (): string => '/replay-vision/new/template',
+    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
+    replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
@@ -1237,13 +1226,6 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.dashboard(ref),
         iconColor: ['var(--color-product-dashboards-light)'],
         filterKey: 'dashboard',
-    },
-    deployments: {
-        name: 'Deployment',
-        iconType: 'deployments',
-        iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
-        href: () => urls.deployments(),
-        filterKey: 'deployments',
     },
     early_access_feature: {
         name: 'Early access feature',
@@ -1520,6 +1502,18 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Business knowledge',
+        intents: [ProductKey.CONVERSATIONS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        href: urls.businessKnowledge(),
+        tags: ['alpha'],
+        iconType: 'conversations',
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
+        sceneKey: 'BusinessKnowledge',
+        sceneKeys: ['BusinessKnowledge'],
+    },
+    {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
         category: ProductItemCategory.AI_ENGINEERING,
@@ -1623,22 +1617,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
-    },
-    {
-        path: 'Deployments',
-        intents: [ProductKey.DEPLOYMENTS],
-        category: ProductItemCategory.TOOLS,
-        href: urls.deployments(),
-        type: 'deployments',
-        iconType: 'deployments' as FileSystemIconType,
-        iconColor: [
-            'var(--color-product-deployments-light)',
-            'var(--color-product-deployments-dark)',
-        ] as FileSystemIconColor,
-        sceneKey: 'Deployments',
-        sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
-        flag: FEATURE_FLAGS.DEPLOYMENTS,
-        tags: ['alpha'],
     },
     {
         path: 'Early access features',

@@ -54,6 +54,8 @@ def resolve_from_candidates(
     accessible = (
         candidates if accessible_team_ids is None else [i for i in candidates if i.team_id in accessible_team_ids]
     )
+    candidate_ids = {c.id for c in candidates}
+    candidates_by_team_id = {c.team_id: c for c in candidates}
 
     if channel and thread_ts and slack_team_id:
         thread_match = (
@@ -63,13 +65,18 @@ def resolve_from_candidates(
             .select_related("integration")
             .first()
         )
-        # Honour the thread mapping only if the acting user still has access to
-        # its project. A revoked-access user replying in an existing agent
-        # thread must not bypass the access check via thread continuity.
-        if thread_match is not None and (
-            accessible_team_ids is None or thread_match.integration.team_id in accessible_team_ids
-        ):
-            return ResolutionResult(integration=thread_match.integration, source="thread", candidates=accessible)
+        if thread_match is not None:
+            # If the mapped row is out of the current candidate set (kind drift),
+            # route through the canonical candidate for the same team in this
+            # workspace so the mapping's ``task_run`` linkage stays intact.
+            mapped = thread_match.integration
+            target: Integration | None = (
+                mapped if mapped.id in candidate_ids else candidates_by_team_id.get(mapped.team_id)
+            )
+            # Access check on the resolved target so a user whose access was
+            # revoked can't ride the thread mapping past the gate.
+            if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
+                return ResolutionResult(integration=target, source="thread", candidates=accessible)
 
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the
@@ -84,7 +91,6 @@ def resolve_from_candidates(
             )
         )
         defaults.sort(key=lambda d: d.slack_user_id is None)
-        candidate_ids = {c.id for c in candidates}
         for default in defaults:
             if accessible_team_ids is not None and default.default_integration.team_id not in accessible_team_ids:
                 continue

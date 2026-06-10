@@ -8,7 +8,7 @@ Events are sent to the customer's PostHog project via their team's API token.
 
 import structlog
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.event_usage import groups as build_groups
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -101,7 +101,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
-    capture_internal(
+    capture_internal_routed(
         token=team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
@@ -117,7 +117,7 @@ def capture_ticket_status_changed(ticket: Ticket, old_status: str, new_status: s
     properties["old_status"] = old_status
     properties["new_status"] = new_status
 
-    capture_internal(
+    capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_status_changed",
         event_source=EVENT_SOURCE,
@@ -132,7 +132,7 @@ def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, ne
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
 
-    capture_internal(
+    capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_priority_changed",
         event_source=EVENT_SOURCE,
@@ -147,7 +147,7 @@ def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
 
-    capture_internal(
+    capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_assigned",
         event_source=EVENT_SOURCE,
@@ -165,7 +165,7 @@ def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, 
     properties["author_type"] = "team"
     properties["author_id"] = author_id
 
-    capture_internal(
+    capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_message_sent",
         event_source=EVENT_SOURCE,
@@ -185,11 +185,21 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["customer_name"] = traits.get("name", "")
     properties["customer_email"] = traits.get("email", "")
 
-    capture_internal(
-        token=ticket.team.api_token,
+    team = ticket.team
+    process_person = False
+    try:
+        process_person, groups = _resolve_org_groups(ticket, team)
+        if groups is not None:
+            properties["$groups"] = groups
+    except Exception:
+        logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+
+    capture_internal_routed(
+        token=team.api_token,
         event_name="$conversation_message_received",
         event_source=EVENT_SOURCE,
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
+        process_person_profile=process_person,
     )

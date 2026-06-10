@@ -52,10 +52,14 @@ NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+# We need to restrict this for HogQL access control which uses `NOT IN (...)`
+ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
+
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "endpoint",
     "experiment",
     "external_data_source",
     "warehouse_objects",
@@ -289,6 +293,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "endpointversion":
+        return "endpoint"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":
@@ -303,11 +309,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
-    if name == "deploymentproject":
-        # DeploymentProject + Deployment share the `deployment` scope/resource
-        # so RBAC checks (scope, queryset filter, object-level) fire for both
-        # via AccessControlViewSetMixin.
-        return "deployment"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None

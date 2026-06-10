@@ -193,6 +193,9 @@ tools:
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
+        enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: true
@@ -211,6 +214,9 @@ tools:
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
+    external-data-sources-check-cdc-prerequisites-for-source-create:
+        operation: external_data_sources_check_cdc_prerequisites_for_source_create
+        enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: true
@@ -310,6 +316,12 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: false
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
+        enabled: false
     external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
         enabled: false
@@ -401,6 +413,9 @@ tools:
         enabled: false
     external-data-sources-update:
         operation: external_data_sources_update
+        enabled: false
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
         enabled: false
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create

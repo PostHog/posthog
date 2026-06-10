@@ -11,12 +11,13 @@ from posthog import event_usage
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
-from ee.models import Conversation
 
 _tracer = trace.get_tracer(__name__)
 

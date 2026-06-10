@@ -119,6 +119,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
         return dict.fromkeys(endpoints)
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        """``job_inputs`` fields that determine where stored credentials are sent.
+
+        Changing one of these on an existing source must require the editor to re-enter the
+        source's secrets — otherwise an org member could retarget the preserved credential at a
+        server they control and exfiltrate it. The update serializer enforces this. ``host`` and
+        the SSH tunnel target are handled separately, so sources whose connection target lives in
+        a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
+        return []
+
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None
@@ -153,6 +164,15 @@ class WebhookCreationResult:
     # (e.g. when the source's API doesn't return the signing secret on create).
     # Empty list means the auto-created webhook is fully configured.
     pending_inputs: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class WebhookSyncResult:
+    """Outcome of reconciling an existing webhook's events — success plus an optional actionable
+    message. Distinct from WebhookCreationResult, which also carries create-only fields."""
+
+    success: bool
+    error: str | None = None
 
 
 @dataclasses.dataclass
@@ -193,6 +213,22 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook creation, returns a failed result so the user can set it up manually.
         """
         raise NotImplementedError()
+
+    def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
+        """Events the webhook should subscribe to. ``None`` when the source has no
+        provider-side subscription to drift (e.g. Slack); such sources skip reconciliation."""
+        return None
+
+    def sync_webhook_events(
+        self,
+        config: ConfigType,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        """Reconcile the provider's subscribed events with the selected schemas. No-op default
+        for sources without a provider-side subscription; override where one exists (Stripe)."""
+        return WebhookSyncResult(success=True)
 
     def webhook_inputs_updated(
         self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]

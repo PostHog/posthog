@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -15,10 +15,11 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
+import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod } = useValues(experimentLogic)
+    const { experiment, statsMethod, variants } = useValues(experimentLogic)
     const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -40,6 +41,12 @@ export function SettingsTab(): JSX.Element {
         DEFAULT_LOOKBACK_DAYS
     )
 
+    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
+    const sequentialEnabled = resolveSequentialEnabled(
+        experiment.stats_config?.frequentist,
+        teamDefaultSequentialEnabled
+    )
+
     const returnTo = urls.experiment(experiment.id)
 
     // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
@@ -52,6 +59,7 @@ export function SettingsTab(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span>
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
+                        {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
                     <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
                 </div>
@@ -88,6 +96,19 @@ export function SettingsTab(): JSX.Element {
                     <CupedModal />
                 </div>
             )}
+            <div>
+                <h2 className="font-semibold text-lg">Baseline variant</h2>
+                <LemonSelect
+                    value={experiment.stats_config?.baseline_variant_key ?? 'control'}
+                    options={variants.map((v) => ({ value: v.key, label: v.name || v.key }))}
+                    onChange={(value) => {
+                        updateExperimentSettings({
+                            stats_config: { ...experiment.stats_config, baseline_variant_key: value },
+                        })
+                    }}
+                />
+                <p className="text-muted text-xs mt-1">The variant all others are compared against.</p>
+            </div>
             <div>
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">

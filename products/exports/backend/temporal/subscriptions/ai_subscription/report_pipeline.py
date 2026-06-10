@@ -1,0 +1,340 @@
+import re
+import uuid
+import asyncio
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Optional, Union
+
+import structlog
+
+from posthog.schema import AssistantHogQLQuery
+
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team, User
+from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
+from posthog.sync import database_sync_to_async
+
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
+    AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
+    HOGQL_FIX_PROMPT,
+    HOGQL_FIX_PROMPT_NAME,
+    SYNTHESIS_PROMPT_NAME,
+    resolve_prompt,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    EnrichedPromptSpec,
+    HogQLFix,
+    QueryPlanStep,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    DEFAULT_PLANNER_MODEL,
+    DEFAULT_SYNTHESIS_MODEL,
+    PromptRejectedError,
+    build_enriched_prompt,
+)
+
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool_errors import MaxToolRetryableError
+
+logger = structlog.get_logger(__name__)
+
+# Wall-clock bounds for the in-band LLM + HogQL pipeline. The caller's outer deadline (Temporal
+# activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
+# single slow upstream from soaking it.
+_SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
+_HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+# Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
+# The executor already truncates; this is defense-in-depth against a giant value.
+_QUERY_RESULT_MAX_CHARS = 50_000
+
+# Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
+# error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
+# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
+_MAX_QUERY_FIX_RETRIES = 2
+_FIX_LLM_TIMEOUT_SECONDS = 30.0
+
+# Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
+# failures, generic exceptions) falls through to the "_Query failed_" placeholder without retrying,
+# since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
+_RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
+    MaxToolRetryableError,
+    ExposedHogQLError,
+    InternalHogQLError,
+)
+
+
+class ReportStage(StrEnum):
+    PLANNER = "planner"
+    QUERY = "query"
+    SYNTHESIS = "synthesis"
+
+
+class AiReportStageError(Exception):
+    # PromptRejectedError is intentionally not wrapped — callers catch it by type.
+    def __init__(self, stage: ReportStage, original: BaseException) -> None:
+        self.stage = stage
+        self.original = original
+        super().__init__(f"AI report failed at {stage} stage: {original}")
+
+
+async def generate_ai_report(
+    *,
+    team: Team,
+    user: Optional[User],
+    prompt: Optional[str],
+    window_days: int,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+) -> str:
+    if user is None:
+        raise PromptRejectedError("AI report must have a user to run.")
+
+    with slo_operation(
+        spec=SloSpec(
+            distinct_id=str(user.distinct_id),
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+            team_id=team.id,
+            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+        ),
+        properties={"window_days": window_days},
+    ) as slo:
+        try:
+            spec = await _plan(
+                team=team, user=user, prompt=prompt, window_days=window_days, trace_id=trace_correlation_id
+            )
+            rendered_results, failed_count = await _execute_plan(spec, team, user, trace_correlation_id)
+            report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
+        except PromptRejectedError:
+            # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
+            # the error budget so user-supplied bad input doesn't burn the SLO.
+            slo.succeed(rejected=True)
+            raise
+
+        total_steps = len(spec.plan.steps)
+        # A degraded report (a step failed but synthesis still shipped) is an SLO success, tagged so the
+        # coverage signal survives. A raised stage error is recorded as a failure by slo_operation itself.
+        slo.tag(
+            total_steps=total_steps,
+            failed_steps=failed_count,
+            query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
+            degraded=bool(failed_count),
+        )
+        if failed_count:
+            logger.warning(
+                "ai_report.delivered_degraded",
+                trace_correlation_id=trace_correlation_id,
+                failed_steps=failed_count,
+                total_steps=total_steps,
+            )
+        return report
+
+
+async def _plan(
+    *, team: Team, user: User, prompt: Optional[str], window_days: int, trace_id: Optional[Union[int, str]]
+) -> EnrichedPromptSpec:
+    try:
+        return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
+            team=team,
+            user=user,
+            prompt=prompt,
+            window_days=window_days,
+            trace_correlation_id=trace_id,
+        )
+    except PromptRejectedError:
+        raise
+    except Exception as exc:
+        raise AiReportStageError(ReportStage.PLANNER, exc) from exc
+
+
+async def _execute_plan(
+    spec: EnrichedPromptSpec,
+    team: Team,
+    user: User,
+    trace_correlation_id: Optional[Union[int, str]],
+) -> tuple[list[str], int]:
+    try:
+        return await _run_steps(spec, team, user, trace_correlation_id)
+    except Exception as exc:
+        # per-step failures degrade to placeholders in run_step; this catches orchestration failure
+        raise AiReportStageError(ReportStage.QUERY, exc) from exc
+
+
+async def _synthesize(
+    spec: EnrichedPromptSpec,
+    rendered_results: list[str],
+    team: Team,
+    user: User,
+    trace_correlation_id: Optional[Union[int, str]],
+) -> str:
+    posthog_properties: dict[str, Union[str, int]] = {
+        "feature": "ai_subscription",
+        "stage": "synthesis",
+        "trace_id": str(uuid.uuid4()),
+    }
+    if trace_correlation_id is not None:
+        posthog_properties["subscription_id"] = trace_correlation_id
+
+    chat = MaxChatOpenAI(
+        model=DEFAULT_SYNTHESIS_MODEL,
+        timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
+        user=user,
+        team=team,
+        billable=True,
+        posthog_properties=posthog_properties,
+    )
+    synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
+        team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
+    )
+
+    try:
+        # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
+        result = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
+            [
+                ("system", synthesis_prompt),
+                ("human", _compose_synthesis_human_message(spec, rendered_results)),
+            ],
+        )
+    except Exception as exc:
+        raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
+    content = result.content if hasattr(result, "content") else str(result)
+    return content if isinstance(content, str) else str(content)
+
+
+def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str]) -> str:
+    results_block = "\n".join(rendered_results) if rendered_results else "_No query results were available._"
+    # planner output from user-controlled context — strip framing markers so it can't inject
+    safe_intent = strip_llm_framing_markers(spec.plan.overall_intent, max_len=500)
+    return (
+        f"<user_prompt>\n{spec.cleaned_prompt}\n</user_prompt>\n\n"
+        f"<project_context>\n{spec.context_blob}\n</project_context>\n\n"
+        f"<plan_intent>\n{safe_intent}\n</plan_intent>\n\n"
+        f"<query_results>\n{results_block}\n</query_results>"
+    )
+
+
+async def _run_steps(
+    spec: EnrichedPromptSpec,
+    team: Team,
+    user: User,
+    trace_correlation_id: Optional[Union[int, str]],
+) -> tuple[list[str], int]:
+    executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
+
+    async def run_step(step: QueryPlanStep) -> tuple[str, bool]:
+        current_hogql = step.hogql
+        last_exc: Optional[BaseException] = None
+        # planner output — strip framing markers so it can't break the <query_results> envelope
+        safe_description = strip_llm_framing_markers(step.description, max_len=500)
+
+        for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
+            try:
+                query = AssistantHogQLQuery(query=current_hogql)
+                formatted, _ = await asyncio.wait_for(
+                    executor.arun_and_format_query(query),
+                    timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
+                )
+                # result values are attacker-influenceable (public project tokens) — strip framing markers
+                safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
+                return (f"### {safe_description}\n\n{safe_formatted}", True)
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
+                    break
+                logger.info(
+                    "ai_report.query_fix_attempt",
+                    trace_correlation_id=trace_correlation_id,
+                    step_description=safe_description,
+                    attempt=attempt + 1,
+                    max_retries=_MAX_QUERY_FIX_RETRIES,
+                    error_type=type(exc).__name__,
+                )
+                fixed = await _arequest_hogql_fix(
+                    original_hogql=current_hogql,
+                    # don't forward internal error text to the LLM — it can echo cluster URLs/table names
+                    error_message=str(exc) if isinstance(exc, ExposedHogQLError) else type(exc).__name__,
+                    step_description=safe_description,
+                    team=team,
+                    user=user,
+                    trace_correlation_id=trace_correlation_id,
+                )
+                if not fixed or fixed.strip() == current_hogql.strip():
+                    break
+                current_hogql = fixed
+
+        logger.warning(
+            "ai_report.query_failed",
+            trace_correlation_id=trace_correlation_id,
+            step_description=safe_description,
+            exc_info=last_exc,
+        )
+        if last_exc is not None:
+            capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
+        # type only — ClickHouse errors can echo team-scoped identifiers
+        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
+        return (f"### {safe_description}\n\n_Query failed: {type_name}_", False)
+
+    step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    rendered = [text for text, _ in step_results]
+    failed_count = sum(1 for _, ok in step_results if not ok)
+    return rendered, failed_count
+
+
+async def _arequest_hogql_fix(
+    *,
+    original_hogql: str,
+    error_message: str,
+    step_description: str,
+    team: Team,
+    user: User,
+    trace_correlation_id: Optional[Union[int, str]],
+) -> Optional[str]:
+    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
+    if trace_correlation_id is not None:
+        posthog_properties["subscription_id"] = trace_correlation_id
+
+    llm = MaxChatOpenAI(
+        model=DEFAULT_PLANNER_MODEL,
+        timeout=_FIX_LLM_TIMEOUT_SECONDS,
+        user=user,
+        team=team,
+        billable=True,
+        posthog_properties=posthog_properties,
+    ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
+
+    substitutions = {
+        "description": step_description,
+        "error": error_message,
+        "original_hogql": original_hogql,
+    }
+    fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
+        team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
+    )
+    rendered = re.sub(
+        r"\{\{\{(\w+)\}\}\}",
+        lambda m: substitutions.get(m.group(1), m.group(0)),
+        fix_prompt,
+    )
+
+    try:
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+    except Exception as exc:
+        logger.warning(
+            "ai_report.query_fix_llm_failed",
+            trace_correlation_id=trace_correlation_id,
+            step_description=step_description,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+    if not isinstance(result, HogQLFix):
+        return None
+    fixed = result.fixed_hogql.strip()
+    return fixed or None
+
+
+__all__ = ["generate_ai_report", "AiReportStageError", "ReportStage"]

@@ -184,6 +184,22 @@ async fn resolve_items(
     service: CymbalResolutionService,
     items: Vec<ResolveItem>,
 ) -> Vec<ResolveOutcome> {
+    resolve_items_with_accepted(service, items)
+        .await
+        .into_iter()
+        .filter(|outcome| {
+            !matches!(
+                outcome_result(outcome),
+                resolve_outcome::Result::Accepted(_)
+            )
+        })
+        .collect()
+}
+
+async fn resolve_items_with_accepted(
+    service: CymbalResolutionService,
+    items: Vec<ResolveItem>,
+) -> Vec<ResolveOutcome> {
     let channel = spawn_test_channel(service).await;
     let mut client = CymbalResolutionClient::new(channel);
     let response = client
@@ -272,6 +288,26 @@ async fn bidi_resolve_stream_resolves_multiple_items_and_echoes_ids() {
         assert_eq!(resolved.exception_type, "RuntimeError");
         assert!(matches!(resolved.stack, Some(Stacktrace::Resolved { .. })));
     }
+}
+
+#[tokio::test]
+async fn admitted_items_emit_accepted_before_terminal_outcome() {
+    let service = make_service(FakeResolver::default());
+    let exc = raw_exception("RuntimeError");
+
+    let outcomes = resolve_items_with_accepted(service, vec![make_item(41, &exc)]).await;
+
+    assert_eq!(outcomes.len(), 2);
+    assert_eq!(outcomes[0].id, 41);
+    assert!(matches!(
+        outcome_result(&outcomes[0]),
+        resolve_outcome::Result::Accepted(_)
+    ));
+    assert_eq!(outcomes[1].id, 41);
+    assert!(matches!(
+        outcome_result(&outcomes[1]),
+        resolve_outcome::Result::Done(_)
+    ));
 }
 
 #[tokio::test]

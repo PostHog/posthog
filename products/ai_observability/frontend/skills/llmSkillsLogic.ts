@@ -1,13 +1,12 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { ApiConfig } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
@@ -133,14 +132,11 @@ export function groupSkillsByPrefix(skills: LLMSkillListApi[]): SkillGroupTree {
     return buildGroupTree(skills, 0, '')
 }
 
-export interface LLMSkillsLogicProps {
-    tabId?: string
-}
+export type LLMSkillsLogicProps = Record<string, never>
 
 export const llmSkillsLogic = kea<llmSkillsLogicType>([
     path(['scenes', 'ai-observability', 'llmSkillsLogic']),
     props({} as LLMSkillsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<SkillFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -311,7 +307,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
             const nextValues = cleanFilterUrlParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
@@ -324,7 +320,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         return { setFilters: changeUrl }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilitySkills()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'

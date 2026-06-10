@@ -6,9 +6,11 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use rand::Rng;
+use tokio::sync::OwnedSemaphorePermit;
 use tracing::warn;
 
 use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOutcome};
+use tonic::Status;
 
 use crate::error::UnhandledError;
 use crate::metric_consts::{
@@ -17,6 +19,8 @@ use crate::metric_consts::{
     REMOTE_RESOLUTION_REROUTE_DEPTH,
 };
 use crate::types::Exception;
+
+use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
 
@@ -29,9 +33,13 @@ pub(super) async fn resolve_work_item(
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut attempts_used = 0u32;
+    let mut routing_permit = None;
 
     for attempt in 0..max_attempts {
         attempts_used = attempt + 1;
+        if routing_permit.is_none() {
+            routing_permit = Some(acquire_routing_permit(ctx).await?);
+        }
         let remaining = remaining_deadline(deadline)?;
         let handle = match ctx
             .pool
@@ -63,16 +71,21 @@ pub(super) async fn resolve_work_item(
 
         let endpoint = handle.addr;
         let start = Instant::now();
-        let outcome = handle
-            .mux
-            .resolve_many(vec![work_item.to_item(remaining)], remaining)
-            .await;
+        let permit = routing_permit
+            .take()
+            .expect("routing permit must be acquired before selecting an endpoint");
+        let session = handle.mux.submit_session(work_item.to_item(remaining));
+        let outcome = wait_for_terminal_or_acceptance(session, remaining, permit).await;
         let elapsed_ms = start.elapsed().as_millis() as f64;
         drop(handle);
 
         let outcomes = match outcome {
-            Ok(outcomes) => outcomes,
-            Err(err) if err.is_retryable() => {
+            Ok((outcome, permit)) => {
+                routing_permit = permit;
+                vec![outcome]
+            }
+            Err((err, permit)) if err.is_retryable() => {
+                routing_permit = permit;
                 metrics::counter!(
                     REMOTE_RESOLUTION_REQUESTS,
                     "outcome" => "transport_retry",
@@ -95,7 +108,7 @@ pub(super) async fn resolve_work_item(
                 }
                 continue;
             }
-            Err(err) => {
+            Err((err, _permit)) => {
                 metrics::counter!(
                     REMOTE_RESOLUTION_REQUESTS,
                     "outcome" => "terminal",
@@ -153,6 +166,7 @@ pub(super) async fn resolve_work_item(
                     attempt,
                     "remote resolution returned item overload; rerouting with overload policy"
                 );
+                ctx.pool.eject_overloaded(endpoint).await;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!(
                     "per-item Overloaded outcome from {endpoint}: {message}"
@@ -194,6 +208,42 @@ pub(super) async fn resolve_work_item(
         max_attempts,
         last_error.unwrap_or_else(|| "no recorded cause".to_string()),
     )))
+}
+
+async fn wait_for_terminal_or_acceptance(
+    mut session: ResolveItemSession,
+    deadline: Duration,
+    permit: OwnedSemaphorePermit,
+) -> Result<
+    (ResolveOutcome, Option<OwnedSemaphorePermit>),
+    (RemoteCallError, Option<OwnedSemaphorePermit>),
+> {
+    let mut permit = Some(permit);
+    let sleep = tokio::time::sleep(deadline);
+    tokio::pin!(sleep);
+
+    loop {
+        tokio::select! {
+            outcome = session.outcomes.recv() => {
+                let Some(outcome) = outcome else {
+                    return Err((RemoteCallError::Retryable(Status::unavailable("remote resolution session was dropped")), permit));
+                };
+                let outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(err) => return Err((err, permit)),
+                };
+                if matches!(outcome.result, Some(resolve_outcome::Result::Accepted(_))) {
+                    drop(permit.take());
+                    continue;
+                }
+                return Ok((outcome, permit));
+            }
+            _ = &mut sleep => {
+                session.cancel();
+                return Err((RemoteCallError::Deadline(deadline), permit));
+            }
+        }
+    }
 }
 
 fn single_outcome(
@@ -289,6 +339,10 @@ fn classify_outcome(
                 )),
             }
         }
+        resolve_outcome::Result::Accepted(_) => Err(terminal_item_error(
+            work_item.token,
+            "remote resolution returned accepted without a terminal outcome".to_string(),
+        )),
     }
 }
 
@@ -297,6 +351,18 @@ fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     UnhandledError::Other(format!(
         "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
     ))
+}
+
+async fn acquire_routing_permit(
+    ctx: &RemoteResolutionContext,
+) -> Result<OwnedSemaphorePermit, UnhandledError> {
+    ctx.routing_semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| {
+            UnhandledError::Other("remote resolution routing semaphore closed".to_string())
+        })
 }
 
 fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {

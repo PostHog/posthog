@@ -1,5 +1,5 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { TooltipConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { TooltipConfig } from '@posthog/quill-charts'
 
 import { ChartDisplayType } from '~/types'
 
