@@ -49,11 +49,12 @@ class SweepScannerWorkflow(PostHogWorkflow):
     async def run(self, inputs: SweepScannerInputs) -> None:
         # Hard per-scanner concurrency cap: don't fetch more than the in-flight headroom, and skip entirely
         # when saturated. Keeps one bad config from flooding the shared rasterizer + provider concurrency.
+        # The activity fails open (returns 0 on any error), so there's nothing to retry.
         in_flight = await wf.execute_activity(
             count_in_flight_applies_activity,
             CountInFlightAppliesInputs(scanner_id=inputs.scanner_id),
             start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-            retry_policy=common.RetryPolicy(maximum_attempts=3),
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
         )
         headroom = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - in_flight
         if headroom <= 0:

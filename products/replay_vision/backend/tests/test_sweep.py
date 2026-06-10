@@ -375,22 +375,17 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
     assert [call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity] == []
 
 
+@pytest.mark.parametrize(
+    "in_flight, expected_candidate_limit",
+    [
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER, None),  # at the cap → throttled
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, None),  # over the cap (negative headroom) → throttled
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 10),  # partial headroom → fetch is capped to it
+        (0, MAX_IN_FLIGHT_APPLIES_PER_SCANNER),  # idle → full headroom
+    ],
+)
 @pytest.mark.asyncio
-async def test_at_inflight_cap_skips_find_dispatch_and_advance() -> None:
-    mocks = _SweepMocks(
-        activity_results={count_in_flight_applies_activity: MAX_IN_FLIGHT_APPLIES_PER_SCANNER},
-    )
-
-    await _run_sweep(mocks)
-
-    # Throttled: only the in-flight count ran — no find, no dispatch, no watermark advance.
-    assert [fn for fn, _ in mocks.activity_calls] == [count_in_flight_applies_activity]
-    assert mocks.child_calls == []
-
-
-@pytest.mark.asyncio
-async def test_inflight_headroom_caps_candidate_limit() -> None:
-    in_flight = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10
+async def test_inflight_cap_gates_the_sweep(in_flight: int, expected_candidate_limit: int | None) -> None:
     mocks = _SweepMocks(
         activity_results={
             count_in_flight_applies_activity: in_flight,
@@ -400,8 +395,13 @@ async def test_inflight_headroom_caps_candidate_limit() -> None:
 
     await _run_sweep(mocks)
 
-    find_input = next(inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity)
-    assert find_input.candidate_limit == 10
+    find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
+    if expected_candidate_limit is None:
+        # Throttled: only the in-flight count ran — no find, no dispatch.
+        assert [fn for fn, _ in mocks.activity_calls] == [count_in_flight_applies_activity]
+        assert mocks.child_calls == []
+    else:
+        assert find_calls[0].candidate_limit == expected_candidate_limit
 
 
 # count_in_flight_applies_activity
