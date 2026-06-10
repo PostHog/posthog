@@ -3,8 +3,10 @@ on:
     pull_request:
         # Draft PRs run a narrowed visual-regression matrix (affected stories only);
         # ready PRs run the full chromium matrix (the merge gate). ready_for_review
-        # re-triggers the full run on the current head when a PR leaves draft.
-        types: [opened, synchronize, reopened, ready_for_review]
+        # re-triggers the full run on the current head when a PR leaves draft. To
+        # force the full matrix on a draft, add the `run-ci-frontend` label —
+        # labeled/unlabeled re-trigger the run so it starts without needing a push.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
     push:
         branches:
@@ -626,7 +628,9 @@ jobs:
     # by the diff. On ready PRs and master push this job is skipped and
     # visual-regression falls back to needs.changes.outputs.matrix (the full
     # suite). The ready-for-review full run is the merge gate — storybook
-    # already skips merge_group entirely (changes.if).
+    # already skips merge_group entirely (changes.if). The run-ci-frontend
+    # label forces the full matrix on a draft. When selection can't be trusted
+    # on a draft, visual-regression is skipped and deferred to the ready run.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -636,6 +640,7 @@ jobs:
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
@@ -691,25 +696,29 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Empty matrix output → visual-regression falls back to changes.outputs.matrix
-                  # (the full PR suite). Use this whenever the selector can't tell us anything
-                  # useful, so we never trade a green-by-default for a green-by-skipping bug.
-                  fall_back_to_full() {
-                      echo "mode=full" >> "$GITHUB_OUTPUT"
-                      echo "matrix=" >> "$GITHUB_OUTPUT"
-                      echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  # Untrusted selection on a draft skips visual-regression entirely
+                  # (should_run=false gates vr-setup and the test matrix off); the
+                  # ready-for-review full run is the gate. A skipped draft can't
+                  # trade green-by-default for green-by-skipping: drafts can't
+                  # merge, and ready re-runs the full suite. The run-ci-frontend
+                  # label forces the full matrix on a draft.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files=" >> "$GITHUB_OUTPUT"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; running full suite"
-                      fall_back_to_full
+                      echo "::warning::story selector did not produce output; draft skips visual-regression (full run happens on ready for review)"
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      fall_back_to_full
+                      echo "Selector declined to narrow (mode=$MODE); draft skips visual-regression (full run happens on ready for review)"
+                      fall_back_to_skip
                       exit 0
                   fi
 

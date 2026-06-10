@@ -3,8 +3,10 @@ on:
     pull_request:
         # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
         # (the merge gate). ready_for_review re-triggers the full run on the
-        # current head when a PR leaves draft.
-        types: [opened, synchronize, reopened, ready_for_review]
+        # current head when a PR leaves draft. To force the full matrix on a
+        # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
+        # the run so it starts without needing a new push.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
     push:
         branches:
@@ -108,7 +110,10 @@ jobs:
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
     # Skipped on ready PRs, master push, and merge_group; the jest job falls back
     # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
-    # full run is the merge gate.
+    # full run is the merge gate. The run-ci-frontend label forces the full
+    # matrix on a draft. When selection can't be trusted on a draft (config
+    # change, oversized diff, selector failure), the draft skips jest entirely
+    # and defers to the ready full run.
     select-jest-tests:
         name: Select jest tests
         runs-on: ubuntu-latest
@@ -118,6 +123,7 @@ jobs:
             always() && needs.changes.outputs.frontend_code == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
@@ -149,40 +155,44 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Empty matrix output → jest job falls back to its default matrix
-                  # (the full FOSS×EE × chunk fanout). Use this whenever the selector
-                  # can't reason about the diff so we never silently pass on a skipped run.
-                  fall_back_to_full() {
-                      echo "mode=full" >> "$GITHUB_OUTPUT"
-                      echo "matrix=" >> "$GITHUB_OUTPUT"
-                      echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  # Untrusted selection on a draft skips jest entirely (should_run=false
+                  # gates the jest job off); the ready-for-review full run is the gate.
+                  # Use this whenever the selector can't reason about the diff — a
+                  # narrowed run it can't vouch for would be false confidence, and a
+                  # full run on every draft push is the spend this selection avoids.
+                  # The run-ci-frontend label forces the full matrix on a draft.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "changed_files=" >> "$GITHUB_OUTPUT"
                   }
 
                   if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
-                      echo "::warning::could not derive changed files; running full jest matrix"
-                      fall_back_to_full
+                      echo "::warning::could not derive changed files; draft skips jest (full run happens on ready for review)"
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   changed_count=$(wc -l < /tmp/changed.txt)
                   if [[ "$changed_count" -gt 200 ]]; then
-                      echo "::notice::diff has $changed_count files (>200), running full jest matrix"
-                      fall_back_to_full
+                      echo "::notice::diff has $changed_count files (>200); draft skips jest (full run happens on ready for review)"
+                      fall_back_to_skip
                       exit 0
                   fi
 
-                  # Force full when jest config / build / lock files change — these
+                  # Skip when jest config / build / lock files change — these
                   # invalidate jest's resolver, transformer cache, or test discovery
-                  # in ways `--findRelatedTests` can't see. Pattern matches mirror the
-                  # frontend_code paths-filter in `changes`.
+                  # in ways `--findRelatedTests` can't see, so no narrowed run can be
+                  # trusted. Pattern matches mirror the frontend_code paths-filter
+                  # in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
                           jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
                           .github/workflows/ci-frontend.yml|.nvmrc)
-                              echo "::notice::full jest run forced by config change: $f"
-                              fall_back_to_full
+                              echo "::notice::config change ($f); draft skips jest (full run happens on ready for review)"
+                              fall_back_to_skip
                               exit 0
                               ;;
                       esac
@@ -482,9 +492,10 @@ jobs:
             # If one test fails, still run the others
             fail-fast: false
             # On draft PRs, select-jest-tests may narrow this to a single EE job
-            # running only the tests reachable from changed frontend source files.
-            # On ready PRs, master push, and merge_group it's skipped, so we fall
-            # back to the full FOSS×EE × chunk fanout (the merge gate).
+            # running only the tests reachable from changed frontend source files,
+            # or skip jest entirely (should_run=false) when selection can't be
+            # trusted. On ready PRs, master push, and merge_group it's skipped, so
+            # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
 
         steps:
