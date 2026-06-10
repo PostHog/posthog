@@ -2,6 +2,7 @@ import json
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -202,6 +203,64 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         new_row = SignalReportArtefact.objects.get(id=new_id)
         assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
+
+    def test_put_reviewers_re_evaluates_autostart(self):
+        # Editing reviewers can newly satisfy auto-start, so the PUT must re-run the (idempotent)
+        # auto-start evaluation for the report.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        with patch(
+            "products.signals.backend.views.maybe_autostart_from_report_artefacts",
+            new_callable=AsyncMock,
+        ) as mock_autostart:
+            response = self.client.put(
+                self._detail_url(str(report.id), str(artefact.id)),
+                data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_autostart.assert_awaited_once()
+        assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
+        assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+
+    def test_put_reviewers_autostart_delegates_when_report_complete(self):
+        # With actionability + repo + priority + reviewers all present, the reconstruction reaches
+        # the actual autostart decision (delegated to maybe_autostart_implementation_task).
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            artefact_type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content={"explanation": "e", "actionability": "immediately_actionable", "already_addressed": False},
+        )
+        self._create_artefact(
+            report,
+            artefact_type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content={"repository": "acme/repo", "reason": "r"},
+        )
+        self._create_artefact(
+            report,
+            artefact_type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content={"explanation": "e", "priority": "P1"},
+        )
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        with patch(
+            "products.signals.backend.auto_start.maybe_autostart_implementation_task",
+            new_callable=AsyncMock,
+        ) as mock_impl:
+            response = self.client.put(
+                self._detail_url(str(report.id), str(artefact.id)),
+                data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_impl.assert_awaited_once()
+        kwargs = mock_impl.call_args.kwargs
+        assert kwargs["repository"] == "acme/repo"
+        assert {r["github_login"] for r in kwargs["reviewers_content"]} == {"alice", "bob"}
 
     def test_put_empty_list_clears_content(self):
         report = self._create_report()

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from typing import TypedDict
+import json
+from typing import TypedDict, TypeVar
 
 import structlog
+from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -15,11 +23,14 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, aappend_task_run_artefact
 from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
+
+_M = TypeVar("_M", bound=BaseModel)
 
 
 class ReviewerContent(TypedDict):
@@ -211,4 +222,91 @@ async def maybe_autostart_implementation_task(
         type=SignalReportTask.Relationship.IMPLEMENTATION,
         task_id=str(task.id),
         run_id=str(task_run.id),
+    )
+
+
+async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
+    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins)."""
+    artefact = (
+        await SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
+        .order_by("-created_at")
+        .afirst()
+    )
+    if artefact is None:
+        return None
+    try:
+        return model_cls.model_validate_json(artefact.content)
+    except ValidationError:
+        return None
+
+
+async def _latest_reviewers_content(report_id: str) -> list[ReviewerContent]:
+    artefact = (
+        await SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        .order_by("-created_at")
+        .afirst()
+    )
+    if artefact is None:
+        return []
+    try:
+        data = json.loads(artefact.content)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    reviewers: list[ReviewerContent] = []
+    for entry in data:
+        if isinstance(entry, dict) and entry.get("github_login"):
+            reviewers.append(
+                ReviewerContent(
+                    github_login=str(entry["github_login"]),
+                    github_name=entry.get("github_name"),
+                    relevant_commits=entry.get("relevant_commits") or [],
+                )
+            )
+    return reviewers
+
+
+async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str) -> None:
+    """Re-evaluate auto-start from a report's *current* artefacts.
+
+    Called when reviewers change after the report was created (e.g. a human edits them via the
+    artefact API), so a newly-qualifying reviewer can still trigger auto-start. Reconstructs the
+    latest actionability / priority / repo-selection / suggested-reviewers and delegates to
+    `maybe_autostart_implementation_task`, which is idempotent — it no-ops if an implementation
+    task already exists for the report.
+    """
+    report = await SignalReport.objects.filter(id=report_id).only("title", "summary").afirst()
+    if report is None or not report.title or not report.summary:
+        return
+
+    actionability = await _latest_artefact_as(
+        report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+    )
+    if actionability is None:
+        return
+    repo_selection = await _latest_artefact_as(
+        report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
+    )
+    repository = repo_selection.repository if repo_selection else None
+    if not repository:
+        return
+    priority = await _latest_artefact_as(
+        report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+    )
+    reviewers_content = await _latest_reviewers_content(report_id)
+    if not reviewers_content:
+        return
+
+    await maybe_autostart_implementation_task(
+        team_id=team_id,
+        report_id=report_id,
+        repository=repository,
+        title=report.title,
+        summary=report.summary,
+        actionability=actionability,
+        reviewers_content=reviewers_content,
+        priority=priority,
     )

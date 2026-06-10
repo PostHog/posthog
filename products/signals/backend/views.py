@@ -52,6 +52,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -1154,6 +1155,18 @@ class SignalReportArtefactViewSet(
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                 content=json.dumps(new_content),
             )
+
+        # Editing reviewers can newly satisfy auto-start (e.g. adding a reviewer whose autonomy
+        # threshold qualifies). Re-evaluate from the committed artefacts; it's idempotent and
+        # no-ops if an implementation task already exists. Best-effort — never fail the edit, and
+        # run after the transaction so the new reviewers are visible and the task-start side effect
+        # isn't rolled back.
+        try:
+            async_to_sync(maybe_autostart_from_report_artefacts)(
+                team_id=self.team.id, report_id=str(artefact.report_id)
+            )
+        except Exception:  # noqa: BLE001 — auto-start is best-effort; a failure must not break the edit
+            logger.exception("signals reviewer-edit auto-start failed", report_id=str(artefact.report_id))
 
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
