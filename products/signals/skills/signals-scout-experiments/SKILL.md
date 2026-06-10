@@ -10,13 +10,9 @@ description: >
   peer in the signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (mostly read-only, plus signal_scout_internal:write for scratchpad-remember/forget and
-  emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus the
-  experiments MCP tools (experiment-list, experiment-get, experiment-results-get,
-  experiment-stats, experiment-timeseries-results), feature flag tools (feature-flag-get-definition,
-  feature-flags-activity-retrieve), and standard analytics tools (execute-sql,
-  read-data-schema, activity-log-list, inbox-reports-list).
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the experiments, feature flag, and analytics
+  tools listed in the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: experiments

@@ -46,9 +46,11 @@ only as good as its fit to the data it watches.
 3. **Read the closest canonical scout.** It's your template and your reference shape. Pull
    it with `posthog:llma-skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
    read it from the repo at `products/signals/skills/signals-scout-*/`. The generalist
-   (`signals-scout-general`) is the broad template; pick a specialist
-   (`-error-tracking`, `-ai-observability`, `-logs`, `-revenue-analytics`, `-surveys`,
-   `-csp-violations`, `-observability-gaps`) if your scope is domain-tight.
+   (`signals-scout-general`) is the broad template; if your scope is domain-tight, pick
+   the specialist closest to your surface — list the live roster with
+   `posthog:llma-skill-list {"search": "signals-scout"}` (specialists exist for most
+   product surfaces: error tracking, logs, AI observability, experiments, feature flags,
+   session replay, web analytics, surveys, and more).
 4. **Skim the inbox.** `posthog:inbox-reports-list` shows what findings are actually
    landing — calibrate so your scout adds signal, not noise.
 
@@ -144,8 +146,8 @@ see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 
 To **read** what your scouts are doing rather than change them — surveying the fleet, inspecting
 individual runs, the scratchpad memory, and assessing performance — use the read-only companion
-skill [`exploring-signals-scouts`](../exploring-signals-scouts/SKILL.md). Keep the two in sync when
-the scout config / run / scratchpad surfaces change.
+skill `exploring-signals-scouts`. Keep the two in sync when the scout config / run / scratchpad
+surfaces change.
 
 ## Quality bar for a v1 scout
 

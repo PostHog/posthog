@@ -1,9 +1,15 @@
+import { dayjs } from 'lib/dayjs'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
+    ReplayScanner,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
 
 export type ScannerTemplateIcon =
     | 'bolt'
@@ -122,4 +128,39 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
         return undefined
     }
     return defaultScannerTemplates.find((t) => t.key === key)
+}
+
+export function newScanner(templateKey?: string | null): ReplayScanner {
+    const base = {
+        id: 'new',
+        enabled: true,
+        sampling_rate: 1,
+        query: { kind: NodeKind.RecordingsQuery },
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        emits_signals: false,
+        scanner_version: 1,
+        last_swept_at: dayjs().toISOString(),
+        created_at: dayjs().toISOString(),
+        updated_at: dayjs().toISOString(),
+        created_by: null,
+    } as const
+
+    const template = findScannerTemplate(templateKey ?? undefined)
+    if (template) {
+        return {
+            ...base,
+            name: template.scanner_name,
+            description: template.scanner_description,
+            scanner_type: template.scanner_type,
+            scanner_config: template.scanner_config,
+        } as ReplayScanner
+    }
+    return {
+        ...base,
+        name: '',
+        description: '',
+        scanner_type: 'monitor',
+        scanner_config: { prompt: '' },
+    }
 }
