@@ -126,7 +126,7 @@ harmless over-estimate, documented):
 - [ ] Step 1b: tests for predicates + query_builder (deferred to Step 7)
 - [x] Step 2: model field + migration (warehouse_sources 0006) — makemigrations --check reports no drift
 - [x] Step 3: SourceInputs threading (typings.SourceInputs.row_filters + import_data_sync resolves & re-validates)
-- [ ] Step 4: serializer + source validation
+- [x] Step 4: serializer + source validation (RowFiltersField + extend_schema_field; ExternalDataSchemaSerializer.update validates; bulk-update serializer field; source-creation loop validates + persists)
 - [ ] Step 5: 6 SQL sources
 - [ ] Step 6: frontend
 - [ ] Step 7: tests

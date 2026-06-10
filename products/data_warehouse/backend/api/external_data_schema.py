@@ -22,7 +22,9 @@ from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    validate_and_coerce_row_filters,
 )
 
 from products.data_warehouse.backend.data_load.service import (
@@ -129,6 +131,25 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
 
 
+@extend_schema_field(
+    {
+        "type": "array",
+        "nullable": True,
+        "items": {
+            "type": "object",
+            "properties": {
+                "column": {"type": "string"},
+                "operator": {"type": "string", "enum": [">", ">=", "<", "<=", "=", "!="]},
+                "value": {"description": "Comparison value; must match the column's type."},
+            },
+            "required": ["column", "operator", "value"],
+        },
+    }
+)
+class RowFiltersField(serializers.JSONField):
+    """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -191,6 +212,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "even if not listed here."
         ),
     )
+    row_filters = RowFiltersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is "
+            "`{column, operator, value}`; `null`/empty (default) syncs all rows. The operator "
+            "must be one of `> >= < <= = !=` and the value must match the column's type. "
+            "Applied on the next sync — not retroactive to already-synced rows."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
         help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
@@ -227,6 +258,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "primary_key_columns",
             "cdc_table_mode",
             "enabled_columns",
+            "row_filters",
             "available_columns",
             "source",
         ]
@@ -403,6 +435,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+
+        # Validate row filters against the schema's discovered columns + types. The raw filters
+        # are persisted as-is (a real model field); coercion happens again at sync time.
+        if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            try:
+                validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
+            except RowFilterValidationError as e:
+                raise ValidationError(f"Invalid row filter: {e}")
 
         sync_type = data.get("sync_type")
 
