@@ -586,13 +586,21 @@ export const notebookLogic = kea<notebookLogicType>([
                                 isMarkdownNotebookContent(savedContent) &&
                                 isMarkdownNotebookContent(currentLocalContent)
                             ) {
-                                const freshNotebook = await api.notebooks.get(values.notebook.short_id, undefined, {})
-                                if (freshNotebook && isMarkdownNotebookContent(freshNotebook.content)) {
-                                    // The markdown editor merges fresh server content into local edits
-                                    // through its remoteValue path and re-emits the merged content,
-                                    // which retries the save against the new version.
-                                    refreshTreeItem('notebook', String(values.notebook.short_id))
-                                    return freshNotebook
+                                try {
+                                    const freshNotebook = await api.notebooks.get(
+                                        values.notebook.short_id,
+                                        undefined,
+                                        {}
+                                    )
+                                    if (freshNotebook && isMarkdownNotebookContent(freshNotebook.content)) {
+                                        // The markdown editor merges fresh server content into local edits
+                                        // through its remoteValue path and re-emits the merged content,
+                                        // which retries the save against the new version.
+                                        refreshTreeItem('notebook', String(values.notebook.short_id))
+                                        return freshNotebook
+                                    }
+                                } catch {
+                                    // Fall through to the manual conflict path if refreshing content fails.
                                 }
                             }
 

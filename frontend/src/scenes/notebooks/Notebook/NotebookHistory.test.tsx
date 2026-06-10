@@ -313,6 +313,41 @@ Base paragraph`
         expect(logic.values.conflictWarningVisible).toBe(false)
     })
 
+    it('shows the conflict warning when fresh server content cannot be loaded after a stale save conflict', async () => {
+        const baseMarkdown = `# Markdown v2
+
+Base paragraph`
+        const localMarkdown = `# Markdown v2
+
+Base paragraph with local edit`
+        const baseMarkdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(baseMarkdown),
+            text_content: baseMarkdown,
+        }
+        const localContent = buildMarkdownNotebookContent(localMarkdown)
+
+        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
+        jest.spyOn(api.notebooks, 'get').mockRejectedValueOnce(new Error('Network error'))
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveNotebook({ content: localContent, title: 'Test' })
+        })
+            .toDispatchActions(['clearLocalContent', 'showConflictWarning', 'saveNotebookSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.localContent).toBeNull()
+        expect(logic.values.conflictWarningVisible).toBe(true)
+    })
+
     describe.each([
         {
             name: 'non-collab mode dispatches PATCH save with historical content',
