@@ -69,12 +69,29 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         return DashboardTemplate(
             template_name="Product analytics",
             dashboard_description=(
-                "How people use your app at a glance — reach, retention, top pages, location, and whether "
-                "visitors take action. Built from automatically captured events, so it works on day one. "
+                "How people use your app at a glance — traffic, retention, where visitors come from, and "
+                "whether they take action. Built from automatically captured events, so it works on day one. "
                 "Swap in your own events to make it yours."
             ),
             dashboard_filters={},
             tiles=[
+                {
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "### 👋 Start here\n\n"
+                        "Everything below is captured automatically — pageviews, clicks, sessions, and location — "
+                        "so this dashboard fills in from day one with no extra setup. Coming from Google Analytics, "
+                        "Mixpanel, or Amplitude? The headline numbers will feel familiar; the retention and funnel "
+                        "tiles are where you point PostHog at your own events. Edit any tile, or duplicate the "
+                        "dashboard to make it your own."
+                    ),
+                    "layouts": {
+                        "sm": {"h": 3, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+                    },
+                },
                 {
                     "name": "Active users (last 30 days)",
                     "type": "INSIGHT",
@@ -113,10 +130,131 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                        "sm": {"h": 3, "w": 3, "x": 0, "y": 3, "minH": 3, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 3, "minH": 3, "minW": 1},
                     },
                     "description": "Unique people who used your app in the last 30 days. A quick pulse on your overall reach.",
+                },
+                {
+                    "name": "Sessions (last 7 days)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {
+                                    "kind": "EventsNode",
+                                    "math": "unique_session",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                }
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "BoldNumber",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 3, "w": 3, "x": 3, "y": 3, "minH": 3, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 6, "minH": 3, "minW": 1},
+                    },
+                    "description": "Distinct visits in the last 7 days. A session groups everything one person does in a single sitting.",
+                },
+                {
+                    "name": "Pageviews (last 7 days)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "BoldNumber",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 3, "w": 3, "x": 6, "y": 3, "minH": 3, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 9, "minH": 3, "minW": 1},
+                    },
+                    "description": "Total pages viewed in the last 7 days, repeat views included. The classic traffic-volume number.",
+                },
+                {
+                    "name": "Clicks & interactions (last 7 days)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "total", "name": "$autocapture", "event": "$autocapture"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "BoldNumber",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 3, "w": 3, "x": 9, "y": 3, "minH": 3, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 12, "minH": 3, "minW": 1},
+                    },
+                    "description": "Clicks, taps, and form submits captured automatically in the last 7 days — no tracking code required.",
+                },
+                {
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "### Are people coming back?\n\n"
+                        "Daily and weekly active users show your trend; retention shows how many people return "
+                        "after their first visit — the clearest signal of whether what you built is sticky."
+                    ),
+                    "layouts": {
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 6, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 15, "minH": 1, "minW": 1},
+                    },
                 },
                 {
                     "name": "Daily active users (DAUs)",
@@ -156,8 +294,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 8, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 18, "minH": 5, "minW": 1},
                     },
                     "description": "Unique people who use your app each day. Watch for steady growth or sudden drops.",
                 },
@@ -199,10 +337,50 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 8, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 23, "minH": 5, "minW": 1},
                     },
                     "description": "Unique people who use your app each week. Smooths out daily noise to show the underlying trend.",
+                },
+                {
+                    "name": "Retention",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "RetentionQuery",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "retentionFilter": {
+                                "period": "Week",
+                                "targetEntity": {"id": "$pageview", "type": "events"},
+                                "retentionType": "retention_first_time",
+                                "totalIntervals": 11,
+                                "returningEntity": {"id": "$pageview", "type": "events"},
+                            },
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 13, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 28, "minH": 5, "minW": 1},
+                    },
+                    "description": "How many people come back week after week after their first visit. The clearest signal of whether your product is sticky.",
+                },
+                {
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "### Where your traffic comes from\n\n"
+                        "Your most-visited pages, the sites referring people to you, and where in the world they "
+                        "are — the acquisition basics, captured for you."
+                    ),
+                    "layouts": {
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 18, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 33, "minH": 1, "minW": 1},
+                    },
                 },
                 {
                     "name": "Top pages",
@@ -233,10 +411,44 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 20, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 36, "minH": 5, "minW": 1},
                     },
                     "description": "Your most visited pages over the last 7 days. Shows where people spend their attention.",
+                },
+                {
+                    "name": "Top referrers",
+                    "type": "INSIGHT",
+                    "color": "purple",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsBarValue",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown": "$referring_domain", "breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 20, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 41, "minH": 5, "minW": 1},
+                    },
+                    "description": "Which sites send you the most visitors — search, social, and direct. Your acquisition channels at a glance.",
                 },
                 {
                     "name": "Users by country",
@@ -267,36 +479,24 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 25, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 46, "minH": 5, "minW": 1},
                     },
                     "description": "Where your users are, based on their IP address. Hover a country to see its user count.",
                 },
                 {
-                    "name": "Retention",
-                    "type": "INSIGHT",
-                    "color": "blue",
-                    "query": {
-                        "kind": "InsightVizNode",
-                        "source": {
-                            "kind": "RetentionQuery",
-                            "dateRange": {"date_from": "-7d", "explicitDate": False},
-                            "properties": [],
-                            "retentionFilter": {
-                                "period": "Week",
-                                "targetEntity": {"id": "$pageview", "type": "events"},
-                                "retentionType": "retention_first_time",
-                                "totalIntervals": 11,
-                                "returningEntity": {"id": "$pageview", "type": "events"},
-                            },
-                            "filterTestAccounts": False,
-                        },
-                    },
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "### Turning visits into actions\n\n"
+                        "A funnel from landing on a page to clicking something. Swap these steps for your own "
+                        "events — signup, purchase, upgrade — to measure conversion that matters to you."
+                    ),
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3},
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 30, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 51, "minH": 1, "minW": 1},
                     },
-                    "description": "How many people come back week after week after their first visit. The clearest signal of whether your product is sticky.",
                 },
                 {
                     "name": "Visit to interaction funnel",
@@ -338,8 +538,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 15, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 30, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 32, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 54, "minH": 5, "minW": 1},
                     },
                     "description": "Of people who land on a page, how many go on to interact. Replace these steps with your own events to track real conversions.",
                 },
