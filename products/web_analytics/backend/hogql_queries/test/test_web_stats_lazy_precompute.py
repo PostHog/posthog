@@ -38,6 +38,7 @@ PARITY_BREAKDOWNS = [
     ("channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE),
     ("initial_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
     ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
+    ("language", WebStatsBreakdown.LANGUAGE),
 ]
 
 
@@ -66,6 +67,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "$browser": "Chrome",
             "$os": "Linux",
             "$device_type": "Desktop",
+            "$browser_language": "en-US",
             "$geoip_country_code": "US",
             "$geoip_subdivision_1_code": "US-CA",
             "$geoip_subdivision_1_name": "California",
@@ -114,6 +116,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$browser": "Firefox",
                     "$os": "Windows",
                     "$device_type": "Mobile",
+                    "$browser_language": "en-GB",
                     "$geoip_country_code": "GB",
                     "$geoip_subdivision_1_code": "GB-ENG",
                     "$geoip_subdivision_1_name": "England",
@@ -316,14 +319,19 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_language_breakdown_falls_through(self):
-        # LANGUAGE needs an extra topK aggregation column that can't be rebuilt
-        # from hourly states — it must fall through to the raw path.
+    def test_language_breakdown_precomputes_and_groups_by_prefix(self):
+        # LANGUAGE precomputes: the INSERT stores the full `$browser_language`
+        # ("en-US"/"en-GB"); the read groups by the "en" prefix and labels it with
+        # the most-common region (US wins on views), reproducing the raw two-level
+        # query entirely on read. en-US (u1, 3 views) + en-GB (u2, 1 view) collapse
+        # to one "en-US" row with 2 visitors / 4 views.
         self._seed()
         with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+            response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert self._job_count() == 0
+        assert self._job_count() > 0
+        assert response.usedLazyPrecompute is True
+        assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_conversion_goal_falls_through(self):
