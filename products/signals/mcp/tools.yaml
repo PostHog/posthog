@@ -243,6 +243,23 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-runs-emissions-list:
+        operation: signals_scout_runs_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a scout run's emitted findings
+        description: >
+            Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
+            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic
+            `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see
+            *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`).
+            Strictly team-scoped — a run UUID belonging to another team returns 404.
     signals-scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true

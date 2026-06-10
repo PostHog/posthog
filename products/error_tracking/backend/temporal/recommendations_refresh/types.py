@@ -6,9 +6,9 @@ class RecommendationsRefreshInputs:
     # Only sweep teams that ingested at least one $exception within this window.
     lookback_days: int = 7
     # Teams per batch activity.
-    batch_size: int = 100
+    batch_size: int = 50
     # How many batch activities run at once (bounds ClickHouse/Postgres load).
-    max_concurrent_batches: int = 10
+    max_concurrent_batches: int = 20
 
 
 @dataclasses.dataclass(frozen=True)

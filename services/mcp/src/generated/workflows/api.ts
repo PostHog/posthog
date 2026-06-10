@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -369,6 +369,61 @@ export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsInvocationResultsRetrieveQueryAfterDefault = `-7d`
+
+export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
+export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
+
+export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsInvocationResultsRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs."
+        ),
+    before: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now."),
+    distinct_id: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Only return invocations triggered for this distinct_id (the person the run executed for).'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(hogFlowsInvocationResultsRetrieveQueryLimitMax)
+        .default(hogFlowsInvocationResultsRetrieveQueryLimitDefault)
+        .describe('Maximum number of invocations to return (1-500, default 50).'),
+    status: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'."),
+})
+
+export const HogFlowsInvocationResultRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    invocation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
 export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -496,4 +551,25 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
+})
+
+export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsMetricsGlobalRetrieveQueryAfterDefault = `-7d`
+
+export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsMetricsGlobalRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
+        ),
+    before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
 })

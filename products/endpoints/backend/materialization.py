@@ -1262,14 +1262,27 @@ class MaterializationTransformer(CloningVisitor):
 
     def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
         """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""
-        select_additions = [self._create_column_field(var) for var in vars_for_context]
-        if node.select:
-            node.select = [*list(node.select), *select_additions]
-        else:
-            node.select = select_additions
+        existing_aliases: dict[str, str] = {
+            expr.alias: expr.expr.to_hogql() for expr in node.select or [] if isinstance(expr, ast.Alias)
+        }
+        vars_to_add: list[MaterializableVariable] = []
+        for var in vars_for_context:
+            existing_expr = existing_aliases.get(var.code_name)
+            if existing_expr is not None:
+                if existing_expr == self._variable_expr(var).to_hogql():
+                    # SELECT already exposes this column under the variable's name
+                    continue
+                raise ValueError(
+                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression"
+                )
+            vars_to_add.append(var)
 
-        if node.group_by is not None or self._has_aggregate_functions(node):
-            self._add_group_by(node, vars_for_context)
+        select_additions = [self._create_column_field(var) for var in vars_to_add]
+        if select_additions:
+            node.select = [*list(node.select or []), *select_additions]
+
+        if vars_to_add and (node.group_by is not None or self._has_aggregate_functions(node)):
+            self._add_group_by(node, vars_to_add)
 
         if node.where:
             node.where = self._remove_variable_from_where(node.where)

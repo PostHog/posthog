@@ -65,6 +65,8 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         refreshDashboardWidgets,
+        scheduleRefreshDashboardWidgets,
+        applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
@@ -490,6 +492,7 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         dashboardId={dashboard?.id}
+                                        canEditDashboard={canEditDashboard}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
@@ -499,6 +502,15 @@ export function DashboardItems(): JSX.Element {
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }
+                                        onRefreshWidgetData={scheduleRefreshDashboardWidgets}
+                                        onApplyWidgetIssueMetadataChange={(tileId, issueId, delta, context) => {
+                                            applyWidgetIssueMetadataChange({
+                                                tileId,
+                                                issueId,
+                                                delta,
+                                                context,
+                                            })
+                                        }}
                                         onUpdateWidgetTile={async (patch) => {
                                             await updateWidgetTile({ tile, ...patch })
                                         }}
