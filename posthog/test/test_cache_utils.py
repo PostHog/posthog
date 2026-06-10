@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from time import sleep
 from typing import Optional
@@ -5,7 +6,9 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
-from posthog.cache_utils import cache_for
+from parameterized import parameterized
+
+from posthog.cache_utils import OrjsonJsonSerializer, cache_for
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
@@ -34,6 +37,17 @@ class TestCacheUtils(APIBaseTest):
         mocked_dependency.reset_mock()
         mocked_dependency.return_value = 1
         order_of_events.reset_mock()
+
+    @parameterized.expand(
+        [
+            ("utf8_bytes", b"hello", "hello"),
+            ("non_utf8_bytes", b"\x80\x81\xff", "8081ff"),
+        ]
+    )
+    def test_orjson_serializer_dumps_bytes(self, _name, value, expected) -> None:
+        serializer = OrjsonJsonSerializer({})
+
+        assert json.loads(serializer.dumps({"value": value})) == {"value": expected}
 
     def test_cache_for_with_different_passed_arguments_styles_when_skipping_cache(self) -> None:
         assert 1 == fn(use_cache=False)

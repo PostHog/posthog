@@ -2,6 +2,8 @@ import json
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.renderers import SafeJSONRenderer
 
 
@@ -72,6 +74,17 @@ class TestCleanDataForJSON(TestCase):
                 "test": [None, [None, None, 1.0], None, 5.0],
             },
         )
+
+    @parameterized.expand(
+        [
+            ("utf8_bytes", b"hello", "hello"),
+            ("non_utf8_bytes", b"\x80\x81\xff", "8081ff"),
+        ]
+    )
+    def test_renders_bytes(self, _name, value, expected):
+        data = SafeJSONRenderer().render({"value": value})
+
+        self.assertEqual(json.loads(data), {"value": expected})
 
     def test_cleans_dict_with_nan_nested_dict(self):
         response = {
