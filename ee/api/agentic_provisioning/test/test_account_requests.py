@@ -858,6 +858,28 @@ class TestEmailCodeLinking(ProvisioningTestBase):
         assert cached["code_challenge"] == self.code_challenge
         assert cached["partner_id"] == str(self.partner.id)
         assert cached["issued_at"]
+        # Team resolution is deferred to redemption so no project is created pre-consent
+        assert cached["team_id"] is None
+
+    def test_no_project_created_before_code_entered(self):
+        # A second team makes auto-resolution take the create-a-new-project branch
+        Team.objects.create_with_data(initiating_user=self.existing_user, organization=self.organization)
+        team_count = Team.objects.count()
+
+        _, code = self._request_code()
+        assert Team.objects.count() == team_count
+
+        body = urlencode(
+            {"grant_type": "authorization_code", "code": code, "code_verifier": self.code_verifier}
+        ).encode()
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+        assert Team.objects.count() == team_count + 1
 
     def test_emailed_code_redeems_at_token_endpoint(self):
         _, code = self._request_code()
@@ -963,18 +985,17 @@ class TestEmailCodeLinking(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"] == "invalid_grant"
 
+    @parameterized.expand(
+        [
+            ("flag_off", False, "email_code"),
+            ("browser_requested", True, "browser"),
+        ]
+    )
     @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
-    def test_flag_off_falls_back_to_requires_auth(self, mock_send):
-        self.partner.provisioning_can_link_via_email_code = False
+    def test_falls_back_to_requires_auth(self, _name, flag_enabled, link_method, mock_send):
+        self.partner.provisioning_can_link_via_email_code = flag_enabled
         self.partner.save()
-        res = self._post(self._payload())
-        assert res.status_code == 200
-        assert res.json()["type"] == "requires_auth"
-        assert not mock_send.delay.called
-
-    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
-    def test_browser_link_method_returns_requires_auth(self, mock_send):
-        res = self._post(self._payload(link_method="browser"))
+        res = self._post(self._payload(link_method=link_method))
         assert res.status_code == 200
         assert res.json()["type"] == "requires_auth"
         assert not mock_send.delay.called

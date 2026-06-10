@@ -710,17 +710,29 @@ def _require_email_code(
     if error := _enforce_email_code_rate_limit(request_id, user.email):
         return error
 
-    team = _resolve_team_for_existing_user(user, team_id)
-    if team is None:
-        _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
-        return Response(
-            {
-                "id": request_id,
-                "type": "error",
-                "error": {"code": "team_resolution_failed", "message": "Could not resolve a project for this user"},
-            },
-            status=400,
-        )
+    # Team resolution can create a project (multi-team / demo-only users), which must
+    # not happen before the user consents by entering the code. An explicitly requested
+    # team is validated read-only here to fail fast; otherwise resolution is deferred
+    # to redemption (see _exchange_authorization_code).
+    resolved_team_id: int | None = None
+    org_id = ""
+    if team_id is not None:
+        team = _resolve_team_for_existing_user(user, team_id)
+        if team is None:
+            _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {
+                        "code": "team_resolution_failed",
+                        "message": "Could not resolve a project for this user",
+                    },
+                },
+                status=400,
+            )
+        resolved_team_id = team.id
+        org_id = str(team.organization_id)
 
     # Dedup: a retry invalidates the previously emailed code so at most one live code
     # exists per partner+email.
@@ -736,8 +748,9 @@ def _require_email_code(
         {
             "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
-            "org_id": str(team.organization_id),
-            "team_id": team.id,
+            "org_id": org_id,
+            "team_id": resolved_team_id,
+            "requested_team_id": team_id,
             "stripe_account_id": partner_account_id,
             "partner_id": str(partner.id),
             "scopes": scopes,
@@ -1251,6 +1264,19 @@ def _exchange_authorization_code(request: Request) -> Response:
     except User.DoesNotExist:
         _capture_provisioning_event("token_exchange", "user_not_found", grant_type="authorization_code")
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
+
+    # Email-code flow defers team resolution to redemption so a project is only
+    # ever created after the user has proven consent by entering the code.
+    if team_id is None:
+        team = _resolve_team_for_existing_user(user, code_data.get("requested_team_id"))
+        if team is None:
+            _capture_provisioning_event("token_exchange", "team_resolution_failed", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Could not resolve a project for this user"},
+                status=400,
+            )
+        team_id = team.id
+        code_data["org_id"] = str(team.organization_id)
 
     # Use partner's OAuth app if available, fall back to Stripe
     try:
