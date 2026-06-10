@@ -1824,6 +1824,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             content_snapshot["ai_report_diagnostics"] = [
                 {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
             ]
+            content_snapshot["ai_report_prompt"] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -1850,6 +1851,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data["change_summary"] is None
             # Defence-in-depth against a future per-key scrub: the generated HogQL must not appear at all.
             assert generated_hogql not in str(data)
+            assert data["ai_report"] is None
+            # The prompt is user-authored (not query-derived), so it stays visible.
+            assert data["ai_report_prompt"] == "Weekly growth recap"
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -1859,6 +1863,8 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
             assert generated_hogql not in str(row)
+            assert row["ai_report"] is None
+            assert row["ai_report_prompt"] == "Weekly growth recap"
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
@@ -1866,9 +1872,47 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # A query-access caller on an AI delivery legitimately receives the diagnostics,
                 # including the generated HogQL — this is the intended debugging surface.
                 assert data["content_snapshot"]["ai_report_diagnostics"][0]["hogql"] == generated_hogql
+                assert data["ai_report"] == "# Weekly report"
+                assert data["ai_report_prompt"] == "Weekly growth recap"
+            else:
+                assert data["ai_report"] is None
+                assert data["ai_report_prompt"] is None
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
+
+    @parameterized.expand(
+        [
+            (
+                "report_and_prompt",
+                {"ai_report": "# Report", "ai_report_prompt": "Weekly growth recap"},
+                "# Report",
+                "Weekly growth recap",
+            ),
+            # Deliveries created before prompt snapshotting only carry the report.
+            ("report_without_prompt", {"ai_report": "# Report"}, "# Report", None),
+            ("absent_keys", {}, None, None),
+            ("non_string_values", {"ai_report": 123, "ai_report_prompt": ""}, None, None),
+        ]
+    )
+    def test_delivery_exposes_ai_report_fields(self, _name, snapshot, expected_report, expected_prompt):
+        delivery = self._create_delivery(idempotency_key=f"ai-fields-{_name}", content_snapshot=snapshot)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["ai_report"] == expected_report
+        assert data["ai_report_prompt"] == expected_prompt
+        # The list endpoint serves the delivery history table, so it must expose the same fields.
+        list_response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        )
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
+        assert row["ai_report"] == expected_report
+        assert row["ai_report_prompt"] == expected_prompt
 
     def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")

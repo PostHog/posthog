@@ -24,6 +24,17 @@ class DeliveryStatus:
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 
+# `SubscriptionDelivery.content_snapshot` keys the AI report pipeline writes (the report markdown
+# plus the prompt that generated it, snapshotted so history stays meaningful after prompt edits)
+# and the deliveries API reads back. The markdown can exceed Temporal's ~2 MiB payload cap, so it
+# travels through Postgres by reference rather than on the wire — the same pattern insight
+# snapshots use. Lives here (not activities.py) so the API serializer can read the keys without
+# importing the LLM delivery stack.
+AI_REPORT_SNAPSHOT_KEY = "ai_report"
+AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
+# Per-step query diagnostics (generated HogQL + failure type) — debugging surface, never shipped to recipients.
+AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+
 
 class SubscriptionTriggerType:
     """How a subscription delivery was triggered.

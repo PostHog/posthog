@@ -50,6 +50,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -1016,9 +1018,22 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
-    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
     # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
-    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+    # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
+    # subscription, so it is intentionally not scrubbed.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {
+        "content_snapshot": {},
+        "change_summary": None,
+        "ai_report": None,
+    }
+
+    ai_report = serializers.SerializerMethodField(
+        help_text="AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report."
+    )
+    ai_report_prompt = serializers.SerializerMethodField(
+        help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
 
     class Meta:
         model = SubscriptionDelivery
@@ -1040,6 +1055,8 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "last_updated_at",
             "finished_at",
             "change_summary",
+            "ai_report",
+            "ai_report_prompt",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1068,6 +1085,21 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "finished_at": {"help_text": "When the run finished, if applicable."},
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
+
+    def _content_snapshot_text(self, delivery: SubscriptionDelivery, key: str) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        value = snapshot.get(key)
+        return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_SNAPSHOT_KEY)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report_prompt(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_PROMPT_SNAPSHOT_KEY)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

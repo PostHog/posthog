@@ -29,6 +29,9 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     deliver_slack,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     GenerateAIReportInputs,
@@ -41,15 +44,6 @@ from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
 
 LOGGER = get_logger(__name__)
-
-# `SubscriptionDelivery.content_snapshot` key the AI report markdown is written under by
-# `generate_ai_subscription_report` and read back by `_deliver_ai_subscription`. The markdown
-# can exceed Temporal's ~2 MiB payload cap, so it travels through Postgres by reference rather
-# than on the wire — the same pattern insight snapshots use.
-AI_REPORT_SNAPSHOT_KEY = "ai_report"
-# Companion key holding per-step query diagnostics (the generated HogQL + failure type) so a degraded
-# report is debuggable after the fact. Written alongside the markdown; never shipped to recipients.
-AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
@@ -72,7 +66,7 @@ async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     return await _read()
 
 
-async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> None:
+async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
         # No DoesNotExist guard: create_delivery_record always writes this row before
@@ -85,6 +79,8 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> 
                 {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
                 for d in result.diagnostics
             ],
+            # prompt is None for non-AI subs; "" if cleared — omit either.
+            **({AI_REPORT_PROMPT_SNAPSHOT_KEY: prompt} if prompt else {}),
         }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
@@ -255,7 +251,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
 
-    await _persist_ai_report(inputs.delivery_id, report_result)
+    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
     return GenerateAIReportResult(aborted=False)
 
 

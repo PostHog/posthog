@@ -19,6 +19,7 @@ import {
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { DeliveryFeedback } from '../subscriptionSceneLogic'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
@@ -91,20 +92,36 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element {
     return (
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-            {summary}
+        <div className="px-4 py-3 text-sm flex flex-col gap-4">
+            {row.change_summary ? (
+                <div className="whitespace-pre-wrap">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+                    {row.change_summary}
+                </div>
+            ) : null}
+            {row.ai_report ? (
+                <div className="flex flex-col gap-3">
+                    {row.ai_report_prompt ? (
+                        <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">
+                                Prompt at time of generation
+                            </div>
+                            <div className="text-secondary whitespace-pre-wrap">{row.ai_report_prompt}</div>
+                        </div>
+                    ) : null}
+                    <LemonMarkdown>{row.ai_report}</LemonMarkdown>
+                </div>
+            ) : null}
         </div>
     )
 }
 
 // Module-scope const keeps the reference stable across parent re-renders.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
-    expandedRowRender: (row: SubscriptionDeliveryApi) =>
-        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary || row.ai_report),
+    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 
 // Only called from storybook visual tests — production use ignores the optional set.
@@ -322,8 +339,8 @@ export type SubscriptionDeliveryHistoryProps = {
     /** Deliveries thanked moments ago — those rows briefly show "Thanks!" before settling into the chosen option. */
     recentlyThankedDeliveries?: Record<string, true>
     /**
-     * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
-     * on first render. Used exclusively by visual regression tests to capture the
+     * STORYBOOK-ONLY: delivery ids whose expandable row (AI summary or AI report) should render
+     * pre-expanded on first render. Used exclusively by visual regression tests to capture the
      * expanded-row state; production callers should not pass this prop.
      */
     __storyOnlyInitiallyExpandedDeliveryIds?: ReadonlySet<string>

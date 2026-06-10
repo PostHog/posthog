@@ -67,6 +67,19 @@ export const WithExpandedSummary: Story = {
     },
 }
 
+// Captures the AI report viewer: prompt snapshot in muted text above the rendered markdown.
+const EXPANDED_AI_REPORT_STORY_IDS: ReadonlySet<string> = new Set(['del-ai-report'])
+
+export const WithExpandedAiReport: Story = {
+    args: {
+        deliveriesPage: pageWithRows,
+        deliveriesPageLoading: false,
+        loadDeliveriesPage: noopLoadPage,
+        onTestDelivery: noopTestDelivery,
+        __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_AI_REPORT_STORY_IDS,
+    },
+}
+
 export const Empty: Story = {
     args: {
         deliveriesPage: { results: [], next: null, previous: null },

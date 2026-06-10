@@ -2115,6 +2115,8 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"
+    # The prompt is snapshotted alongside so delivery history survives later prompt edits.
+    assert refreshed.content_snapshot["ai_report_prompt"] == "Top events"
 
 
 async def test_deliver_ai_subscription_sends_persisted_report_to_email(team, user):

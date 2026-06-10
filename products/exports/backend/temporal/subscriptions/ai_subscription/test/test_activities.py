@@ -7,9 +7,12 @@ from asgiref.sync import sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
-    AI_REPORT_DIAGNOSTICS_KEY,
-    AI_REPORT_SNAPSHOT_KEY,
     _persist_ai_report,
+)
+from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
@@ -59,6 +62,7 @@ async def test_persist_ai_report_writes_markdown_and_query_diagnostics(team, use
                 ),
             ),
         ),
+        prompt="Weekly growth recap",
     )
 
     snapshot = await _snapshot(delivery.id)
@@ -67,3 +71,4 @@ async def test_persist_ai_report_writes_markdown_and_query_diagnostics(team, use
         {"description": "adoption", "hogql": "SELECT count()", "ok": True, "error_type": None},
         {"description": "reliability", "hogql": "SELECT bad", "ok": False, "error_type": "ResolutionError"},
     ]
+    assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"

@@ -76,6 +76,16 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly change_summary: string | null
+    /**
+     * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+     * @nullable
+     */
+    readonly ai_report: string | null
+    /**
+     * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+     * @nullable
+     */
+    readonly ai_report_prompt: string | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
