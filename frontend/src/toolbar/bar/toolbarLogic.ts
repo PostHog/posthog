@@ -8,6 +8,7 @@ import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/uti
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { annotationsLogic } from '~/toolbar/annotations/annotationsLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
@@ -41,6 +42,7 @@ export type MenuState =
     | 'web-vitals'
     | 'product-tours'
     | 'surveys'
+    | 'annotations'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -93,6 +95,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['enableInspect', 'disableInspect', 'createAction'],
             productToursLogic,
             ['showButtonProductTours', 'hideButtonProductTours'],
+            annotationsLogic,
+            ['showButtonAnnotations', 'hideButtonAnnotations'],
             surveysToolbarLogic,
             ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
@@ -464,6 +468,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableHeatmap()
             actions.hideButtonActions()
             actions.hideButtonProductTours()
+            actions.hideButtonAnnotations()
             actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
@@ -478,6 +483,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.enableInspect()
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
+            } else if (visibleMenu === 'annotations') {
+                actions.showButtonAnnotations()
             } else if (visibleMenu === 'surveys') {
                 actions.showButtonSurveys()
             }

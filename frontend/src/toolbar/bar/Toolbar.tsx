@@ -6,6 +6,7 @@ import { PostHog } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import {
+    IconApp,
     IconBolt,
     IconCamera,
     IconCheck,
@@ -37,6 +38,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { annotationsLogic } from '~/toolbar/annotations/annotationsLogic'
+import { AnnotationsOverlay } from '~/toolbar/annotations/AnnotationsOverlay'
+import { AnnotationsToolbarMenu } from '~/toolbar/annotations/AnnotationsToolbarMenu'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -325,6 +329,14 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
+    const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
+    // Dev/QA override: run `localStorage.setItem('ph-toolbar-annotations','1')` to force-show without the flag.
+    const showAnnotations =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        annotationsFlag ||
+        localStorage.getItem('ph-toolbar-annotations') === '1'
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -339,6 +351,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'annotations' && showAnnotations ? (
+        <AnnotationsToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
     ) : null
@@ -399,6 +413,15 @@ export function Toolbar(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
+    const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
+    // Dev/QA override: run `localStorage.setItem('ph-toolbar-annotations','1')` to force-show without the flag.
+    const showAnnotations =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        annotationsFlag ||
+        localStorage.getItem('ph-toolbar-annotations') === '1'
+    const { hasOpenedAnnotations } = useValues(annotationsLogic)
+
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
@@ -438,6 +461,7 @@ export function Toolbar(): JSX.Element | null {
     return (
         <>
             {showToursSidebar && <ProductToursSidebar />}
+            {showAnnotations && <AnnotationsOverlay />}
             {isSurveyCreating && <SurveySidebar />}
             <ToolbarInfoMenu />
             <div
@@ -446,9 +470,14 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-1':
+                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2':
+                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3':
+                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-4':
+                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -477,9 +506,27 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="inspect">
                             <IconSearch />
                         </ToolbarButton>
-                        <ToolbarButton menuId="heatmap">
-                            <IconCursorClick />
-                        </ToolbarButton>
+                        {/* When the annotations flag is on, annotations takes the heatmap slot + cursor icon */}
+                        {showAnnotations ? (
+                            <ToolbarButton menuId="annotations" title="MCP annotations">
+                                {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <span className="relative flex" style={{ fontSize: '1.5rem' }}>
+                                    <IconCursorClick />
+                                    {!hasOpenedAnnotations && (
+                                        <span
+                                            className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: 'var(--primary-3000)' }}
+                                        />
+                                    )}
+                                </span>
+                            </ToolbarButton>
+                        ) : (
+                            <ToolbarButton menuId="heatmap">
+                                <IconCursorClick />
+                            </ToolbarButton>
+                        )}
                         <ToolbarButton menuId="actions">
                             <IconBolt />
                         </ToolbarButton>
@@ -498,6 +545,12 @@ export function Toolbar(): JSX.Element | null {
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
+                            </ToolbarButton>
+                        )}
+                        {/* Heatmaps moves here and takes the app icon when annotations is enabled */}
+                        {showAnnotations && (
+                            <ToolbarButton menuId="heatmap" title="Heatmaps">
+                                <IconApp />
                             </ToolbarButton>
                         )}
                         {showSurveys && (

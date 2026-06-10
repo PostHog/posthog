@@ -5899,6 +5899,48 @@
         },
         "feature_flag": "tasks"
     },
+    "toolbar-annotations-get": {
+        "description": "Get a single toolbar annotation by id, including the full element context (selector, element chain, inferred selectors, attributes) needed to locate the element in code.",
+        "category": "Toolbar annotations",
+        "feature": "toolbar_annotations",
+        "summary": "Get toolbar annotation",
+        "title": "Get toolbar annotation",
+        "required_scopes": ["toolbar_annotation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "toolbar-annotations-list": {
+        "description": "List UI annotations a user made with the PostHog toolbar on their own site. Each annotation is feedback pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter by `annotation_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.",
+        "category": "Toolbar annotations",
+        "feature": "toolbar_annotations",
+        "summary": "List toolbar annotations",
+        "title": "List toolbar annotations",
+        "required_scopes": ["toolbar_annotation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "toolbar-annotations-update": {
+        "description": "Update a toolbar annotation as you work through it — set `annotation_status` to acknowledged, resolved, or dismissed, and optionally write a `resolution` note describing what you changed or why it was dismissed.",
+        "category": "Toolbar annotations",
+        "feature": "toolbar_annotations",
+        "summary": "Update toolbar annotation",
+        "title": "Update toolbar annotation",
+        "required_scopes": ["toolbar_annotation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
         "category": "Feature flags",

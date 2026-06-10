@@ -165,6 +165,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'task:write',
     'tracing:read',
     'tracing:write',
+    'toolbar_annotation:read',
+    'toolbar_annotation:write',
     'uploaded_media:read',
     'uploaded_media:write',
     'usage_metric:read',

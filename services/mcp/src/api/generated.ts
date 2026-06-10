@@ -7788,6 +7788,22 @@ export namespace Schemas {
       emoji?: string | null;
     }
 
+    /**
+     * * `pending` - Pending
+    * `acknowledged` - Acknowledged
+    * `resolved` - Resolved
+    * `dismissed` - Dismissed
+     */
+    export type AnnotationStatusEnum = typeof AnnotationStatusEnum[keyof typeof AnnotationStatusEnum];
+
+
+    export const AnnotationStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
     export interface AppMetricSeries {
       name: string;
       values: number[];
@@ -27474,6 +27490,101 @@ export namespace Schemas {
       results: ToleratedHashEntry[];
     }
 
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type ToolbarAnnotationElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the annotation was made, as {width, height}.
+     * @nullable
+     */
+    export type ToolbarAnnotationViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface ToolbarAnnotation {
+      readonly id: string;
+      /**
+         * The annotation note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
+
+      * `pending` - Pending
+      * `acknowledged` - Acknowledged
+      * `resolved` - Resolved
+      * `dismissed` - Dismissed */
+      annotation_status?: AnnotationStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the annotation was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope annotations to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the annotated element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the annotated element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: ToolbarAnnotationElementContext;
+      /**
+         * Viewport size when the annotation was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: ToolbarAnnotationViewport;
+      /**
+         * URL of an uploaded screenshot captured with the annotation.
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedToolbarAnnotationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ToolbarAnnotation[];
+    }
+
     export interface TraceReviewScore {
       readonly id: string;
       /** Stable scorer definition ID. */
@@ -33729,6 +33840,92 @@ export namespace Schemas {
 
     export interface PatchedToolApprovalUpdate {
       approval_state?: ToolApprovalUpdateApprovalStateEnum;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedToolbarAnnotationElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the annotation was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedToolbarAnnotationViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedToolbarAnnotation {
+      readonly id?: string;
+      /**
+         * The annotation note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
+
+      * `pending` - Pending
+      * `acknowledged` - Acknowledged
+      * `resolved` - Resolved
+      * `dismissed` - Dismissed */
+      annotation_status?: AnnotationStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the annotation was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope annotations to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the annotated element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the annotated element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedToolbarAnnotationElementContext;
+      /**
+         * Viewport size when the annotation was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedToolbarAnnotationViewport;
+      /**
+         * URL of an uploaded screenshot captured with the annotation.
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
     }
 
     export interface TraceReviewScoreWrite {
@@ -52519,6 +52716,17 @@ export namespace Schemas {
     limit?: number;
     /**
      * Offset into the result set for pagination.
+     */
+    offset?: number;
+    };
+
+    export type ToolbarAnnotationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
      */
     offset?: number;
     };

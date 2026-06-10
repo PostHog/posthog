@@ -5484,6 +5484,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'toolbar_annotation'
 
 export type APIScopeAction = 'read' | 'write'
 

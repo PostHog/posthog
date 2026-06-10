@@ -1,0 +1,336 @@
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { inferSelector } from '~/toolbar/product-tours/elementInference'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { ElementRect } from '~/toolbar/types'
+import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
+import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
+
+import type { annotationsLogicType } from './annotationsLogicType'
+
+interface PageContext {
+    url: string
+    host: string
+    pathname: string
+    viewport: { width: number; height: number }
+}
+
+function capturePageContext(): PageContext {
+    return {
+        url: window.location.href,
+        host: window.location.host,
+        pathname: window.location.pathname,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+    }
+}
+
+export interface ToolbarAnnotation {
+    id: string
+    comment: string
+    annotation_status: 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
+    resolution: string | null
+    url: string
+    host: string
+    pathname: string | null
+    selector: string
+    element_text: string | null
+    screenshot_url: string | null
+    created_at: string
+}
+
+function isToolbarElement(element: HTMLElement): boolean {
+    const toolbar = document.getElementById(TOOLBAR_ID)
+    return toolbar?.contains(element) ?? false
+}
+
+export const annotationsLogic = kea<annotationsLogicType>([
+    path(['toolbar', 'annotations', 'annotationsLogic']),
+
+    connect(() => ({
+        values: [toolbarConfigLogic, ['dataAttributes', 'uiHost']],
+    })),
+
+    actions({
+        showButtonAnnotations: true,
+        hideButtonAnnotations: true,
+        startAnnotating: true,
+        stopAnnotating: true,
+        setHoverElement: (element: HTMLElement | null) => ({ element }),
+        // Snapshot the page context at select time — on an SPA the URL can change before save.
+        selectElement: (element: HTMLElement) => ({ element, page: capturePageContext() }),
+        clearSelection: true,
+        setComment: (comment: string) => ({ comment }),
+        setScreenshotUrl: (url: string | null) => ({ url }),
+        deleteAnnotation: (id: string) => ({ id }),
+        updateRects: true,
+    }),
+
+    loaders(({ values }) => ({
+        annotations: [
+            [] as ToolbarAnnotation[],
+            {
+                loadAnnotations: async () => {
+                    const response = await toolbarFetch(
+                        '/api/projects/@current/toolbar_annotations/?annotation_status=pending'
+                    )
+                    if (!response.ok) {
+                        return values.annotations
+                    }
+                    const data = await response.json()
+                    return data.results ?? data
+                },
+            },
+        ],
+    })),
+
+    reducers({
+        buttonAnnotationsVisible: [
+            false,
+            {
+                showButtonAnnotations: () => true,
+                hideButtonAnnotations: () => false,
+            },
+        ],
+        isAnnotating: [
+            false,
+            {
+                startAnnotating: () => true,
+                stopAnnotating: () => false,
+                selectElement: () => false,
+                hideButtonAnnotations: () => false,
+            },
+        ],
+        hoverElement: [
+            null as HTMLElement | null,
+            {
+                setHoverElement: (_, { element }) => element,
+                stopAnnotating: () => null,
+                selectElement: () => null,
+                hideButtonAnnotations: () => null,
+            },
+        ],
+        selectedElement: [
+            null as HTMLElement | null,
+            {
+                selectElement: (_, { element }) => element,
+                clearSelection: () => null,
+                // Closing/switching the menu closes the comment box (no cascade: select no longer calls setVisibleMenu).
+                hideButtonAnnotations: () => null,
+            },
+        ],
+        comment: [
+            '',
+            {
+                setComment: (_, { comment }) => comment,
+                clearSelection: () => '',
+                hideButtonAnnotations: () => '',
+                submitAnnotationSuccess: () => '',
+            },
+        ],
+        pageContext: [
+            null as PageContext | null,
+            {
+                selectElement: (_, { page }) => page,
+                clearSelection: () => null,
+                hideButtonAnnotations: () => null,
+            },
+        ],
+        screenshotUrl: [
+            null as string | null,
+            {
+                setScreenshotUrl: (_, { url }) => url,
+                selectElement: () => null,
+                clearSelection: () => null,
+                hideButtonAnnotations: () => null,
+            },
+        ],
+        rectUpdateCounter: [
+            0,
+            {
+                updateRects: (state) => state + 1,
+            },
+        ],
+        // Drives the "new" badge on the toolbar button — dismissed (persistently) once the menu is first opened.
+        hasOpenedAnnotations: [
+            false,
+            { persist: true },
+            {
+                showButtonAnnotations: () => true,
+            },
+        ],
+        // Id of the annotation currently being deleted, to disable its row button (no double-submit).
+        deletingId: [
+            null as string | null,
+            {
+                deleteAnnotation: (_, { id }) => id,
+                loadAnnotationsSuccess: () => null,
+                loadAnnotationsFailure: () => null,
+            },
+        ],
+    }),
+
+    selectors({
+        hoverElementRect: [
+            (s) => [s.hoverElement, s.rectUpdateCounter],
+            (hoverElement): ElementRect | null => (hoverElement ? getRectForElement(hoverElement) : null),
+        ],
+        selectedElementRect: [
+            (s) => [s.selectedElement, s.rectUpdateCounter],
+            (selectedElement): ElementRect | null => (selectedElement ? getRectForElement(selectedElement) : null),
+        ],
+    }),
+
+    loaders(({ values, actions }) => ({
+        submitResult: [
+            null as ToolbarAnnotation | null,
+            {
+                submitAnnotation: async () => {
+                    const { selectedElement, comment, dataAttributes, pageContext, screenshotUrl } = values
+                    if (!selectedElement || !comment.trim()) {
+                        return null
+                    }
+                    const selector = elementToActionStep(selectedElement, dataAttributes).selector ?? ''
+                    const inferred = inferSelector(selectedElement)?.selector
+                    const elementText = (selectedElement.textContent ?? '').trim().slice(0, 500) || null
+                    const page = pageContext ?? capturePageContext()
+
+                    const payload = {
+                        comment: comment.trim(),
+                        url: page.url,
+                        host: page.host,
+                        pathname: page.pathname,
+                        selector,
+                        element_text: elementText,
+                        element_context: inferred ? { inferred } : {},
+                        viewport: page.viewport,
+                        ...(screenshotUrl ? { screenshot_url: screenshotUrl } : {}),
+                    }
+
+                    try {
+                        const response = await toolbarFetch(
+                            '/api/projects/@current/toolbar_annotations/',
+                            'POST',
+                            payload
+                        )
+                        if (!response.ok) {
+                            const error = await response.json().catch(() => ({}))
+                            toolbarLogger.error('annotations', 'Save failed', {
+                                status: response.status,
+                                detail: error.detail,
+                            })
+                            lemonToast.error(
+                                `Failed to save annotation (${response.status})${error.detail ? `: ${error.detail}` : ''}`
+                            )
+                            return null
+                        }
+                        const saved = await response.json()
+                        lemonToast.success('Annotation saved')
+                        actions.clearSelection()
+                        actions.loadAnnotations()
+                        return saved
+                    } catch (e: any) {
+                        toolbarLogger.error('annotations', 'Failed to save annotation')
+                        captureToolbarException(e, 'toolbar_annotation_save')
+                        lemonToast.error('Failed to save annotation')
+                        return null
+                    }
+                },
+            },
+        ],
+    })),
+
+    listeners(({ actions, values }) => ({
+        showButtonAnnotations: () => {
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'annotations', enabled: true })
+            actions.loadAnnotations()
+        },
+        hideButtonAnnotations: () => {
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'annotations', enabled: false })
+        },
+        // Capture a screenshot in the background while the user types — best-effort, never blocks save.
+        selectElement: async ({ element }) => {
+            try {
+                const { mediaId } = await captureAndUploadElementScreenshot(element)
+                actions.setScreenshotUrl(joinWithUiHost(values.uiHost, `/uploaded_media/${mediaId}`))
+            } catch (e: any) {
+                toolbarLogger.warn('annotations', 'Failed to capture screenshot')
+                captureToolbarException(e, 'toolbar_annotation_screenshot')
+            }
+        },
+        deleteAnnotation: async ({ id }) => {
+            const response = await toolbarFetch(`/api/projects/@current/toolbar_annotations/${id}/`, 'DELETE')
+            if (!response.ok && response.status !== 204) {
+                lemonToast.error(`Failed to delete annotation (${response.status})`)
+            }
+            actions.loadAnnotations()
+        },
+    })),
+
+    events(({ actions, values, cache }) => ({
+        afterMount: () => {
+            cache.onMouseOver = (e: MouseEvent): void => {
+                if (!values.isAnnotating) {
+                    return
+                }
+                const target = e.target as HTMLElement
+                if (target && !isToolbarElement(target)) {
+                    actions.setHoverElement(target)
+                }
+            }
+            cache.onClick = (e: MouseEvent): void => {
+                if (!values.isAnnotating) {
+                    return
+                }
+                const target = e.target as HTMLElement
+                if (!target || isToolbarElement(target)) {
+                    return
+                }
+                e.preventDefault()
+                e.stopPropagation()
+                actions.selectElement(target)
+            }
+            cache.onScroll = (): void => {
+                if (values.hoverElement || values.selectedElement) {
+                    actions.updateRects()
+                }
+            }
+            cache.onResize = (): void => {
+                if (values.hoverElement || values.selectedElement) {
+                    actions.updateRects()
+                }
+            }
+            cache.onKeyDown = (e: KeyboardEvent): void => {
+                if (e.key === 'Escape' && values.isAnnotating) {
+                    actions.stopAnnotating()
+                }
+            }
+            document.addEventListener('mouseover', cache.onMouseOver, true)
+            document.addEventListener('click', cache.onClick, true)
+            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
+            window.addEventListener('resize', cache.onResize)
+            window.addEventListener('keydown', cache.onKeyDown)
+        },
+        beforeUnmount: () => {
+            if (cache.onMouseOver) {
+                document.removeEventListener('mouseover', cache.onMouseOver, true)
+            }
+            if (cache.onClick) {
+                document.removeEventListener('click', cache.onClick, true)
+            }
+            if (cache.onScroll) {
+                document.removeEventListener('scroll', cache.onScroll, { capture: true })
+            }
+            if (cache.onResize) {
+                window.removeEventListener('resize', cache.onResize)
+            }
+            if (cache.onKeyDown) {
+                window.removeEventListener('keydown', cache.onKeyDown)
+            }
+        },
+    })),
+])
