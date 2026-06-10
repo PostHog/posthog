@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildAppStubHtml } from '@/resources/ui-apps'
-import { UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
+import { DISPATCHABLE_APP_KEYS, UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
+
+import { generateDispatchModule, resolveDetailApp, resolveListApp } from '../../scripts/generate-ui-apps'
 
 describe('ui-apps', () => {
     describe('buildAppStubHtml', () => {
@@ -203,6 +205,46 @@ describe('ui-apps', () => {
             const result = await handler(new URL('ui://posthog/debug.html'))
 
             expect(result.contents[0].mimeType).toBe('text/html;profile=mcp-app')
+        })
+    })
+
+    describe('render-ui dispatch', () => {
+        it('DISPATCHABLE_APP_KEYS excludes custom apps', () => {
+            expect(DISPATCHABLE_APP_KEYS).toContain('survey')
+            expect(DISPATCHABLE_APP_KEYS).toContain('survey-list')
+            for (const customKey of ['debug', 'query-results', 'render-ui', 'visual-review-snapshots']) {
+                expect(DISPATCHABLE_APP_KEYS).not.toContain(customKey)
+            }
+        })
+
+        it('generates a dispatch entry per detail/list app and a Content component for list apps', () => {
+            const code = generateDispatchModule([
+                {
+                    appKey: 'survey',
+                    type: 'detail',
+                    config: resolveDetailApp(
+                        'survey',
+                        { type: 'detail', view_prop: 'survey' },
+                        'products/surveys/mcp/apps'
+                    ),
+                },
+                {
+                    appKey: 'survey-list',
+                    type: 'list',
+                    config: resolveListApp(
+                        'survey-list',
+                        { type: 'list', detail_tool: 'survey-get' },
+                        'products/surveys/mcp/apps'
+                    ),
+                },
+            ])
+
+            expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
+            expect(code).toContain(
+                "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
+            )
+            expect(code).toContain('function SurveyListContent(')
+            expect(code).toContain("name: 'survey-get'")
         })
     })
 })
