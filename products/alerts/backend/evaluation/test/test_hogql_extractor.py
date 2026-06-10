@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -63,6 +65,17 @@ def test_extract_none_bucket_becomes_zero():
 
 def test_extract_returns_trailing_two_as_floats():
     assert _extract_trailing_column_values([[1], [2], [3]], _alert()) == [2.0, 3.0]
+
+
+def test_extract_accepts_decimal_columns():
+    # ClickHouse Decimal columns surface as decimal.Decimal — they are valid numeric values.
+    assert _extract_trailing_column_values([[Decimal("41.5")], [Decimal("42.0")]], _alert()) == [41.5, 42.0]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_extract_rejects_non_finite(bad):
+    with pytest.raises(AlertExtractionError, match="finite numeric value"):
+        _extract_trailing_column_values([[bad]], _alert())
 
 
 # ---- HogQLExtractor.extract (mocked calculation) ----

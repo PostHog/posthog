@@ -1,3 +1,5 @@
+import math
+from decimal import Decimal
 from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType
@@ -82,10 +84,16 @@ def _extract_trailing_column_values(rows: Any, alert: AlertConfiguration) -> lis
         if raw is None:
             values.append(0.0)
             continue
-        if isinstance(raw, bool) or not isinstance(raw, int | float):
+        # ClickHouse Decimal columns surface as decimal.Decimal; accept them alongside int/float.
+        if isinstance(raw, bool) or not isinstance(raw, int | float | Decimal):
             raise AlertExtractionError(
                 f"SQL alert query must return a numeric column (got {type(raw).__name__} for the {position})."
             )
-        values.append(float(raw))
+        value = float(raw)
+        if not math.isfinite(value):
+            raise AlertExtractionError(
+                f"SQL alert query must return a finite numeric value (got {raw} for the {position})."
+            )
+        values.append(value)
 
     return values
