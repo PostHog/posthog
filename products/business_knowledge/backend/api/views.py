@@ -430,7 +430,8 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if raw is None:
             if required:
                 raise exceptions.ValidationError({name: "This query parameter is required."})
-            assert default is not None
+            if default is None:
+                raise ValueError(f"Non-required param {name!r} must have a non-None default")
             return default
         try:
             return int(raw)
