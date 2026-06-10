@@ -7,6 +7,7 @@
 category: Agent stack
 feature: agent_platform
 url_prefix: /agent_applications
+feature_flag: agent-platform-mcp
 ui_apps: {}
 tools:
     agent-applications-approvals-decide:
