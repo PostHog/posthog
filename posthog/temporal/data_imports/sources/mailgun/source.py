@@ -89,11 +89,11 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=endpoint in INCREMENTAL_FIELDS,
+                supports_append=endpoint in INCREMENTAL_FIELDS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
