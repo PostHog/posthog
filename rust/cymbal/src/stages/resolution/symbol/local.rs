@@ -109,7 +109,7 @@ impl LocalSymbolResolver {
         if frame.is_suspicious() {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
         }
-        let raw_id = frame.raw_id(team_id);
+        let raw_id = frame.raw_id(team_id, debug_images);
         let mut cache_miss = false;
         let frames = self
             .cache
@@ -445,7 +445,7 @@ mod test {
             .unwrap();
 
         // get the frame
-        let frame_id = frame.raw_id(0);
+        let frame_id = frame.raw_id(0, &[]);
         let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.ttl_policy)
             .await
             .unwrap()

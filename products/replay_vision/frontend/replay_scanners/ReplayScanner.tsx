@@ -58,6 +58,20 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={urls.replayVisionScannerConfigure(scannerId)}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
+                            </LemonButton>
+                        </AccessControlAction>
                         <More
                             size="small"
                             overlay={
@@ -91,34 +105,20 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <ScannerOverview scannerId={scannerId} />
 
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'configuration',
-                        header: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
-                        dataAttr: 'vision-scanner-config-expand',
-                    },
-                ]}
-            />
-            <div className="flex items-center justify-end">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type="primary"
-                        to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="vision-scanner-edit"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    >
-                        Edit scanner
-                    </LemonButton>
-                </AccessControlAction>
+            <div className="flex flex-col gap-2">
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'configuration',
+                            header: 'Configuration',
+                            content: <ScannerConfigReadonly scanner={scanner} />,
+                            dataAttr: 'vision-scanner-config-expand',
+                        },
+                    ]}
+                />
+                <SummarizerMaxChat scannerId={scannerId} />
+                <ScannerObservationsTable scannerId={scannerId} />
             </div>
-
-            <SummarizerMaxChat scannerId={scannerId} />
-            <ScannerObservationsTable scannerId={scannerId} />
         </SceneContent>
     )
 }

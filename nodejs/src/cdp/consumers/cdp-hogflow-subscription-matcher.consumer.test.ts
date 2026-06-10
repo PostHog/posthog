@@ -527,6 +527,35 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBe(true)
         })
 
+        it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
+            // A conversion entry that targets neither events nor actions compiles to always-true
+            // bytecode and would otherwise mark every incoming event as a conversion.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                conversion: { events: [{ filters: { bytecode: ['_H', 1, 29], events: [] } }] } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the empty entry incorrectly matched, an UPDATE would
+            // be produced — otherwise this assertion would pass trivially.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
         it('does not wake when neither step filter nor conversion matches', async () => {
             matcher.findRows = [
                 {
@@ -541,6 +570,55 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
 
             // Event name doesn't match wuc_subscribed (waiter event) nor any conversion
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
+        it('does not wake on an empty "events to wait for" entry (always-true bytecode)', async () => {
+            // An events entry that references no events compiles to always-true bytecode and would
+            // otherwise wake the job on any incoming event, bypassing the property condition.
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the empty entry incorrectly matched, an UPDATE would
+            // be produced — otherwise this assertion would pass trivially.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                // Empty events entry: bytecode is TRUE (op 29), events list is empty.
+                                events: [{ filters: { bytecode: ['_H', 1, 29], events: [] } }],
+                                condition: { filters: null },
+                                max_wait_duration: '5m',
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
             await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))

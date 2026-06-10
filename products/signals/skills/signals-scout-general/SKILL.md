@@ -2,13 +2,11 @@
 name: signals-scout-general
 description: >
   General Signals scout for PostHog projects. Cross-product explorer that scans a
-  team's project and emits findings into the Signals inbox. Sibling specialists
-  (signals-scout-ai-observability, -logs, -error-tracking, -revenue-analytics, -surveys,
-  -observability-gaps, -csp-violations, -anomaly-detection) cover individual product
-  surfaces; this
-  scout looks for cross-product correlations and explores what specialists don't
-  cover. Each scout runs on its own schedule (default hourly), so general fires
-  independently of the specialists over time.
+  team's project and emits findings into the Signals inbox. Sibling signals-scout-*
+  specialists each watch a single product surface in depth; this scout looks for
+  cross-product correlations and explores the surfaces no specialist covers. Each
+  scout runs on its own schedule (default hourly), so general fires independently
+  of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
   scratchpad-remember/forget and emit-signal), llm_skill:read, plus standard analytics reads. Uses the
@@ -45,10 +43,12 @@ already covered. Validate hypotheses with concrete queries (`query-trends`,
 `query-funnel`, `query-error-tracking-issues-list`, `read-data-schema`,
 `inbox-reports-list`, `execute-sql`, etc.) before emitting.
 
-If a sibling specialist already covers a surface in depth (AI observability, logs,
-error tracking, revenue, surveys, observability gaps, CSP, or dashboard/insight
-anomalies), leave the deep dive to it on a future tick. Spend your time on
-**cross-product correlations** or on **surfaces no specialist covers**.
+If a sibling specialist already covers a surface in depth, leave the deep dive to it
+on a future tick — the `skill_name`s on recent runs in `signals-scout-runs-list` show
+the live roster (specialists exist for most product surfaces: error tracking, logs, AI
+observability, experiments, feature flags, session replay, web analytics, surveys, and
+more). Spend your time on **cross-product correlations** or on **surfaces no
+specialist covers**.
 
 ## Decide
 
