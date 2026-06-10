@@ -2,6 +2,8 @@
 import os
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 from corsheaders.defaults import default_headers
 
@@ -855,10 +857,27 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Agent janitor service — Django proxies session list/detail/cancel requests to this URL.
 AGENT_JANITOR_BASE_URL = get_from_env("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
 
-# Public base URL where agent-ingress is reachable from the outside world
-# (Slack's events callback, third-party webhooks, etc). In prod this is the
-# subdomain wired in `public-subdomain-routing.md` (e.g. `https://agents.us.posthog.com`).
-# In local dev set this to the tunnel URL from `bin/agent-tunnel` so the
+# How agent-ingress addresses agents from the outside world. Mirrors the
+# ingress's own `ROUTING_MODE` (services/agent-ingress/src/config.ts) — the two
+# halves must agree or the URLs Django hands out won't match what the ingress
+# serves. "domain": slug lives in the host (`<slug><suffix>`), routes mounted at
+# root — used in deployed envs behind a wildcard cert. "path": slug lives in the
+# path (`<base>/agents/<slug>/...`) — used in local dev via `bin/agent-tunnel`.
+AGENT_INGRESS_ROUTING_MODE = get_from_env("AGENT_INGRESS_ROUTING_MODE", "path")
+if AGENT_INGRESS_ROUTING_MODE not in ("domain", "path"):
+    raise ImproperlyConfigured(
+        f"AGENT_INGRESS_ROUTING_MODE must be 'domain' or 'path', got '{AGENT_INGRESS_ROUTING_MODE}'"
+    )
+
+# Domain suffix for "domain" routing mode (e.g. `.agents.us.posthog.com`).
+# Mirrors the ingress's `DOMAIN_SUFFIX`. Agent URLs become
+# `https://<slug><suffix>/<route>`. Unused in "path" mode. Empty in domain mode
+# → agent URLs are omitted (null), signalling "not externally reachable".
+AGENT_INGRESS_DOMAIN_SUFFIX = get_from_env("AGENT_INGRESS_DOMAIN_SUFFIX", "")
+
+# Public base URL where agent-ingress is reachable from the outside world in
+# "path" routing mode (Slack's events callback, third-party webhooks, etc). In
+# local dev set this to the tunnel URL from `bin/agent-tunnel` so the
 # `slack_events_url` Django returns on agent retrievals is the actual URL the
 # user pastes into their Slack app dashboard. Empty default → the field is
 # omitted from the serializer response, signalling "not externally reachable".

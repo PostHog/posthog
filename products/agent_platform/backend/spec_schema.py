@@ -60,6 +60,68 @@ _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# Shared `auth` block — referenced from every declarative trigger (webhook /
+# chat / mcp). Mirror `AuthConfigSchema` / `AuthModeSchema` in
+# services/agent-shared/src/spec/spec.ts. No default on `modes` here on purpose:
+# Orval emits a default as a plain TS literal that widens the discriminated
+# union and breaks the generated zod. The runtime default still applies node-side.
+_AUTH_CONFIG_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "modes": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "const": "public"},
+                            "acknowledge_public_exposure": {"type": "boolean", "const": True},
+                        },
+                        "required": ["type", "acknowledge_public_exposure"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "const": "posthog"},
+                            "scopes": {"default": [], "type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["type"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "const": "jwt"},
+                            "issuer_secret_ref": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["type", "issuer_secret_ref"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "const": "shared_secret"},
+                            "header": {"type": "string", "minLength": 1},
+                            "secret_ref": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["type", "header", "secret_ref"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {"type": {"type": "string", "const": "posthog_internal"}},
+                        "required": ["type"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
+    },
+    "additionalProperties": False,
+}
+
 _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -109,13 +171,13 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                 "type": "object",
                                 "properties": {
                                     "path": {"type": "string"},
-                                    "secret": {"type": "string"},
                                 },
                                 "required": ["path"],
                                 "additionalProperties": False,
                             },
+                            "auth": _AUTH_CONFIG_JSON_SCHEMA,
                         },
-                        "required": ["type", "config"],
+                        "required": ["type", "config", "auth"],
                         "additionalProperties": False,
                     },
                     {
@@ -157,13 +219,14 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "chat"},
                             "config": {
+                                "default": {},
                                 "type": "object",
-                                "properties": {"require_auth": {"default": True, "type": "boolean"}},
-                                "required": ["require_auth"],
+                                "properties": {"allow_restart": {"default": False, "type": "boolean"}},
                                 "additionalProperties": False,
                             },
+                            "auth": _AUTH_CONFIG_JSON_SCHEMA,
                         },
-                        "required": ["type", "config"],
+                        "required": ["type", "auth"],
                         "additionalProperties": False,
                     },
                     {
@@ -173,11 +236,12 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "config": {
                                 "default": {},
                                 "type": "object",
-                                "properties": {},
+                                "properties": {"allow_restart": {"default": False, "type": "boolean"}},
                                 "additionalProperties": False,
                             },
+                            "auth": _AUTH_CONFIG_JSON_SCHEMA,
                         },
-                        "required": ["type", "config"],
+                        "required": ["type", "auth"],
                         "additionalProperties": False,
                     },
                 ]
@@ -393,90 +457,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "additionalProperties": False,
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
-        "auth": {
-            # No defaults at this level or below — Orval emits the default
-            # value as a plain TS literal whose inferred type widens
-            # `{type: 'public'}` to `{type: string}`, which then fails to
-            # satisfy the generated discriminated-union zod schema. The
-            # runtime default still applies via the node-side
-            # `AuthConfigSchema.default({ modes: [{ type: 'posthog_internal' }] })`
-            # in services/agent-shared/src/spec/spec.ts — closed by default.
-            # Public is opt-in and requires `acknowledge_public_exposure: true`.
-            "type": "object",
-            "properties": {
-                "modes": {
-                    # Multi-mode auth — first verifier matching the inbound
-                    # request wins. See `AuthModeSchema` in
-                    # services/agent-shared/src/spec/spec.ts for the full
-                    # contract and the credential-broker design.
-                    "type": "array",
-                    "items": {
-                        "oneOf": [
-                            {
-                                # Public exposure is intentionally opt-in and noisy.
-                                # `acknowledge_public_exposure: true` is required to
-                                # surface the choice in UIs and to gate AI-authored
-                                # specs against accidentally opening agents to the
-                                # internet. Mirrors `AuthModeSchema` in
-                                # services/agent-shared/src/spec/spec.ts.
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "const": "public"},
-                                    "acknowledge_public_exposure": {"type": "boolean", "const": True},
-                                },
-                                "required": ["type", "acknowledge_public_exposure"],
-                                "additionalProperties": False,
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "const": "oauth"},
-                                    "issuer": {"type": "string", "minLength": 1},
-                                    "scopes": {
-                                        "default": [],
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                },
-                                "required": ["type", "issuer"],
-                                "additionalProperties": False,
-                            },
-                            {
-                                "type": "object",
-                                "properties": {"type": {"type": "string", "const": "pat"}},
-                                "required": ["type"],
-                                "additionalProperties": False,
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "const": "jwt"},
-                                    "issuer_secret_ref": {"type": "string", "minLength": 1},
-                                },
-                                "required": ["type", "issuer_secret_ref"],
-                                "additionalProperties": False,
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "const": "shared_secret"},
-                                    "header": {"type": "string", "minLength": 1},
-                                },
-                                "required": ["type", "header"],
-                                "additionalProperties": False,
-                            },
-                            {
-                                "type": "object",
-                                "properties": {"type": {"type": "string", "const": "posthog_internal"}},
-                                "required": ["type"],
-                                "additionalProperties": False,
-                            },
-                        ]
-                    },
-                },
-            },
-            "additionalProperties": False,
-        },
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
     },
     "required": [
@@ -489,7 +469,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "secrets",
         "limits",
         "entrypoint",
-        "auth",
     ],
     "additionalProperties": False,
 }
@@ -588,19 +567,57 @@ TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
 }
 
 
+def _auth_mode_secret_requirement(mode: dict[str, Any]) -> dict[str, Any] | None:
+    """The `encrypted_env` key an auth mode references, or None. Mirrors the
+    `secret_ref` / `issuer_secret_ref` fields on `AuthModeSchema`."""
+    mtype = mode.get("type")
+    if mtype == "shared_secret":
+        key = mode.get("secret_ref")
+        if isinstance(key, str) and key:
+            header = mode.get("header") or ""
+            return {
+                "key": key,
+                "label": "Webhook shared secret",
+                "description": f"Expected value for the `{header}` header. Callers must send this exact secret.",
+                "required": True,
+            }
+    elif mtype == "jwt":
+        key = mode.get("issuer_secret_ref")
+        if isinstance(key, str) and key:
+            return {
+                "key": key,
+                "label": "JWT signing secret",
+                "description": "HMAC secret used to verify inbound JWT signatures for this trigger.",
+                "required": True,
+            }
+    return None
+
+
 def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> list[dict[str, Any]]:
-    """Walk `spec.triggers` and return the `TriggerSecretRequirement` entries
-    whose `required: True` keys aren't present in `env_map`. Empty list = OK
-    to promote. Each entry comes back with the trigger type tucked in under
-    `trigger` so the caller can render a per-trigger error message.
+    """Walk `spec.triggers` and return the required-secret entries whose keys
+    aren't present in `env_map`. Covers both the per-trigger-type registry
+    (`TRIGGER_REQUIRED_SECRETS`) and the per-trigger `auth.modes[]` secret refs
+    (`shared_secret.secret_ref`, `jwt.issuer_secret_ref`). Empty list = OK to
+    promote. Each entry carries the trigger type under `trigger`.
 
     Pure / side-effect-free so the same helper can drive both the promote-time
-    gate and a future "what's still missing?" UI hint."""
+    gate and the "what's still missing?" UI hint."""
     out: list[dict[str, Any]] = []
     triggers = spec.get("triggers") or []
     if not isinstance(triggers, list):
         return out
     seen_keys: set[str] = set()
+
+    def consider(requirement: dict[str, Any], trigger_type: str) -> None:
+        if not requirement.get("required"):
+            return
+        key = requirement["key"]
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        if not env_map.get(key):
+            out.append({**requirement, "trigger": trigger_type})
+
     for trigger in triggers:
         if not isinstance(trigger, dict):
             continue
@@ -608,12 +625,14 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
         if not isinstance(trigger_type, str):
             continue
         for requirement in TRIGGER_REQUIRED_SECRETS.get(trigger_type, []):
-            if not requirement.get("required"):
-                continue
-            key = requirement["key"]
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            if not env_map.get(key):
-                out.append({**requirement, "trigger": trigger_type})
+            consider(requirement, trigger_type)
+        auth = trigger.get("auth")
+        modes = auth.get("modes") if isinstance(auth, dict) else None
+        if isinstance(modes, list):
+            for mode in modes:
+                if not isinstance(mode, dict):
+                    continue
+                requirement = _auth_mode_secret_requirement(mode)
+                if requirement is not None:
+                    consider(requirement, trigger_type)
     return out

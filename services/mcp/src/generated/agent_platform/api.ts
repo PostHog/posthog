@@ -154,6 +154,7 @@ export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -162,8 +163,14 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigCatc
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault = 3600
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax = 604800
 
-export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigAllowRestartDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
@@ -224,7 +231,6 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
-export const agentApplicationsRevisionsCreateBodySpecAuthModesItemTwoScopesDefault = []
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -262,7 +268,38 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             type: zod.literal('webhook'),
                             config: zod.object({
                                 path: zod.string(),
-                                secret: zod.string().optional(),
+                            }),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
                             }),
                         }),
                         zod.object({
@@ -298,19 +335,91 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         }),
                         zod.object({
                             type: zod.literal('chat'),
-                            config: zod.object({
-                                require_auth: zod
-                                    .boolean()
-                                    .default(
-                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault
-                                    ),
+                            config: zod
+                                .object({
+                                    allow_restart: zod
+                                        .boolean()
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigAllowRestartDefault
+                                        ),
+                                })
+                                .default(agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigDefault),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
                             }),
                         }),
                         zod.object({
                             type: zod.literal('mcp'),
                             config: zod
-                                .object({})
+                                .object({
+                                    allow_restart: zod
+                                        .boolean()
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigAllowRestartDefault
+                                        ),
+                                })
                                 .default(agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
+                            }),
                         }),
                     ])
                 )
@@ -517,39 +626,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
-            auth: zod.object({
-                modes: zod
-                    .array(
-                        zod.union([
-                            zod.object({
-                                type: zod.literal('public'),
-                                acknowledge_public_exposure: zod.boolean(),
-                            }),
-                            zod.object({
-                                type: zod.literal('oauth'),
-                                issuer: zod.string().min(1),
-                                scopes: zod
-                                    .array(zod.string())
-                                    .default(agentApplicationsRevisionsCreateBodySpecAuthModesItemTwoScopesDefault),
-                            }),
-                            zod.object({
-                                type: zod.literal('pat'),
-                            }),
-                            zod.object({
-                                type: zod.literal('jwt'),
-                                issuer_secret_ref: zod.string().min(1),
-                            }),
-                            zod.object({
-                                type: zod.literal('shared_secret'),
-                                header: zod.string().min(1),
-                            }),
-                            zod.object({
-                                type: zod.literal('posthog_internal'),
-                            }),
-                        ])
-                    )
-                    .optional(),
-            }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
         .optional(),
@@ -632,6 +708,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -640,8 +717,14 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault = 3600
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax = 604800
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigAllowRestartDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
@@ -702,7 +785,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
-export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModesItemTwoScopesDefault = []
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -740,7 +822,38 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             type: zod.literal('webhook'),
                             config: zod.object({
                                 path: zod.string(),
-                                secret: zod.string().optional(),
+                            }),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
                             }),
                         }),
                         zod.object({
@@ -778,19 +891,91 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         }),
                         zod.object({
                             type: zod.literal('chat'),
-                            config: zod.object({
-                                require_auth: zod
-                                    .boolean()
-                                    .default(
-                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault
-                                    ),
+                            config: zod
+                                .object({
+                                    allow_restart: zod
+                                        .boolean()
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigAllowRestartDefault
+                                        ),
+                                })
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigDefault),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
                             }),
                         }),
                         zod.object({
                             type: zod.literal('mcp'),
                             config: zod
-                                .object({})
+                                .object({
+                                    allow_restart: zod
+                                        .boolean()
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault
+                                        ),
+                                })
                                 .default(agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault),
+                            auth: zod.object({
+                                modes: zod
+                                    .array(
+                                        zod.union([
+                                            zod.object({
+                                                type: zod.literal('public'),
+                                                acknowledge_public_exposure: zod.boolean(),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog'),
+                                                scopes: zod
+                                                    .array(zod.string())
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('jwt'),
+                                                issuer_secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('shared_secret'),
+                                                header: zod.string().min(1),
+                                                secret_ref: zod.string().min(1),
+                                            }),
+                                            zod.object({
+                                                type: zod.literal('posthog_internal'),
+                                            }),
+                                        ])
+                                    )
+                                    .optional(),
+                            }),
                         }),
                     ])
                 )
@@ -1013,41 +1198,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
-            auth: zod.object({
-                modes: zod
-                    .array(
-                        zod.union([
-                            zod.object({
-                                type: zod.literal('public'),
-                                acknowledge_public_exposure: zod.boolean(),
-                            }),
-                            zod.object({
-                                type: zod.literal('oauth'),
-                                issuer: zod.string().min(1),
-                                scopes: zod
-                                    .array(zod.string())
-                                    .default(
-                                        agentApplicationsRevisionsPartialUpdateBodySpecAuthModesItemTwoScopesDefault
-                                    ),
-                            }),
-                            zod.object({
-                                type: zod.literal('pat'),
-                            }),
-                            zod.object({
-                                type: zod.literal('jwt'),
-                                issuer_secret_ref: zod.string().min(1),
-                            }),
-                            zod.object({
-                                type: zod.literal('shared_secret'),
-                                header: zod.string().min(1),
-                            }),
-                            zod.object({
-                                type: zod.literal('posthog_internal'),
-                            }),
-                        ])
-                    )
-                    .optional(),
-            }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
         .optional(),

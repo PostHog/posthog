@@ -43,7 +43,7 @@ export interface AgentApplicationApi {
     readonly created_at: string
     readonly updated_at: string
     /**
-     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
      * @nullable
      */
     readonly slack_events_url: string | null
@@ -220,7 +220,33 @@ export type AgentRevisionApiSpecTriggersItem =
           type: 'webhook'
           config: {
               path: string
-              secret?: string
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
           }
       }
     | {
@@ -247,13 +273,69 @@ export type AgentRevisionApiSpecTriggersItem =
       }
     | {
           type: 'chat'
-          config: {
-              require_auth: boolean
+          config?: {
+              allow_restart?: boolean
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
           }
       }
     | {
           type: 'mcp'
-          config: { [key: string]: unknown }
+          config?: {
+              allow_restart?: boolean
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
+          }
       }
 
 export type AgentRevisionApiSpecToolsItem =
@@ -381,38 +463,6 @@ export type AgentRevisionApiSpecLimits = {
     max_output_tokens?: number
 }
 
-export type AgentRevisionApiSpecAuthModesItem =
-    | {
-          type: 'public'
-          acknowledge_public_exposure: true
-      }
-    | {
-          type: 'oauth'
-          /** @minLength 1 */
-          issuer: string
-          scopes?: string[]
-      }
-    | {
-          type: 'pat'
-      }
-    | {
-          type: 'jwt'
-          /** @minLength 1 */
-          issuer_secret_ref: string
-      }
-    | {
-          type: 'shared_secret'
-          /** @minLength 1 */
-          header: string
-      }
-    | {
-          type: 'posthog_internal'
-      }
-
-export type AgentRevisionApiSpecAuth = {
-    modes?: AgentRevisionApiSpecAuthModesItem[]
-}
-
 export type AgentRevisionApiSpec = {
     /** @minLength 1 */
     model: string
@@ -424,7 +474,6 @@ export type AgentRevisionApiSpec = {
     secrets: string[]
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
-    auth: AgentRevisionApiSpecAuth
     reasoning?: AgentRevisionApiSpecReasoning
 }
 
@@ -484,7 +533,33 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
           type: 'webhook'
           config: {
               path: string
-              secret?: string
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
           }
       }
     | {
@@ -511,13 +586,69 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
       }
     | {
           type: 'chat'
-          config: {
-              require_auth: boolean
+          config?: {
+              allow_restart?: boolean
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
           }
       }
     | {
           type: 'mcp'
-          config: { [key: string]: unknown }
+          config?: {
+              allow_restart?: boolean
+          }
+          auth: {
+              modes?: (
+                  | {
+                        type: 'public'
+                        acknowledge_public_exposure: true
+                    }
+                  | {
+                        type: 'posthog'
+                        scopes?: string[]
+                    }
+                  | {
+                        type: 'jwt'
+                        /** @minLength 1 */
+                        issuer_secret_ref: string
+                    }
+                  | {
+                        type: 'shared_secret'
+                        /** @minLength 1 */
+                        header: string
+                        /** @minLength 1 */
+                        secret_ref: string
+                    }
+                  | {
+                        type: 'posthog_internal'
+                    }
+              )[]
+          }
       }
 
 export type PatchedAgentRevisionApiSpecToolsItem =
@@ -645,38 +776,6 @@ export type PatchedAgentRevisionApiSpecLimits = {
     max_output_tokens?: number
 }
 
-export type PatchedAgentRevisionApiSpecAuthModesItem =
-    | {
-          type: 'public'
-          acknowledge_public_exposure: true
-      }
-    | {
-          type: 'oauth'
-          /** @minLength 1 */
-          issuer: string
-          scopes?: string[]
-      }
-    | {
-          type: 'pat'
-      }
-    | {
-          type: 'jwt'
-          /** @minLength 1 */
-          issuer_secret_ref: string
-      }
-    | {
-          type: 'shared_secret'
-          /** @minLength 1 */
-          header: string
-      }
-    | {
-          type: 'posthog_internal'
-      }
-
-export type PatchedAgentRevisionApiSpecAuth = {
-    modes?: PatchedAgentRevisionApiSpecAuthModesItem[]
-}
-
 export type PatchedAgentRevisionApiSpecReasoning =
     (typeof PatchedAgentRevisionApiSpecReasoning)[keyof typeof PatchedAgentRevisionApiSpecReasoning]
 
@@ -699,7 +798,6 @@ export type PatchedAgentRevisionApiSpec = {
     secrets: string[]
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
-    auth: PatchedAgentRevisionApiSpecAuth
     reasoning?: PatchedAgentRevisionApiSpecReasoning
 }
 
@@ -904,7 +1002,7 @@ export interface PatchedAgentApplicationApi {
     readonly created_at?: string
     readonly updated_at?: string
     /**
-     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
      * @nullable
      */
     readonly slack_events_url?: string | null
@@ -1097,11 +1195,11 @@ export interface AgentApplicationPreviewTokenResponseApi {
     token: string
     /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
     expires_in: number
-    /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
+    /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
     ingress_slug: string
-    /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset. */
+    /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
     endpoints: unknown
-    /** How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
+    /** How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
     auth: unknown
     /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
     preview_proxy: unknown

@@ -7228,7 +7228,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       /**
-         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
          * @nullable
          */
       readonly slack_events_url: string | null;
@@ -7370,11 +7370,11 @@ export namespace Schemas {
       token: string;
       /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
       expires_in: number;
-      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
+      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
       ingress_slug: string;
-      /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset. */
+      /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
       endpoints: unknown;
-      /** How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
+      /** How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
       auth: unknown;
       /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
       preview_proxy: unknown;
@@ -7816,7 +7816,27 @@ export namespace Schemas {
       type: 'webhook';
       config: {
       path: string;
-      secret?: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
     };
     } | {
       type: 'cron';
@@ -7841,12 +7861,56 @@ export namespace Schemas {
     };
     } | {
       type: 'chat';
-      config: {
-      require_auth: boolean;
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
     };
     } | {
       type: 'mcp';
-      config: { [key: string]: unknown };
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
     };
 
     export type AgentRevisionSpecToolsItem = {
@@ -7968,32 +8032,6 @@ export namespace Schemas {
       max_output_tokens?: number;
     };
 
-    export type AgentRevisionSpecAuthModesItem = {
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'oauth';
-      /** @minLength 1 */
-      issuer: string;
-      scopes?: string[];
-    } | {
-      type: 'pat';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-    } | {
-      type: 'posthog_internal';
-    };
-
-    export type AgentRevisionSpecAuth = {
-      modes?: AgentRevisionSpecAuthModesItem[];
-    };
-
     export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
 
 
@@ -8016,7 +8054,6 @@ export namespace Schemas {
       secrets: string[];
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
-      auth: AgentRevisionSpecAuth;
       reasoning?: AgentRevisionSpecReasoning;
     };
 
@@ -29320,7 +29357,7 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       /**
-         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
          * @nullable
          */
       readonly slack_events_url?: string | null;
@@ -29355,7 +29392,27 @@ export namespace Schemas {
       type: 'webhook';
       config: {
       path: string;
-      secret?: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
     };
     } | {
       type: 'cron';
@@ -29380,12 +29437,56 @@ export namespace Schemas {
     };
     } | {
       type: 'chat';
-      config: {
-      require_auth: boolean;
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
     };
     } | {
       type: 'mcp';
-      config: { [key: string]: unknown };
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
     };
 
     export type PatchedAgentRevisionSpecToolsItem = {
@@ -29507,32 +29608,6 @@ export namespace Schemas {
       max_output_tokens?: number;
     };
 
-    export type PatchedAgentRevisionSpecAuthModesItem = {
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'oauth';
-      /** @minLength 1 */
-      issuer: string;
-      scopes?: string[];
-    } | {
-      type: 'pat';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-    } | {
-      type: 'posthog_internal';
-    };
-
-    export type PatchedAgentRevisionSpecAuth = {
-      modes?: PatchedAgentRevisionSpecAuthModesItem[];
-    };
-
     export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
 
 
@@ -29555,7 +29630,6 @@ export namespace Schemas {
       secrets: string[];
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
-      auth: PatchedAgentRevisionSpecAuth;
       reasoning?: PatchedAgentRevisionSpecReasoning;
     };
 
