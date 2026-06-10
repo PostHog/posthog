@@ -205,20 +205,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
     def test_put_reviewers_re_evaluates_autostart(self):
-        # Editing reviewers can newly satisfy auto-start, so the PUT must re-run the (idempotent)
-        # auto-start evaluation for the report.
+        # Appending a reviewers status re-runs the (idempotent) auto-start evaluation on commit.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
 
         with patch(
-            "products.signals.backend.views.maybe_autostart_from_report_artefacts",
+            "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
             new_callable=AsyncMock,
         ) as mock_autostart:
-            response = self.client.put(
-                self._detail_url(str(report.id), str(artefact.id)),
-                data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                content_type="application/json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
 
         assert response.status_code == status.HTTP_200_OK
         mock_autostart.assert_awaited_once()
@@ -250,11 +250,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             "products.signals.backend.auto_start.maybe_autostart_implementation_task",
             new_callable=AsyncMock,
         ) as mock_impl:
-            response = self.client.put(
-                self._detail_url(str(report.id), str(artefact.id)),
-                data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                content_type="application/json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
 
         assert response.status_code == status.HTTP_200_OK
         mock_impl.assert_awaited_once()

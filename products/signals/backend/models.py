@@ -3,9 +3,10 @@ from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from django_deprecate_fields import deprecate_field
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -412,7 +413,33 @@ class SignalReportArtefact(UUIDModel):
         """
         if type not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type!r} is not a status artefact type")
-        return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+        artefact = cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+        if type == cls.ArtefactType.SUGGESTED_REVIEWERS:
+            cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+        return artefact
+
+    @staticmethod
+    def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
+        """After the current transaction commits, re-evaluate auto-start for the report.
+
+        Changing a report's suggested reviewers can newly satisfy auto-start (e.g. adding a
+        reviewer whose autonomy threshold qualifies), so any path that appends a reviewers status
+        re-runs the idempotent auto-start check. Scheduled on commit so the new reviewers are
+        visible and the task-start side effect isn't rolled back; best-effort so it never breaks
+        the write. Imported lazily to avoid a models <-> auto_start import cycle.
+        """
+
+        def _run() -> None:
+            from products.signals.backend import auto_start
+
+            try:
+                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id)
+            except Exception:
+                logger.exception(
+                    "signals reviewer-change auto-start re-evaluation failed", extra={"report_id": report_id}
+                )
+
+        transaction.on_commit(_run)
 
     @classmethod
     def add_log(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
