@@ -160,7 +160,7 @@ export function createFeatureFlagCalledDedupService(
  * dedup outage must never suppress events. Connectivity loss does not reject:
  * pool clients use `maxRetriesPerRequest: -1`, so commands queue until the
  * shared client error watchdog kills the process; the 30s timeoutGuard below
- * only logs.
+ * logs and captures an exception but does not abort the command.
  */
 export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedupService {
     private redisPool: RedisPool

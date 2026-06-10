@@ -19,7 +19,9 @@ export interface DedupeFeatureFlagCalledStepInput {
  * keyed on (team, distinct_id, flag, response, groups). Server-side SDKs on
  * multi-process fleets re-emit the same exposure from every worker; only the
  * first copy carries signal, so the survivors preserve experiment exposure
- * and last_called_at semantics while the bulk of the volume is dropped.
+ * semantics while the bulk of the volume is dropped. Note that "last called"
+ * timestamps become TTL-granular: within a dedup window they reflect the
+ * first call, not the most recent one.
  *
  * Claims are tagged with the event uuid, so a batch replayed by at-least-once
  * Kafka delivery recognizes its own claims from a failed prior attempt
