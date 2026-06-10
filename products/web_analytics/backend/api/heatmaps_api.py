@@ -28,7 +28,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models import Cohort, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -39,6 +39,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
@@ -131,6 +132,22 @@ SELECT
 FROM heatmaps
 WHERE {predicates}
 """
+
+
+def parse_fold_summary_row(row: Any) -> dict[str, Any]:
+    """Shape a single FOLD_SUMMARY_QUERY result row (or None for an empty result) into the
+    fold-summary payload. Shared so every caller applies the same NaN coercion and pct math."""
+    total = int(row[0]) if row else 0
+    below = int(row[1]) if row else 0
+    # quantile over an empty set returns NaN (which is != itself); coerce to None.
+    raw_median = row[2] if row else None
+    median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
+    return {
+        "total_count": total,
+        "below_fold_count": below,
+        "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
+        "median_viewport_height": median,
+    }
 
 
 class HeatmapsRequestSerializer(serializers.Serializer):
@@ -429,17 +446,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         result = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
         row = result.results[0] if result.results else None
-        total = int(row[0]) if row else 0
-        below = int(row[1]) if row else 0
-        # quantile over an empty set returns NaN (which is != itself); coerce to None.
-        raw_median = row[2] if row else None
-        median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
-        return {
-            "total_count": total,
-            "below_fold_count": below,
-            "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
-            "median_viewport_height": median,
-        }
+        return parse_fold_summary_row(row)
 
     def _choose_aggregation(self, aggregation, is_scrolldepth_query):
         aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"

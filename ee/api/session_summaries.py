@@ -43,6 +43,15 @@ from posthog.temporal.session_replay.session_summary_group.types import FailedSe
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
 
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
+from products.replay.backend.models.team_session_summaries_config import (
+    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
+    CUSTOM_TAG_NAME_MAX_LENGTH,
+    CUSTOM_TAGS_MAX_COUNT,
+    PRODUCT_CONTEXT_MAX_LENGTH,
+    TeamSessionSummariesConfig,
+)
+
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -58,14 +67,6 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
-from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
-from ee.models.team_session_summaries_config import (
-    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
-    CUSTOM_TAG_NAME_MAX_LENGTH,
-    CUSTOM_TAGS_MAX_COUNT,
-    PRODUCT_CONTEXT_MAX_LENGTH,
-    TeamSessionSummariesConfig,
-)
 
 logger = structlog.get_logger(__name__)
 

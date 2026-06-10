@@ -140,11 +140,16 @@ export function parseWidgetConfigApiError<TField extends string, TConfig>({
         return null
     }
 
+    const configDefaults = configSchema.parse({}) as {
+        limit?: number
+        orderBy?: string
+        filterTestAccounts?: boolean
+    }
     const formInput: WidgetListFormInput = {
-        limit: (config.limit as number) ?? 0,
-        orderBy: (config.orderBy as string) ?? defaultOrderBy,
+        limit: (config.limit as number) ?? configDefaults.limit ?? 0,
+        orderBy: (config.orderBy as string) ?? defaultOrderBy ?? configDefaults.orderBy ?? '',
         dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
-        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
+        filterTestAccounts: (config.filterTestAccounts as boolean) ?? configDefaults.filterTestAccounts ?? false,
     }
     const parsedForm = formSchema.safeParse(formInput)
     if (!parsedForm.success) {

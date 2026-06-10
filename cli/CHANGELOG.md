@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.22 — 2026-06-09
+
+### Patch changes
+
+- [08df2e2c49](https://github.com/PostHog/posthog/commit/08df2e2c495b5708d4c2b15461341cde8aa3b778) Handle indexed sourcemaps during upload — Thanks @hpouillot!
+
 ## 0.7.21 — 2026-06-05
 
 ### Patch changes

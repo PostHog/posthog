@@ -457,9 +457,27 @@ export function createBarScales(
         ? [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
         : [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
 
+    // When fitToHeight drops rows, the value axis must scale to only the rendered bars — a dropped
+    // off-screen bar (e.g. a dominant "Other" bucket) would otherwise stretch the domain and crush
+    // every visible bar. domainLabels is a leading slice, so the kept rows are each series's first
+    // `keptCount` data points.
+    const keptCount = domainLabels.length
+    const restrictToKept = (s: Series): Series =>
+        keptCount < labels.length ? { ...s, data: s.data.slice(0, keptCount) } : s
+    const valueSeries = series.map(restrictToKept)
+    const valueStackedSeries = stackedSeries?.map(restrictToKept)
+
     return {
         band,
-        value: buildBarValueScale(series, valueRange, tickCount, barLayout, scaleType, stackedSeries, valueDomain),
+        value: buildBarValueScale(
+            valueSeries,
+            valueRange,
+            tickCount,
+            barLayout,
+            scaleType,
+            valueStackedSeries,
+            valueDomain
+        ),
         group,
     }
 }

@@ -873,7 +873,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token):
-        self._create_mapping()
+        mapping = self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
         mock_send.return_value = _command_result(
@@ -890,13 +890,22 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         mock_token.assert_called_once()
         mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token", timeout=90)
-        assert mock_slack_instance.client.reactions_add.call_count == 2
-        mock_slack_instance.client.reactions_remove.assert_any_call(channel="C123", timestamp="1234.5679", name="eyes")
-        mock_slack_instance.client.reactions_remove.assert_any_call(
-            channel="C123", timestamp="1234.5679", name="seedling"
+        # Agent is now working on the message, so the :eyes: reaction stays up — it is
+        # not swapped to :hedgehog: until the task genuinely completes.
+        mock_slack_instance.client.reactions_add.assert_called_once_with(
+            channel="C123", timestamp="1234.5679", name="eyes"
         )
+        mock_slack_instance.client.reactions_remove.assert_not_called()
         # Response is delivered by relayAgentResponse from the agent-server, not by this activity.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
+        # The follow-up sender is recorded on the mapping so async reply paths
+        # tag the latest actor instead of the original thread creator
+        # (multiplayer support). The creator (``mentioning_slack_user_id``)
+        # remains immutable; the latest-actor field receives the live actor
+        # even when it's the same person as the creator (one-time seed).
+        mapping.refresh_from_db()
+        assert mapping.latest_actor_slack_user_id == "U_ALICE"
+        assert mapping.mentioning_slack_user_id == "U_ALICE"
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
@@ -935,10 +944,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_send.assert_called_once()
         # Agent is still processing — relayAgentResponse delivers the response.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
-        mock_slack_instance.client.reactions_remove.assert_any_call(channel="C123", timestamp="1234.5679", name="eyes")
-        mock_slack_instance.client.reactions_remove.assert_any_call(
-            channel="C123", timestamp="1234.5679", name="seedling"
+        # The :eyes: reaction stays up while the agent works — no swap to :hedgehog:.
+        mock_slack_instance.client.reactions_add.assert_called_once_with(
+            channel="C123", timestamp="1234.5679", name="eyes"
         )
+        mock_slack_instance.client.reactions_remove.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
@@ -959,10 +969,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         assert result is True
         assert mock_send.call_count == 2
-        mock_slack_instance.client.reactions_remove.assert_any_call(channel="C123", timestamp="1234.5679", name="eyes")
-        mock_slack_instance.client.reactions_remove.assert_any_call(
-            channel="C123", timestamp="1234.5679", name="seedling"
+        # The :eyes: reaction stays up while the agent works — no swap to :hedgehog:.
+        mock_slack_instance.client.reactions_add.assert_called_once_with(
+            channel="C123", timestamp="1234.5679", name="eyes"
         )
+        mock_slack_instance.client.reactions_remove.assert_not_called()
         # Response is delivered by relayAgentResponse, not by this activity.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
