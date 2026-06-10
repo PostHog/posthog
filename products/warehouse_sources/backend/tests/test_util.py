@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -15,7 +17,7 @@ from products.warehouse_sources.backend.models.util import (
 
 class TestColumnPositions(BaseTest):
     def test_stamp_assigns_positions_in_insertion_order(self):
-        columns = {
+        columns: dict[str, Any] = {
             "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
             "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
             "source_product": {"hogql": "StringDatabaseField", "clickhouse": "String"},
@@ -30,7 +32,7 @@ class TestColumnPositions(BaseTest):
         }
 
     def test_stamp_preserves_existing_positions_and_appends_new(self):
-        columns = {
+        columns: dict[str, Any] = {
             "new_column": {"hogql": "StringDatabaseField", "clickhouse": "String"},
             "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 1},
             "content": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 0},
@@ -43,7 +45,7 @@ class TestColumnPositions(BaseTest):
         assert columns["new_column"]["position"] == 2
 
     def test_stamp_leaves_old_style_string_columns_untouched(self):
-        columns = {
+        columns: dict[str, Any] = {
             "id": "String",
             "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
         }

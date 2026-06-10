@@ -196,6 +196,7 @@ class TestColumnOrder(BaseTest):
 
         refreshed = DataWarehouseSavedQuery.objects.get(pk=saved_query.pk)
 
+        assert refreshed.columns is not None
         assert all(value["position"] is not None for value in refreshed.columns.values())
         assert list(refreshed.hogql_definition().fields.keys()) == defined_order
 

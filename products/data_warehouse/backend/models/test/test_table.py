@@ -869,6 +869,7 @@ class TestColumnOrder(BaseTest):
 
         refreshed = DataWarehouseTable.raw_objects.get(pk=table.pk)
 
+        assert refreshed.columns is not None
         assert {name: value["position"] for name, value in refreshed.columns.items()} == {
             "content": 0,
             "id": 1,
