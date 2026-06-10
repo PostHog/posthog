@@ -3837,9 +3837,9 @@ snapshots:
     mcp-apps-feature-flags--testing-no-match--light:
         hash: v1.k794b7964.b5eec4d4100dc834d4c7c891e4962c9effa643ff190f3b0957d816d82ebb7269.9Hg0pCpNp895WlYr8k2m97K0fvniLuzPcRSAIWUCtg8
     mcp-apps-funnels--steep-dropoff--light:
-        hash: v1.k794b7964.8911dd4b06f147ba71d155c01f1a4ff0100d8aa0155ee1030004487a8871459b.CUgemNwJRHjgjCwc4bDKc2C6XEo5fOht6AJXYQMZxIQ
+        hash: v1.k794b7964.923aafaf8e1bce9f1caa2410cd58f7378ff97f8e9fb569e0ce18b45dfb885ff8.osZQjoZOyTIkZuiFFYz_vt8LWPp7oKhCd1an1UQjLwM
     mcp-apps-funnels--three-step--light:
-        hash: v1.k794b7964.6aa35a6b08939e1446d5df8d95c43d9d17feffef2462aa3d6e880baa0d7e9aa3.R0JkDDM8t_oopglAPKD3ucLXKREtDrUeMqD0WghlAoI
+        hash: v1.k794b7964.18bd10f06238debddaf314abc41971a2a811e0cc74174b10b3f224ed7df15066.8JtCrE123e2LAu3dIKIT_F0E_u29Q2wT-UKli7kracs
     mcp-apps-surveys--active-popover--light:
         hash: v1.k794b7964.c47633461e9a437f0761e09f795eb793b02ed0bac4489ce757a5837dbaa3f847.wclUgXFjBkoHXJLNP2R3ncawfRArgVyVEUWbIiQve0o
     mcp-apps-surveys--completed--light:
