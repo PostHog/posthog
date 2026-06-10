@@ -340,8 +340,8 @@ export interface HogFlowConversionApi {
      * @nullable
      */
     window_minutes?: number | null
-    /** Compiled server-side from 'filters'. Do not set. */
-    readonly bytecode: unknown
+    /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
+    bytecode?: unknown
 }
 
 /**

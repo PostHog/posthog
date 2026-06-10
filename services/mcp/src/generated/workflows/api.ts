@@ -123,7 +123,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
                     ),
-                bytecode: zod.unknown().optional().describe("Compiled server-side from 'filters'. Do not set."),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe("Compiled server-side from 'filters'. Do not set; ignored if sent."),
             }),
             zod.null(),
         ])
@@ -338,7 +341,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
                     ),
-                bytecode: zod.unknown().optional().describe("Compiled server-side from 'filters'. Do not set."),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe("Compiled server-side from 'filters'. Do not set; ignored if sent."),
             }),
             zod.null(),
         ])

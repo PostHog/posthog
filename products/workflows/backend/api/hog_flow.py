@@ -435,9 +435,18 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
     )
-    bytecode = serializers.JSONField(read_only=True, help_text="Compiled server-side from 'filters'. Do not set.")
+    # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
+    # (shared by request and response schemas), which would make generated write schemas demand a
+    # server-computed field. Instead it's optional here and stripped in to_internal_value, so a
+    # client-supplied value still never reaches validated_data.
+    bytecode = serializers.JSONField(
+        required=False, allow_null=True, help_text="Compiled server-side from 'filters'. Do not set; ignored if sent."
+    )
 
     def to_internal_value(self, data):
+        # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
+        if isinstance(data, dict) and "bytecode" in data:
+            data = {k: v for k, v in data.items() if k != "bytecode"}
         # Legacy shape guard: some clients sent an event-based goal as an object in 'filters'
         # (e.g. {"events": [...], "source": "events"}). That belongs in 'events' — relocate it before
         # field validation so the old shape is still accepted and compiled (filters only takes an
