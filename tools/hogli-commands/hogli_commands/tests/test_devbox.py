@@ -2273,23 +2273,24 @@ class TestStartExistingWorkspace:
         else:
             assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
 
-    def test_start_app_flag_never_updates_running_workspace(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
+    def test_start_app_flag_never_pushed_unless_stopped(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
     ) -> None:
         """`coder update` stops a running workspace, so the flag must only note, never push."""
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "running")
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace_parameters",
-            lambda name, params: pytest.fail("update_workspace_parameters must not run on a running workspace"),
+            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
         devbox_cli._start_existing_workspace(
-            "devbox-test-user", {"latest_build": {"status": "running"}}, start_app=True, verbose=False
+            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
         )
 
-        assert "takes effect on the next start" in capsys.readouterr().out
+        assert "was not applied" in capsys.readouterr().out
 
     def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The pre-start sync must omit `workspace_region`.

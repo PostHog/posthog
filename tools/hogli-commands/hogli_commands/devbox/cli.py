@@ -122,6 +122,11 @@ WORKSPACE_STATUS_COLORS = {
 }
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
+# Printed whenever --start-app/--no-start-app is passed but cannot be applied:
+# the parameter is only pushed on the pre-start sync of a stopped workspace,
+# so the flag is dropped (not queued) on running/transitioning boxes.
+_START_APP_NOT_APPLIED_NOTE = "Note: --start-app/--no-start-app was not applied; re-run it once the devbox is stopped."
+
 
 def resolve_workspace_name(
     workspace: str | None, *, region: str | None = None
@@ -343,13 +348,15 @@ def _start_existing_workspace(
         if start_app is not None:
             # Pushing the parameter needs `coder update`, which rebuilds a
             # running workspace -- only safe on the pre-start sync below.
-            click.echo("Note: --start-app/--no-start-app takes effect on the next start.")
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
         click.echo(f"Devbox '{name}' is in state: {status}")
         click.echo("Wait for the current operation to complete.")
+        if start_app is not None:
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
     _sync_workspace_parameters(name, extra=_start_app_param(start_app))
