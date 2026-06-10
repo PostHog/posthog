@@ -693,6 +693,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             toggleEnabled: async () => {
                 const scanner = values.scanner
                 if (props.id === 'new' || !scanner) {
+                    actions.toggleEnabledFailure()
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
