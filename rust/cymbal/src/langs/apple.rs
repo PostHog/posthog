@@ -445,8 +445,8 @@ mod test {
             frames::RawFrame,
             symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
-                Catalog, MockS3Client,
+                native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
+                sourcemap::SourcemapProvider, Catalog, MockS3Client,
             },
         };
 
@@ -511,7 +511,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(smp, hmp, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(smp, hmp, pgp, apple, native);
 
         // Use 0x100000334 (line 7 of inner_function, "(void)x").
         // After the -1 call-site adjustment (0x334 - 1 = 0x333), the symcache
@@ -608,8 +615,8 @@ mod test {
             frames::RawFrame,
             symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
-                Catalog, MockS3Client,
+                native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
+                sourcemap::SourcemapProvider, Catalog, MockS3Client,
             },
         };
 
@@ -662,6 +669,12 @@ mod test {
             ),
             ChunkIdFetcher::new(
                 AppleProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                NativeProvider {},
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),

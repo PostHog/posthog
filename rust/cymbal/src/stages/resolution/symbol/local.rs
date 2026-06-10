@@ -258,6 +258,7 @@ mod test {
             apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
+            native::NativeProvider,
             proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
@@ -335,7 +336,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp, apple, native);
 
         (config, catalog, server)
     }

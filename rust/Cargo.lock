@@ -2735,6 +2735,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+ "zstd",
 ]
 
 [[package]]

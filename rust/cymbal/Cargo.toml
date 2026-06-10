@@ -57,6 +57,8 @@ httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
 tower.workspace = true
+# For decompressing the committed native ELF test fixture
+zstd = "0.13"
 
 [lints]
 workspace = true

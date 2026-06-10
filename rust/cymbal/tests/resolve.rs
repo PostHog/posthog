@@ -11,6 +11,7 @@ use cymbal::{
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
         hermesmap::HermesMapProvider,
+        native::NativeProvider,
         proguard::ProguardProvider,
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog, Fetcher, Parser,
@@ -131,7 +132,11 @@ async fn end_to_end_resolver_test() {
         inner: AppleProvider {},
     };
 
-    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple);
+    let native = NoOpChunkIdFetcher {
+        inner: NativeProvider {},
+    };
+
+    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple, native);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {

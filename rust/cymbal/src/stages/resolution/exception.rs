@@ -91,8 +91,8 @@ mod test {
         stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbol_store::{
             apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-            proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
-            Catalog, MockS3Client,
+            native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
+            sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
         types::{Exception, Stacktrace},
     };
@@ -162,7 +162,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp, apple, native);
 
         let frame = RawJavaFrame {
             module: "a1.d".to_string(),
