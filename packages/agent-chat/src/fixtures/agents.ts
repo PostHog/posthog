@@ -18,6 +18,9 @@ export interface AgentApplicationFixture {
     created_by: { id: number; email: string; first_name: string } | null
     created_at: string
     updated_at: string
+    /** Mode-aware base URL the trigger routes hang off (append `/webhook`,
+     *  `/run`, `/mcp`, …). Null when no public ingress URL is configured. */
+    ingress_base_url?: string | null
 }
 
 export type RevisionState = 'draft' | 'ready' | 'live' | 'archived'

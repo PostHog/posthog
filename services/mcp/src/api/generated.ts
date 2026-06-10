@@ -7337,6 +7337,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_interactivity_url: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url: string | null;
     }
 
     /**
@@ -28960,6 +28965,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_interactivity_url?: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url?: string | null;
     }
 
     /**

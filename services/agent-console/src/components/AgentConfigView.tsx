@@ -220,6 +220,7 @@ export function AgentConfigView({
                     selectedPath={selectedNode}
                     onSelectPath={onSelectNode}
                     agentSlug={agent.slug}
+                    ingressBaseUrl={agent.ingress_base_url ?? undefined}
                     height="100%"
                 />
             </div>

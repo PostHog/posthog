@@ -92,6 +92,13 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "Same source + null behaviour as `slack_events_url`."
         ),
     )
+    ingress_base_url = serializers.SerializerMethodField(
+        help_text=(
+            "Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. "
+            "Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null "
+            "behaviour as `slack_events_url` (null when no public ingress URL is configured)."
+        ),
+    )
     created_by = serializers.SerializerMethodField(
         help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
     )
@@ -116,6 +123,7 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "updated_at",
             "slack_events_url",
             "slack_interactivity_url",
+            "ingress_base_url",
         ]
         # encrypted_env is set/cleared via the dedicated `set_env` action;
         # never round-tripped through the standard CRUD payload.
@@ -129,6 +137,7 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "updated_at",
             "slack_events_url",
             "slack_interactivity_url",
+            "ingress_base_url",
         ]
 
     @extend_schema_field(_CREATED_BY_SCHEMA)
@@ -142,6 +151,12 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
     @extend_schema_field({"type": "string", "format": "uri", "nullable": True})
     def get_slack_interactivity_url(self, obj: AgentApplication) -> str | None:
         return _slack_path_url(obj.slug, "interactivity")
+
+    @extend_schema_field({"type": "string", "format": "uri", "nullable": True})
+    def get_ingress_base_url(self, obj: AgentApplication) -> str | None:
+        # Empty path → the base the routes hang off (`…/agents/<slug>` in path
+        # mode, `https://<slug><suffix>` in domain mode).
+        return agent_ingress_route_url(obj.slug, "")
 
 
 def agent_ingress_route_url(slug: str, path: str) -> str | None:

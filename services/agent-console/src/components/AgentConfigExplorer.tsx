@@ -9,10 +9,12 @@
  *
  * Left tree (on the shared `<FileExplorer>`):
  *   Model · Instructions · Triggers/ · Tools/ · Skills/ · MCPs/ ·
- *   Secrets/ · Limits · Auth
- * Section folders (Tools, Skills, …) are selectable — their detail is a
- * high-level explainer (how native vs custom vs client tools differ, how
- * skills load). Item leaves show a meta card + the actual content below.
+ *   Integrations/ · Secrets/
+ * Model folds in the per-session limits; each trigger folds in its own auth
+ * modes + a "how to use" example. Section folders (Tools, Skills, …) are
+ * selectable — their detail is a high-level explainer (how native vs custom vs
+ * client tools differ, how skills load). Item leaves show a meta card + the
+ * actual content below.
  *
  * Right-side row affordances: an approval lock on gated tools, and a
  * "needs attention" warning on secrets / MCPs / triggers whose required
@@ -40,7 +42,6 @@ import {
     ScrollTextIcon,
     ServerIcon,
     SparklesIcon,
-    TimerIcon,
     UserIcon,
     WebhookIcon,
     WrenchIcon,
@@ -140,6 +141,9 @@ export interface AgentConfigExplorerProps {
     onSelectPath?: (path: string) => void
     /** Slug — threads "Edit with AI" into the bundle file viewer when set. */
     agentSlug?: string
+    /** Mode-aware ingress base URL (`agent.ingress_base_url`) for the per-trigger
+     *  "how to use" examples. Falls back to a placeholder host when absent. */
+    ingressBaseUrl?: string
     /**
      * Outer height (passed through to `<FileExplorer>`). Pass `'100%'` to
      * fill a flex parent; defaults to the explorer's own viewport-based
@@ -161,6 +165,7 @@ export function AgentConfigExplorer({
     selectedPath,
     onSelectPath,
     agentSlug,
+    ingressBaseUrl,
     height,
 }: AgentConfigExplorerProps): React.ReactElement {
     const [internal, setInternal] = useState<string>(`${CFG}model`)
@@ -190,6 +195,7 @@ export function AgentConfigExplorer({
                 files={files}
                 selected={selected}
                 agentSlug={agentSlug}
+                ingressBaseUrl={ingressBaseUrl}
                 isMissing={isMissing}
                 setSecrets={setSecrets}
                 onEditSecret={onEditSecret}
@@ -450,8 +456,6 @@ function buildTree(spec: Record<string, unknown>, isMissing: (k: string) => bool
         })
     }
 
-    children.push({ type: 'file', name: 'limits', path: `${CFG}limits`, icon: <TimerIcon className={LEAF} /> })
-
     return { type: 'folder', name: '', children }
 }
 
@@ -462,6 +466,7 @@ function DetailPane({
     files,
     selected,
     agentSlug,
+    ingressBaseUrl,
     isMissing,
     setSecrets,
     onEditSecret,
@@ -473,6 +478,7 @@ function DetailPane({
     files: BundleFile[]
     selected: string
     agentSlug?: string
+    ingressBaseUrl?: string
     isMissing: (k: string) => boolean
     setSecrets?: string[]
     onEditSecret?: (key: string) => void
@@ -531,7 +537,7 @@ function DetailPane({
             return card(
                 <ZapIcon className={HEAD} />,
                 'Triggers',
-                <TriggersOverview spec={spec} />,
+                <TriggersOverview spec={spec} isMissing={isMissing} onSelectPath={onSelectPath} />,
                 `Help me with the triggers for \`${slug}\`.`
             )
         case 'trigger': {
@@ -547,6 +553,7 @@ function DetailPane({
                     onEditSecret={onEditSecret}
                     slackSetup={t?.type === 'slack' ? slackSetup : undefined}
                     agentSlug={agentSlug}
+                    ingressBaseUrl={ingressBaseUrl}
                 />,
                 `Help me configure the ${t?.type ?? ''} trigger for \`${slug}\`.`
             )
@@ -555,7 +562,7 @@ function DetailPane({
             return card(
                 <WrenchIcon className={HEAD} />,
                 'Tools',
-                <ToolsOverview spec={spec} />,
+                <ToolsOverview spec={spec} onSelectPath={onSelectPath} />,
                 `Help me with the tools for \`${slug}\`.`
             )
         case 'tool': {
@@ -571,7 +578,7 @@ function DetailPane({
             return card(
                 <PuzzleIcon className={HEAD} />,
                 'Skills',
-                <SkillsOverview spec={spec} />,
+                <SkillsOverview spec={spec} onSelectPath={onSelectPath} />,
                 `Help me with the skills for \`${slug}\`.`
             )
         case 'skill': {
@@ -587,9 +594,7 @@ function DetailPane({
             return card(
                 <ServerIcon className={HEAD} />,
                 'MCPs',
-                <Pad>
-                    <Muted>Remote MCP servers the agent connects to at session start.</Muted>
-                </Pad>,
+                <McpsOverview spec={spec} isMissing={isMissing} onSelectPath={onSelectPath} />,
                 `Help me with the MCP servers for \`${slug}\`.`
             )
         case 'mcp': {
@@ -637,13 +642,6 @@ function DetailPane({
                 `Help me set the \`${id}\` secret for \`${slug}\`.`
             )
         }
-        case 'limits':
-            return card(
-                <TimerIcon className={HEAD} />,
-                'Limits',
-                <LimitsBody spec={spec} />,
-                `Help me adjust the limits for \`${slug}\`.`
-            )
         default: {
             const file = fileFor(selected)
             return file ? <BundleFileBody file={file} /> : <Empty>Pick a configuration item.</Empty>
@@ -656,7 +654,7 @@ const HEAD = 'h-4 w-4 shrink-0 text-muted-foreground'
 // One-paragraph "what is this section" copy, surfaced by the header info
 // toggle. Singular item paths alias to their section.
 const SECTION_INFO: Record<string, string> = {
-    model: 'The LLM every request goes to. `reasoning` sets the extended-thinking budget — higher for planning-heavy work, lower or omitted for simple lookups.',
+    model: 'The LLM every request goes to. `reasoning` sets the extended-thinking budget — higher for planning-heavy work, lower or omitted for simple lookups. Limits are the per-session safety caps the runner enforces; when one is hit the session ends with `max_*_reached` and the last partial output is kept.',
     instructions:
         'The system prompt (agent.md), prepended to every turn. Keep it short and let skills carry the depth.',
     triggers:
@@ -668,7 +666,6 @@ const SECTION_INFO: Record<string, string> = {
         'Team-level integrations (e.g. slack, github) the agent expects to be configured at the project level. The agent reuses the team connection — it does not hold its own credential.',
     secrets:
         "Encrypted env values the agent reads (referenced as ${KEY} in tool args); values are never shown. A ⚠ means a required key isn't set yet.",
-    limits: 'Per-session safety caps the runner enforces. When one is hit the session ends with `max_*_reached` and the last partial output is kept.',
 }
 SECTION_INFO.trigger = SECTION_INFO.triggers
 SECTION_INFO.tool = SECTION_INFO.tools
@@ -752,8 +749,61 @@ function ExplainerRow({ tag, tone, children }: { tag: string; tone: string; chil
     )
 }
 
-function ToolsOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
-    const byKind = tools(spec).reduce<Record<string, number>>((acc, t) => {
+/** A clickable row in a section overview that jumps to an item's detail.
+ *  The list analogue of a left-tree leaf — same icon + trailing badges, so a
+ *  section's detail mirrors its tree children and you can drill in from either
+ *  place. */
+function JumpRow({
+    icon,
+    label,
+    description,
+    trailing,
+    onClick,
+}: {
+    icon: ReactNode
+    label: string
+    description?: string
+    trailing?: ReactNode
+    onClick: () => void
+}): React.ReactElement {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="flex w-full items-center gap-2 rounded border border-border/60 bg-card px-2 py-1.5 text-left hover:bg-accent/40"
+        >
+            {icon}
+            <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[0.75rem] font-medium text-foreground">{label}</span>
+                {description ? (
+                    <span className="truncate text-[0.6875rem] text-muted-foreground">{description}</span>
+                ) : null}
+            </span>
+            {trailing ? <span className="shrink-0">{trailing}</span> : null}
+        </button>
+    )
+}
+
+/** Section-overview list wrapper — a hairline-separated "in this section"
+ *  header above the jump rows. */
+function JumpList({ children }: { children: ReactNode }): React.ReactElement {
+    return (
+        <div className="space-y-1 border-t border-border/60 pt-3">
+            <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">In this section</p>
+            <div className="flex flex-col gap-1">{children}</div>
+        </div>
+    )
+}
+
+function ToolsOverview({
+    spec,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const tls = tools(spec)
+    const byKind = tls.reduce<Record<string, number>>((acc, t) => {
         acc[t.kind] = (acc[t.kind] ?? 0) + 1
         return acc
     }, {})
@@ -783,15 +833,42 @@ function ToolsOverview({ spec }: { spec: Record<string, unknown> }): React.React
                     .join(', ') || 'no tools'}
                 .
             </p>
+            {tls.length ? (
+                <JumpList>
+                    {tls.map((t) => {
+                        const isCustom = t.kind === 'custom' || t.kind === 'custom_template'
+                        return (
+                            <JumpRow
+                                key={t.id}
+                                icon={<ToolKindIcon kind={t.kind} />}
+                                label={stripNamespace(t.id)}
+                                description={t.description}
+                                trailing={trailingBadges([
+                                    isCustom ? customPill() : null,
+                                    t.requires_approval ? lockBadge() : null,
+                                ])}
+                                onClick={() => onSelectPath(`${CFG}tool/${t.id}`)}
+                            />
+                        )
+                    })}
+                </JumpList>
+            ) : null}
         </Pad>
     )
 }
 
-function SkillsOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+function SkillsOverview({
+    spec,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const sks = skills(spec)
     return (
         <Pad>
             <p className="text-sm text-foreground/90">
-                Markdown playbooks the agent loads on demand via `@posthog/load-skill` — {skills(spec).length} here.
+                Markdown playbooks the agent loads on demand via `@posthog/load-skill` — {sks.length} here.
             </p>
             <div className="space-y-2.5">
                 <ExplainerRow tag="Lazy" tone="bg-muted text-muted-foreground">
@@ -802,19 +879,101 @@ function SkillsOverview({ spec }: { spec: Record<string, unknown> }): React.Reac
                     Each skill's body is `skills/&lt;id&gt;/SKILL.md` in the bundle. Open a skill to read it inline.
                 </ExplainerRow>
             </div>
+            {sks.length ? (
+                <JumpList>
+                    {sks.map((s) => (
+                        <JumpRow
+                            key={s.id}
+                            icon={<PuzzleIcon className={LEAF} />}
+                            label={s.id}
+                            description={s.description}
+                            trailing={s.from_template ? undefined : customPill()}
+                            onClick={() => onSelectPath(`${CFG}skill/${s.id}`)}
+                        />
+                    ))}
+                </JumpList>
+            ) : null}
         </Pad>
     )
 }
 
-function TriggersOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+function TriggersOverview({
+    spec,
+    isMissing,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    isMissing: (k: string) => boolean
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const trg = triggers(spec)
+    const reqByTrigger = requiredSecretsByTrigger(spec)
     return (
         <Pad>
-            <p className="text-sm text-foreground/90">What can start a session — {triggers(spec).length} configured.</p>
+            <p className="text-sm text-foreground/90">What can start a session — {trg.length} configured.</p>
             <Muted>
                 Open a trigger to see its config. A <strong>public</strong> tag marks a trigger that accepts anonymous
                 callers; <strong>private</strong> means it's authed or intrinsically gated. A ⚠ flags a trigger whose
                 required secret isn't set.
             </Muted>
+            {trg.length ? (
+                <JumpList>
+                    {trg.map((t, i) => {
+                        const missing = (reqByTrigger[t.type] ?? []).filter(isMissing)
+                        return (
+                            <JumpRow
+                                key={i}
+                                icon={<TriggerIcon type={t.type} />}
+                                label={t.type}
+                                trailing={trailingBadges([
+                                    reachabilityPill(t),
+                                    missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : null,
+                                ])}
+                                onClick={() => onSelectPath(`${CFG}trigger/${i}`)}
+                            />
+                        )
+                    })}
+                </JumpList>
+            ) : null}
+        </Pad>
+    )
+}
+
+function McpsOverview({
+    spec,
+    isMissing,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    isMissing: (k: string) => boolean
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const ms = mcps(spec)
+    return (
+        <Pad>
+            <p className="text-sm text-foreground/90">Remote MCP servers the agent connects to at session start.</p>
+            {ms.length ? (
+                <JumpList>
+                    {ms.map((m) => {
+                        const missing = (m.secrets ?? []).filter(isMissing)
+                        const toolCount = (m.tools ?? []).length
+                        return (
+                            <JumpRow
+                                key={m.id}
+                                icon={<ServerIcon className={LEAF} />}
+                                label={m.id}
+                                description={`${toolCount} tool${toolCount === 1 ? '' : 's'}`}
+                                trailing={
+                                    missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : undefined
+                                }
+                                onClick={() => onSelectPath(`${CFG}mcp/${m.id}`)}
+                            />
+                        )
+                    })}
+                </JumpList>
+            ) : (
+                <Muted>No MCP servers declared.</Muted>
+            )}
         </Pad>
     )
 }
@@ -959,10 +1118,15 @@ function IntegrationBody({ name }: { name: string }): React.ReactElement {
 function ModelBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
     const model = typeof spec.model === 'string' ? spec.model : undefined
     const reasoning = typeof spec.reasoning === 'string' ? spec.reasoning : undefined
+    const limits = (spec.limits && typeof spec.limits === 'object' ? spec.limits : {}) as Limits
     return (
         <Pad>
             <Row label="model">{model ? <Chip>{model}</Chip> : <Muted>not set</Muted>}</Row>
             <Row label="reasoning">{reasoning ? <Chip>{reasoning}</Chip> : <Muted>default</Muted>}</Row>
+            <p className="pt-1 text-[0.7rem] font-medium uppercase tracking-wide text-muted-foreground">Limits</p>
+            <Row label="max turns">{stat(limits.max_turns)}</Row>
+            <Row label="max tool calls">{stat(limits.max_tool_calls)}</Row>
+            <Row label="max wall seconds">{stat(limits.max_wall_seconds)}</Row>
         </Pad>
     )
 }
@@ -1014,9 +1178,15 @@ function authHeaderExample(modes: string[], trigger: Trigger): string {
     return ''
 }
 
-/** Copy-pasteable "how to call this trigger" examples for webhook / chat / mcp. */
-function triggerUsage(trigger: Trigger, slug: string): { title: string; code: string }[] | null {
-    const base = `${USAGE_HOST}/agents/${slug}`
+/** Copy-pasteable "how to call this trigger" examples for webhook / chat / mcp.
+ *  `ingressBaseUrl` is the deployment's mode-aware base (domain or path); when
+ *  absent we fall back to a path-mode placeholder host. */
+function triggerUsage(
+    trigger: Trigger,
+    slug: string,
+    ingressBaseUrl?: string
+): { title: string; code: string }[] | null {
+    const base = (ingressBaseUrl ?? `${USAGE_HOST}/agents/${slug}`).replace(/\/$/, '')
     const modes = ((trigger as { auth?: { modes?: Array<{ type: string }> } }).auth?.modes ?? []).map((m) => m.type)
     const authHeader = authHeaderExample(modes, trigger)
     if (trigger.type === 'webhook') {
@@ -1082,8 +1252,16 @@ function CopyableCode({ code }: { code: string }): React.ReactElement {
     )
 }
 
-function TriggerUsage({ trigger, slug }: { trigger: Trigger; slug: string }): React.ReactElement | null {
-    const examples = triggerUsage(trigger, slug)
+function TriggerUsage({
+    trigger,
+    slug,
+    ingressBaseUrl,
+}: {
+    trigger: Trigger
+    slug: string
+    ingressBaseUrl?: string
+}): React.ReactElement | null {
+    const examples = triggerUsage(trigger, slug, ingressBaseUrl)
     if (!examples) {
         return null
     }
@@ -1107,6 +1285,7 @@ function TriggerBody({
     onEditSecret,
     slackSetup,
     agentSlug,
+    ingressBaseUrl,
 }: {
     trigger?: Trigger
     requiredKeys: string[]
@@ -1115,6 +1294,7 @@ function TriggerBody({
     /** Slack app-manifest setup, rendered for a slack trigger. */
     slackSetup?: ReactNode
     agentSlug?: string
+    ingressBaseUrl?: string
 }): React.ReactElement {
     if (!trigger) {
         return (
@@ -1183,7 +1363,7 @@ function TriggerBody({
                     </Attention>
                 ) : null}
             </Pad>
-            <TriggerUsage trigger={trigger} slug={agentSlug ?? '<slug>'} />
+            <TriggerUsage trigger={trigger} slug={agentSlug ?? '<slug>'} ingressBaseUrl={ingressBaseUrl} />
             {slackSetup ? <div className="border-t border-border">{slackSetup}</div> : null}
         </div>
     )
@@ -1376,17 +1556,6 @@ function SecretBody({
                 Value is never shown. {missing ? 'Set it below.' : 'Rotate or clear it below.'}
             </p>
             <EditSecretButton name={name} missing={missing} onEditSecret={onEditSecret} />
-        </Pad>
-    )
-}
-
-function LimitsBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
-    const limits = (spec.limits && typeof spec.limits === 'object' ? spec.limits : {}) as Limits
-    return (
-        <Pad>
-            <Row label="max turns">{stat(limits.max_turns)}</Row>
-            <Row label="max tool calls">{stat(limits.max_tool_calls)}</Row>
-            <Row label="max wall seconds">{stat(limits.max_wall_seconds)}</Row>
         </Pad>
     )
 }
