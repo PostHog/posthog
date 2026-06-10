@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
+
 import { HogFlow } from '~/schema/hogflow'
 import { UUIDT } from '~/utils/utils'
 
@@ -8,7 +10,6 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { BatchHogFlowRequest, CdpBatchHogFlowRequestsConsumer } from './cdp-batch-hogflow.consumer'
 
 jest.setTimeout(1000)
@@ -17,7 +18,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
     let processor: CdpBatchHogFlowRequestsConsumer
     let hub: Hub
     let team: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFlow = async (hogFlow: HogFlow) => {
         const teamId = hogFlow.team_id ?? team.id
@@ -35,7 +36,9 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpBatchHogFlowRequestsConsumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpBatchHogFlowRequestsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -44,13 +47,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             isHealthy: jest.fn(),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })

@@ -13,6 +13,10 @@ const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
+const productAliases = {
+    llm_analytics: 'ai_observability',
+}
+
 // Default to temp location (gitignored ephemeral artifact)
 const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
 
@@ -129,6 +133,11 @@ function findPythonFiles(dir) {
  */
 function matchUrlToProduct(urlPath, productFolders) {
     const urlLower = urlPath.toLowerCase().replace(/-/g, '_')
+    for (const [legacyProduct, product] of Object.entries(productAliases)) {
+        if (productFolders.has(product) && urlLower.includes(`/${legacyProduct}/`)) {
+            return product
+        }
+    }
     for (const product of productFolders) {
         if (urlLower.includes(`/${product}/`)) {
             return product
@@ -146,6 +155,11 @@ function matchUrlToProduct(urlPath, productFolders) {
 function resolveTagToProduct(tag, mappings) {
     const { productFoldersOnDisk } = mappings
     const normalizedTag = tag.replace(/-/g, '_')
+    const aliasedProduct = productAliases[normalizedTag]
+
+    if (aliasedProduct && productFoldersOnDisk.has(aliasedProduct)) {
+        return aliasedProduct
+    }
 
     // Tag must match a product folder on disk
     if (productFoldersOnDisk.has(normalizedTag)) {
@@ -185,9 +199,9 @@ function createTempDir() {
  *
  * Routing priority:
  * 1. Tag matches product folder (includes auto-tags from backend) -> product
- * 2. URL path contains product folder name (fallback) -> product
- * 3. @validated_request decorator in posthog/api/ or ee/ -> core
- * 4. Explicit "core" tag -> core
+ * 2. Explicit "core" tag -> core (authoritative — wins over URL fallback)
+ * 3. URL path contains product folder name (fallback) -> product
+ * 4. @validated_request decorator in posthog/api/ or ee/ -> core
  * 5. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
@@ -212,20 +226,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
 
             const operationId = operation.operationId || ''
-            const explicitTags = operation['x-explicit-tags']
-            const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []
+            const productTags = operation['x-product']
+            const tags = Array.isArray(productTags) && productTags.length ? productTags : []
 
             let outputDir = null
             let routingMethod = null
 
             // Priority 1: Tag matches product folder (includes auto-tags from backend)
-            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
-            if (productTag) {
-                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+            const product = tags.map((tag) => resolveTagToProduct(tag, mappings)).find((product) => product !== null)
+            if (product) {
+                outputDir = resolveProductToOutputDir(product, mappings.productFoldersOnDisk)
                 routingMethod = 'tag'
             }
 
-            // Priority 2: URL path contains product folder name (fallback)
+            // Priority 2: Explicit "core" tag is authoritative — devs use it to override URL fallback
+            if (!outputDir && tags.includes('core')) {
+                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
+                routingMethod = 'tag'
+            }
+
+            // Priority 3: URL path contains product folder name (fallback)
             if (!outputDir) {
                 const urlProduct = matchUrlToProduct(pathKey, mappings.productFoldersOnDisk)
                 if (urlProduct) {
@@ -234,7 +254,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 }
             }
 
-            // Priority 3: @validated_request decorator in core -> core
+            // Priority 4: @validated_request decorator in core -> core
             if (!outputDir) {
                 for (const snakeCase of mappings.validatedRequestViewSets) {
                     if (operationId === snakeCase || operationId.startsWith(snakeCase + '_')) {
@@ -243,12 +263,6 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                         break
                     }
                 }
-            }
-
-            // Priority 4: Explicit "core" tag
-            if (!outputDir && tags.includes('core')) {
-                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
-                routingMethod = 'tag'
             }
 
             // No match - skip
@@ -562,20 +576,95 @@ function opaqueDeepSchemas(schema) {
         return size
     }
 
-    // Compute expanded sizes and collect schemas that exceed the limit
-    const opaqued = new Set()
-    for (const name of Object.keys(allSchemas)) {
-        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
-            opaqued.add(name)
+    // Direct $refs out of a single schema's definition, ignoring traversal order
+    // (used to detect cycles via the ref graph, not via the size walk which
+    // pessimistically returns Infinity to any caller that *transitively* sees a
+    // cycle).
+    function directRefs(name) {
+        const refs = new Set()
+        const defn = allSchemas[name]
+        if (!defn) {
+            return refs
         }
+        function walk(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return
+            }
+            if (Array.isArray(obj)) {
+                obj.forEach(walk)
+                return
+            }
+            if (obj.$ref) {
+                refs.add(obj.$ref.replace('#/components/schemas/', ''))
+                return
+            }
+            for (const v of Object.values(obj)) {
+                walk(v)
+            }
+        }
+        walk(defn)
+        return refs
     }
 
-    // Replace with opaque object type
-    for (const name of opaqued) {
+    // A schema is a cycle member iff it's reachable from itself via the ref
+    // graph. Schemas that merely *reference* a cycle are NOT members — they
+    // expand to a finite tree once the cycle members are opaqued, so we must
+    // not opaque them just because they touch a recursive component.
+    function isCycleMember(start) {
+        const stack = [...directRefs(start)]
+        const visited = new Set()
+        while (stack.length > 0) {
+            const name = stack.pop()
+            if (name === start) {
+                return true
+            }
+            if (visited.has(name)) {
+                continue
+            }
+            visited.add(name)
+            for (const r of directRefs(name)) {
+                stack.push(r)
+            }
+        }
+        return false
+    }
+
+    const opaqued = new Set()
+    const opaqueSchema = (name) => {
+        opaqued.add(name)
         allSchemas[name] = {
             type: 'object',
             description: `Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)`,
             additionalProperties: true,
+        }
+    }
+
+    // Pass 1: opaque only true cycle members.
+    //
+    // Collect *all* cycle members first, then opaque in a second loop —
+    // `isCycleMember` reads from the live `allSchemas`, and opaquing a schema
+    // erases its $refs. In a mutual cycle A↔B with iteration order [A, B],
+    // opaquing A as we go would make `isCycleMember("B")` walk B → A → ∅ and
+    // return false, misclassifying B as a non-member.
+    const cycleMembers = new Set()
+    for (const name of Object.keys(allSchemas)) {
+        if (isCycleMember(name)) {
+            cycleMembers.add(name)
+        }
+    }
+    for (const name of cycleMembers) {
+        opaqueSchema(name)
+    }
+
+    // Pass 2: with cycle members now opaque, recompute sizes; opaque anything
+    // still over the limit (deeply nested unions, large response envelopes).
+    cache.clear()
+    for (const name of Object.keys(allSchemas)) {
+        if (opaqued.has(name)) {
+            continue
+        }
+        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
+            opaqueSchema(name)
         }
     }
 

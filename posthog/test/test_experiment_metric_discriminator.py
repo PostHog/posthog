@@ -101,3 +101,126 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
     )
     def test_valid_payload_per_metric_type_still_validates(self, _name: str, payload: dict) -> None:
         ExperimentMetric.model_validate(payload)
+
+
+class TestExperimentMetricSourceDiscriminator(SimpleTestCase):
+    # The inner union `EventsNode | ActionsNode | ExperimentDataWarehouseNode` used by
+    # mean.source, funnel.series, ratio.numerator/denominator, and
+    # retention.start_event/completion_event was undiscriminated — Pydantic would walk
+    # every variant and report errors for each, producing payloads like
+    #   ('funnel', 'series', 0, 'EventsNode', 'id'), 'extra_forbidden'
+    #   ('funnel', 'series', 0, 'ActionsNode', 'id'), 'int_type'
+    #   ('funnel', 'series', 0, 'ActionsNode', 'kind'), 'literal_error'
+    # all from a single malformed EventsNode submission, leaving LLM callers unable to
+    # tell which variant they meant to populate. These tests assert that tagging the
+    # union on `kind` narrows errors to exactly one variant.
+
+    _ALL_KINDS = ("EventsNode", "ActionsNode", "ExperimentDataWarehouseNode")
+
+    @parameterized.expand(
+        [
+            # (case_name, payload, declared_kind_in_payload, location_path_to_source)
+            (
+                "mean_source_eventsnode",
+                {"metric_type": "mean", "source": {"kind": "EventsNode", "id": 5}},
+                "EventsNode",
+                ("mean", "source"),
+            ),
+            (
+                "mean_source_actionsnode",
+                {"metric_type": "mean", "source": {"kind": "ActionsNode", "event": "purchase"}},
+                "ActionsNode",
+                ("mean", "source"),
+            ),
+            (
+                "funnel_series_eventsnode",
+                {"metric_type": "funnel", "series": [{"kind": "EventsNode", "id": 5}]},
+                "EventsNode",
+                ("funnel", "series", 0),
+            ),
+            (
+                "funnel_series_actionsnode",
+                {"metric_type": "funnel", "series": [{"kind": "ActionsNode", "event": "view"}]},
+                "ActionsNode",
+                ("funnel", "series", 0),
+            ),
+            (
+                "ratio_numerator_eventsnode",
+                {
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "id": 5},
+                    "denominator": {"kind": "EventsNode", "event": "pageview"},
+                },
+                "EventsNode",
+                ("ratio", "numerator"),
+            ),
+            (
+                "retention_start_event_actionsnode",
+                {
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ActionsNode", "event": "signup"},
+                    "completion_event": {"kind": "EventsNode", "event": "activated"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+                "ActionsNode",
+                ("retention", "start_event"),
+            ),
+        ]
+    )
+    def test_invalid_source_routes_to_declared_kind_only(
+        self,
+        _name: str,
+        payload: dict,
+        declared_kind: str,
+        location_path: tuple,
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentMetric.model_validate(payload)
+
+        errors = ctx.exception.errors()
+        assert errors, "expected at least one validation error"
+
+        # Errors for THIS source field must reach the declared kind tag and no other
+        # variant must appear at this loc prefix.
+        source_errors = [err for err in errors if err["loc"][: len(location_path)] == location_path]
+        assert source_errors, (
+            f"expected at least one error under loc prefix {location_path!r}; got locs {[err['loc'] for err in errors]}"
+        )
+
+        kinds_in_source_loc = {
+            err["loc"][len(location_path)]
+            for err in source_errors
+            if len(err["loc"]) > len(location_path) and err["loc"][len(location_path)] in self._ALL_KINDS
+        }
+        assert kinds_in_source_loc == {declared_kind}, (
+            f"errors under {location_path!r} should reach exactly one variant tag "
+            f"{declared_kind!r}; got {kinds_in_source_loc!r} — inner-union discriminator likely dropped"
+        )
+
+    def test_unknown_kind_in_source_returns_clean_tag_error(self) -> None:
+        # Submitting kind='banana' must yield a single union_tag_invalid error naming
+        # the valid variants, not a multi-variant pile.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentMetric.model_validate({"metric_type": "mean", "source": {"kind": "banana", "event": "purchase"}})
+
+        errors = ctx.exception.errors()
+        source_errors = [err for err in errors if err["loc"][:2] == ("mean", "source")]
+        assert len(source_errors) == 1, (
+            f"expected exactly one error for malformed source; got {len(source_errors)}: {source_errors}"
+        )
+        assert source_errors[0]["type"] == "union_tag_invalid"
+        expected_tags_str = source_errors[0]["ctx"]["expected_tags"]
+        for tag in self._ALL_KINDS:
+            assert f"'{tag}'" in expected_tags_str, f"expected tag {tag!r} in {expected_tags_str!r}"
+
+    @parameterized.expand(
+        [
+            ("eventsnode", {"kind": "EventsNode", "event": "purchase"}),
+            ("actionsnode", {"kind": "ActionsNode", "id": 5}),
+        ]
+    )
+    def test_valid_source_still_validates(self, _name: str, source: dict) -> None:
+        ExperimentMetric.model_validate({"metric_type": "mean", "source": source})

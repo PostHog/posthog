@@ -3,6 +3,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -52,7 +53,8 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+        <div className="relative border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+            {webVitalsQueryResponse?.usedLazyPrecompute && <PreAggregatedBadge variant="precomputed" />}
             <div className="p-4">
                 <Header band="good" label="Good" />
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />

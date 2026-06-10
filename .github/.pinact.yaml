@@ -9,9 +9,5 @@ version: 3
 # separator: "  # "
 
 ignore_actions:
-    - name: actions/.*
-      ref: .*
-    - name: github/.*
-      ref: .*
     - name: PostHog/.*
       ref: .*

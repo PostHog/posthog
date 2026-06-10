@@ -25,11 +25,11 @@ import {
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { LoadingState, PageHeaderCustom } from '../ExperimentView/components'
 import { DistributionModal, DistributionTable } from '../ExperimentView/DistributionTable'
 import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
+import { LoadingState } from '../ExperimentView/LoadingState'
+import { PageHeaderCustom } from '../ExperimentView/PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from '../ExperimentView/ReleaseConditionsTable'
 
 const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
@@ -146,19 +146,14 @@ const VariantsTab = (): JSX.Element => {
  * @deprecated This component exists only to support existing legacy experiments.
  * New experiments use the modern ExperimentView component.
  */
-export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    if (!tabId) {
-        throw new Error('<LegacyExperimentView /> must receive a tabId prop')
-    }
-
+export function LegacyExperimentView(): JSX.Element {
     const { experimentLoading, experiment } = useValues(experimentLogic)
-    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
-    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
+    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     // Props for legacy logic - uses experiment data from parent experimentLogic
     const legacyLogicProps = {
         experiment,
-        tabId,
     }
 
     // Mount the logic and load metrics when experiment is available
@@ -230,7 +225,6 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
                           - SharedMetricModal (can't add shared metrics)
                           - SharedMetricDetailsModal (can't manage shared metrics)
                           - ExposureCriteriaModal (can't edit exposure)
-                          - RunningTimeCalculatorModal (modern feature)
                           - EditConclusionModal (uses legacy version instead)
                         */}
                     </>

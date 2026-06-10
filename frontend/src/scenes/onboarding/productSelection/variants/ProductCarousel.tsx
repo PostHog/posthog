@@ -36,7 +36,7 @@ const PRODUCT_HEDGEHOG: Partial<Record<string, React.ComponentType<{ className?:
     [ProductKey.PRODUCT_ANALYTICS]: GraphsHog,
     [ProductKey.WEB_ANALYTICS]: ExplorerHog,
     [ProductKey.SESSION_REPLAY]: FilmCameraHog,
-    [ProductKey.LLM_ANALYTICS]: RobotHog,
+    [ProductKey.AI_OBSERVABILITY]: RobotHog,
     [ProductKey.DATA_WAREHOUSE]: BuilderHog1,
     [ProductKey.FEATURE_FLAGS]: FeatureFlagHog,
     [ProductKey.EXPERIMENTS]: ExperimentsHog,

@@ -3,6 +3,18 @@
 Replicates the collision detection logic from drf_spectacular.hooks.postprocess_schema_enums
 but prints actionable output instead of opaque warnings.
 
+Run this when `hogli build:openapi-schema` fails with messages like
+"enum naming encountered a non-optimally resolvable collision" / "Format5eaEnum" — it
+prints a suggested ENUM_NAME_OVERRIDES entry for posthog/settings/web.py. The suggestion
+is pastable as-is for type-hint enum collisions and for ChoiceField collisions whose
+choices are plain inline lists (labels == values); only ChoiceField collisions with
+custom labels (e.g. a `TextChoices` class where labels differ from values) need the
+model class path filled in.
+
+See also:
+    posthog/settings/web.py — ENUM_NAME_OVERRIDES (where the fix goes)
+    /improving-drf-endpoints — skill with the full DRF/OpenAPI guide
+
 Usage:
     python manage.py find_enum_collisions
 """
@@ -106,13 +118,22 @@ class Command(BaseCommand):
                 if len(hash_name_mapping[prop_hash]) == 1:
                     continue
                 auto_name = f"{_camelize(prop_name)}{prop_hash[:3].capitalize()}{enum_suffix}"
+                values = hash_values[prop_hash]
+                # Even ChoiceField gets x-spec-enum-id, but if the field was built from a
+                # plain list (`choices=["A", "B"]`) DRF expands it to (value, value) pairs
+                # — same hash as the inline-list override path. The model-class-path
+                # override is only required when labels differ from values (typical
+                # `TextChoices` with explicit labels).
+                inline_override_hash = list_hash([(v, v) for v in values if v not in ("", None)])
+                inline_override_matches = inline_override_hash == prop_hash
                 collisions.append(
                     {
                         "field": prop_name,
                         "auto_name": auto_name,
                         "hash": prop_hash,
-                        "values": hash_values[prop_hash],
+                        "values": values,
                         "has_spec_id": hash_has_spec_id[prop_hash],
+                        "inline_override_matches": inline_override_matches,
                         "components": sorted(hash_name_mapping[prop_hash]),
                     }
                 )
@@ -135,18 +156,26 @@ class Command(BaseCommand):
                 self.stdout.write(f"    - {comp}.{field}")
 
             self.stdout.write("")
-            self.stdout.write("  Suggested override for ENUM_NAME_OVERRIDES in web.py:")
-            if c["has_spec_id"]:
-                self.stdout.write('    "YourEnumName": "your.models.module.Model.ChoicesClass",')
-                self.stdout.write("    # ChoiceField path — override must be a model class path")
+            self.stdout.write("  Override entry to add to ENUM_NAME_OVERRIDES in web.py")
+            self.stdout.write("  (key defaults to the current auto-resolved name; rename for a nicer schema type):")
+            if c["has_spec_id"] and not c["inline_override_matches"]:
+                self.stdout.write(f'    "{c["auto_name"]}": "your.models.module.Model.ChoicesClass",')
+                self.stdout.write(
+                    "    # ChoiceField with custom labels (labels != values) — override must be a model class path"
+                )
             else:
                 vals = c["values"]
                 if all(isinstance(v, int) for v in vals):
                     formatted = [(v, v) for v in vals]
-                    self.stdout.write(f'    "YourEnumName": {formatted},')
+                    self.stdout.write(f'    "{c["auto_name"]}": {formatted},')
                 else:
-                    self.stdout.write(f'    "YourEnumName": {json.dumps(vals)},')
-                self.stdout.write("    # Type-hint path — override must be an inline value list")
+                    self.stdout.write(f'    "{c["auto_name"]}": {json.dumps(vals)},')
+                if c["has_spec_id"]:
+                    self.stdout.write(
+                        "    # ChoiceField with inline choices (labels == values) — paste as-is to silence the warning"
+                    )
+                else:
+                    self.stdout.write("    # Type-hint path — paste as-is to silence the warning")
             self.stdout.write("\n  ---\n")
 
         all_hashes = set()

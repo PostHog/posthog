@@ -8,12 +8,15 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCodingAgent()` matches coding agents that surface `structuredContent`
- *   to the model in preference to `content[].text`. Used to drop
- *   `structuredContent` when a `formatted_results` override is set, otherwise
- *   Claude Code (and friends) show raw JSON instead of the formatted table.
- *   Cursor is deliberately excluded — it reads text for the model and renders
- *   `structuredContent` in UI, so it does not need the workaround.
+ * - `isCliModeEnabled()` matches clients that should default to single-exec
+ *   ("CLI") mode and drop `structuredContent` when a `formatted_results`
+ *   override is set. Every known Anthropic client qualifies — matched against
+ *   the `x-anthropic-client` (`vendorClient`) header, since Anthropic pools MCP
+ *   transports across all its products and reports the live one there. Other
+ *   coding agents are matched by self-reported client name. Cursor is
+ *   deliberately excluded from the name match — it reads text for the model and
+ *   renders `structuredContent` in UI, so it does not need single-exec mode or
+ *   the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.
@@ -60,7 +63,26 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
+    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
+    // benefits from the same single-exec mode.
+    'devin',
+    // LibreChat is a general MCP client, but benefits from the same CLI-shaped
+    // single-exec mode as coding agents.
+    'librechat',
+    // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
+    // but an LLM-driven consumer that benefits from the same single-exec mode
+    // and formatted-text rendering as coding agents).
+    'notion',
 ] as const
+
+// Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
+// MCP transports across all its products and reports the live one in this
+// header, so it's the reliable identifier for an Anthropic client (the
+// `initialize` body's `clientName` is the pool owner, e.g. `Anthropic/ClaudeAI`).
+// Every Anthropic product runs in CLI (single-exec) mode. Matched as normalized
+// substrings, so vendor-prefixed shapes like `Anthropic/ClaudeAI` resolve to
+// `claudeai`.
+export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowork'] as const
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
@@ -68,14 +90,16 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
-// OAuth application names (from token introspection) for vibe-coding platforms
-// that should default to single-exec mode. These match against the OAuth
+// OAuth application names (from token introspection) for upstream tools that
+// should default to single-exec mode. These match against the OAuth
 // `client_name` (the registered OAuth app name in PostHog), not the MCP
-// `clientInfo.name` self-report — those platforms typically connect through a
+// `clientInfo.name` self-report — many of these platforms connect through a
 // generic MCP client wrapper, so the OAuth name is what reliably identifies
 // the upstream tool. Substring match is case-insensitive and separator-agnostic
 // so "Lovable", "Lovable.dev", "Replit", and "Replit Agent" all resolve.
-export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit'] as const
+// Notion is included here because a sizeable share of sessions only carry the
+// OAuth name without the `notion-mcp-client` self-report.
+export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -105,6 +129,10 @@ type MCPClientProfileInput = {
     clientVersion?: string | undefined
     consumer?: string | undefined
     oauthClientName?: string | undefined
+    // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
+    // Anthropic pools MCP transports across products, so the live inner client
+    // can disagree with the session-pinned `clientName` from `initialize`.
+    vendorClient?: string | undefined
 }
 
 export class MCPClientProfile {
@@ -112,6 +140,7 @@ export class MCPClientProfile {
     readonly clientVersion: string | undefined
     readonly consumer: string | undefined
     readonly oauthClientName: string | undefined
+    readonly vendorClient: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -120,9 +149,18 @@ export class MCPClientProfile {
         this.clientVersion = input.clientVersion
         this.consumer = input.consumer
         this.oauthClientName = input.oauthClientName
+        this.vendorClient = input.vendorClient
     }
 
-    isCodingAgent(): boolean {
+    isCliModeEnabled(): boolean {
+        // Every known Anthropic client (matched against the `x-anthropic-client`
+        // header) runs in CLI (single-exec) mode — Anthropic pools MCP transports
+        // across all its products (Claude Code, Claude.ai, Cowork, …) and reports
+        // the live product in that header.
+        if (matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS)) {
+            return true
+        }
+        // Otherwise fall back to the self-reported client name for coding agents.
         return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
     }
 
@@ -152,8 +190,8 @@ export class MCPClientProfile {
     }
 }
 
-export function isCodingAgentClient(clientName: string | undefined): boolean {
-    return new MCPClientProfile({ clientName }).isCodingAgent()
+export function isCliModeEnabledClient(clientName: string | undefined): boolean {
+    return new MCPClientProfile({ clientName }).isCliModeEnabled()
 }
 
 export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {

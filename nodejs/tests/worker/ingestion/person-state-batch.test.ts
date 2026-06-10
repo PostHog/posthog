@@ -3197,10 +3197,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3253,10 +3255,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 

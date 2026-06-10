@@ -31,7 +31,11 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
 
-from products.experiments.backend.models.experiment import ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -366,4 +370,33 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
         scope="Experiment",
         activity="deleted",
         detail=Detail(name=instance.name, type="holdout"),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=ExperimentToSavedMetric)
+def handle_experiment_to_saved_metric_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    instance = after_update or before_update
+    if not instance:
+        return
+
+    log_activity(
+        organization_id=instance.experiment.team.organization_id,
+        team_id=instance.experiment.team_id,
+        user=user or activity_storage.get_user(),
+        was_impersonated=was_impersonated or activity_storage.get_was_impersonated(),
+        item_id=instance.experiment_id,
+        # Stored under the public Experiment scope so it shows up in the experiment
+        # activity log feed. The describer arm on `type="saved_metric_config"`
+        # renders the row.
+        scope="Experiment",
+        activity=activity,
+        detail=Detail(
+            # `"ExperimentToSavedMetric"` is an InternalActivityScope key used only for
+            # field_exclusions / changes_between — never written to ActivityLog.scope.
+            changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
+            name=instance.saved_metric.name,
+            type="saved_metric_config",
+        ),
     )

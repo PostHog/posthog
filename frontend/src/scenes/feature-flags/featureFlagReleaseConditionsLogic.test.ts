@@ -785,6 +785,34 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('early exit', () => {
+        it('enables early exit at the flag level', () => {
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+        })
+
+        it('disables early exit', () => {
+            logic.actions.setEarlyExit(true)
+            logic.actions.setEarlyExit(false)
+
+            expect(logic.values.filters.early_exit).toBe(false)
+        })
+
+        it('preserves condition sets when toggling early exit', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+            expect(logic.values.filters.groups).toEqual(filters.groups)
+        })
+    })
+
     describe('open conditions state', () => {
         it('initializes first condition as open when there is only one group', async () => {
             logic?.unmount()

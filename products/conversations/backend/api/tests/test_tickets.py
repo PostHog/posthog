@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_person,
     get_index_from_explain,
+    get_inner_person_subquery_clickhouse_sql,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -19,15 +20,18 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
-from products.conversations.backend.api.tickets import _get_persons_by_email
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 
-from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
+from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.role import Role
 
 
@@ -677,6 +681,127 @@ class TestTicketAPI(APIBaseTest):
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
                 self.assertIn("person", ticket_data)
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateStatus(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_status/"
+
+    def test_bulk_update_status(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["updated"], 3)
+        self.assertEqual(set(data["ids"]), set(ids))
+        for t in self.tickets:
+            t.refresh_from_db()
+            self.assertEqual(t.status, Status.OPEN)
+
+    def test_skips_tickets_already_in_target_status(self, mock_on_commit):
+        self.tickets[0].status = Status.OPEN
+        self.tickets[0].save(update_fields=["status"])
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        other_ticket.refresh_from_db()
+        self.assertEqual(other_ticket.status, Status.NEW)
+
+    def test_creates_activity_log_entries(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            activity="updated",
+        )
+        self.assertEqual(logs.count(), 2)
+        logged_ids = {log.item_id for log in logs}
+        self.assertEqual(logged_ids, set(ids))
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_invalidates_cache_on_resolved_transition(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_no_cache_invalidation_without_resolved(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        mock_invalidate.assert_not_called()
+
+    def test_rejects_empty_ids(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [], "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_invalid_status(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "status": "bogus"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTicketAssignment(APIBaseTest):
@@ -1329,7 +1454,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["results"][0]["person"] is None
 
     @snapshot_clickhouse_queries
-    def test_email_fallback_uses_ngram_skip_index(self, mock_on_commit):
+    def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
         _create_person(
             team=self.team,
             distinct_ids=["idx-test-id"],
@@ -1337,20 +1462,25 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
-            index_name = get_ngram_lower_index_name(mat_col.name)
+        with materialized("person", "email", create_bloom_filter_lower_index=True) as mat_col:
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
 
-            result = _get_persons_by_email(
-                self.team,
-                ["indexed@example.com"],
-                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            assert "indexed@example.com" in _get_persons_by_email(
+                self.team, ["indexed@example.com"], modifiers=modifiers
             )
-            assert len(result) == 1
-            assert "indexed@example.com" in result
 
-            raw_query = f"SELECT id FROM person WHERE lower({mat_col.name}) IN ('indexed@example.com')"
-            index_info = get_index_from_explain(raw_query, index_name)
-            assert index_info is not None, f"Expected skip index {index_name} to be used"
+            # EXPLAIN the person-filter subquery of the exact query that ran, not a hand-written approximation
+            result = execute_hogql_query(
+                PERSON_EMAIL_LOOKUP_QUERY,
+                placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
+                team=self.team,
+                modifiers=modifiers,
+            )
+            assert result.clickhouse
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
+            index_info = get_index_from_explain(subquery, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -1468,3 +1598,60 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+
+class TestTicketPersonalAPIKeyScopes(APIBaseTest):
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+    @parameterized.expand(
+        [
+            ("list_with_read", "list", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("list_with_write", "list", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("retrieve_with_read", "retrieve", "get", True, ["ticket:read"], status.HTTP_200_OK),
+            ("retrieve_with_write", "retrieve", "get", True, ["ticket:write"], status.HTTP_200_OK),
+            ("unread_count_with_read", "unread_count", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("unread_count_with_write", "unread_count", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("list_wrong_scope", "list", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("retrieve_wrong_scope", "retrieve", "get", True, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("unread_count_wrong_scope", "unread_count", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
+        self._auth_with_pak(scopes)
+
+        base = f"/api/projects/{self.team.id}/conversations/tickets/"
+        if use_detail:
+            url = f"{base}{self.ticket.id}/"
+        elif action in ("list",):
+            url = base
+        else:
+            url = f"{base}{action}/"
+
+        response = getattr(self.client, method)(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_write_actions(self, _name, action, scopes, expected_status):
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
+        response = self.client.post(url, {}, format="json")
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"

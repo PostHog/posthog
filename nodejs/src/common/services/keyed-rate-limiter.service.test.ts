@@ -70,7 +70,7 @@ describe('KeyedRateLimiterService', () => {
 
             const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
 
-            expect(res).toEqual([['team-1', { tokens: 99, isRateLimited: false }]])
+            expect(res).toEqual([['team-1', { tokensBefore: 100, tokens: 99, isRateLimited: false }]])
         })
 
         it('rate limits when exceeding the bucket', async () => {
@@ -78,10 +78,10 @@ describe('KeyedRateLimiterService', () => {
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
             let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 99 }])
-            expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
+            expect(res[0][1]).toEqual({ tokensBefore: 100, tokens: 1, isRateLimited: false })
 
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-            expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: true })
+            expect(res[0][1]).toEqual({ tokensBefore: 1, tokens: 0, isRateLimited: true })
 
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
             expect(res[0][1].isRateLimited).toBe(true)
@@ -109,8 +109,8 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['team-1', { tokens: 99, isRateLimited: false }],
-                ['team-2', { tokens: 95, isRateLimited: false }],
+                ['team-1', { tokensBefore: 100, tokens: 99, isRateLimited: false }],
+                ['team-2', { tokensBefore: 100, tokens: 95, isRateLimited: false }],
             ])
         })
 
@@ -126,7 +126,7 @@ describe('KeyedRateLimiterService', () => {
 
             // Same id under limiter B is untouched — confirms prefix isolation.
             const freshB = await limiterB.rateLimitMany([{ id: 'shared-id', cost: 1 }])
-            expect(freshB[0][1]).toEqual({ tokens: 99, isRateLimited: false })
+            expect(freshB[0][1]).toEqual({ tokensBefore: 100, tokens: 99, isRateLimited: false })
         })
 
         it('uses test-prefixed redis keys when NODE_ENV=test', () => {
@@ -155,8 +155,8 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['a', { tokens: 50, isRateLimited: false }],
-                ['b', { tokens: 50, isRateLimited: false }],
+                ['a', { tokensBefore: 50, tokens: 50, isRateLimited: false }],
+                ['b', { tokensBefore: 50, tokens: 50, isRateLimited: false }],
             ])
         })
 
@@ -199,7 +199,7 @@ describe('KeyedRateLimiterService', () => {
             advanceTime(20_000) // 20s × 10/s = 200 accrued credit
             const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 199 }])
             // Spent 199 of the accrued 200; stored pool capped at poolMax (=100).
-            expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
+            expect(res[0][1]).toEqual({ tokensBefore: 200, tokens: 1, isRateLimited: false })
         })
 
         it('still rate-limits when a catch-up cost exceeds accrued credit', async () => {
@@ -216,9 +216,9 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-thread')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            // After call 3 (cost=2) is denied with pool=1, the bucket retains its 1
-            // token — leftover budget shouldn't be discarded just because a request
-            // overshot. So call 4 (cost=1) can spend it and lands at tokens=0.
+            // After call 3 (cost=2) is denied with pool=1, the V2 wedge fix means the
+            // bucket retains its 1 token — leftover budget isn't discarded on denial. So
+            // call 4 (cost=1) can spend it and lands at tokens=0.
             const res = await limiter.rateLimitMany([
                 { id: 'team-1', cost: 90 },
                 { id: 'team-1', cost: 9 },
@@ -227,10 +227,10 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['team-1', { tokens: 10, isRateLimited: false }],
-                ['team-1', { tokens: 1, isRateLimited: false }],
-                ['team-1', { tokens: -1, isRateLimited: true }],
-                ['team-1', { tokens: 0, isRateLimited: true }],
+                ['team-1', { tokensBefore: 100, tokens: 10, isRateLimited: false }],
+                ['team-1', { tokensBefore: 10, tokens: 1, isRateLimited: false }],
+                ['team-1', { tokensBefore: 1, tokens: -1, isRateLimited: true }],
+                ['team-1', { tokensBefore: 1, tokens: 0, isRateLimited: true }],
             ])
         })
 
@@ -238,7 +238,7 @@ describe('KeyedRateLimiterService', () => {
         // store -1 in `pool` on every denial, which threw away the fractional refill
         // that had just accrued. Subsequent 1 req/s calls would re-read -1, accrue the
         // fillRate, fail to afford cost=1, and re-clamp to -1 — wedged forever. The fix
-        // keeps the public return contract (`tokensAfter = -1` on denial) but stores the
+        // keeps the public return contract (`tokens = -1` on denial) but stores the
         // un-clamped balance so partial refills accumulate across calls.
         it('recovers from overdraft under sustained sub-2 fillRate (V2 wedge regression)', async () => {
             const limiter = buildLimiter('test-v2-wedge', { bucketSize: 10, refillRate: 1.5 })
@@ -259,7 +259,7 @@ describe('KeyedRateLimiterService', () => {
                 const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
                 lastAfterRecovery = res[0][1].tokens
             }
-            expect(lastAfterRecovery).toBeGreaterThanOrEqual(0)
+            expect(lastAfterRecovery).toBeGreaterThanOrEqual(4)
         })
 
         it('refreshes the V2 TTL on every call', async () => {
@@ -296,10 +296,10 @@ describe('KeyedRateLimiterService', () => {
         })
 
         it('allows the first N inputs of an over-budget batch and denies the rest', async () => {
-            // The user case: 10 cost-1 requests against a bucket of 4. Per the
-            // V2/V3 contract, `isRateLimited = tokens <= 0`, so the 4th request
-            // (which brings tokens to exactly 0) is flagged as rate-limited
-            // even though its cost was paid. The remaining 6 hit tokens=-1.
+            // 10 cost-1 requests against a bucket of 4. JS fan-out walks tokensBefore=4,
+            // allowing the first 4 (last one lands at next=0, which is allowed under the
+            // < 0 boundary so the lua's floor-drained token actually passes an input).
+            // Remaining 6 see budget=0 < 1 and deny.
             const limiter = buildLimiter('grouped-fanout', { bucketSize: 4, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
@@ -311,7 +311,7 @@ describe('KeyedRateLimiterService', () => {
                 false,
                 false,
                 false,
-                true, // tokens=0 — boundary, flagged as rate-limited
+                false,
                 true,
                 true,
                 true,
@@ -321,36 +321,13 @@ describe('KeyedRateLimiterService', () => {
             ])
         })
 
-        it('per-input decisions match rateLimitMany for uniform-cost batches', async () => {
-            const ungrouped = buildLimiter('grouped-vs-many-a')
-            const grouped = buildLimiter('grouped-vs-many-b')
-            await deleteKeysWithPrefix(redis, ungrouped.getKeyPrefix())
-            await deleteKeysWithPrefix(redis, grouped.getKeyPrefix())
-
-            // 200 events for 50 ids — realistic CDP shape.
-            const ids = Array.from({ length: 50 }, (_, i) => `fn-${i}`)
-            const requests = Array.from({ length: 200 }, () => ({
-                id: ids[Math.floor(Math.random() * ids.length)],
-                cost: 1,
-            }))
-
-            const manyRes = await ungrouped.rateLimitMany(requests)
-            const groupedRes = await grouped.rateLimitGrouped(requests)
-
-            // Same length, same id ordering, same isRateLimited flags.
-            expect(groupedRes.map(([id]) => id)).toEqual(manyRes.map(([id]) => id))
-            expect(groupedRes.map(([, r]) => r.isRateLimited)).toEqual(manyRes.map(([, r]) => r.isRateLimited))
-        })
-
         it('keeps independent budgets per id', async () => {
             const limiter = buildLimiter('grouped-multi-id', { bucketSize: 2, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            // Two ids interleaved with 3 cost-1 requests each. Each id's budget
-            // of 2 fits its 1st request cleanly (tokens=1), depletes on the 2nd
-            // (tokens=0 → rate-limited boundary), and denies the 3rd (tokens=-1).
-            // If the budgets were shared, t2's first call would already be
-            // rate-limited because t1 would have drained the shared bucket.
+            // Two ids interleaved with 3 cost-1 requests each. Each id's budget of 2
+            // fits the first two cost-1 requests (allowed) and denies the third. If
+            // budgets were shared, team-2's first call would already be denied.
             const res = await limiter.rateLimitGrouped([
                 { id: 'team-1', cost: 1 },
                 { id: 'team-2', cost: 1 },
@@ -361,7 +338,7 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res.map(([, r]) => r.tokens)).toEqual([1, 1, 0, 0, -1, -1])
-            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, true, true, true, true])
+            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, false, false, true, true])
         })
 
         it('issues exactly one Redis dispatch per unique id (call-count win)', async () => {
@@ -410,6 +387,26 @@ describe('KeyedRateLimiterService', () => {
             expect(res.every(([, r]) => !r.isRateLimited)).toBe(true)
         })
 
+        // Earlier shape seeded budgetById = bucketSize and then ran the fan-out, so
+        // any id whose total request count exceeded bucketSize was rate-limited under
+        // fail-open. This regression locks in the all-allowed behavior even when the
+        // batch dwarfs the bucket.
+        it('allows every request under fail-open even when batch size exceeds bucketSize', async () => {
+            const limiter = new KeyedRateLimiterService(
+                { name: 'grouped-fail-open-overflow', bucketSize: 100, refillRate: 1, ttlSeconds: 60 },
+                {
+                    useClient: jest.fn(),
+                    usePipeline: jest.fn().mockResolvedValue(null),
+                } as unknown as RedisV2
+            )
+
+            const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
+            const res = await limiter.rateLimitGrouped(requests)
+
+            expect(res).toHaveLength(200)
+            expect(res.every(([, r]) => !r.isRateLimited)).toBe(true)
+        })
+
         // V3-specific behavior — migrated from redis-token-bucket-v3.lua.test.ts.
 
         it('exposes uncapped accrued credit (PR 57920 contract)', async () => {
@@ -420,7 +417,7 @@ describe('KeyedRateLimiterService', () => {
             advanceTime(20_000) // 20s × 10/s = 200 accrued
             const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 199 }])
             // Catch-up call redeems 199 of the 200 accrued credit.
-            expect(res).toEqual([['team-1', { tokens: 1, isRateLimited: false }]])
+            expect(res).toEqual([['team-1', { tokensBefore: 200, tokens: 1, isRateLimited: false }]])
         })
 
         it('sets TTL to 2x ttlSeconds on creation (V3 ceiling)', async () => {
@@ -475,6 +472,39 @@ describe('KeyedRateLimiterService', () => {
             const stored = await readBucket(key)
             expect(stored.ts).toBe(String(Math.round(now / 1000)))
             expect(stored.pool).toBe('95')
+        })
+
+        it('recovers from overdraft under sustained sub-2 fillRate (V3 wedge regression)', async () => {
+            const limiter = buildLimiter('grouped-v3-wedge', { bucketSize: 10, refillRate: 1.5 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            let lastDuringDrain = 0
+            for (let i = 0; i < 100; i++) {
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                lastDuringDrain = res[0][1].tokens
+            }
+            expect(lastDuringDrain).toBe(-1)
+
+            let lastAfterRecovery = -1
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                lastAfterRecovery = res[0][1].tokens
+            }
+            expect(lastAfterRecovery).toBeGreaterThanOrEqual(4)
+        })
+
+        it('drains the bucket on overdraft so the next batch sees an empty pool', async () => {
+            const limiter = buildLimiter('grouped-drain', { bucketSize: 100, refillRate: 0 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+            const key = `${limiter.getKeyPrefix()}/team-1`
+
+            const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
+            await limiter.rateLimitGrouped(requests)
+            expect((await readBucket(key)).pool).toBe('0')
+
+            const next = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+            expect(next[0][1].isRateLimited).toBe(true)
         })
     })
 })

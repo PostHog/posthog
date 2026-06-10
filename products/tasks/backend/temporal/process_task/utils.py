@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 
 from pydantic import BaseModel
 
@@ -16,6 +15,7 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -80,6 +80,13 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MAX,
     ),
     "claude-opus-4-7": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-8": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
@@ -197,13 +204,13 @@ def mark_mcp_token_issued(run_id: str) -> None:
     The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
     `should_refresh_mcp_token` returns True again past that window.
     """
-    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
 
 
 def should_refresh_mcp_token(run_id: str) -> bool:
     """Return True if no MCP token has been issued for this run within the
     last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
+    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)
@@ -239,16 +246,25 @@ def get_user_mcp_server_configs(
     token: str,
     team_id: int,
     user_id: int,
+    *,
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch the user's MCP Store installations and return sandbox configs.
 
     Uses the mcp_store facade to get active installations, then builds
     McpServerConfig entries with full proxy URLs and auth headers.
 
+    The `x-posthog-mcp-consumer` header is set on every config so the agent's
+    identity propagates through the MCP Store proxy to whichever upstream MCP
+    the user installed. The PostHog MCP needs this to resolve single-exec mode
+    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
+    upstreams ignore the header.
+
     Returns an empty list on errors (non-fatal).
     """
     installations = get_active_installations(team_id, user_id)
     api_base = get_sandbox_api_url().rstrip("/")
+    consumer = _resolve_mcp_consumer(interaction_origin)
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -257,7 +273,10 @@ def get_user_mcp_server_configs(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
+                headers=[
+                    {"name": "Authorization", "value": f"Bearer {token}"},
+                    {"name": "x-posthog-mcp-consumer", "value": consumer},
+                ],
             )
         )
 
@@ -318,6 +337,12 @@ def _resolve_mcp_url() -> str | None:
         return "https://mcp.posthog.com/mcp"
     if hostname == "eu.posthog.com":
         return "https://mcp-eu.posthog.com/mcp"
+
+    # Local dev: point to the local wrangler dev MCP server via
+    # host.docker.internal, since the sandbox runs in Docker.
+    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
+    if hostname in ("localhost", "127.0.0.1"):
+        return "http://host.docker.internal:8787/mcp"
 
     return None
 
@@ -473,11 +498,13 @@ def _github_user_token_cache_key(run_id: str) -> str:
 
 
 def cache_github_user_token(run_id: str, github_user_token: str) -> None:
-    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
+    get_tasks_cache().set(
+        _github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS
+    )
 
 
 def get_cached_github_user_token(run_id: str) -> str | None:
-    token = cache.get(_github_user_token_cache_key(run_id))
+    token = get_tasks_cache().get(_github_user_token_cache_key(run_id))
     return token if isinstance(token, str) and token else None
 
 

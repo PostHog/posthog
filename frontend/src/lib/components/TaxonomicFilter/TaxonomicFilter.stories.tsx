@@ -11,6 +11,7 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
 import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
@@ -497,6 +498,42 @@ export const CategoryDropdownPill: Story = {
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+            },
+        },
+    },
+}
+
+export const EmptyEventsWithStaleToggle: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('my_ancient_event'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-stale-toggle',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-include-stale-events"]' },
+        docs: {
+            description: {
+                story: 'When a search on the Events tab returns no results (all matches are stale), an "Include stale events" button appears so users can opt in to seeing events older than 30 days.',
             },
         },
     },

@@ -150,6 +150,28 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+### Setting environment variables
+
+Three env files come into play when `hogli start` runs:
+
+- `.env.services` (committed) — how to reach local services like Postgres, Redis, Kafka, ClickHouse. Shared with hobby deployments and Docker containers.
+- `.env.development` (committed) — dev-mode runtime knobs: `DEBUG`, OpenTelemetry, DuckLake, ports, etc.
+- `.env.local` (gitignored) — your overrides and secrets. Copy `.env.local.example` to get started.
+
+Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
+
+To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
+
+```bash
+cp .env.local.example .env.local           # uncomment the op:// lines you need
+brew install 1password-cli                 # one-time
+hogli start                                 # auto-resolves op:// via `op run`
+```
+
+If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself under `op run --env-file=.env.local`. No need to remember the wrapper command.
+
+If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
+
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
@@ -231,6 +253,8 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
 If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
+
+If you drive your workflow with a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill walks the agent through the whole flow — the tailnet prerequisite, `hogli devbox:setup`, starting a box, storing auth as Coder user secrets, and running commands on the box with `hogli devbox:exec`. Just ask it to set up your devbox.
 
 ## Testing
 

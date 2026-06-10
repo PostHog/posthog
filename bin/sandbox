@@ -18,7 +18,9 @@ import sys
 import json
 import time
 import fcntl
+import shlex
 import shutil
+import getpass
 import argparse
 import platform
 import textwrap
@@ -36,6 +38,12 @@ except ImportError:
     print("  Or activate the flox environment first.", file=sys.stderr)
     sys.exit(1)
 
+import sandbox_env
+import sandbox_mcp
+import sandbox_tools
+from sandbox_addons import AddonError
+from sandbox_tools import TOOLS_FILE, Tool
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -43,13 +51,44 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
-HOST_GIT_DIR = REPO_ROOT / ".git"
 GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
+# In-container workspace path; must match WORKSPACE in bin/sandbox-entrypoint.py.
+SANDBOX_WORKSPACE = "/workspace"
+
+
+@functools.cache
+def _host_git_dir() -> Path:
+    """Path to mount as /host-git for the in-container clone helper.
+
+    For a regular checkout this is `<repo>/.git`. In a git worktree, that
+    path is a gitdir pointer file rather than a directory, so we resolve
+    the common .git dir via `rev-parse --git-common-dir` instead. The
+    in-container clone only needs refs/objects, which both layouts expose
+    from the common dir.
+    """
+    git_path = REPO_ROOT / ".git"
+    if git_path.is_dir():
+        return git_path
+    common = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--git-common-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return Path(common).resolve()
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
+
+# Checked-in repository catalog of vetted tool recipes (gh, gt, etc.).
+# `sandbox tools add <name>` picks up entries by name.
+CATALOG_FILE = REPO_ROOT / "bin/sandbox-tools.yaml"
+
+# Checked-in catalog of vetted remote MCP servers (posthog, etc.).
+# `sandbox mcp add <name>` picks up entries by name.
+MCP_CATALOG_FILE = REPO_ROOT / "bin/sandbox-mcps.yaml"
 
 PORT_BASE = 48001
 
@@ -314,8 +353,18 @@ def project_name(slug: str) -> str:
 # --- Host auth paths ---
 
 
+def _file_or_devnull(path: Path) -> str:
+    """Host path for an optional bind-mount or env_file, or /dev/null when absent."""
+    return str(path) if path.is_file() else "/dev/null"
+
+
 def _claude_auth_dir() -> str:
-    """Assemble only the Claude Code files needed to authenticate and configure."""
+    """Assemble the Claude Code files needed to authenticate and configure.
+
+    Ships a complete CLAUDE.md (your global one plus a generated section
+    describing this sandbox's env vars and tools), so the container only has to
+    bind-mount the finished file — no assembly in the entrypoint.
+    """
     auth_dir = REGISTRY_DIR / "claude-auth"
     auth_dir.mkdir(parents=True, exist_ok=True)
     claude_dir = Path.home() / ".claude"
@@ -323,6 +372,22 @@ def _claude_auth_dir() -> str:
         src = claude_dir / filename
         if src.exists():
             shutil.copy2(src, auth_dir / filename)
+
+    # Build the staged CLAUDE.md from your global one plus this sandbox's
+    # provisioned env vars and tools. Names + comments only; secret values
+    # never enter CLAUDE.md (parse_env_comments doesn't even read them).
+    host_md = claude_dir / "CLAUDE.md"
+    base = host_md.read_text() if host_md.is_file() else ""
+    context = sandbox_env.render_context_markdown(
+        sandbox_env.parse_env_comments(),
+        sandbox_tools.resolved_tools(CATALOG_FILE),
+    )
+    staged_md = auth_dir / "CLAUDE.md"
+    parts = [p for p in (base.rstrip(), context.rstrip()) if p]
+    if parts:
+        staged_md.write_text("\n\n".join(parts) + "\n")
+    elif staged_md.exists():
+        staged_md.unlink()
 
     # Claude Code credentials: check disk first, fall back to macOS keychain.
     creds_file = auth_dir / ".credentials.json"
@@ -339,6 +404,31 @@ def _claude_auth_dir() -> str:
             creds_file.write_text(result.stdout.strip())
 
     return str(auth_dir)
+
+
+def _claude_json_file() -> str:
+    """Build the sandbox's .claude.json on the host; return its path or /dev/null.
+
+    Starts from your ~/.claude.json, drops the host installMethod (Claude is
+    npm-installed in the sandbox, not the native binary the host config points
+    at), and merges the resolved MCP servers under the /workspace project so
+    they load without an approval prompt. Done here so the entrypoint just
+    copies a finished file instead of assembling it. Written 0600 since merged
+    MCP server configs may carry auth tokens.
+    """
+    host_json = Path.home() / ".claude.json"
+    config = json.loads(host_json.read_text()) if host_json.is_file() else {}
+    config.pop("installMethod", None)
+    servers = sandbox_mcp.resolve_servers()
+    if servers:
+        workspace = config.setdefault("projects", {}).setdefault(SANDBOX_WORKSPACE, {})
+        workspace.setdefault("mcpServers", {}).update(servers)
+    if not config:
+        return "/dev/null"
+    out = REGISTRY_DIR / "claude.json"
+    out.write_text(json.dumps(config, indent=2) + "\n")
+    out.chmod(0o600)
+    return str(out)
 
 
 def _ssh_authorized_keys_path() -> str:
@@ -633,15 +723,19 @@ def _host_compose_env() -> dict[str, str]:
     """Env vars from host state, cached to avoid re-probing per sandbox in cmd_list."""
     config = _load_config()
     ide = config.get("jetbrains")
-    claude_json = Path.home() / ".claude.json"
     host_gitconfig = Path.home() / ".gitconfig"
     env = {
         "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
         "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
-        "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
-        "SANDBOX_HOST_GITCONFIG": str(host_gitconfig) if host_gitconfig.is_file() else "/dev/null",
+        # Finalized .claude.json (installMethod stripped, MCP servers merged
+        # under /workspace), built on the host so the entrypoint just copies it.
+        "SANDBOX_CLAUDE_JSON": _claude_json_file(),
+        # User secrets (KEY=value); compose env_file injects the values into the
+        # sandbox env. Names + comments are baked into CLAUDE.md by _claude_auth_dir.
+        "SANDBOX_ENV_FILE": _file_or_devnull(sandbox_env.ENV_FILE),
+        "SANDBOX_HOST_GITCONFIG": _file_or_devnull(host_gitconfig),
         # Signing paths — entrypoint rewrites the copied gitconfig to point here.
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
@@ -669,8 +763,15 @@ def compose(
     check: bool = True,
     capture: bool = False,
     profiles: list[str] | None = None,
+    use_tools: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run `docker compose` with sandbox env vars."""
+    tool_auth_flag: list[str] = []
+    if use_tools and (tools := sandbox_tools.load_user_tools()):
+        dockerfile = sandbox_tools.write_user_dockerfile(tools)
+        override = sandbox_tools.write_user_image_compose(dockerfile=dockerfile)
+        tool_auth_flag = ["-f", str(override)]
+
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
@@ -685,6 +786,7 @@ def compose(
             str(COMPOSE_FILE),
             "-f",
             str(PROFILES_FILE),
+            *tool_auth_flag,
             *profile_flags,
             *args,
         ],
@@ -712,6 +814,16 @@ def clear_volume(volume: str) -> None:
     docker_volume_run(volume, "find /data -mindepth 1 -delete")
 
 
+def _is_partial_clone() -> bool:
+    """Check if the host repo is a partial clone (has promisor remote)."""
+    result = run(
+        ["git", "config", "--get", "remote.origin.promisor"],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def _populate_workspace_volume(
     volume_name: str,
     branch: str,
@@ -720,14 +832,28 @@ def _populate_workspace_volume(
     base_sha: str | None,
     origin_branch_sha: str | None = None,
     branch_ref: str = "",
+    full_clone: bool = False,
 ) -> None:
-    """Populate volume with a shallow clone checked out to branch_sha.
+    """Populate volume with a clone checked out to branch_sha.
+
+    Shallow by default. When full_clone is set, fetches omit --depth so the
+    sandbox keeps the complete git history (git log/blame/bisect work, push
+    has full ancestry) at the cost of more disk and a slower clone.
 
     Fetches by ref name (not bare SHA) because --depth only works with named
     refs over file:// transport. Runs as sandbox user so files have correct ownership.
+
+    For partial clones (--filter=blob:none), uses filtered fetches from the
+    host .git for commits + trees, and a separate HTTPS promisor remote for
+    blob lazy-fetching so the sandbox can work without SSH auth popups.
     """
     uid = os.getuid()
     gid = os.getgid()
+
+    partial = _is_partial_clone()
+    if partial:
+        # Enable filtered fetches over file:// transport.
+        run(["git", "config", "uploadpack.allowFilter", "true"], capture=True)
 
     run(["docker", "volume", "create", volume_name], capture=True)
 
@@ -748,31 +874,60 @@ def _populate_workspace_volume(
     )
 
     # file:// transport avoids CVE-2022-39253 symlink following.
+    # For partial clones, --filter=blob:none skips blobs that upload-pack
+    # can't serve; a separate HTTPS promisor remote handles blob lazy-fetching.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
         cd /workspace
         GIT="git -c safe.directory=/host-git -c protocol.file.allow=always"
 
-        $GIT fetch --depth=50 --no-tags file:///host-git "$BRANCH_REF"
+        if [ "$USE_FILTER" = "true" ]; then
+            FILTER="--filter=blob:none"
+        else
+            FILTER=""
+        fi
+
+        # A full clone keeps complete history (no .git/shallow); the default
+        # trades history for a smaller, faster clone.
+        if [ "$FULL_CLONE" = "true" ]; then
+            BRANCH_DEPTH=""
+            REF_DEPTH=""
+        else
+            BRANCH_DEPTH="--depth=50"
+            REF_DEPTH="--depth=1"
+        fi
+
+        $GIT fetch $BRANCH_DEPTH --no-tags $FILTER file:///host-git "$BRANCH_REF"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
         git update-ref refs/sandbox/start "$BRANCH_SHA"
+
+        if [ "$USE_FILTER" = "true" ]; then
+            # HTTPS promisor remote for blob lazy-fetching (public, no auth).
+            # Kept separate from origin so blobs don't trigger SSH prompts.
+            git remote add github-https https://github.com/PostHog/posthog
+            git config remote.github-https.promisor true
+            git config remote.github-https.partialclonefilter blob:none
+        fi
+
         git reset --hard
 
+        git remote add origin "$ORIGIN_URL"
+
         if [ -n "$BASE_SHA" ]; then
-            $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            $GIT fetch $REF_DEPTH --no-tags $FILTER file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
         # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            # Skip fetch if same as branch tip (already local); a redundant
-            # --depth=1 fetch would clobber the depth=50 shallow history.
+            # Skip fetch if same as branch tip (already local); in shallow
+            # mode a redundant --depth=1 fetch would also clobber the deeper
+            # shallow history.
             if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
-                $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+                $GIT fetch $REF_DEPTH --no-tags $FILTER file:///host-git "$ORIGIN_BRANCH_SHA"
             fi
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
-        git remote add origin "$ORIGIN_URL"
     """
 
     run(
@@ -790,7 +945,7 @@ def _populate_workspace_volume(
             "-e",
             "GIT_LFS_SKIP_SMUDGE=1",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-v",
             f"{volume_name}:/workspace",
             "-e",
@@ -807,6 +962,10 @@ def _populate_workspace_volume(
             f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
             "-e",
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
+            "-e",
+            f"USE_FILTER={'true' if partial else 'false'}",
+            "-e",
+            f"FULL_CLONE={'true' if full_clone else 'false'}",
             GIT_HELPER_IMAGE,
             "-c",
             script,
@@ -1000,6 +1159,7 @@ def init_cache_from_master() -> None:
             "-e",
             "SANDBOX_MODE=cache-init",
             "app",
+            use_tools=False,
         )
 
         info("Snapshotting databases...")
@@ -1088,7 +1248,7 @@ def check_migration_staleness(branch_sha: str) -> str | None:
             "-v",
             f"{DB_CACHE_VOLUME}:/cache:ro",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-e",
             f"BRANCH_SHA={branch_sha}",
             "--entrypoint",
@@ -1174,22 +1334,28 @@ def _wait_for_clickhouse(project: str, timeout: int = 120) -> None:
         capture=True,
     )
     if result.returncode != 0:
-        fatal(f"ClickHouse did not become ready within {timeout}s. Container logs may reveal the cause.")
+        raise RuntimeError(f"ClickHouse did not become ready within {timeout}s. Container logs may reveal the cause.")
 
 
-def _restore_and_start(
+def _restore_databases(
     project: str,
     port: int,
     use_cache: bool,
     profiles: list[str] | None = None,
 ) -> None:
-    """Restore databases from cache (if available) and bring up the stack."""
+    """Bring up infra and restore databases from cache. Runs detached, behind the
+    already-started app container, so the Claude window is available immediately.
+
+    The app's setup window waits for these to be ready (and, when use_cache, for
+    the ClickHouse restore to land) before it migrates.
+    """
     if not use_cache:
-        info("Building and starting containers...")
-        compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
+        info("Starting infrastructure...")
+        compose(project, port, "up", "-d", capture=True, profiles=profiles)
         return
 
-    # Restore postgres from volume snapshot
+    # Postgres restores from a raw data-dir copy, which must land before the db
+    # container boots and reads it.
     info("Restoring Postgres from cache...")
     run(
         [
@@ -1208,8 +1374,6 @@ def _restore_and_start(
         capture=True,
     )
 
-    # Start infra first — we need ClickHouse up before restoring its backup,
-    # and both must finish before the app runs migrations.
     info("Starting infrastructure...")
     compose(project, port, "up", "-d", *INFRA_SERVICES, capture=True, profiles=profiles)
 
@@ -1233,7 +1397,10 @@ def _restore_and_start(
         error("ClickHouse restore failed:")
         for line in (result.stderr or "").strip().splitlines():
             print(f"  {line}")
-        fatal("Run `sandbox rebuild-cache` if the cache is corrupt, or retry with `sandbox create`.")
+        raise RuntimeError(
+            "ClickHouse restore failed. Run `sandbox rebuild-cache` if the cache is corrupt, "
+            "or retry with `sandbox create`."
+        )
     info("ClickHouse restored.")
 
     # Drop the cached DuckLake catalog — the extension version in the cache
@@ -1246,9 +1413,15 @@ def _restore_and_start(
         capture=True,
     )
 
-    # Now start the app + proxy on top of restored infra
-    info("Building and starting app...")
-    compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
+    # The RESTORE above is synchronous and has fully landed — tell the app's
+    # setup window (same container) it's safe to migrate. Without this it would
+    # wait on a probe that can pass mid-restore.
+    run(["docker", "exec", f"{project}-app-1", "sh", "-c", "printf done > /tmp/sandbox-restore-status"], capture=True)
+
+    # Bring up the proxy (and any profile-gated services) now that infra is ready;
+    # the app container is already running.
+    info("Starting proxy and supporting services...")
+    compose(project, port, "up", "-d", capture=True, profiles=profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -1256,7 +1429,7 @@ def _restore_and_start(
 # ---------------------------------------------------------------------------
 
 
-def cmd_create(branch: str, base_branch: str = "master") -> None:
+def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = False) -> None:
     registry = Registry()
     slug = slugify(branch)
     project = project_name(slug)
@@ -1305,21 +1478,90 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     # volume, compose project, registry entry), so wrap in rollback.
     try:
         volume = workspace_volume_name(project)
+        if full_clone:
+            info("Full clone requested — fetching complete git history (slower, more disk).")
         info(f"Populating workspace volume {volume} with branch {branch}...")
-        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
+        _populate_workspace_volume(
+            volume,
+            branch,
+            branch_sha,
+            base_branch,
+            base_sha,
+            origin_branch_sha,
+            branch_ref,
+            full_clone=full_clone,
+        )
 
         profiles = resolve_docker_profiles(intents)
         if profiles:
             info(f"Docker profiles: {', '.join(profiles)}")
-        _restore_and_start(project, port, use_cache, profiles=profiles)
+        # Start the app container alone (--no-deps skips the db/ch/kafka health
+        # gates) so the Claude window is up in seconds. Infra + DB restore run
+        # in the background below; the setup window waits for them before migrating.
+        os.environ["SANDBOX_USE_CACHE"] = "1" if use_cache else "0"
+        info("Starting Claude window...")
+        compose(project, port, "up", "-d", "--build", "--no-deps", "app", capture=True, profiles=profiles)
     except BaseException:
         error(f"Sandbox create failed — tearing down '{project}'.")
         cmd_destroy(branch, force=True)
         raise
 
+    _spawn_db_restore(branch, use_cache)
     container = f"{project}-app-1"
+    _seed_tool_auth(container, sandbox_tools.load_user_tools())
     health_url = f"http://localhost:{port}/_health"
     _attach_with_health_poll(container, health_url)
+
+
+def _spawn_db_restore(branch: str, use_cache: bool) -> None:
+    """Run infra bringup + DB restore in a detached process so the foreground can
+    attach to Claude immediately. Output goes to a log for post-mortems; failures
+    surface in the sandbox's setup window when its DB wait times out.
+    """
+    log_path = REGISTRY_DIR / f"{slugify(branch)}-db-restore.log"
+    log = open(log_path, "w")
+    subprocess.Popen(
+        [sys.executable, __file__, "_db-restore", branch, "1" if use_cache else "0"],
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+    )
+
+
+def _mark_restore_failed(container: str, reason: str) -> None:
+    """Record the restore failure in the app container so its setup window stops
+    waiting on the database and surfaces the error, instead of timing out.
+
+    Best-effort. Skips writing if the status is already "done": a failure after
+    the DB restore succeeded (e.g. proxy bringup) must not turn a ready sandbox
+    into an error for the setup window.
+    """
+    script = (
+        '[ "$(cat /tmp/sandbox-restore-status 2>/dev/null)" = done ] || '
+        f"printf %s {shlex.quote(reason)} > /tmp/sandbox-restore-status"
+    )
+    run(["docker", "exec", container, "sh", "-c", script], check=False, capture=True)
+
+
+def cmd_db_restore(branch: str, use_cache: bool) -> None:
+    """Internal: detached worker spawned by `create` to bring up infra + restore.
+
+    Runs detached, so its output only reaches a log file. On failure it writes
+    the reason into the app container, where the setup window is blocking on the
+    database; otherwise that window would wait out its full timeout in silence.
+    """
+    entry = Registry().get(branch)
+    if entry is None:
+        fatal(f"No sandbox registered for '{branch}'.")
+    project = project_name(entry.slug)
+    profiles = resolve_docker_profiles(entry.intents)
+    try:
+        _restore_databases(project, entry.port, use_cache, profiles=profiles)
+    except BaseException as e:  # includes SystemExit from any fatal() below
+        reason = str(e).strip() or f"Database restore failed ({type(e).__name__})."
+        _mark_restore_failed(f"{project}-app-1", reason)
+        raise
 
 
 def cmd_start(branch: str) -> None:
@@ -1668,6 +1910,282 @@ def cmd_rebuild_cache() -> None:
     init_cache_from_master()
 
 
+# ---------------------------------------------------------------------------
+# Tools subcommand (manages ~/.posthog-sandboxes/tools.yaml)
+# ---------------------------------------------------------------------------
+
+
+def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) -> list[str]:
+    print(prompt_text)
+    print(prompt_help)
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> ")
+        except EOFError:
+            break
+        if strip:
+            line = line.strip()
+        if not line:
+            break
+        lines.append(line)
+    return lines
+
+
+def _confirm(prompt: str, *, default_yes: bool = True) -> bool:
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    answer = input(f"{prompt} {suffix} ").strip().lower()
+    if not answer:
+        return default_yes
+    return answer in ("y", "yes")
+
+
+# --- Shared addon CLI verbs (tools + MCP) ---
+
+
+def _addon_list(*, noun, title, user_file, catalog_file, configured, catalog, summary) -> None:
+    """List configured entries then catalog recipes, marking the [added] ones.
+
+    `configured`/`catalog` map name -> entry; `summary(entry)` yields detail lines.
+    """
+    if configured:
+        print(f"{title} configured for sandbox use ({user_file}):")
+        print()
+        for entry in configured.values():
+            for line in summary(entry):
+                print(line)
+            print()
+    else:
+        print(f"No {title.lower()} configured for sandbox use ({user_file}).")
+        print()
+
+    print(f"Recipes available to install from the repository ({catalog_file.relative_to(REPO_ROOT)}):")
+    print(f"  (use `sandbox {noun} add <name>` to add one)")
+    for name in sorted(catalog):
+        marker = "  [added]" if name in configured else ""
+        print(f"  {name}{marker}: {catalog[name].description or ''}")
+
+
+def _addon_remove(*, noun, user_file, name, load, save) -> None:
+    items = load()
+    remaining = [item for item in items if item.name != name]
+    if len(remaining) == len(items):
+        warn(f"No {noun} named '{name}' in {user_file}.")
+        return
+    save(remaining)
+    success(f"Removed {noun} '{name}'. Next `sandbox create` will apply the change.")
+
+
+# --- Tools ---
+
+
+def _tool_summary(tool: Tool, *, indent: str = "  ") -> list[str]:
+    lines = [f"{indent}{tool.name}"]
+    if tool.install and (snippet := tool.install.strip()):
+        lines.append(f"{indent}  install:")
+        lines.extend(f"{indent}    {line}" for line in snippet.splitlines())
+    lines.extend(f"{indent}  copy: {c.source} -> {c.target}" for c in tool.copy)
+    return lines
+
+
+def _tools_list() -> None:
+    _addon_list(
+        noun="tools",
+        title="Tools",
+        user_file=TOOLS_FILE,
+        catalog_file=CATALOG_FILE,
+        configured={t.name: t for t in sandbox_tools.load_user_tools()},
+        catalog=sandbox_tools.load_catalog(CATALOG_FILE),
+        summary=_tool_summary,
+    )
+
+
+def _tools_add(args) -> None:
+    tools = sandbox_tools.load_user_tools()
+    if any(t.name == args.name for t in tools):
+        fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
+
+    explicit = args.install is not None or args.copy
+    catalog_hit = None if explicit else sandbox_tools.load_catalog(CATALOG_FILE).get(args.name)
+
+    if catalog_hit:
+        print(f"\n'{catalog_hit.name}' is in the sandbox tool catalog:")
+        if catalog_hit.description:
+            print(f"  {catalog_hit.description}")
+        for line in _tool_summary(catalog_hit):
+            print(line)
+        if not _confirm("\nAdd this recipe to your tools.yaml?"):
+            info("Aborted.")
+            sys.exit(0)
+        new_tool = Tool(name=catalog_hit.name, install=catalog_hit.install, copy=list(catalog_hit.copy))
+    elif explicit:
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in args.copy or []]
+        new_tool = Tool(name=args.name, install=args.install, copy=copy_entries)
+    else:
+        install_lines = _prompt_lines(
+            f"\nWhat install command(s) does '{args.name}' need?",
+            "  Runs as the sandbox user at image build time. Use `sudo` for apt-get etc.\n"
+            "  Multi-line allowed. Empty line to finish.",
+        )
+        install = "\n".join(install_lines).strip() or None
+        copy_strs = _prompt_lines(
+            f"\nWhere does '{args.name}' store auth/config on your host?",
+            "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
+            strip=True,
+        )
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in copy_strs]
+        new_tool = Tool(name=args.name, install=install, copy=copy_entries)
+
+    tools.append(new_tool)
+    sandbox_tools.save_user_tools(tools)
+    success(f"Added '{new_tool.name}' to {TOOLS_FILE}.")
+    print("Next `sandbox create` will pick it up (image rebuilds once).")
+
+
+def _tools_remove(name: str) -> None:
+    _addon_remove(
+        noun="tool",
+        user_file=TOOLS_FILE,
+        name=name,
+        load=sandbox_tools.load_user_tools,
+        save=sandbox_tools.save_user_tools,
+    )
+
+
+def cmd_tools(args) -> None:
+    if args.tools_command == "list":
+        _tools_list()
+    elif args.tools_command == "add":
+        _tools_add(args)
+    elif args.tools_command == "remove":
+        _tools_remove(args.name)
+    else:
+        fatal("Run `sandbox tools --help` for usage.")
+
+
+# --- Remote MCP servers ---
+#
+# Catalog entries declare their auth via ${secret} placeholders that
+# `sandbox mcp add <name>` fills in; a one-off `add <name> <url>` assumes Bearer
+# auth. Stored in mcps.yaml (0600), resolved to JSON at create time.
+
+
+def _mcp_summary(mcp: sandbox_mcp.Mcp, *, indent: str = "  ") -> list[str]:
+    auth = " (auth)" if mcp.server.get("headers") else ""
+    return [f"{indent}{mcp.name}: {mcp.server.get('url')}{auth}"]
+
+
+def _ensure_env_var(name: str, comment: str) -> None:
+    """Ensure `name` is set in sandbox.env, prompting (hidden) for it if missing.
+
+    Lets `mcp add` store an MCP's token in the one secrets file in a single step
+    instead of making you edit sandbox.env separately.
+    """
+    if name in {n for n, _ in sandbox_env.parse_env_comments()}:
+        info(f"Using {name} from {sandbox_env.ENV_FILE.name}.")
+        return
+    value = getpass.getpass(f"  {name} (hidden): ").strip()
+    if not value:
+        fatal(f"'{name}' is required.")
+    sandbox_env.append_var(name, value, comment)
+    success(f"Saved {name} to {sandbox_env.ENV_FILE}.")
+
+
+def _mcp_add(name: str, url: str | None) -> None:
+    mcps = sandbox_mcp.load_user_mcps()
+    if any(m.name == name for m in mcps):
+        fatal(f"MCP '{name}' already exists. Run 'sandbox mcp remove {name}' first.")
+
+    if url:
+        # One-off server not in the catalog. Reference an env var for auth so the
+        # token lives in sandbox.env, not mcps.yaml.
+        server: dict = {"type": "http", "url": url}
+        var = input("Auth env var name (blank for none): ").strip()
+        if var:
+            _ensure_env_var(var, f"Auth token for the {name} MCP.")
+            server["headers"] = {"Authorization": f"Bearer ${{{var}}}"}
+    else:
+        catalog = sandbox_mcp.load_catalog(MCP_CATALOG_FILE)
+        entry = catalog.get(name)
+        if not entry:
+            available = ", ".join(sorted(catalog)) or "(none)"
+            fatal(f"'{name}' is not in the catalog (available: {available}). For a one-off: sandbox mcp add {name} <url>")
+        for var in entry.env:
+            _ensure_env_var(var, f"Used by the {entry.name} MCP.")
+        server = entry.server
+
+    mcps.append(sandbox_mcp.Mcp(name=name, server=server))
+    sandbox_mcp.save_user_mcps(mcps)
+    success(f"Added MCP '{name}' ({server['url']}).")
+    print("Next `sandbox create` will register it with Claude in the sandbox.")
+
+
+def _mcp_list() -> None:
+    _addon_list(
+        noun="mcp",
+        title="MCP servers",
+        user_file=sandbox_mcp.MCP_FILE,
+        catalog_file=MCP_CATALOG_FILE,
+        configured={m.name: m for m in sandbox_mcp.load_user_mcps()},
+        catalog=sandbox_mcp.load_catalog(MCP_CATALOG_FILE),
+        summary=_mcp_summary,
+    )
+
+
+def cmd_mcp(args) -> None:
+    if args.mcp_command == "add":
+        _mcp_add(args.name, args.url)
+    elif args.mcp_command == "remove":
+        _addon_remove(
+            noun="MCP",
+            user_file=sandbox_mcp.MCP_FILE,
+            name=args.name,
+            load=sandbox_mcp.load_user_mcps,
+            save=sandbox_mcp.save_user_mcps,
+        )
+    else:
+        _mcp_list()
+
+
+# --- Env vars (secrets) ---
+
+
+def _open_in_editor(path: Path) -> None:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if not editor:
+        for candidate in ("sensible-editor", "nano", "vi"):
+            if shutil.which(candidate):
+                editor = candidate
+                break
+    if not editor:
+        info(f"No $VISUAL/$EDITOR set and no nano/vi found. Edit it directly: {path}")
+        return
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- local dev CLI launching the developer's own $VISUAL/$EDITOR on a local file
+    subprocess.run([*shlex.split(editor), str(path)], check=False)
+
+
+def cmd_env(args) -> None:
+    if args.env_command == "list":
+        pairs = sandbox_env.parse_env_comments()
+        if not pairs:
+            print(f"No env vars configured ({sandbox_env.ENV_FILE}).")
+            return
+        print(f"Env vars provisioned to sandboxes ({sandbox_env.ENV_FILE}):")
+        for name, comment in pairs:
+            head = comment.splitlines()[0] if comment else ""
+            print(f"  {name}: {head}" if head else f"  {name}")
+        return
+
+    path = sandbox_env.ensure_file()
+    _open_in_editor(path)
+    path.chmod(0o600)
+    names = [name for name, _ in sandbox_env.parse_env_comments(path)]
+    success(f"Saved {path} (mode 600).")
+    if names:
+        print(f"  Vars: {', '.join(names)}")
+    print("  Applies on the next `sandbox create` / `sandbox start`.")
+
+
 def cmd_nuke() -> None:
     warn("Destroying all sandboxes and clearing cache...")
     registry = Registry()
@@ -1696,6 +2214,39 @@ def _require_registered(registry: Registry, branch: str) -> SandboxEntry:
     return entry
 
 
+def _seed_tool_auth(container: str, tools: list[Tool]) -> None:
+    """One-shot `docker cp` of tools.yaml copy entries into the new container.
+
+    Runs at create time only; the container owns the files after that so
+    tokens refreshed inside survive restarts.
+    """
+    for tool in tools:
+        for c in tool.copy:
+            src = Path(c.source).expanduser()
+            tgt = sandbox_tools.expand_sandbox_path(c.target)
+            if not src.exists():
+                continue
+            # mkdir as the sandbox user — docker exec defaults to root, and a
+            # root-owned parent dir would block the sandbox user from writing
+            # into it later (e.g. JetBrains under ~/.config). docker cp still
+            # lands root-owned, hence the chown below.
+            run(
+                [
+                    "docker",
+                    "exec",
+                    "-u",
+                    f"{os.getuid()}:{os.getgid()}",
+                    container,
+                    "mkdir",
+                    "-p",
+                    str(Path(tgt).parent),
+                ],
+                capture=True,
+            )
+            run(["docker", "cp", str(src), f"{container}:{tgt}"], capture=True)
+            run(["docker", "exec", container, "chown", "-R", "sandbox:sandbox", tgt], capture=True)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1710,6 +2261,7 @@ def build_parser() -> argparse.ArgumentParser:
 examples:
   sandbox create aspicer/cool-feature
   sandbox create aspicer/bugfix main
+  sandbox create aspicer/cool-feature --full-clone
   sandbox ls
   sandbox shell aspicer/cool-feature
   sandbox ssh aspicer/cool-feature
@@ -1727,6 +2279,11 @@ examples:
         "--intents",
         default="product_analytics",
         help="Comma-separated hogli intents (default: product_analytics)",
+    )
+    p.add_argument(
+        "--full-clone",
+        action="store_true",
+        help="Clone full git history instead of shallow (more disk; enables git log/blame/bisect)",
     )
 
     for name, help_text in [
@@ -1758,6 +2315,71 @@ examples:
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
     sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
 
+    tools_parser = sub.add_parser(
+        "tools",
+        help="Manage user-defined CLI tools and host auth paths",
+        description=(
+            "Manage ~/.posthog-sandboxes/tools.yaml. Additional CLIs baked "
+            "into your personal sandbox image and host auth paths copied in "
+            "at sandbox-create time."
+        ),
+    )
+    tools_sub = tools_parser.add_subparsers(dest="tools_command")
+    tools_sub.add_parser("list", help="Show configured tools and image status")
+    tools_add_p = tools_sub.add_parser(
+        "add",
+        help="Add a tool (interactive by default; --install/--copy for scripting)",
+    )
+    tools_add_p.add_argument("name")
+    tools_add_p.add_argument(
+        "--install",
+        help="Non-interactive: install snippet to run at image build time",
+    )
+    tools_add_p.add_argument(
+        "--copy",
+        action="append",
+        default=[],
+        help="Non-interactive: host path to copy into the sandbox $HOME (repeatable)",
+    )
+    tools_remove_p = tools_sub.add_parser("remove", help="Remove a tool")
+    tools_remove_p.add_argument("name")
+
+    mcp_parser = sub.add_parser(
+        "mcp",
+        help="Manage remote MCP servers available to Claude in the sandbox",
+        description=(
+            "Manage ~/.posthog-sandboxes/mcps.yaml: remote MCP servers registered "
+            "with Claude in every sandbox at create time. Tokens are prompted for "
+            "and saved to sandbox.env; the server config references them via ${VAR}."
+        ),
+    )
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command")
+    mcp_sub.add_parser("list", help="List configured MCP servers")
+    mcp_add_p = mcp_sub.add_parser("add", help="Add a remote MCP server (prompts for its key, saved to sandbox.env)")
+    mcp_add_p.add_argument("name")
+    mcp_add_p.add_argument("url", nargs="?", help="URL for a one-off server not in the catalog (assumes Bearer auth)")
+    mcp_remove_p = mcp_sub.add_parser("remove", help="Remove an MCP server")
+    mcp_remove_p.add_argument("name")
+
+    env_parser = sub.add_parser(
+        "env",
+        help="Edit the env vars (secrets) provisioned to your sandboxes",
+        description=(
+            "Manage ~/.posthog-sandboxes/sandbox.env. Each KEY=value is injected "
+            "into every sandbox's environment; the agent uses them by reference "
+            "($SLACK_TOKEN) and never sees the value. `# comment` lines above a KEY "
+            "describe it to the agent in CLAUDE.md."
+        ),
+    )
+    env_sub = env_parser.add_subparsers(dest="env_command")
+    env_sub.add_parser("edit", help="Open the env file in $EDITOR (default action)")
+    env_sub.add_parser("list", help="List configured env var names and descriptions")
+
+    # Internal: detached infra-bringup/restore worker spawned by `create`.
+    db_restore_p = sub.add_parser("_db-restore")
+    db_restore_p.add_argument("branch")
+    db_restore_p.add_argument("use_cache", choices=["0", "1"])
+
     return parser
 
 
@@ -1773,7 +2395,7 @@ def main() -> None:
         os.environ["SANDBOX_INTENTS"] = args.intents
 
     dispatch = {
-        "create": lambda: cmd_create(args.branch, args.base_branch),
+        "create": lambda: cmd_create(args.branch, args.base_branch, full_clone=args.full_clone),
         "start": lambda: cmd_start(args.branch),
         "stop": lambda: cmd_stop(args.branch),
         "destroy": lambda: cmd_destroy(args.branch, force=args.force),
@@ -1788,6 +2410,10 @@ def main() -> None:
         "logs": lambda: cmd_logs(args.branch),
         "rebuild-cache": cmd_rebuild_cache,
         "nuke": cmd_nuke,
+        "tools": lambda: cmd_tools(args),
+        "mcp": lambda: cmd_mcp(args),
+        "env": lambda: cmd_env(args),
+        "_db-restore": lambda: cmd_db_restore(args.branch, args.use_cache == "1"),
     }
 
     try:
@@ -1795,6 +2421,8 @@ def main() -> None:
     except (KeyboardInterrupt, EOFError):
         print()
         sys.exit(130)
+    except AddonError as e:
+        fatal(str(e))
     except subprocess.CalledProcessError as e:
         cmd_str = " ".join(str(a) for a in e.cmd)
         error(f"Command failed (exit {e.returncode}): {cmd_str}")

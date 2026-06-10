@@ -585,6 +585,11 @@ class SnowflakeClient:
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
+                    # Pin Snowflake's per-session statement count to 1 to block
+                    # multi-statement execution. This is already the connector default,
+                    # but setting it explicitly means an account-level override cannot
+                    # accidentally enable multi-statement execution.
+                    session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
             connection.telemetry_enabled = False
 

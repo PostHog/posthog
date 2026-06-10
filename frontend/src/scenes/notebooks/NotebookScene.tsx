@@ -18,6 +18,7 @@ import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import {
+    NotebookCollabStatus,
     NotebookExpandButton,
     NotebookKernelInfoButton,
     NotebookSyncInfo,
@@ -124,6 +125,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2 items-center">
+                    <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
 
                     <NotebookMenu shortId={notebookId} />

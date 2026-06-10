@@ -276,10 +276,15 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_create_projects",
             "members_can_use_personal_api_keys",
             "allow_publicly_shared_resources",
             "member_count",
             "is_ai_data_processing_approved",
+            "is_ai_training_opted_in",
+            "is_ai_training_locked",
+            "is_ai_training_cta_shown",
+            "is_hipaa",
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
@@ -304,6 +309,9 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "is_ai_training_locked",
+            "is_ai_training_cta_shown",
+            "is_hipaa",
         ]
         extra_kwargs = {
             "slug": {
@@ -383,6 +391,16 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_members_can_create_projects(self, value: bool) -> bool:
+        # Gated behind the organization invite settings entitlement for now (will move to a dedicated feature later).
+        if self.instance and self.instance.members_can_create_projects != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can create projects.",
+                    code="payment_required",
+                )
+        return value
+
     def validate_enforce_2fa(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.enforce_2fa != value:
             if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
@@ -398,6 +416,20 @@ class OrganizationSerializer(
                 raise serializers.ValidationError(
                     "You must upgrade your plan to configure public sharing settings.",
                     code="payment_required",
+                )
+        return value
+
+    def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
+        if self.instance and self.instance.is_ai_training_opted_in != value:
+            if self.instance.is_hipaa:
+                raise serializers.ValidationError(
+                    "HIPAA organizations are always opted out of AI training and this setting cannot be changed.",
+                    code="locked",
+                )
+            if self.instance.is_ai_training_locked:
+                raise serializers.ValidationError(
+                    "AI training opt-in is locked for this organization and cannot be changed. Contact PostHog support if you need to update this setting.",
+                    code="locked",
                 )
         return value
 
@@ -420,7 +452,7 @@ class OrganizationSerializer(
         return super().to_representation(instance)
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
@@ -553,6 +585,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         setting_events = [
             ("enforce_2fa", "organization 2fa enforcement toggled"),
             ("is_ai_data_processing_approved", "organization ai data processing consent toggled"),
+            ("is_ai_training_opted_in", "organization ai training opt-in toggled"),
         ]
 
         fields_to_capture = [field for field, _ in setting_events if field in request.data]

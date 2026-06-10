@@ -15,6 +15,12 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.account_aggregates import (
+    _account_resource_notebooks,
+    _account_tagged_items,
+    account_notebooks_lazy_join,
+    account_tags_lazy_join,
+)
 from posthog.hogql.parser import parse_expr
 
 
@@ -115,6 +121,63 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     },
 )
 
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    # Object-level access control filters out ids directly off access_scope, so we use
+    # `account` here (where the per-object grants are stored) instead of the
+    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
+    access_scope="account",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(name="external_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "properties": StringJSONDatabaseField(name="properties"),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "csm": ExpressionField(
+            name="csm",
+            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
+        ),
+        "account_executive": ExpressionField(
+            name="account_executive",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "account_owner": ExpressionField(
+            name="account_owner",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "tags": account_tags_lazy_join,
+        "notebooks": account_notebooks_lazy_join,
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -153,6 +216,30 @@ dashboards: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
         "variables": StringJSONDatabaseField(name="variables"),
+    },
+)
+
+dashboard_tiles: PostgresTable = PostgresTable(
+    name="dashboard_tiles",
+    postgres_table_name="posthog_dashboardtile",
+    access_scope="dashboard",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id", nullable=True),
+        "text_id": IntegerDatabaseField(name="text_id", nullable=True),
+        "button_tile_id": StringDatabaseField(name="button_tile_id", nullable=True),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color", nullable=True),
+        "show_description": BooleanDatabaseField(name="show_description", nullable=True),
+        "transparent_background": BooleanDatabaseField(name="transparent_background", nullable=True),
+        "filters_overrides": StringJSONDatabaseField(name="filters_overrides", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
+        ),
     },
 )
 
@@ -1081,19 +1168,96 @@ sandbox_environments: PostgresTable = PostgresTable(
     },
 )
 
+business_knowledge_sources: PostgresTable = PostgresTable(
+    name="business_knowledge_sources",
+    postgres_table_name="posthog_business_knowledge_knowledgesource",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message"),
+        "source_url": StringDatabaseField(name="source_url"),
+        "crawl_mode": StringDatabaseField(name="crawl_mode"),
+        "original_filename": StringDatabaseField(name="original_filename"),
+        "file_content_type": StringDatabaseField(name="file_content_type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_documents: PostgresTable = PostgresTable(
+    name="business_knowledge_documents",
+    postgres_table_name="posthog_business_knowledge_knowledgedocument",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "stable_id": StringDatabaseField(name="stable_id"),
+        "title": StringDatabaseField(name="title"),
+        "url": StringDatabaseField(name="url"),
+        "content_hash": StringDatabaseField(name="content_hash"),
+        "tombstoned_at": DateTimeDatabaseField(name="tombstoned_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_chunks: PostgresTable = PostgresTable(
+    name="business_knowledge_chunks",
+    postgres_table_name="posthog_business_knowledge_knowledgechunk",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "document_id": StringDatabaseField(name="document_id"),
+        "heading_path": StringDatabaseField(name="heading_path"),
+        "ordinal": IntegerDatabaseField(name="ordinal"),
+        "content": StringDatabaseField(name="content"),
+        "char_count": IntegerDatabaseField(name="char_count"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
+
+tags: PostgresTable = PostgresTable(
+    name="tags",
+    postgres_table_name="posthog_tag",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "accounts": TableNode(name="accounts", table=accounts),
+        "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items, hidden=True),
+        "_account_resource_notebooks": TableNode(
+            name="_account_resource_notebooks", table=_account_resource_notebooks, hidden=True
+        ),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
+        "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
+        "business_knowledge_documents": TableNode(
+            name="business_knowledge_documents", table=business_knowledge_documents
+        ),
+        "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
@@ -1144,6 +1308,7 @@ class SystemTables(TableNode):
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),

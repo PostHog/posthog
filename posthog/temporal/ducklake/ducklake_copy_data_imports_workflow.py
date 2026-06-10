@@ -50,7 +50,7 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
 )
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"

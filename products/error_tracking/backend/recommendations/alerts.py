@@ -4,8 +4,9 @@ from typing import Any
 
 from django.db.models import Q
 
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 from .base import Recommendation
 

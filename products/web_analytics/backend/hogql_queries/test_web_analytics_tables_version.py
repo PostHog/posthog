@@ -1,0 +1,75 @@
+from posthog.test.base import APIBaseTest
+
+from posthog.schema import DateRange, WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery
+
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+
+class TestWebAnalyticsTablesVersion(APIBaseTest):
+    def test_web_overview_query_runner_uses_v2_tables(self):
+        # Test default behavior (v2 tables)
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        runner = WebOverviewQueryRunner(query=query, team=self.team)
+        self.assertTrue(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+        # V1 tables have been removed - v1 setting now silently uses v2 tables
+        self.team.web_analytics_pre_aggregated_tables_version = "v1"
+        self.team.save()
+        runner = WebOverviewQueryRunner(query=query, team=self.team)
+        # use_v2_tables property still returns False for v1 setting
+        # but the actual tables used are always v2
+        self.assertFalse(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+        # Test v2 setting (explicit)
+        self.team.web_analytics_pre_aggregated_tables_version = "v2"
+        self.team.save()
+        runner = WebOverviewQueryRunner(query=query, team=self.team)
+        self.assertTrue(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+    def test_web_stats_table_query_runner_uses_v2_tables(self):
+        # Test default behavior (v2 tables)
+        query = WebStatsTableQuery(
+            breakdownBy=WebStatsBreakdown.PAGE, dateRange=DateRange(date_from="-7d"), properties=[]
+        )
+        runner = WebStatsTableQueryRunner(query=query, team=self.team)
+        self.assertTrue(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+        # V1 tables have been removed - v1 setting now silently uses v2 tables
+        self.team.web_analytics_pre_aggregated_tables_version = "v1"
+        self.team.save()
+        runner = WebStatsTableQueryRunner(query=query, team=self.team)
+        self.assertFalse(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+    def test_backward_compatibility_with_none_value(self):
+        # Test that None value defaults to v2 behavior
+        self.team.web_analytics_pre_aggregated_tables_version = None
+        self.team.save()
+
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        runner = WebOverviewQueryRunner(query=query, team=self.team)
+        self.assertTrue(runner.use_v2_tables)
+
+    def test_use_v2_tables_parameter_fallback(self):
+        # Test that the use_v2_tables parameter still works as fallback
+        # when team property is None
+        self.team.web_analytics_pre_aggregated_tables_version = None
+        self.team.save()
+
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+
+        # Test fallback to False - but table is still v2 since v1 tables removed
+        runner = WebOverviewQueryRunner(query=query, team=self.team, use_v2_tables=False)
+        self.assertFalse(runner.use_v2_tables)
+        # Even with use_v2_tables=False, the actual table used is v2
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
+
+        # Test fallback to True
+        runner = WebOverviewQueryRunner(query=query, team=self.team, use_v2_tables=True)
+        self.assertTrue(runner.use_v2_tables)
+        self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")

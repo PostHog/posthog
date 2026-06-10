@@ -9,12 +9,15 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
+    EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     PERSONS_COLUMNS,
+    PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
     _get_cluster,
     _set_table_partitioning,
@@ -710,3 +713,18 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
+
+
+class TestDucklingConcurrencyTags:
+    # The combined events+persons cap is enforced on the shared key in the charts
+    # Dagster deployment settings. If either backfill drops the shared tag, the
+    # cap silently stops applying to it — guard against that here.
+    @parameterized.expand(
+        [
+            ("events", EVENTS_CONCURRENCY_TAG),
+            ("persons", PERSONS_CONCURRENCY_TAG),
+        ]
+    )
+    def test_backfill_carries_shared_concurrency_key(self, _name, tag_dict):
+        ((shared_key, shared_value),) = DUCKLING_BACKFILL_CONCURRENCY_TAG.items()
+        assert tag_dict[shared_key] == shared_value

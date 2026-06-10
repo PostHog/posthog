@@ -4,7 +4,7 @@ from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 
-from products.data_warehouse.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, PinterestAdsConfig, ValidationResult

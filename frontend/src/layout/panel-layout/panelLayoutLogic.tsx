@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -258,6 +258,19 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
+    urlToAction(({ actions, values }) => ({
+        '*': () => {
+            // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
+            // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
+            // navigating away from one leaves the panel and its dim mounted.
+            const panelIsShown = values.isLayoutPanelVisible || values.activePanelIdentifier !== ''
+            if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || panelIsShown)) {
+                actions.showLayoutNavBar(false)
+                actions.showLayoutPanel(false)
+                actions.clearActivePanelIdentifier()
+            }
+        },
+    })),
     afterMount(({ actions, cache, values }) => {
         // Watch for window resize
         if (typeof window !== 'undefined') {

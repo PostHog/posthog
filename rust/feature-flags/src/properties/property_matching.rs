@@ -159,21 +159,16 @@ pub fn match_property(
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
 
-                // Handle both single values and arrays
-                let search_values: Vec<String> = match value {
-                    Value::Array(arr) => arr
-                        .iter()
-                        .map(|v| to_string_representation(v).to_ascii_lowercase())
-                        .collect(),
-                    single_value => {
-                        vec![to_string_representation(single_value).to_ascii_lowercase()]
-                    }
+                // Check if any of the search values is contained in the match value.
+                // Handle both single values and arrays without materializing an
+                // intermediate Vec — short-circuits the per-element lowercase work too.
+                let any_contained = match value {
+                    Value::Array(arr) => arr.iter().any(|v| {
+                        match_string.contains(&to_string_representation(v).to_ascii_lowercase())
+                    }),
+                    single_value => match_string
+                        .contains(&to_string_representation(single_value).to_ascii_lowercase()),
                 };
-
-                // Check if any of the search values is contained in the match value
-                let any_contained = search_values
-                    .iter()
-                    .any(|search_val| match_string.contains(search_val));
 
                 if operator == OperatorType::IcontainsMulti {
                     Ok(any_contained)
@@ -551,6 +546,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -606,6 +602,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -630,6 +627,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -688,6 +686,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         let actual = match_property(
@@ -710,6 +709,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         assert!(!match_property(
             &property,
@@ -729,6 +729,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -768,6 +769,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -844,6 +846,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -894,6 +897,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -953,6 +957,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -994,6 +999,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1036,6 +1042,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         assert!(match_property(
             &property_b,
@@ -1072,6 +1079,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1096,6 +1104,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         assert!(match_property(
             &property_d,
@@ -1128,6 +1137,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1172,6 +1182,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1220,6 +1231,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1263,6 +1275,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1311,6 +1324,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1392,6 +1406,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1415,6 +1430,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1432,6 +1448,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1455,6 +1472,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1472,6 +1490,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1507,6 +1526,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1528,6 +1548,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1545,6 +1566,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1562,6 +1584,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1600,6 +1623,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1617,6 +1641,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1634,6 +1659,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1651,6 +1677,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1668,6 +1695,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1685,6 +1713,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1702,6 +1731,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1719,6 +1749,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1737,6 +1768,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(!match_property(
@@ -1755,6 +1787,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Test with ISO8601 format in person properties
@@ -1791,6 +1824,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -1852,6 +1886,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         match_property(
@@ -1872,6 +1907,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Get current time and 3 days ago
@@ -1996,6 +2032,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2035,6 +2072,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2060,6 +2098,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2092,6 +2131,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2131,6 +2171,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2163,6 +2204,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2188,6 +2230,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2217,6 +2260,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Test with 'v' prefix in property value
@@ -2236,6 +2280,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2264,6 +2309,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Pre-release versions are less than the release version
@@ -2290,6 +2336,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2314,6 +2361,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Invalid semver in property value should return false
@@ -2350,6 +2398,30 @@ mod test_match_properties {
         assert!(!match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading zero in a single component is also invalid (was the user-visible HogQL bug
+        // where "3.07" silently became [3, 7] and matched a "version >= 3.7" filter).
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.07"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Two-part versions are not valid semver (must be X.Y.Z)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.7"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.0"))]),
             true
         )
         .expect("expected match to exist"));
@@ -2403,6 +2475,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2421,6 +2494,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2438,6 +2512,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2458,6 +2533,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Missing property should return false
@@ -2488,6 +2564,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match: same version
@@ -2546,6 +2623,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2567,6 +2645,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match: same version
@@ -2635,6 +2714,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match: any patch version in 1.2.x
@@ -2683,6 +2763,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match: any version in 1.x.x
@@ -2731,6 +2812,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2756,6 +2838,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2781,6 +2864,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Invalid patterns return an error (configuration error)
@@ -2803,6 +2887,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match higher pre-release in same patch version
@@ -2837,6 +2922,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2864,6 +2950,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Invalid version in property value should return false
@@ -2883,6 +2970,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2904,6 +2992,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2943,6 +3032,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -2978,6 +3068,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3017,6 +3108,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3052,6 +3144,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3091,6 +3184,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3126,6 +3220,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3158,6 +3253,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(match_property(
@@ -3206,6 +3302,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match when the string is repeated correctly
@@ -3255,6 +3352,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match gmail
@@ -3290,6 +3388,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match case-insensitively
@@ -3328,6 +3427,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should not match gmail (negated)
@@ -3363,6 +3463,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Should match when value doesn't contain spam
@@ -3393,6 +3494,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Empty array should not match anything
@@ -3423,6 +3525,7 @@ mod test_match_properties {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         // Empty array should match everything (nothing to exclude)

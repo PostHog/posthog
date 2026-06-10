@@ -29,9 +29,9 @@ jobs:
             matrix_data: ${{ steps.changes.outputs.matrix_data }}
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
+                  sparse-checkout: terraform
 
             - name: Find all terraform modules
               id: changes
@@ -88,7 +88,7 @@ jobs:
             POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
@@ -99,7 +99,7 @@ jobs:
 
             - name: Plan Terraform ${{ matrix.working_dir }}
               if: github.ref != 'refs/heads/master'
-              uses: datadrivers/terragrunt-action@6a1585446bb75e3db997042db236cf1de7fa7d0e # v4.1.0
+              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
@@ -120,7 +120,7 @@ jobs:
 
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/master'
-              uses: datadrivers/terragrunt-action@6a1585446bb75e3db997042db236cf1de7fa7d0e # v4.1.0
+              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:

@@ -18,6 +18,8 @@ unrelated cases don't drag the rollup down.
   replacement?
 * ``DrilledIntoSchema`` — did the agent drill into every named field
   via ``schema <tool> <field>`` before the final ``call``?
+* ``RetrievedSchemaPath`` — did the agent successfully retrieve an exact
+  nested schema path via ``schema <tool> <path>``?
 * ``PreferredSearchOverTools`` — did the agent prefer ``search`` over
   the bare ``tools`` listing for discovery?
 * ``InfoBeforeCall`` — was every successful call to the target tool
@@ -27,6 +29,8 @@ unrelated cases don't drag the rollup down.
 """
 
 from __future__ import annotations
+
+import re
 
 from braintrust import Score
 from braintrust_core.score import Scorer
@@ -40,9 +44,17 @@ __all__ = [
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
+    "RetrievedSchemaPath",
+    "SurfacedGeneratedAppUrl",
     "UsedJsonOutputFormat",
     "VerifiedEventBeforeQuery",
 ]
+
+# URLs stop at whitespace and the delimiters that wrap them in Markdown/JSON/TOON, so the captured
+# string is the bare link — robust to `[text](url)`, `"url"`, JSON-escaped `\"url\"`, trailing
+# punctuation, etc. The backslash exclusion matters: tool results arrive JSON-escaped, so without it
+# the capture keeps a trailing `\` and never substring-matches the (unescaped) final message.
+_URL_RE = re.compile(r"https?://[^\s\"'`)\]<>\\]+")
 
 
 def _read_tool(expected: dict | None, scorer_name: str) -> str | None:
@@ -282,6 +294,89 @@ class DrilledIntoSchema(Scorer):
             name=self._name(),
             score=1.0,
             metadata={"tool": tool, "drilled_fields": sorted(drilled)},
+        )
+
+
+class RetrievedSchemaPath(Scorer):
+    """Binary: did the agent successfully retrieve an exact nested schema path?
+
+    ``expected = {"retrieved_schema_path":
+        {"tool": "query-trends", "path": "series.properties"}}``
+
+    Looks for a raw ``exec`` call whose ``command`` is exactly
+    ``schema <tool> <path>``. Score 1.0 only when that call succeeded, 0.0
+    when the path was attempted but failed or a different schema path was
+    used, and ``None`` for malformed specs.
+    """
+
+    def _name(self) -> str:
+        return "retrieved_schema_path"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        spec = _read_spec(expected, self._name())
+        if not spec:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        tool = spec.get("tool")
+        path = spec.get("path")
+        if not isinstance(tool, str) or not tool:
+            return Score(name=self._name(), score=None, metadata={"reason": "Missing 'tool' on spec"})
+        if not isinstance(path, str) or not path:
+            return Score(name=self._name(), score=None, metadata={"reason": "Missing 'path' on spec"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        schema_attempts: list[dict[str, object]] = []
+        for call in parser.get_tool_calls():
+            head, rest = _exec_command_head(call)
+            if head != "schema":
+                continue
+            schema_tool, _, field_path = rest.partition(" ")
+            schema_tool = schema_tool.strip()
+            field_path = field_path.strip()
+            schema_attempts.append(
+                {
+                    "tool": schema_tool,
+                    "path": field_path,
+                    "is_error": call.is_error,
+                    "call_id": call.call_id,
+                }
+            )
+            if schema_tool != tool or field_path != path:
+                continue
+            if call.is_error:
+                return Score(
+                    name=self._name(),
+                    score=0.0,
+                    metadata={
+                        "reason": "Exact schema path was attempted but failed",
+                        "tool": tool,
+                        "path": path,
+                        "call_id": call.call_id,
+                    },
+                )
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={"tool": tool, "path": path, "call_id": call.call_id},
+            )
+
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "Exact schema path was not retrieved",
+                "tool": tool,
+                "path": path,
+                "schema_attempts": schema_attempts,
+            },
         )
 
 
@@ -551,6 +646,71 @@ class UsedJsonOutputFormat(Scorer):
                 "tool": target,
                 "total_calls": len(relevant),
                 "formats_seen": sorted({call.requested_output_format or "default" for call in relevant}),
+            },
+        )
+
+
+class SurfacedGeneratedAppUrl(Scorer):
+    """Binary: did the agent surface a url returned by ``generate-app-url`` verbatim?
+
+    Opt-in via presence of ``expected = {"surfaced_generated_app_url": {}}``.
+
+    The fix for hand-built 404 links is to resolve entity links through the
+    ``generate-app-url`` tool and surface the ``url`` it returns verbatim,
+    rather than guessing slugs (a person UUID lives at ``/persons/<uuid>``,
+    not ``/person/...``) or retyping ids. This scorer finds every successful
+    ``generate-app-url`` call, pulls the url out of its result, and checks the
+    final assistant message contains at least one of them.
+
+    Score 1.0 if a generated url was surfaced, 0.0 if the tool ran but its url
+    was dropped or rewritten, ``None`` if the tool was never called (that gap
+    is caught by ``CalledTargetTool``).
+    """
+
+    TOOL = "generate-app-url"
+
+    def _name(self) -> str:
+        return "surfaced_generated_app_url"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        if _read_spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        urls: set[str] = set()
+        for call in parser.get_tool_calls(self.TOOL):
+            if call.is_error:
+                continue
+            urls.update(_URL_RE.findall(call.output or ""))
+        if not urls:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"'{self.TOOL}' was never called successfully or returned no url"},
+            )
+
+        last_message = (output or {}).get("last_message") or ""
+        if not isinstance(last_message, str):
+            last_message = str(last_message)
+
+        surfaced = sorted(url for url in urls if url in last_message)
+        if surfaced:
+            return Score(name=self._name(), score=1.0, metadata={"surfaced": surfaced})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "generate-app-url returned a url but it was not surfaced verbatim in the answer",
+                "tool_urls": sorted(urls),
             },
         )
 

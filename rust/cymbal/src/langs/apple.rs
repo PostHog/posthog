@@ -135,7 +135,10 @@ impl RawAppleFrame {
                 ))])
             }
             Err(ResolveError::ResolutionError(e)) => {
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                Ok(vec![self.handle_resolution_error(AppleError::ParseError(
+                    e.to_string(),
+                ))])
             }
             Err(ResolveError::UnhandledError(e)) => {
                 tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
@@ -709,7 +712,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_dsym_bytes()))));
 
         let client = Arc::new(client);
 
@@ -870,7 +873,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_inline_dsym_bytes()))));
         let client = Arc::new(client);
 
         let catalog = Catalog::new(

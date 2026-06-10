@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -53,6 +53,7 @@ function HedgehogStatus(): JSX.Element {
 
 interface TaskSessionViewProps {
     logs: string
+    logsLoading: boolean
     streamEntries: LogEntry[]
     isPolling: boolean
     isStreaming: boolean
@@ -200,18 +201,30 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
 
 export function TaskSessionView({
     logs,
+    logsLoading,
     streamEntries,
     isPolling,
     isStreaming,
     initialPrompt,
     run,
 }: TaskSessionViewProps): JSX.Element {
+    // Debug lines are noise by default; opt in to show them.
+    const [showDebug, setShowDebug] = useState(false)
     const parsedLogs = useMemo(() => parseLogs(logs), [logs])
     // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
     const entries = useMemo(() => {
         const sourceEntries = streamEntries.length > 0 ? streamEntries : parsedLogs
         return filterDuplicateInitialPromptEntry(mergeDuplicateUserPromptEntries(sourceEntries), initialPrompt)
     }, [initialPrompt, parsedLogs, streamEntries])
+
+    const debugCount = useMemo(
+        () => entries.filter((entry) => entry.type === 'console' && entry.level === 'debug').length,
+        [entries]
+    )
+    const visibleEntries = useMemo(
+        () => (showDebug ? entries : entries.filter((entry) => !(entry.type === 'console' && entry.level === 'debug'))),
+        [entries, showDebug]
+    )
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
@@ -221,6 +234,13 @@ export function TaskSessionView({
     }
 
     if (entries.length === 0) {
+        if (logsLoading) {
+            return (
+                <div className="flex items-center justify-center h-32">
+                    <Spinner />
+                </div>
+            )
+        }
         return (
             <div className="p-4 text-center text-muted">
                 <p>No logs available yet</p>
@@ -233,14 +253,25 @@ export function TaskSessionView({
             <div className="flex justify-between items-center px-4 py-2 border-b">
                 <div className="flex items-center gap-2">
                     {run && <TaskRunStatusBadge run={run} />}
-                    <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                    <span className="text-sm font-semibold">Logs ({visibleEntries.length})</span>
                 </div>
-                <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
-                    Copy
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {debugCount > 0 && (
+                        <LemonSwitch
+                            label={`Show debug (${debugCount})`}
+                            checked={showDebug}
+                            onChange={setShowDebug}
+                            size="xsmall"
+                            bordered
+                        />
+                    )}
+                    <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
+                        Copy
+                    </LemonButton>
+                </div>
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-sm bg-bg-3000">
-                {entries.map((entry) => (
+                {visibleEntries.map((entry) => (
                     <LogEntryRenderer key={entry.id} entry={entry} />
                 ))}
                 {(isPolling || isStreaming) && <HedgehogStatus />}

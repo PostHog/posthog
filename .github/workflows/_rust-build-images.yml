@@ -48,7 +48,7 @@ jobs:
             matrix: ${{ steps.set.outputs.matrix }}
         steps:
             - name: Check out rust-images.yml
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/rust-images.yml
                   sparse-checkout-cone-mode: false
@@ -92,7 +92,7 @@ jobs:
             - name: Check Out Repo
               # Use sparse checkout to only select files in rust directory
               # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.checkout-ref || '' }}
                   sparse-checkout: |

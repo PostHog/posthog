@@ -5,6 +5,7 @@ import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
@@ -90,20 +91,22 @@ export function AppMetricSummary({
                                 },
                                 data: timeSeries.labels,
                             }}
-                            yData={timeSeries.series.map((x) => ({
-                                column: {
-                                    name: x.name,
-                                    type: { name: 'INTEGER', isNumerical: true },
-                                    label: x.name,
-                                    dataIndex: 0,
-                                },
-                                data: x.values,
-                                settings: {
-                                    display: {
-                                        color: total === 0 ? colorIfZero : color,
+                            yData={timeSeries.series.map(
+                                (x): AxisSeries<number | null> => ({
+                                    column: {
+                                        name: x.name,
+                                        type: { name: 'INTEGER', isNumerical: true },
+                                        label: x.name,
+                                        dataIndex: 0,
                                     },
-                                },
-                            }))}
+                                    data: x.values,
+                                    settings: {
+                                        display: {
+                                            color: total === 0 ? colorIfZero : color,
+                                        },
+                                    },
+                                })
+                            )}
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{
                                 showLegend: false,

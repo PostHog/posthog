@@ -1,6 +1,5 @@
-import { kea, path, props, selectors } from 'kea'
+import { kea, key, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -8,14 +7,9 @@ import { Breadcrumb } from '~/types'
 
 import type { liveEventsTableSceneLogicType } from './liveEventsTableSceneLogicType'
 
-export interface LiveEventsTableSceneProps {
-    tabId?: string
-}
-
 export const liveEventsTableSceneLogic = kea<liveEventsTableSceneLogicType>([
-    path(['scenes', 'activity', 'live-events', 'liveEventsTableSceneLogic']),
-    tabAwareScene(),
-    props({} as LiveEventsTableSceneProps),
+    key(() => 'scene'),
+    path((key) => ['scenes', 'activity', 'live-events', 'liveEventsTableSceneLogic', key]),
     selectors(() => ({
         breadcrumbs: [
             () => [],

@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
+import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
@@ -66,6 +67,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
+        '/models/dags': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
@@ -89,7 +91,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
-        models: (): string => '/models',
+        models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
         nodeDetail: (id: string): string => `/models/${id}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -179,6 +181,14 @@ export const manifest: ProductManifest = {
             iconType: 'managed_viewsets',
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+        },
+        {
+            path: 'Exports',
+            category: 'Pipeline',
+            iconType: 'exports',
+            href: urls.exports(),
+            sceneKey: 'Exports',
+            sceneKeys: ['Exports'],
         },
     ],
 }

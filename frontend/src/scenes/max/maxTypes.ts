@@ -85,6 +85,10 @@ export interface MaxUIContext {
     evaluations?: MaxEvaluationContext[]
     notebooks?: MaxNotebookContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
+    // Request modality: true when the user is asking via hands-free voice mode. Backend
+    // appends a voice-formatting instruction to the prompt so the response is suitable
+    // for TTS (numbers spelled out, no markdown, etc).
+    voice_mode?: boolean
 }
 
 // Taxonomic filter options

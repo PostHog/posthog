@@ -38,7 +38,7 @@ def hubspot_access_token_is_valid(access_token: str) -> bool:
 
 
 def _update_source_job_inputs(source_id: str, access_token: str) -> None:
-    from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
     try:
         source = ExternalDataSource.objects.get(id=source_id)

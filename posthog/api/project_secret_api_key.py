@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
@@ -34,6 +35,7 @@ MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 10
 class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = ProjectSecretAPIKey
@@ -134,7 +136,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return project_secret_api_key
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     lookup_field = "id"

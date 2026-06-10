@@ -16,6 +16,8 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { ReplayPlugin, Replayer, playerConfig } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 import { RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -26,12 +28,9 @@ import {
     CorsPlugin,
     createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
-import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -1315,9 +1314,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
                     // At high speeds, CSS animations/transitions aren't sped up by rrweb,
-                    // causing visual artifacts - disable them
+                    // causing visual artifacts. Snap them to their end state instead of suppressing
+                    // them entirely — `animation: none` left content stuck at its pre-animation state
+                    // (e.g. opacity: 0) on sites that use keyframes for content reveal.
                     ...(values.speed >= 2
-                        ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                        ? [
+                              '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+                          ]
                         : []),
                 ],
                 // these two settings are attempts to improve performance of running two Replayers at once
@@ -1338,7 +1341,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     replayer.on('fullsnapshot-rebuilded', () => {
                         const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeDocument = iframeContentWindow?.document
                         const iframeFetch = iframeContentWindow?.fetch
 
                         const setupErrorHandlers = (): void => {
@@ -1377,44 +1379,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             }
                         }
 
-                        if (
-                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                            iframeDocument &&
-                            iframeDocument.readyState === 'loading'
-                        ) {
-                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                            const onReady = (): void => {
-                                setupErrorHandlers()
-
-                                if (
-                                    replayer &&
-                                    values.currentTimestamp !== undefined &&
-                                    values.sessionPlayerData.start
-                                ) {
-                                    const currentTime =
-                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                    replayer.pause(currentTime)
-                                    pauseTimeoutId = setTimeout(() => {
-                                        if (replayer) {
-                                            replayer.pause(currentTime)
-                                        }
-                                    }, 0)
-                                }
-
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            }
-                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
-
-                            iframeCleanups.push(() => {
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                                if (pauseTimeoutId !== null) {
-                                    clearTimeout(pauseTimeoutId)
-                                }
-                            })
-                        } else {
-                            setupErrorHandlers()
-                        }
+                        setupErrorHandlers()
                     })
 
                     actions.setPlayer({ replayer, windowId })

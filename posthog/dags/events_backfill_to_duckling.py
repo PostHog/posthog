@@ -30,6 +30,7 @@ Partition Strategy:
     - date is the partition date (YYYY-MM-DD)
 """
 
+import os
 import json
 import calendar
 from datetime import date, datetime, timedelta
@@ -56,13 +57,13 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.dags.events_backfill_to_ducklake import (
     DEFAULT_CLICKHOUSE_SETTINGS,
     EXPECTED_DUCKLAKE_COLUMNS,
@@ -81,8 +82,55 @@ DUCKLAKE_ALIAS = "ducklake"
 
 # Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
 # statement_timeout bounds query execution to prevent hung Dagster workers.
-DUCKGRES_CONNECT_TIMEOUT = 10  # seconds
+# A backfill connection may have to wait for duckgres to spin up a fresh worker
+# (a cold worker can require provisioning a new node, which takes minutes), so
+# the handshake budget is generous and `_connect_duckgres` retries with backoff.
+# Must exceed the binding duckgres server-side wait, which is the OUTER
+# workerQueueTimeout (5m) — not warmAcquireTimeout (4m). On a warm-pool miss the
+# CP blocks the connect server-side waiting for a colocated worker (which may need
+# a cold node) instead of bouncing us with "no warm worker available"; that whole
+# block is bounded by workerQueueTimeout. 360s gives margin over the 300s server
+# block + TLS/handshake. Ladder: warmAcquire 4m < workerQueueTimeout 5m < 360s.
+DUCKGRES_CONNECT_TIMEOUT = 360  # seconds
 DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
+
+# Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
+# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts
+# into a ready pod instead of contending for the big exclusive shared workers
+# (the cause of the backfill ConnectionTimeouts). Gated so it stays off until
+# duckgres has the colocated warm pool deployed and the server gate is on.
+#
+# Evaluated once at process startup, not per connection/partition — toggling it
+# (including rollback) requires redeploying the Dagster code location so the
+# process restarts and re-reads the env, not just unsetting the variable.
+DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Colocated worker size for the metadata-only DuckLake register path.
+DUCKGRES_BACKFILL_COLOCATE_CPU = "4"
+DUCKGRES_BACKFILL_COLOCATE_MEMORY = "16Gi"
+
+
+def _duckgres_backfill_options() -> str:
+    """libpq startup `options` for a backfill connection.
+
+    Always bounds statement execution; when the worker-profile feature is
+    enabled, additionally requests a small colocated worker shape. Returns a
+    single space-joined `-c key=value` string — psycopg forwards it as the
+    startup `options` parameter, which duckgres parses to size/schedule the
+    worker.
+    """
+    opts = [f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}"]
+    if DUCKGRES_WORKER_PROFILE_ENABLED:
+        opts += [
+            "-c duckgres.colocate=true",
+            f"-c duckgres.worker_cpu={DUCKGRES_BACKFILL_COLOCATE_CPU}",
+            f"-c duckgres.worker_memory={DUCKGRES_BACKFILL_COLOCATE_MEMORY}",
+        ]
+    return " ".join(opts)
 
 
 @retry(
@@ -101,6 +149,20 @@ def _get_cluster() -> ClickhouseCluster:
     return get_cluster()
 
 
+@retry(
+    # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
+    # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
+    # single attempt can run the full connect_timeout (360s). The retry budget here
+    # is the BACKSTOP for fast failures (network blip, CP pod rolled mid-handshake,
+    # or the CP giving up after its block): the delay cap must exceed one full
+    # attempt so a second one can actually run, hence 780s (~2 attempts) rather
+    # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
+    # statement_timeout (set per connection) is separate.
+    stop=stop_after_delay(780) | stop_after_attempt(12),
+    wait=wait_exponential(multiplier=1, min=5, max=60),
+    retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
+    reraise=True,
+)
 def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
@@ -110,6 +172,11 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
 
     Cross-account S3 credentials are configured server-side via IRSA on the
     duckling, so the DAG no longer calls `configure_cross_account_connection`.
+
+    Retries with backoff: a cold duckgres worker can take longer than a single
+    connect_timeout to become ready (worker pod may need a fresh node), so we
+    retry the connect rather than failing the partition on the first timeout.
+    `psycopg.errors.ConnectionTimeout` is an `OperationalError` subclass.
     """
     if catalog.team_id is None:
         raise ValueError(
@@ -125,7 +192,7 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
         conninfo,
         autocommit=True,
         connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
-        options=f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}",
+        options=_duckgres_backfill_options(),
     )
 
 
@@ -163,12 +230,24 @@ EVENTS_COLUMNS = """
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
+# Shared concurrency key across events + persons backfills. Each duckling
+# connection spins up a duckgres worker, and the per-org worker pool is capped
+# (maxWorkers in the duckgres chart) and shared with product queries — so the
+# two backfills must draw from ONE combined limit, not two independent ones.
+# The limit itself is a Dagster Cloud deployment setting (charts repo); this tag
+# is just the key it targets. Per-product keys are kept for optional finer limits.
+DUCKLING_BACKFILL_CONCURRENCY_TAG = {
+    "duckling_backfill_concurrency": "duckling_v1",
+}
+
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 PERSONS_CONCURRENCY_TAG = {
     "duckling_persons_backfill_concurrency": "duckling_persons_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 # Persons columns for export - joined with person_distinct_id2 to include distinct_ids
@@ -913,6 +992,21 @@ def export_events_to_duckling_s3(
 
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
+    # Event rows are wide (large properties/person_properties JSON), and the Parquet
+    # writer buffers a full row group per encoding thread before flushing — this is where
+    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Peak
+    # memory is ~ row_group_size * bytes_per_row * threads, so the 1M-row default builds
+    # multi-GB groups that blow the limit under parallel encoding. 250k rows lands each
+    # group in Parquet's recommended byte range (~hundreds of MB) while keeping read
+    # efficiency near the default; the raised ceiling is headroom on top.
+    export_settings = settings.copy()
+    export_settings.update(
+        {
+            "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB, matching the full-persons export
+            "output_format_parquet_row_group_size": 250_000,  # down from the 1M default
+        }
+    )
+
     # ClickHouse uses its EC2 instance role - no credentials needed
     # The duckling bucket policy allows the ClickHouse EC2 role
     export_sql = f"""
@@ -942,7 +1036,7 @@ def export_events_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, settings, info)
+        _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported events for {info}")
         logger.info("duckling_export_success", team_id=team_id, date=date_str)
         return s3_path

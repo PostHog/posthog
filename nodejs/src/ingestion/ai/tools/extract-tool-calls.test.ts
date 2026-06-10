@@ -170,6 +170,93 @@ describe('extractToolCallNames', () => {
         })
     })
 
+    describe('Pydantic AI OTel format (parts with type=tool_call)', () => {
+        it.each([
+            [
+                'single tool_call part',
+                [
+                    {
+                        role: 'assistant',
+                        parts: [
+                            {
+                                type: 'tool_call',
+                                id: 'call_abc',
+                                name: 'get_weather',
+                                arguments: '{"city":"NYC"}',
+                            },
+                        ],
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'multiple tool_call parts',
+                [
+                    {
+                        role: 'assistant',
+                        parts: [
+                            { type: 'tool_call', id: 'call_1', name: 'get_weather', arguments: '{}' },
+                            { type: 'tool_call', id: 'call_2', name: 'search_docs', arguments: '{}' },
+                        ],
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'mixed text and tool_call parts',
+                [
+                    {
+                        role: 'assistant',
+                        parts: [
+                            { type: 'text', content: 'Let me check.' },
+                            {
+                                type: 'tool_call',
+                                id: 'call_1',
+                                name: 'get_weather',
+                                arguments: '{"city":"NYC"}',
+                            },
+                        ],
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'tool_call parts inside message wrapper',
+                [
+                    {
+                        message: {
+                            parts: [
+                                {
+                                    type: 'tool_call',
+                                    id: 'call_abc',
+                                    name: 'get_weather',
+                                    arguments: '{}',
+                                },
+                            ],
+                        },
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'ignores malformed tool_call parts without string names',
+                [
+                    {
+                        role: 'assistant',
+                        parts: [
+                            { type: 'tool_call', id: 'call_1', arguments: '{}' },
+                            { type: 'tool_call', id: 'call_2', name: 123, arguments: '{}' },
+                            { type: 'tool_call', id: 'call_3', name: 'search_docs', arguments: '{}' },
+                        ],
+                    },
+                ],
+                ['search_docs'],
+            ],
+        ])('%s', (_description, input, expected) => {
+            expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
     describe('OpenAI Responses API (flat function_call items)', () => {
         it.each([
             [
@@ -589,6 +676,36 @@ describe('processAiToolCallExtraction', () => {
 
         expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('extracts Pydantic AI OTel tool_call parts from stringified JSON', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: JSON.stringify([
+                {
+                    role: 'assistant',
+                    parts: [
+                        { type: 'text', content: 'Let me check.' },
+                        {
+                            type: 'tool_call',
+                            id: 'call_abc',
+                            name: 'get_weather',
+                            arguments: '{"city":"NYC"}',
+                        },
+                        {
+                            type: 'tool_call',
+                            id: 'call_def',
+                            name: 'search_docs',
+                            arguments: '{"q":"weather"}',
+                        },
+                    ],
+                },
+            ]),
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather,search_docs')
+        expect(result.properties!['$ai_tool_call_count']).toBe(2)
     })
 
     it('extracts normalized format with content.type=function', () => {

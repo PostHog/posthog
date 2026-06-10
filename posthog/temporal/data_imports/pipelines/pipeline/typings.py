@@ -56,6 +56,7 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    enabled_columns: Optional[list[str]] = None
 
 
 class PipelineResult(TypedDict):

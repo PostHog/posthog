@@ -62,19 +62,20 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.trends.breakdown import (
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -1566,6 +1567,51 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response.results[1]["labels"],
         )
 
+    @parameterized.expand(
+        [
+            # name, date_from, date_to, compare_filter, expected_from, expected_to
+            ("no_compare", "2020-01-09", "2020-01-20", None, None, None),
+            (
+                "previous_period",
+                "-7d",
+                None,
+                CompareFilter(compare=True),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+            (
+                "explicit_compare_to",
+                "-7d",
+                None,
+                CompareFilter(compare=True, compare_to="-1w"),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+        ]
+    )
+    def test_trends_resolved_compare_date_range(
+        self, _name, date_from, date_to, compare_filter, expected_from, expected_to
+    ):
+        self._create_test_events()
+        utc = zoneinfo.ZoneInfo("UTC")
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            response = self._run_trends_query(
+                date_from,
+                date_to,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(),
+                compare_filters=compare_filter,
+            )
+
+        if expected_from is None:
+            self.assertIsNone(response.resolved_compare_date_range)
+        else:
+            assert response.resolved_compare_date_range is not None
+            self.assertEqual(response.resolved_compare_date_range.date_from, expected_from.replace(tzinfo=utc))
+            self.assertEqual(response.resolved_compare_date_range.date_to, expected_to.replace(tzinfo=utc))
+
     def test_trends_compare_weeks(self):
         self._create_test_events()
 
@@ -2049,6 +2095,95 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
         assert "is not supported with histogram breakdowns" in str(exc_info.value)
+
+    @parameterized.expand(
+        [
+            # Numeric-looking values stored as strings register the property as
+            # String, so the property-type swapper does not coerce it. The
+            # histogram bin math (max - min) must still work rather than raising
+            # ILLEGAL_TYPE_OF_ARGUMENT.
+            ("numeric_strings", ["10", "40"], {"[10,25]", "[25,40.01]"}),
+            # A stray non-numeric value must bucket as NULL (toFloat maps to
+            # accurateCastOrNull) rather than throw and fail the whole query.
+            (
+                "mixed_with_non_numeric",
+                ["10", "40", "abc"],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+            # Missing property entirely also buckets as NULL.
+            (
+                "mixed_with_missing",
+                ["10", "40", None],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+        ]
+    )
+    def test_trends_histogram_breakdown_on_string_typed_property(self, _name, values, expected_buckets):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id=f"p{i}",
+                    events=[Series(event="$pageview", timestamps=[f"2020-01-1{1 + i}T12:00:00Z"])],
+                    properties={"str_amount": value} if value is not None else {},
+                )
+                for i, value in enumerate(values)
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-15",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        assert {r["breakdown_value"] for r in response.results} == expected_buckets
+
+    def test_trends_histogram_breakdown_on_string_typed_property_actors_drill_in(self):
+        # The actors drill-in filter (_get_actors_query_where_expr) coerces the
+        # property to a float the same way the breakdown column does — exercise
+        # that path so the toFloatOrNull symmetry stays pinned end to end.
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
+                    properties={"str_amount": "10"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"str_amount": "40"},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query_runner = self._create_query_runner(
+            "2020-01-11",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        actors_query = query_runner.to_actors_query(
+            time_frame="2020-01-11", series_index=0, breakdown_value="[10,25]", compare_value=None
+        )
+        result = execute_hogql_query(query=actors_query, team=self.team)
+        actual_actor_ids = [row[2][0] for row in result.results]
+        assert actual_actor_ids == ["p1"]
 
     def test_trends_aggregation_hogql(self):
         self._create_test_events()

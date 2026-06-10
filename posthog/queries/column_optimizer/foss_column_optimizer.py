@@ -7,7 +7,6 @@ from typing import Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_column_for_property
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -19,6 +18,8 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier, PropertyType, TableColumn, TableWithProperties
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
+
+from products.actions.backend.models.util import get_action_tables_and_properties
 
 
 class FOSSColumnOptimizer:

@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+    ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
-    isCodingAgentClient,
+    isCliModeEnabledClient,
     isPostHogCodeConsumer,
     isVibeCodingClient,
 } from '@/lib/client-detection'
 
-describe('isCodingAgentClient', () => {
+describe('isCliModeEnabledClient', () => {
     describe('detects known coding-agent clients', () => {
         it.each([
             // Exact names from the fragment list.
@@ -25,8 +26,11 @@ describe('isCodingAgentClient', () => {
             ['zed'],
             ['aider'],
             ['copilot'],
+            ['devin'],
+            ['librechat'],
+            ['notion'],
         ])('returns true for %s', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(true)
+            expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
 
         it.each([
@@ -42,8 +46,14 @@ describe('isCodingAgentClient', () => {
             ['GitHub Copilot Chat'],
             ['zed-editor'],
             ['Codex CLI'],
+            ['LibreChat'],
+            ['libre-chat'],
+            ['LibreChat/1.2.3'],
+            ['notion-mcp-client'],
+            ['Notion'],
+            ['Devin'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(true)
+            expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
     })
 
@@ -57,7 +67,7 @@ describe('isCodingAgentClient', () => {
             ['PostHog'],
             [''],
         ])('returns false for %s', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(false)
+            expect(isCliModeEnabledClient(clientName)).toBe(false)
         })
     })
 
@@ -65,23 +75,23 @@ describe('isCodingAgentClient', () => {
         // Cursor sends content[].text to the model and displays structuredContent in UI,
         // so the workaround isn't needed. Guard against someone adding it back.
         it('returns false for cursor (intentionally excluded)', () => {
-            expect(isCodingAgentClient('cursor')).toBe(false)
-            expect(isCodingAgentClient('Cursor')).toBe(false)
-            expect(isCodingAgentClient('cursor-editor')).toBe(false)
+            expect(isCliModeEnabledClient('cursor')).toBe(false)
+            expect(isCliModeEnabledClient('Cursor')).toBe(false)
+            expect(isCliModeEnabledClient('cursor-editor')).toBe(false)
         })
     })
 
     describe('edge cases', () => {
         it('returns false for undefined', () => {
-            expect(isCodingAgentClient(undefined)).toBe(false)
+            expect(isCliModeEnabledClient(undefined)).toBe(false)
         })
 
         it('returns false for empty string', () => {
-            expect(isCodingAgentClient('')).toBe(false)
+            expect(isCliModeEnabledClient('')).toBe(false)
         })
 
         it('treats whitespace-only as non-match', () => {
-            expect(isCodingAgentClient('   ')).toBe(false)
+            expect(isCliModeEnabledClient('   ')).toBe(false)
         })
     })
 
@@ -89,6 +99,16 @@ describe('isCodingAgentClient', () => {
         expect(CODING_AGENT_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
         for (const fragment of CODING_AGENT_CLIENT_NAME_FRAGMENTS) {
             expect(fragment).toBe(fragment.toLowerCase())
+            expect(fragment.length).toBeGreaterThan(0)
+        }
+    })
+
+    it('keeps the Anthropic client fragment list non-empty, lowercased, and separator-free', () => {
+        // Fragments are compared against the normalized header value (separators
+        // stripped, lowercased), so they must be pre-normalized to match.
+        expect(ANTHROPIC_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
+        for (const fragment of ANTHROPIC_CLIENT_NAME_FRAGMENTS) {
+            expect(fragment).toBe(fragment.toLowerCase().replace(/[-_\s]+/g, ''))
             expect(fragment.length).toBeGreaterThan(0)
         }
     })
@@ -123,6 +143,8 @@ describe('isVibeCodingClient', () => {
         ['replit'],
         ['Replit Agent'],
         ['replit-ai'],
+        ['Notion'],
+        ['notion'],
     ])('returns true for OAuth client name %s', (oauthClientName) => {
         expect(isVibeCodingClient(oauthClientName)).toBe(true)
     })
@@ -148,23 +170,81 @@ describe('isVibeCodingClient', () => {
 })
 
 describe('MCPClientProfile', () => {
-    describe('isCodingAgent()', () => {
-        it.each([['claude-code'], ['Codex CLI'], ['cline'], ['zed-editor'], ['GitHub Copilot Chat']])(
-            'returns true for %s',
-            (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
-            }
-        )
+    describe('isCliModeEnabled()', () => {
+        it.each([
+            ['claude-code'],
+            ['Claude Code'],
+            ['claude-code-cli'],
+            ['claude-code/1.2.3'],
+            ['cline'],
+            ['cline-bot'],
+            ['continue'],
+            ['codex'],
+            ['Codex CLI'],
+            ['windsurf'],
+            ['zed'],
+            ['zed-editor'],
+            ['aider'],
+            ['github.copilot'],
+            ['GitHub Copilot Chat'],
+            ['LibreChat'],
+            ['libre-chat'],
+            ['notion-mcp-client'],
+        ])('returns true for %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
+        })
 
-        it.each([['Claude Desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
+        it.each([['Claude Desktop'], ['claude-desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
             'returns false for %s',
             (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(false)
+                expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(false)
             }
         )
 
         it('returns false when clientName is undefined', () => {
-            expect(new MCPClientProfile({}).isCodingAgent()).toBe(false)
+            expect(new MCPClientProfile({}).isCliModeEnabled()).toBe(false)
+        })
+
+        describe('Anthropic vendor client', () => {
+            it.each([['ClaudeCode'], ['ClaudeAI'], ['Cowork'], ['Anthropic/ClaudeAI']])(
+                'enables CLI mode for known Anthropic client %s regardless of clientName',
+                (vendorClient) => {
+                    // Anthropic pools MCP transports across all its products and
+                    // reports the live one in `x-anthropic-client`. Every known
+                    // Anthropic client runs in CLI mode, even when the initialize
+                    // body's clientName looks non-coding (e.g. the pool owner).
+                    expect(
+                        new MCPClientProfile({ clientName: 'Claude Desktop', vendorClient }).isCliModeEnabled()
+                    ).toBe(true)
+                }
+            )
+
+            it('does not enable CLI mode for an unknown vendorClient value', () => {
+                // Detection matches the known-header list, not mere presence.
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'Claude Desktop',
+                        vendorClient: 'SomeUnknownClient',
+                    }).isCliModeEnabled()
+                ).toBe(false)
+            })
+
+            it('falls back to clientName for coding agents when vendorClient is unknown', () => {
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'claude-code',
+                        vendorClient: 'SomeUnknownClient',
+                    }).isCliModeEnabled()
+                ).toBe(true)
+            })
+
+            it('falls back to clientName when vendorClient is missing', () => {
+                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCliModeEnabled()).toBe(true)
+            })
+
+            it('uses clientName for non-Anthropic clients (no vendorClient)', () => {
+                expect(new MCPClientProfile({ clientName: 'Claude Desktop' }).isCliModeEnabled()).toBe(false)
+            })
         })
     })
 
@@ -183,7 +263,7 @@ describe('MCPClientProfile', () => {
     })
 
     describe('isVibeCodingClient()', () => {
-        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent']])(
+        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent'], ['Notion']])(
             'returns true for OAuth client name %s',
             (oauthClientName) => {
                 expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(true)
@@ -251,11 +331,13 @@ describe('MCPClientProfile', () => {
             clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
             oauthClientName: 'Lovable',
+            vendorClient: 'ClaudeCode',
         })
         expect(profile.clientName).toBe('claude-code')
         expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
         expect(profile.oauthClientName).toBe('Lovable')
+        expect(profile.vendorClient).toBe('ClaudeCode')
     })
 })
 

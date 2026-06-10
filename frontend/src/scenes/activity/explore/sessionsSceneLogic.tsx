@@ -1,11 +1,11 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils'
 import { applyTestAccountFilter, getDefaultSessionsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -20,14 +20,28 @@ import { ActivityTab, Breadcrumb } from '~/types'
 import type { sessionsSceneLogicType } from './sessionsSceneLogicType'
 
 export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
-    path(['scenes', 'sessions', 'sessionsSceneLogic']),
-    tabAwareScene(),
+    key(() => 'scene'),
+    path((key) => ['scenes', 'sessions', 'sessionsSceneLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+            tabUiStateLogic,
+            ['savedQueryFor'],
+        ],
+        actions: [tabUiStateLogic, ['setSavedQueryForTab']],
     })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
+    listeners(({ actions, values }) => ({
+        setQuery: ({ query }) => {
+            const isDefault = objectsEqual(query, values.defaultQuery)
+            actions.setSavedQueryForTab(undefined, 'sessions', isDefault ? null : query)
+        },
+    })),
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam, s.filterTestAccountsDefault],
@@ -46,7 +60,7 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
             ],
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.activity(ActivityTab.ExploreSessions),
             {},
@@ -55,17 +69,19 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const sessionsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             // If query hasn't changed, do nothing
             if (equal(queryParam, values.query)) {
                 return
             }
 
-            // Handle missing query param - set default if needed
+            // Handle missing query param - restore from the persisted query, else fall back to default
             if (!queryParam) {
-                if (!objectsEqual(values.query, values.defaultQuery)) {
-                    actions.setQuery(values.defaultQuery)
+                const persisted = values.savedQueryFor(undefined, 'sessions')
+                const target = persisted ?? values.defaultQuery
+                if (!objectsEqual(values.query, target)) {
+                    actions.setQuery(target)
                 }
                 return
             }

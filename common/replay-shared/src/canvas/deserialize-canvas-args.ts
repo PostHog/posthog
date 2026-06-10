@@ -1,5 +1,5 @@
-import { Replayer } from '@posthog/rrweb'
-import { CanvasArg } from '@posthog/rrweb-types'
+import { Replayer } from 'posthog-js/rrweb'
+import { CanvasArg } from 'posthog-js/rrweb-types'
 
 import { base64ArrayBuffer } from '../utils'
 

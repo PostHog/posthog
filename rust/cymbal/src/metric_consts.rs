@@ -23,15 +23,48 @@ pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
+// S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
+// (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
+pub const S3_FETCHED_BYTES: &str = "cymbal_s3_fetched_bytes";
 pub const S3_PUT: &str = "cymbal_s3_put";
+// S3 PUT body size, in bytes, observed at the call site.
+pub const S3_PUT_BYTES: &str = "cymbal_s3_put_bytes";
 pub const SOURCEMAP_FETCH: &str = "cymbal_sourcemap_fetch";
+// Size of an external (non-S3) sourcemap or minified source fetch, in bytes after decoding
+// the HTTP response body. Labelled by `kind` (`source` / `sourcemap`).
+pub const SOURCEMAP_EXTERNAL_BYTES: &str = "cymbal_sourcemap_external_bytes";
 pub const SAVE_SYMBOL_SET: &str = "cymbal_save_symbol_set";
 pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
+// Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
+// (`sourcemap` / `hermes` / `proguard` / `apple`).
+pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
+
+// Histogram buckets for the byte-shaped metrics above. The default
+// `common_metrics` buckets are tuned for milliseconds of latency and saturate
+// at 10_000 — every multi-KB fetch would land in the `+Inf` bucket. These
+// cover 1 KiB → 1 GiB with extra granularity in the multi-MB range where any
+// reasonable size cap would live.
+pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
+    1_024.0,         // 1 KiB
+    10_240.0,        // 10 KiB
+    102_400.0,       // 100 KiB
+    524_288.0,       // 512 KiB
+    1_048_576.0,     // 1 MiB
+    5_242_880.0,     // 5 MiB
+    10_485_760.0,    // 10 MiB
+    26_214_400.0,    // 25 MiB
+    52_428_800.0,    // 50 MiB
+    104_857_600.0,   // 100 MiB
+    268_435_456.0,   // 256 MiB
+    536_870_912.0,   // 512 MiB
+    1_073_741_824.0, // 1 GiB
+];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
+pub const CHUNK_ID_RESCUED_FROM_BODY: &str = "cymbal_chunk_id_rescued_from_body";
 pub const SUPPRESSED_ISSUE_DROPPED_EVENTS: &str = "cymbal_suppressed_issue_drop";
 pub const ASSIGNMENT_RULES_PROCESSING_TIME: &str = "cymbal_assignment_rules_processing_time";
 pub const ANCILLARY_CACHE: &str = "cymbal_ancillary_cache";
@@ -93,3 +126,25 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+
+// Remote resolution observability. Keep labels bounded: endpoint labels are
+// limited to the discovered pod set, and protocol failures are classified by
+// fixed enums rather than free-form messages.
+pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
+pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
+pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
+pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
+pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
+    "cymbal_remote_resolution_endpoints_by_state";
+pub const REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_in_flight";
+pub const REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_mux_in_flight";
+pub const REMOTE_RESOLUTION_ENDPOINT_ADMISSION_REJECTIONS: &str =
+    "cymbal_remote_resolution_endpoint_admission_rejections_total";
+pub const REMOTE_RESOLUTION_ERROR_KINDS: &str = "cymbal_remote_resolution_error_kinds_total";
+pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
+    "cymbal_remote_resolution_overload_escalations_total";
+pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
+pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
+    "cymbal_remote_resolution_load_subscriptions_total";

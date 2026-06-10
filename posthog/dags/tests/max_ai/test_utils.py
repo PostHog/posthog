@@ -431,7 +431,7 @@ def test_format_results_traces_filter_generation():
     blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
 
     # Should contain properly encoded traces URL
-    assert "https://us.posthog.com/llm-analytics/traces?filters=" in markdown
+    assert "https://us.posthog.com/ai-observability/traces?filters=" in markdown
     assert "traced_experiment" in markdown
     assert "exp_traces_123" in markdown
     # URL should be properly encoded
@@ -449,7 +449,7 @@ def test_format_results_dataset_link():
     blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
 
     # Should contain dataset link with correct UUID
-    expected_link = f"https://us.posthog.com/llm-analytics/datasets/{dataset_id}"
+    expected_link = f"https://us.posthog.com/ai-evals/datasets/{dataset_id}"
     assert expected_link in markdown
     assert f"[{dataset_name}]" in markdown
 
@@ -601,7 +601,7 @@ def test_results_formatter_build_traces_url():
     traces_url = formatter._build_traces_url(result)
 
     # Should contain properly encoded traces URL
-    assert "https://us.posthog.com/llm-analytics/traces?filters=" in traces_url
+    assert "https://us.posthog.com/ai-observability/traces?filters=" in traces_url
     assert "traced_experiment" in traces_url
     assert "exp_traces_123" in traces_url
     # URL should be properly encoded

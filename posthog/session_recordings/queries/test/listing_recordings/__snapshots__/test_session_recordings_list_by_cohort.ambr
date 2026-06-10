@@ -71,6 +71,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -127,6 +129,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -189,6 +193,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -241,6 +247,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -303,6 +311,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -355,6 +365,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -393,10 +405,10 @@
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-08-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), and(globalIn(s.session_id,
-                                                                                                                                                                                                                                              (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                              (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
                                                                                                                                                                                                                                                FROM events
-                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2021-08-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                               GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2021-08-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                               GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                                                HAVING 1
                                                                                                                                                                                                                                                ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                LIMIT 1000000)), in(s.distinct_id,
@@ -424,6 +436,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -452,10 +466,10 @@
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-08-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), and(globalIn(s.session_id,
-                                                                                                                                                                                                                                              (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                              (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
                                                                                                                                                                                                                                                FROM events
-                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, 'custom_event'), greaterOrEquals(events.timestamp, toDateTime64('2021-08-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                               GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, 'custom_event'), greaterOrEquals(events.timestamp, toDateTime64('2021-08-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                               GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                                                HAVING 1
                                                                                                                                                                                                                                                ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                LIMIT 1000000)), in(s.distinct_id,
@@ -483,6 +497,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -545,6 +561,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -597,6 +615,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -649,6 +669,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -701,6 +723,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -757,6 +781,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -813,6 +839,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -875,6 +903,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -951,6 +981,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -989,7 +1021,7 @@
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(globalIn(s.session_id,
-                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
                                                                                                                                                                                                                                                  FROM events
                                                                                                                                                                                                                                                  LEFT OUTER JOIN
                                                                                                                                                                                                                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1006,8 +1038,8 @@
                                                                                                                                                                                                                                                                                                    WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                    GROUP BY person.id
                                                                                                                                                                                                                                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(events__person.properties___plan, 'premium'), 0), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
-                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(events__person.properties___plan, 'premium'), 0), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                 GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                                                  HAVING 1
                                                                                                                                                                                                                                                  ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                  LIMIT 1000000)), in(s.distinct_id,
@@ -1035,6 +1067,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1073,7 +1107,7 @@
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
                                                                                                                                                                                                                           FROM events
                                                                                                                                                                                                                           LEFT OUTER JOIN
                                                                                                                                                                                                                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1081,20 +1115,20 @@
                                                                                                                                                                                                                              WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                              GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                                                                              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-                                                                                                                                                                                                                                                                                                                                                         (SELECT persons.id AS id
-                                                                                                                                                                                                                                                                                                                                                          FROM
-                                                                                                                                                                                                                                                                                                                                                            (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'user_group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___user_group, person.id AS id
-                                                                                                                                                                                                                                                                                                                                                             FROM person
-                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT where_optimization.id AS id
-                                                                                                                                                                                                                                                                                                                                                                                                            FROM person AS where_optimization
-                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'user_group'), ''), 'null'), '^"|"$', ''), 'internal'), 0)))))
-                                                                                                                                                                                                                                                                                                                                                             GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                             HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(persons.properties___user_group, 'internal'), 0)
-                                                                                                                                                                                                                                                                                                                                                          ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto')), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
-                                                                                                                                                                                                                          GROUP BY events.`$session_id`
+                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                     (SELECT persons.id AS id
+                                                                                                                                                                                                                                                                                                                                                                                      FROM
+                                                                                                                                                                                                                                                                                                                                                                                        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'user_group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___user_group, person.id AS id
+                                                                                                                                                                                                                                                                                                                                                                                         FROM person
+                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT where_optimization.id AS id
+                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM person AS where_optimization
+                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'user_group'), ''), 'null'), '^"|"$', ''), 'internal'), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                         GROUP BY person.id
+                                                                                                                                                                                                                                                                                                                                                                                         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                                                                                                                                                                                                                                                                                                                                      WHERE ifNull(equals(persons.properties___user_group, 'internal'), 0)
+                                                                                                                                                                                                                                                                                                                                                                                      ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto')), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                           LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
@@ -1108,6 +1142,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1170,6 +1206,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1222,6 +1260,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1284,6 +1324,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1336,6 +1378,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

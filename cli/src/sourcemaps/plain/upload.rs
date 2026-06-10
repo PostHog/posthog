@@ -2,7 +2,14 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+/// Sibling-JS size below which an empty sourcemap is treated as a harmless
+/// bundler-generated wrapper (e.g. Turbopack App Router page entries,
+/// webpack re-export shims). Observed wrapper files in the wild are
+/// under 1 KiB; 2 KiB leaves comfortable headroom for tools that inject
+/// extra glue (PostHog chunk-id IIFE, etc.) without misclassifying real code.
+const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
 
 use crate::{
     api::{
@@ -11,7 +18,7 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
@@ -40,6 +47,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 
     /// DEPRECATED - use top-level `--skip-ssl-verification` instead
     #[arg(long, default_value = "false")]
@@ -89,11 +99,24 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
+    let mut empty_skipped_wrapper = 0usize;
+    let mut empty_skipped_suspect = 0usize;
     for pair in &empty_pairs {
-        warn!(
-            "Skipping {}: sourcemap is empty (no mappings/sources/names) — likely a bundler misconfiguration",
-            pair.sourcemap.inner.path.display()
-        );
+        let js_size = pair.source.inner.content.len();
+        let map_path = pair.sourcemap.inner.path.display();
+        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+            empty_skipped_wrapper += 1;
+            debug!(
+                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
+                map_path, js_size
+            );
+        } else {
+            empty_skipped_suspect += 1;
+            warn!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — likely a bundler misconfiguration. Check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+                map_path, js_size
+            );
+        }
     }
     let empty_skipped = empty_pairs.len();
 
@@ -112,6 +135,8 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
             ("empty_skipped", json!(empty_skipped)),
+            ("empty_skipped_wrapper", json!(empty_skipped_wrapper)),
+            ("empty_skipped_suspect", json!(empty_skipped_suspect)),
         ],
     );
 
@@ -120,7 +145,8 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
-        false,
+        args.conflict.force,
+        args.conflict.skip_on_conflict,
     );
     let duration_ms = started_at.elapsed().as_millis();
 

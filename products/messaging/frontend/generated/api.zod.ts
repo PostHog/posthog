@@ -25,10 +25,42 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional(),
 })
 
+export const messagingCategoriesUpdateBodyKeyMax = 64
+
+export const messagingCategoriesUpdateBodyNameMax = 128
+
+export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesUpdateBodyKeyMax),
+    name: zod.string().max(messagingCategoriesUpdateBodyNameMax),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingCategoriesPartialUpdateBodyKeyMax = 64
+
+export const messagingCategoriesPartialUpdateBodyNameMax = 128
+
+export const MessagingCategoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesPartialUpdateBodyKeyMax).optional(),
+    name: zod.string().max(messagingCategoriesPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
-Persists the App API key in Integration(kind="customerio-app").
-If no app_api_key is provided, reuses the stored Integration key.
+ * Persists the App API key in Integration(kind="customerio-app").
+ * If no app_api_key is provided, reuses the stored Integration key.
  */
 export const messagingCategoriesImportFromCustomerioCreateBodyKeyMax = 64
 
@@ -48,7 +80,7 @@ export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */
 
 /**
  * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreateBodyKeyMax = 64
 
@@ -68,12 +100,12 @@ export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */
 
 /**
  * Save Customer.io Track API credentials and/or toggle outbound sync.
-
-Accepts:
-  - site_id (optional): set on first creation only
-  - api_key (optional): set on first creation only
-  - region (optional): "us" or "eu", set on first creation only
-  - track_enabled (required): enable or disable outbound sync
+ *
+ * Accepts:
+ *   - site_id (optional): set on first creation only
+ *   - api_key (optional): set on first creation only
+ *   - region (optional): "us" or "eu", set on first creation only
+ *   - track_enabled (required): enable or disable outbound sync
  */
 export const messagingCategoriesSaveTrackConfigCreateBodyKeyMax = 64
 
@@ -93,10 +125,10 @@ export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.
 
 /**
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
-
-Accepts:
-  - webhook_signing_secret (optional): set on first creation only
-  - webhook_enabled (required): enable or disable the webhook
+ *
+ * Accepts:
+ *   - webhook_signing_secret (optional): set on first creation only
+ *   - webhook_enabled (required): enable or disable the webhook
  */
 export const messagingCategoriesSaveWebhookConfigCreateBodyKeyMax = 64
 
@@ -155,6 +187,62 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional(),
     type: zod.string().max(messagingTemplatesCreateBodyTypeMax).optional(),
+    message_category: zod.uuid().nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingTemplatesUpdateBodyNameMax = 400
+
+export const messagingTemplatesUpdateBodyTypeMax = 24
+
+export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(messagingTemplatesUpdateBodyNameMax),
+    description: zod.string().optional(),
+    content: zod
+        .object({
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+        })
+        .optional(),
+    type: zod.string().max(messagingTemplatesUpdateBodyTypeMax).optional(),
+    message_category: zod.uuid().nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingTemplatesPartialUpdateBodyNameMax = 400
+
+export const messagingTemplatesPartialUpdateBodyTypeMax = 24
+
+export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(messagingTemplatesPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    content: zod
+        .object({
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+        })
+        .optional(),
+    type: zod.string().max(messagingTemplatesPartialUpdateBodyTypeMax).optional(),
     message_category: zod.uuid().nullish(),
     deleted: zod.boolean().optional(),
 })

@@ -10,8 +10,9 @@ from parameterized import parameterized
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.models import Organization, Team
-from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from posthog.models.insight import Insight
+
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.models.insight import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
 

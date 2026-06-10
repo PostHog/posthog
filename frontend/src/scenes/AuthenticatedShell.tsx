@@ -10,6 +10,7 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
 import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
+import { WizardProgressFab } from 'scenes/onboarding/sdks/OnboardingInstallStep/WizardProgressFab'
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
@@ -17,6 +18,7 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
+import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -41,6 +43,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Command />
                 <PostOnboardingModal />
                 <ImpersonationNotice />
+                <SelfReadOnlyNotice />
+                <WizardProgressFab />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}

@@ -1,8 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'

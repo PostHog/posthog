@@ -7,9 +7,19 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
     "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
-    # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
+    # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization.
+    # The regex strictly validates X.Y.Z with no leading zeros (matching the Rust `semver` crate
+    # used for flag evaluation), optionally prefixed with 'v' and optionally suffixed with a
+    # pre-release or build identifier. Invalid input falls out of `extract` as an empty string,
+    # which `splitByChar` would turn into `[]` (empty) — and `[] < [1,2,3]` is true in ClickHouse,
+    # which would silently include invalid versions in `< filter` queries (exactly the bug we're
+    # fixing). So we substitute a sentinel `'_'` for the empty-extract case via `nullIf` +
+    # `coalesce`, which `toInt64OrNull` then maps to `NULL`. Invalid input becomes `[NULL]`, type
+    # `Array(Nullable(Int64))` — ClickHouse accepts this (unlike `Nullable(Array(...))`).
+    # Element-wise array comparison propagates NULL through any operator (>, >=, <, <=, =, !=),
+    # so invalid versions are excluded from every semver filter — matching Rust's behavior.
     "sortablesemver": HogQLFunctionMeta(
-        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
+        "arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull({}), '^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$'), ''), '_')))",
         1,
         1,
         case_sensitive=False,

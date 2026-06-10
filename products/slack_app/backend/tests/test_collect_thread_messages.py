@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
@@ -169,7 +170,7 @@ class TestCollectThreadMessages:
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -215,19 +216,60 @@ class TestCollectThreadMessages:
         assert result[1]["user"] == "andy"
         assert "was that really an anomaly?" in result[1]["text"]
 
-    def test_skips_our_own_bot_messages(self, mock_get_user_info):
+    def test_skips_our_own_bot_reply_messages(self, mock_get_user_info):
+        # Our own bot replies (e.g. "Working on it...") must be filtered so the agent
+        # doesn't ingest its own status updates as context on a re-mention.
         self._set_thread(
             [
-                {"bot_id": "B_OUR_CODE_BOT", "text": "Working on it..."},
-                {"user": "U_ANDY", "text": "thanks"},
+                {"user": "U_ANDY", "text": "@PostHog please look at this", "ts": "1.000"},
+                {"bot_id": "B_OUR_CODE_BOT", "text": "Working on it...", "ts": "2.000"},
+                {"user": "U_ANDY", "text": "thanks", "ts": "3.000"},
             ]
         )
         mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
-        assert len(result) == 1
-        assert result[0]["user"] == "andy"
+        assert [m["ts"] for m in result] == ["1.000", "3.000"]
+        assert all(m["user"] == "andy" for m in result)
+
+    def test_keeps_thread_root_even_when_bot_id_matches_our_own(self, mock_get_user_info):
+        # Regression: in workspaces where the alerting Slack app and the `@PostHog` code
+        # app share an installation identity, the alert that opened the thread has the same
+        # `bot_id` as `our_bot_id`. We must still include it — the agent only posts as a
+        # reply, never as a thread root, so msg 0 is always the originating context.
+        self._set_thread(
+            [
+                {
+                    "bot_id": "B_OUR_CODE_BOT",
+                    "bot_profile": {"name": "PostHog"},
+                    "text": "",
+                    "blocks": [
+                        {
+                            "type": "header",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Alert 'Headline anomaly: Trial activated' firing for insight",
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "Anomaly detected on 2026-05-19"},
+                        },
+                    ],
+                    "ts": "1.000",
+                },
+                {"user": "U_ANDY", "text": "<@UBOT> lets investigate this one", "ts": "2.000"},
+            ]
+        )
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
+
+        assert len(result) == 2
+        assert result[0]["user"] == "PostHog"
+        assert "Alert 'Headline anomaly: Trial activated'" in result[0]["text"]
+        assert result[1]["user"] == "andy"
 
     def test_other_bot_uses_bot_profile_name(self, mock_get_user_info):
         self._set_thread(
@@ -236,21 +278,35 @@ class TestCollectThreadMessages:
                     "bot_id": "B_GRAFANA",
                     "bot_profile": {"name": "Grafana"},
                     "text": "alert: latency p95 above 2s",
+                    "ts": "1.000",
                 }
             ]
         )
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
-        assert result == [{"user": "Grafana", "text": "alert: latency p95 above 2s"}]
+        assert result == [{"user": "Grafana", "text": "alert: latency p95 above 2s", "ts": "1.000"}]
         mock_get_user_info.assert_not_called()
 
     def test_bot_without_profile_falls_back_to_username_field(self, mock_get_user_info):
-        self._set_thread([{"bot_id": "B_HOOK", "username": "PostHog Webhook", "text": "ping"}])
+        self._set_thread([{"bot_id": "B_HOOK", "username": "PostHog Webhook", "text": "ping", "ts": "2.000"}])
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result == [{"user": "PostHog Webhook", "text": "ping"}]
+        assert result == [{"user": "PostHog Webhook", "text": "ping", "ts": "2.000"}]
+
+    def test_includes_ts_for_initiator_disambiguation(self, mock_get_user_info):
+        self._set_thread(
+            [
+                {"user": "U_ANDY", "text": "context", "ts": "1.000"},
+                {"user": "U_ANDY", "text": "@PostHog fix this", "ts": "2.000"},
+            ]
+        )
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR")
+
+        assert [m["ts"] for m in result] == ["1.000", "2.000"]
 
     def test_preserves_user_mention_replacement(self, mock_get_user_info):
         self._set_thread([{"user": "U_ANDY", "text": "hey <@UBOT> can you help"}])
@@ -274,7 +330,18 @@ class TestCollectThreadMessages:
 
         assert [m["user"] for m in result] == ["PostHog", "andy"]
 
-    def test_block_extraction_failure_does_not_break_collection(self, mock_get_user_info):
+    def test_registers_rate_limit_retry_handler(self, mock_get_user_info):
+        self.slack.client.retry_handlers = []
+        self._set_thread([{"user": "U_ANDY", "text": "hi"}])
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+        assert any(isinstance(h, RateLimitErrorRetryHandler) for h in self.slack.client.retry_handlers)
+
+        handlers = [h for h in self.slack.client.retry_handlers if isinstance(h, RateLimitErrorRetryHandler)]
+        assert len(handlers) == 1
+        assert handlers[0].max_retry_count == 3
         # If block flattening blows up for one message, the rest of the thread still flows.
         self._set_thread(
             [

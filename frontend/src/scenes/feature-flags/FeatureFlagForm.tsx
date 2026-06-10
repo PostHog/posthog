@@ -50,13 +50,11 @@ import {
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
@@ -104,7 +102,7 @@ function SortableVariantHeader({
             <div className="flex gap-2 items-center">
                 <Lettermark name={alphabet[index] ?? String(index + 1)} color={LettermarkColor.Gray} size="small" />
                 <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
-                <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+                <span className="text-xs text-muted tabular-nums">({variant.rollout_percentage || 0}%)</span>
             </div>
             <div className="flex gap-1 items-center ml-auto">
                 <LemonButton
@@ -181,10 +179,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
-    const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -389,7 +385,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
                     forceBackTo={
-                        isNewFeatureFlag && featureFlagsV2Enabled
+                        isNewFeatureFlag
                             ? {
                                   key: 'FeatureFlagTemplates',
                                   name: 'Templates',
@@ -942,7 +938,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             <span className="text-sm font-medium">
                                                                 {getActiveVariant()?.key || 'Variant'}
                                                             </span>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-muted tabular-nums">
                                                                 ({getActiveVariant()?.rollout_percentage || 0}%)
                                                             </span>
                                                         </div>

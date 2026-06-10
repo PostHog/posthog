@@ -278,7 +278,7 @@ export function HogQLBoldNumber(): JSX.Element {
         return (
             <div className="BoldNumber LemonTable HogQL">
                 <div className="BoldNumber__value">
-                    <Textfit min={32} max={120}>
+                    <Textfit min={32} max={64}>
                         Loading...
                     </Textfit>
                 </div>
@@ -305,7 +305,7 @@ export function HogQLBoldNumber(): JSX.Element {
     return (
         <div className="BoldNumber LemonTable HogQL ph-no-capture">
             <div className="BoldNumber__value">
-                <Textfit min={32} max={120}>
+                <Textfit min={32} max={64}>
                     {String(value ?? 'Error')}
                 </Textfit>
             </div>

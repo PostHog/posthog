@@ -306,7 +306,20 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        report = diagnose_proxy_record(record)
+        try:
+            report = diagnose_proxy_record(record)
+        except Exception as e:
+            capture_exception(e, {"proxy_record_id": str(record.id), "domain": record.domain})
+            return Response(
+                {
+                    "detail": (
+                        "Couldn't run diagnostics for this proxy. Please try again in a few minutes; "
+                        "if this keeps happening, contact PostHog support."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         serializer = DiagnosticReportSerializer(report)
         return Response(serializer.data)
 

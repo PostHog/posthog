@@ -1,3 +1,4 @@
+import re
 import json
 import datetime as dt
 from collections.abc import Generator
@@ -6,7 +7,7 @@ from typing import Any, Optional
 import requests
 import structlog
 from linkedin_api.clients.restli.client import RestliClient
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from .schemas import (
     LINKEDIN_ADS_ENDPOINTS,
@@ -22,13 +23,84 @@ LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
 CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
 API_VERSION = "202508"
-# `q=analytics` truncates at 15k rows; we slice the date range to stay under it.
+
+# `q=analytics` silently truncates a response at 15k elements. With DAILY granularity an element
+# is one (day × active pivot value), so a window of N days over an account with P active pivot
+# values returns ~N*P elements. Rather than a fixed weekly window (which makes ~52 calls/year for
+# a 1-campaign account just like a 1000-campaign one), we start wide and shrink the window only
+# when a response comes back truncated. Small accounts then sync a long range in a single call,
+# which is what keeps us under LinkedIn's per-member daily call budget. The window size is carried
+# forward across chunks so we discover the right size once instead of per chunk.
 ANALYTICS_RESPONSE_CAP = 15000
-ANALYTICS_CHUNK_DAYS = 7
+ANALYTICS_INITIAL_CHUNK_DAYS = 365
+ANALYTICS_MIN_CHUNK_DAYS = 1
+# Below this fill level a window has enough headroom to widen for the next chunk, so a single dense
+# spike that forced a shrink doesn't keep the window small across an otherwise sparse date range.
+ANALYTICS_GROW_THRESHOLD = ANALYTICS_RESPONSE_CAP // 4
+
+# Upper bound on how long we'll honour a Retry-After header before giving up, so a hostile or
+# misconfigured value can't hang the activity past its heartbeat.
+MAX_RETRY_AFTER_SECONDS = 60.0
+
+# LinkedIn 429 throttle bodies name the window that was exceeded (SECOND / MINUTE / DAY). A DAY
+# throttle is the per-member/app daily call budget and only resets at midnight UTC, so it must not
+# be retried within the run.
+_DAY_THROTTLE_PATTERN = re.compile(r"\bDAY\b")
 
 
 class LinkedinAdsRetryableError(Exception):
-    """Transient LinkedIn API error (5xx / 429) that should be retried."""
+    """Transient LinkedIn API error (5xx / short-window 429) that should be retried.
+
+    `retry_after` carries the parsed Retry-After header (seconds) when LinkedIn provides one,
+    so the retry wait can honour it instead of the default exponential backoff.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class LinkedinAdsDailyRateLimitError(Exception):
+    """LinkedIn per-day rate limit reached (429 with a DAY throttle window).
+
+    Not retried within the run: the member/app daily call budget only resets at midnight UTC, so
+    retrying just burns the remaining budget. We fail fast and let the next scheduled sync resume.
+    """
+
+
+def _parse_retry_after(response: Any) -> float | None:
+    """Pull a numeric Retry-After (seconds) off the underlying requests.Response, if present.
+    LinkedIn sends integer seconds; HTTP-date forms and negative/garbage values are ignored
+    (treated as absent), so a malformed header falls back to exponential backoff rather than a
+    zero/negative sleep that would either hammer the API or crash tenacity's `time.sleep`."""
+    headers = getattr(getattr(response, "response", None), "headers", None)
+    if not headers:
+        return None
+    raw = headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def _is_daily_throttle(body: str | None) -> bool:
+    return bool(body and _DAY_THROTTLE_PATTERN.search(body))
+
+
+_exponential_wait = wait_exponential_jitter(initial=1, max=30)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    """Honour a Retry-After (capped) when the failing call surfaced one, else fall back to
+    exponential jitter for transient transport / 5xx errors."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    retry_after = getattr(exc, "retry_after", None)
+    if retry_after is not None:
+        return min(float(retry_after), MAX_RETRY_AFTER_SECONDS)
+    return _exponential_wait(retry_state)
 
 
 class LinkedinAdsClient:
@@ -91,10 +163,12 @@ class LinkedinAdsClient:
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
     ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
-        """Fetch analytics in weekly chunks to stay under the 15k-row response
-        cap. Capped chunks yield partial data and log a warning — we don't
-        retry/split because extra calls under rate-limit pressure cost more
-        than the missing rows recover."""
+        """Fetch analytics in adaptive date-range chunks sized to stay under the 15k-element
+        response cap. The window starts wide and shrinks (halving) only when a response comes
+        back truncated, then carries the learned size forward. A truncated response is silently
+        capped by LinkedIn — we can't tell which rows were dropped — so we discard it and re-fetch
+        the same start with a smaller window rather than yielding partial data. Only a single-day
+        window that still caps is surfaced (with a warning), since it can't be split further."""
         resource_by_pivot = {
             LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
             LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
@@ -123,16 +197,26 @@ class LinkedinAdsClient:
             )
             return
 
+        chunk_days = ANALYTICS_INITIAL_CHUNK_DAYS
         chunk_start = dt.date.fromisoformat(date_start)
         end_date = dt.date.fromisoformat(date_end)
         while chunk_start <= end_date:
-            chunk_end = min(chunk_start + dt.timedelta(days=ANALYTICS_CHUNK_DAYS - 1), end_date)
+            chunk_end = min(chunk_start + dt.timedelta(days=chunk_days - 1), end_date)
             elements = self._make_request(
                 endpoint=resource,
                 finder="analytics",
                 extra_params=_build_params(chunk_start.isoformat(), chunk_end.isoformat()),
             )
-            if len(elements) >= ANALYTICS_RESPONSE_CAP:
+            capped = len(elements) >= ANALYTICS_RESPONSE_CAP
+            window_days = (chunk_end - chunk_start).days + 1
+
+            # Truncated response and the window spans more than a day: halve it (by its real span,
+            # so a window already clamped by end_date converges fast) and re-fetch the same start.
+            if capped and window_days > ANALYTICS_MIN_CHUNK_DAYS:
+                chunk_days = max(ANALYTICS_MIN_CHUNK_DAYS, window_days // 2)
+                continue
+
+            if capped:
                 logger.warning(
                     "linkedin_ads.analytics_chunk_capped",
                     pivot=pivot.value,
@@ -140,8 +224,14 @@ class LinkedinAdsClient:
                     chunk_end=chunk_end.isoformat(),
                     received=len(elements),
                 )
+
             yield elements, None
             chunk_start = chunk_end + dt.timedelta(days=1)
+
+            # Plenty of headroom left: widen the next window so a sparse range doesn't keep paying
+            # for a window we shrank to fit an earlier dense spike.
+            if not capped and len(elements) < ANALYTICS_GROW_THRESHOLD and chunk_days < ANALYTICS_INITIAL_CHUNK_DAYS:
+                chunk_days = min(ANALYTICS_INITIAL_CHUNK_DAYS, chunk_days * 2)
 
     def get_data_by_resource(
         self,
@@ -179,7 +269,7 @@ class LinkedinAdsClient:
     @retry(
         retry=retry_if_exception_type((LinkedinAdsRetryableError, requests.ConnectionError, requests.Timeout)),
         stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        wait=_retry_wait,
         reraise=True,
     )
     def _call_finder(self, resource_path: str, finder: str, params: dict[str, Any]) -> Any:
@@ -189,6 +279,11 @@ class LinkedinAdsClient:
         returns 504s; those surface here as `requests.ConnectionError` / `requests.Timeout`
         from the underlying requests.Session, or as a non-2xx response we convert to
         `LinkedinAdsRetryableError`. Non-retryable 4xx responses still raise immediately.
+
+        429s are split by throttle window: a DAY throttle is the per-member/app daily call budget
+        (resets only at midnight UTC) and raises a non-retryable `LinkedinAdsDailyRateLimitError`
+        so we fail fast instead of burning the remaining budget on doomed retries. Short-window
+        429s stay retryable and honour the Retry-After header when present.
         """
         response = self.client.finder(
             resource_path=resource_path,
@@ -198,7 +293,15 @@ class LinkedinAdsClient:
             version_string=self.api_version,
         )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        if response.status_code == 429:
+            body = response.response.text
+            if _is_daily_throttle(body):
+                raise LinkedinAdsDailyRateLimitError(f"LinkedIn daily rate limit reached (429): {body}")
+            raise LinkedinAdsRetryableError(
+                f"LinkedIn API error (retryable, 429): {body}",
+                retry_after=_parse_retry_after(response),
+            )
+        if response.status_code >= 500:
             raise LinkedinAdsRetryableError(
                 f"LinkedIn API error (retryable, {response.status_code}): {response.response.text}"
             )

@@ -13,7 +13,6 @@ from google.genai.errors import APIError
 from google.genai.types import Blob, Content, Part, VideoMetadata
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.storage import object_storage
@@ -21,6 +20,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,

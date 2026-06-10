@@ -24,13 +24,14 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import (
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseTable,
 )
-from products.data_warehouse.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -304,11 +305,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+
         updates = request.data.get("updates", None)
         if updates is None:
             return response.Response(status=status.HTTP_200_OK)
 
-        table: DataWarehouseTable = self.get_object()
         if table.external_data_source is not None:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}

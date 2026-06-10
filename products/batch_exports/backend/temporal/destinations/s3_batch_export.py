@@ -210,7 +210,13 @@ def s3_default_fields() -> list[BatchExportField]:
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to export ClickHouse data into S3.
+    """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
+
+    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
+    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
+    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
+    serializes them to JSON, and on deserialization fields not present on the narrower
+    input class fall through to their `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
@@ -789,6 +795,11 @@ class ConcurrentS3Consumer(Consumer):
         # Remove from pending uploads immediately
         self.pending_uploads.pop(part_number, None)
 
+        # Ignore cancellations product of an aborted multi part upload
+        if task.cancelled():
+            self.logger.warning("Upload cancelled for file number %s part %s", self.current_file_index, part_number)
+            return
+
         # Handle any exceptions
         if task.exception() is not None:
             # Log the error - the exception will be re-raised when the task is awaited
@@ -904,12 +915,19 @@ class ConcurrentS3Consumer(Consumer):
         )
 
     async def _abort(self):
-        """Abort this S3 multi-part upload."""
+        """Abort this S3 multi-part upload and cancel any in-flight part uploads."""
+        if self.pending_uploads:
+            for task in self.pending_uploads.values():
+                task.cancel()
+            await asyncio.gather(*self.pending_uploads.values(), return_exceptions=True)
+            self.pending_uploads.clear()
+
         if self.upload_id:
+            upload_id = self.upload_id
             try:
                 client = await self._get_s3_client()
-                await client.abort_multipart_upload(
-                    Bucket=self.bucket, Key=self._get_current_key(), UploadId=self.upload_id
-                )
+                await client.abort_multipart_upload(Bucket=self.bucket, Key=self._get_current_key(), UploadId=upload_id)
             except Exception:
-                pass  # Best effort cleanup
+                self.logger.exception("Best-effort abort of multipart upload %s failed", upload_id)
+            finally:
+                self.upload_id = None

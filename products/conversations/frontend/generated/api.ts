@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateStatusRequestApi,
+    BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     ComposeTicketApi,
@@ -51,7 +53,7 @@ export const getConversationsListUrl = (projectId: string, params?: Conversation
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -79,9 +81,9 @@ export const getConversationsCreateUrl = (projectId: string) => {
 
 /**
  * Unified endpoint that handles both conversation creation and streaming.
-
-- If message is provided: Start new conversation processing
-- If no message: Stream from existing conversation
+ *
+ * - If message is provided: Start new conversation processing
+ * - If no message: Stream from existing conversation
  */
 export const conversationsCreate = async (
     projectId: string,
@@ -111,14 +113,32 @@ export const conversationsRetrieve = async (
     })
 }
 
+export const getConversationsDestroyUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/`
+}
+
+/**
+ * Delete a conversation.
+ */
+export const conversationsDestroy = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsDestroyUrl(projectId, conversation), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
 }
 
 /**
  * Appends a message to an existing conversation without triggering AI processing.
-This is used for client-side generated messages that need to be persisted
-(e.g., support ticket confirmation messages).
+ * This is used for client-side generated messages that need to be persisted
+ * (e.g., support ticket confirmation messages).
  */
 export const conversationsAppendMessageCreate = async (
     projectId: string,
@@ -238,86 +258,12 @@ export const conversationsQueueClearCreate = async (
     })
 }
 
-export const getConversationsViewsListUrl = (projectId: string, params?: ConversationsViewsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/conversations/views/?${stringifiedParams}`
-        : `/api/environments/${projectId}/conversations/views/`
-}
-
-export const conversationsViewsList = async (
-    projectId: string,
-    params?: ConversationsViewsListParams,
-    options?: RequestInit
-): Promise<PaginatedTicketViewListApi> => {
-    return apiMutator<PaginatedTicketViewListApi>(getConversationsViewsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getConversationsViewsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/conversations/views/`
-}
-
-export const conversationsViewsCreate = async (
-    projectId: string,
-    ticketViewApi: NonReadonly<TicketViewApi>,
-    options?: RequestInit
-): Promise<TicketViewApi> => {
-    return apiMutator<TicketViewApi>(getConversationsViewsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketViewApi),
-    })
-}
-
-export const getConversationsViewsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/conversations/views/${shortId}/`
-}
-
-export const conversationsViewsRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<TicketViewApi> => {
-    return apiMutator<TicketViewApi>(getConversationsViewsRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getConversationsViewsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/conversations/views/${shortId}/`
-}
-
-export const conversationsViewsDestroy = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -446,20 +392,51 @@ export const conversationsTicketsSuggestReplyCreate = async (
     })
 }
 
+export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_update_status/`
+}
+
+/**
+ * Update the status of multiple tickets in a single request.
+ *
+ * Only tickets belonging to the current team are affected; other-team UUIDs
+ * are silently ignored.  Tickets already in the requested status are skipped.
+ */
+export const conversationsTicketsBulkUpdateStatusCreate = async (
+    projectId: string,
+    bulkUpdateStatusRequestApi: BulkUpdateStatusRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateStatusResponseApi> => {
+    return apiMutator<BulkUpdateStatusResponseApi>(getConversationsTicketsBulkUpdateStatusCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateStatusRequestApi),
+    })
+}
+
 export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/tickets/bulk_update_tags/`
 }
 
 /**
  * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const conversationsTicketsBulkUpdateTagsCreate = async (
     projectId: string,
@@ -500,9 +477,9 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 
 /**
  * Get total unread ticket count for the team.
-
-Returns the sum of unread_team_count for all non-resolved tickets.
-Cached in Redis for 30 seconds, invalidated on changes.
+ *
+ * Returns the sum of unread_team_count for all non-resolved tickets.
+ * Cached in Redis for 30 seconds, invalidated on changes.
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
@@ -511,5 +488,79 @@ export const conversationsTicketsUnreadCountRetrieve = async (
     return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsViewsListUrl = (projectId: string, params?: ConversationsViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/views/`
+}
+
+export const conversationsViewsList = async (
+    projectId: string,
+    params?: ConversationsViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketViewListApi> => {
+    return apiMutator<PaginatedTicketViewListApi>(getConversationsViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/views/`
+}
+
+export const conversationsViewsCreate = async (
+    projectId: string,
+    ticketViewApi: NonReadonly<TicketViewApi>,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketViewApi),
+    })
+}
+
+export const getConversationsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsDestroy = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }

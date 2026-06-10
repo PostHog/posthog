@@ -97,7 +97,8 @@ class PostgresPrinter(BasePrinter):
         return self.visit(node.type)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name.upper()` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name.upper()
 

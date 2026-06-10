@@ -12,6 +12,8 @@ class NotificationEventSerializer(serializers.Serializer):
     body = serializers.CharField()
     read = serializers.BooleanField()
     read_at = serializers.DateTimeField(allow_null=True)
+    target_type = serializers.CharField()
+    target_id = serializers.CharField()
     resource_type = serializers.CharField(allow_null=True)
     resource_id = serializers.CharField()
     source_url = serializers.CharField()

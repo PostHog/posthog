@@ -23,8 +23,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     pyarrow_schema_from_arrow_exportable,
 )
 
-from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 
 def _write_deltalake(
@@ -43,6 +43,43 @@ def _write_deltalake(
         schema_mode=schema_mode,
         commit_properties=commit_properties,
     )
+
+
+def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
+    """Re-materialize any Decimal128/256 column whose values buffer isn't 16-byte aligned.
+
+    delta-rs (arrow-rs) aborts the entire worker — not a catchable Python exception,
+    an `abort()` at the `extern "C"` boundary that can't unwind — when it's handed a
+    decimal values buffer aligned to 8 bytes instead of the 16 that Rust's i128 requires.
+    The misalignment arrives across the Arrow C Data Interface, which only recommends
+    8-byte alignment. We funnel every Delta write/merge through here so a single guard
+    covers both pipeline versions. See delta-io/delta-rs#3884.
+
+    Only the values buffer (`buffers()[1]`) holds the i128 payload that must be aligned;
+    the validity bitmap has no such requirement, so we don't bother checking it.
+
+    `pa.concat_arrays` forces a fresh allocation through pyarrow's allocator (64-byte
+    aligned), which satisfies the requirement. `combine_chunks()` is zero-copy and would
+    keep the misaligned buffer, so it can't be used here. The buffer scan is cheap and
+    the copy only fires on the rare misaligned batch, so the common path is untouched.
+    """
+    new_columns: dict[str, pa.ChunkedArray] = {}
+    realigned = False
+    for i in range(table.num_columns):
+        field = table.field(i)
+        column = table.column(i)
+        if pa.types.is_decimal(field.type) and any(
+            (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
+        ):
+            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)], type=field.type)
+            realigned = True
+        else:
+            new_columns[field.name] = column
+
+    if not realigned:
+        return table
+
+    return pa.table(new_columns, schema=table.schema)
 
 
 def _first_per_pk_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
@@ -204,6 +241,11 @@ class DeltaTableHelper:
         progress_callback: Callable[[], None] | None = None,
         commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
+        # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
+        # _realign_decimal_buffers). Sub-tables derived below via filter()/take() are
+        # freshly allocated by pyarrow and so inherit safe alignment.
+        data = _realign_decimal_buffers(data)
+
         delta_table = await self.get_delta_table()
 
         if delta_table:
@@ -400,6 +442,11 @@ class DeltaTableHelper:
         `data` is expected to already have valid_from / valid_to columns as produced
         by batcher.build_scd2_table().
         """
+        # See write_to_deltalake / _realign_decimal_buffers. The close-existing merge uses
+        # _first_per_pk_table(data), whose take() output is freshly allocated, so realigning
+        # `data` here covers both the close and the append.
+        data = _realign_decimal_buffers(data)
+
         delta_table = await self.get_delta_table()
 
         if delta_table:

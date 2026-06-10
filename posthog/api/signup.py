@@ -605,6 +605,11 @@ class InviteSignupSerializer(serializers.Serializer):
                     verified=True,
                     label="Passkey",
                 )
+                # Treat the passkey as the user's 2FA factor when the org enforces 2FA. Otherwise
+                # they land behind an undismissable setup modal that only offers TOTP enrollment
+                if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
+                    user.passkeys_enabled_for_2fa = True
+                    user.save(update_fields=["passkeys_enabled_for_2fa"])
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)

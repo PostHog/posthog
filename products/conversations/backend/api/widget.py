@@ -29,7 +29,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
-from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -158,8 +157,9 @@ class WidgetMessageView(APIView):
                     if ticket.widget_session_id != widget_session_id:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-                # Update distinct_id if changed (anonymous → identified transition)
-                if ticket.distinct_id != distinct_id:
+                # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
+                # Anonymous → identified continuity is still handled by person merging.
+                if verified_distinct_id is not None and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
 
                 # Update traits if provided
@@ -227,16 +227,6 @@ class WidgetMessageView(APIView):
         # via transaction.on_commit (see signals.py). Only unread_count needs
         # explicit invalidation here since the signal doesn't cover it.
         invalidate_unread_count_cache(team.id)
-
-        # Send email notification for new tickets
-        if not ticket_id:
-            conversations_settings = team.conversations_settings or {}
-            if conversations_settings.get("notification_recipients"):
-                send_new_ticket_notification.delay(
-                    ticket_id=str(ticket.id),
-                    team_id=team.id,
-                    first_message_content=message_content,
-                )
 
         return Response(
             {

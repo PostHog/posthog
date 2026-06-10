@@ -121,6 +121,19 @@ class TestAbsoluteUrls(TestCase):
             with pytest.raises(PotentialSecurityProblemException):
                 (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
 
+    @parameterized.expand(
+        [
+            # `urlparse` returns hostname='app.posthog.com' so the SITE_URL host check
+            # passes, but HTTP clients/browsers route to attacker.example.
+            ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+        ]
+    )
+    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri(url)
+
 
 class TestFormatUrls(TestCase):
     factory = RequestFactory()
@@ -940,7 +953,10 @@ class TestSharingOverrideProtection(TestCase):
             ("password_protected_auth",),
         ]
     )
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
         from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -958,7 +974,10 @@ class TestSharingOverrideProtection(TestCase):
 
         assert result == {"var1": {"value": "safe"}}
 
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
         request = self._make_request(
             None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}

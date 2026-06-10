@@ -1,6 +1,7 @@
 import { Histogram } from 'prom-client'
 
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 
 import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
@@ -28,9 +29,15 @@ export type LogsRateLimiterConfig = Pick<
     | 'LOGS_LIMITER_TTL_SECONDS'
 >
 
-export const BASE_REDIS_KEY =
-    process.env.NODE_ENV == 'test' ? '@posthog-test/logs-rate-limiter' : '@posthog/logs-rate-limiter'
-const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
+const DEFAULT_LIMITER_NAME = 'logs-rate-limiter'
+
+/** Redis key prefix for a given limiter name. Each ingestion type (logs, traces) gets its own
+ * namespace so their token buckets don't share — and deplete — the same per-team state. */
+export const buildBaseRedisKey = (limiterName: string = DEFAULT_LIMITER_NAME): string =>
+    process.env.NODE_ENV == 'test' ? `@posthog-test/${limiterName}` : `@posthog/${limiterName}`
+
+/** Re-exported for the consumer test which needs to clean up keys between runs. */
+export const BASE_REDIS_KEY = buildBaseRedisKey()
 
 export type LogsRateLimit = {
     tokensBefore: number
@@ -53,15 +60,24 @@ export class LogsRateLimiterService {
     private teamRefillRates: Map<number, number>
     private disabledTeamIds: Set<number> | '*' | null
     private enabledTeamIds: Set<number> | '*' | null
+    private rateLimiter: KeyedRateLimiterService
 
     constructor(
         private config: LogsRateLimiterConfig,
-        private redis: RedisV2
+        redis: RedisV2,
+        limiterName: string = DEFAULT_LIMITER_NAME
     ) {
         this.teamBucketSizes = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
         this.teamRefillRates = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
         this.disabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_DISABLED_FOR_TEAMS)
         this.enabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_ENABLED_TEAMS)
+        this.rateLimiter = new KeyedRateLimiterService(
+            // Bucket params are passed per-request so live `this.config` mutations
+            // (used in tests) take effect. failOpen=false preserves the legacy
+            // throw-on-Redis-outage behaviour.
+            { name: limiterName, failOpen: false },
+            redis
+        )
     }
 
     private parseTeamIdList(config: string): Set<number> | '*' | null {
@@ -95,23 +111,6 @@ export class LogsRateLimiterService {
         return result
     }
 
-    private rateLimitArgs(
-        id: string,
-        cost: number,
-        nowSeconds: number
-    ): [string, number, number, number, number, number] {
-        const teamId = parseInt(id, 10)
-
-        return [
-            `${REDIS_KEY_TOKENS}/${id}`,
-            nowSeconds,
-            cost,
-            this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
-            this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
-            this.config.LOGS_LIMITER_TTL_SECONDS,
-        ]
-    }
-
     private getHeaderValue(headers: any[] | undefined, key: string): string | undefined {
         if (!headers || !Array.isArray(headers)) {
             return undefined
@@ -139,29 +138,22 @@ export class LogsRateLimiterService {
     }
 
     public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, LogsRateLimit][]> {
-        const res = await this.redis.usePipeline({ name: 'logs-rate-limiter', failOpen: true }, (pipeline) => {
-            idCosts.forEach(([id, cost, nowSeconds]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
-            })
-        })
-
-        if (!res) {
-            throw new Error('Failed to rate limit')
-        }
-
-        return idCosts.map(([id, ,], index) => {
-            const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
-            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
-            return [
+        const requests: KeyedRateLimitRequest[] = idCosts.map(([id, cost, nowSeconds]) => {
+            const teamId = parseInt(id, 10)
+            return {
                 id,
-                {
-                    tokensBefore,
-                    tokensAfter,
-                    isRateLimited: tokensAfter <= 0,
-                },
-            ]
+                cost,
+                now: nowSeconds,
+                bucketSize: this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
+                refillRate: this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+                ttlSeconds: this.config.LOGS_LIMITER_TTL_SECONDS,
+            }
         })
+        const results = await this.rateLimiter.rateLimitMany(requests)
+        return results.map(([id, r]) => [
+            id,
+            { tokensBefore: r.tokensBefore, tokensAfter: r.tokens, isRateLimited: r.isRateLimited },
+        ])
     }
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {

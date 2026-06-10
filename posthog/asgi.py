@@ -33,11 +33,13 @@ def _ensure_post_fork_init():
     if _post_fork_initialized:
         return
 
+    from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
 
     start_continuous_profiling()
     initialize_otel()
+    prewarm_query_cache_cluster_in_background()
     _post_fork_initialized = True
 
 
@@ -86,4 +88,16 @@ def self_capture_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))
+def task_run_event_ingest_wrapper(func):
+    async def inner(scope, receive, send):
+        from products.tasks.backend.stream.event_ingest import handle_task_run_event_ingest
+
+        if await handle_task_run_event_ingest(scope, receive, send):
+            return
+
+        return await func(scope, receive, send)
+
+    return inner
+
+
+application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))

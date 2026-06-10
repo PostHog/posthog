@@ -43,7 +43,7 @@ jobs:
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
             - name: Checkout master (blobless, full history)
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
@@ -54,14 +54,17 @@ jobs:
               run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: false
 
             - name: Run review
               env:
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  # Dedicated key so a rotation of the shared ANTHROPIC_API_KEY
+                  # doesn't break stamphog (and vice versa). The env var name
+                  # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
+                  ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -111,10 +114,14 @@ jobs:
                       --repo "$REPO"
                   fi
 
-                  # Non-APPROVED verdict removes the label, breaking the
-                  # auto-rerun loop until a human re-applies it after
-                  # addressing the feedback.
-                  if [ "$VERDICT" != "APPROVED" ]; then
+                  # A substantive non-APPROVED verdict (REFUSE/ESCALATE)
+                  # removes the label, breaking the auto-rerun loop until a
+                  # human re-applies it after addressing the feedback. ERROR
+                  # means the review agent couldn't reach its LLM backend
+                  # (auth/credit/outage) — that's not a verdict on the PR, so
+                  # keep the label and let it retry rather than silently
+                  # dropping it across every queued PR during an outage.
+                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi
@@ -158,7 +165,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
 
             - name: Checkout master (full history)
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
@@ -169,9 +176,9 @@ jobs:
               run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: false
 
             - name: Decide retain vs dismiss

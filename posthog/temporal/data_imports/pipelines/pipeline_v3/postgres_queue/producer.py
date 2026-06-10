@@ -47,6 +47,8 @@ class PostgresProducer:
         is_first_ever_sync: bool = False,
         cdc_write_mode: str | None = None,
         cdc_table_mode: str | None = None,
+        workflow_id: str | None = None,
+        workflow_run_id: str | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -66,6 +68,8 @@ class PostgresProducer:
         self._is_first_ever_sync = is_first_ever_sync
         self._cdc_write_mode = cdc_write_mode
         self._cdc_table_mode = cdc_table_mode
+        self._workflow_id = workflow_id
+        self._workflow_run_id = workflow_run_id
 
         self._conn = psycopg.Connection.connect(database_url, autocommit=True)
         self._batches_sent = 0
@@ -114,6 +118,12 @@ class PostgresProducer:
             metadata["cdc_write_mode"] = self._cdc_write_mode
         if self._cdc_table_mode is not None:
             metadata["cdc_table_mode"] = self._cdc_table_mode
+        # Producer runs inside a Temporal activity; pass ids through so the consumer
+        # can bind log context without re-querying ExternalDataJob.
+        if self._workflow_id is not None:
+            metadata["workflow_id"] = self._workflow_id
+        if self._workflow_run_id is not None:
+            metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
 
         self._conn.execute(
@@ -153,11 +163,20 @@ class PostgresProducer:
         )
 
         self._batches_sent += 1
-        self._logger.debug(
-            "batch_inserted_to_postgres_queue",
-            batch_index=batch_result.batch_index,
-            is_final_batch=is_final_batch,
-        )
+        if is_final_batch:
+            self._logger.info(
+                "batch_inserted_to_postgres_queue",
+                batch_index=batch_result.batch_index,
+                is_final_batch=True,
+                total_batches=total_batches,
+                total_rows=total_rows,
+            )
+        else:
+            self._logger.debug(
+                "batch_inserted_to_postgres_queue",
+                batch_index=batch_result.batch_index,
+                is_final_batch=False,
+            )
 
     def flush(self, timeout: Optional[float] = None) -> int:
         """No-op — inserts are durable on commit. Returns count of batches sent since last flush."""

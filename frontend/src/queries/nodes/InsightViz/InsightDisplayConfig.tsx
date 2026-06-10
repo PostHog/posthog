@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -16,8 +17,11 @@ import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -25,13 +29,16 @@ import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/Resul
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
+import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
+import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -47,6 +54,28 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+const LINE_DISPLAYS = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+] as const
+const BAR_DISPLAYS = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsBarValue,
+] as const
+
+function displayMatches(display: ChartDisplayType | null | undefined, displays: readonly ChartDisplayType[]): boolean {
+    return !!display && displays.includes(display)
+}
+
+function isDefaultTrendsLineDisplay(
+    display: ChartDisplayType | null | undefined,
+    querySource: Parameters<typeof isTrendsQuery>[0]
+): boolean {
+    return !display && isTrendsQuery(querySource)
+}
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -68,13 +97,16 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        supportsBarValueStacking,
         supportsResultCustomizationBy,
         yAxisScaleType,
         showMultipleYAxes,
+        showAnnotations,
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
         interval,
+        insightData,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -102,10 +134,13 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const isLineGraph =
-        display === ChartDisplayType.ActionsLineGraph ||
-        display === ChartDisplayType.ActionsAreaGraph ||
-        (!display && isTrendsQuery(querySource))
+    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
+    const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
+    const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
+    const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
+    const showAxisLabelsConfig =
+        isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
+    const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
@@ -177,6 +212,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
@@ -191,9 +227,13 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                                     ? [{ label: () => <ShowTrendLinesFilter /> }]
                                     : []),
+                                ...(isTrendsFunnel && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <HideIncompleteConversionWindowPeriodsFilter /> }]
+                                    : []),
                                 ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
                                     ? [{ label: () => <HideWeekendsFilter /> }]
                                     : []),
+                                ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
                             ],
                   },
               ]
@@ -308,6 +348,14 @@ export function InsightDisplayConfig(): JSX.Element {
                         ]),
               ]
             : []),
+        ...(showAxisLabelsConfig
+            ? [
+                  {
+                      title: 'Axis labels',
+                      items: [{ label: () => <AxisLabelsFilter /> }],
+                  },
+              ]
+            : []),
         ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
@@ -321,6 +369,17 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'On dashboards',
                       items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+                  },
+                  {
+                      title: (
+                          <h5 className="mx-2 my-1">
+                              Cohort labels start at{' '}
+                              <Tooltip title="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
+                                  <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                              </Tooltip>
+                          </h5>
+                      ),
+                      items: [{ label: () => <RetentionCohortLabelStartIndexPicker /> }],
                   },
               ]
             : []),
@@ -337,8 +396,11 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
+        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (showAnnotationsConfig && showAnnotations === false ? 1 : 0)
 
     return (
         <div
@@ -378,6 +440,9 @@ export function InsightDisplayConfig(): JSX.Element {
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
                             disableReason={editingDisabledReason}
+                            tooltip={formatResolvedDateRange(
+                                alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
+                            )}
                         />
                     </ConfigFilter>
                 )}

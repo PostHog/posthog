@@ -1,7 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
-from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer

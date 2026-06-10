@@ -7,7 +7,9 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.cloud_utils import is_cloud
-from posthog.models import Action, Tag
+from posthog.models import Tag
+
+from products.actions.backend.models.action import Action
 
 # Testing enterprise properties of actions here (i.e., tagging).
 
