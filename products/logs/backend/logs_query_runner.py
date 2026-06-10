@@ -31,12 +31,6 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
-# Explicit per-partition `GROUP BY` is required on both the dev `MergeTree` shard
-# (no auto-merge at all) and the prod `AggregatingMergeTree` between merges. A bare
-# `min(max_observed_timestamp)` scans every raw insert and returns the oldest value
-# ever written. Parsed once at import and shared with alert_check_query so the two
-# callers can't drift; execute_hogql_query clones before mutating, so reusing the
-# AST as both a subquery placeholder and a standalone query is safe.
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
     """
     SELECT min(partition_checkpoint) FROM (
