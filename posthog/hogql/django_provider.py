@@ -2,6 +2,8 @@ from typing import Optional
 
 from django.db.models import Q
 
+import posthoganalytics
+
 from posthog.hogql.team_context import HogQLTeamContext
 
 from posthog.models import Team
@@ -59,3 +61,22 @@ class DjangoDataProvider:
                 return prop_type_dict.get("hogql")
 
         return None
+
+    def persons_join_uses_inner_join(self) -> bool:
+        organization = self.team.organization
+        # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
+        return bool(
+            posthoganalytics.feature_enabled(
+                "personless-events-not-supported",
+                str(self.team.uuid),
+                groups={"organization": str(organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(organization.id),
+                        "created_at": organization.created_at,
+                    }
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )

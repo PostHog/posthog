@@ -32,6 +32,14 @@ class DataProvider(Protocol):
         """
         ...
 
+    def persons_join_uses_inner_join(self) -> bool:
+        """Whether joins to the persons table should be INNER instead of LEFT.
+
+        On the Django side this is a per-organization feature flag (personless events
+        not supported); the engine just applies the verdict.
+        """
+        ...
+
 
 @dataclass
 class StaticDataProvider:
@@ -44,6 +52,10 @@ class StaticDataProvider:
 
     team_context: HogQLTeamContext
     person_warehouse_property_types: dict[tuple[str | int, str], Optional[str]] = field(default_factory=dict)
+    persons_inner_join: bool = False
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
+
+    def persons_join_uses_inner_join(self) -> bool:
+        return self.persons_inner_join
