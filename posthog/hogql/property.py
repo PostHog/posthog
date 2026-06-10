@@ -2,9 +2,6 @@ import re
 from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
-
 import re2
 from pydantic import (
     BaseModel,
@@ -55,7 +52,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
@@ -291,22 +288,9 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, data:
         return value
 
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=data.team_context.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.PERSON,
-        )
+        property_type = data.property_type("person", str(property.key))
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=data.team_context.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=property.group_type_index,
-        )
+        property_type = data.property_type("group", str(property.key), property.group_type_index)
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
@@ -332,14 +316,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, data:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=data.team_context.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.EVENT,
-        )
-    property_type = property_types[0].property_type if len(property_types) > 0 else None
+        property_type = data.property_type("event", str(property.key))
 
     if property_type == PropertyType.Boolean:
         if value == "true":

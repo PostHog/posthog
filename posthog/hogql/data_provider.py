@@ -1,7 +1,23 @@
 from dataclasses import dataclass, field
-from typing import Optional, Protocol
+from typing import Literal, Optional, Protocol
 
 from posthog.hogql.team_context import HogQLTeamContext
+
+PropertyKind = Literal["event", "person", "group"]
+
+
+@dataclass(frozen=True)
+class PropertyTypes:
+    """Property-type maps for the properties a query references.
+
+    Shapes match what ``PropertySwapper`` consumes: values are ``{"type": ...}`` dicts,
+    event entries may carry a ``"dmat"`` materialized-slot column, and group keys are
+    ``"{group_type_index}_{name}"``. Properties without a known type are absent.
+    """
+
+    event: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    person: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    group: dict[str, dict[str, str | None]] = field(default_factory=dict)
 
 
 class DataProvider(Protocol):
@@ -40,6 +56,19 @@ class DataProvider(Protocol):
         """
         ...
 
+    def property_type(self, kind: PropertyKind, name: str, group_type_index: Optional[int] = None) -> Optional[str]:
+        """Defined property type (e.g. ``"Boolean"``) of a single property, or ``None``."""
+        ...
+
+    def property_types(
+        self,
+        event_properties: list[str],
+        person_properties: list[str],
+        group_properties: dict[int, list[str]],
+    ) -> PropertyTypes:
+        """Batched property-type lookup for everything a query references."""
+        ...
+
 
 @dataclass
 class StaticDataProvider:
@@ -53,9 +82,36 @@ class StaticDataProvider:
     team_context: HogQLTeamContext
     person_warehouse_property_types: dict[tuple[str | int, str], Optional[str]] = field(default_factory=dict)
     persons_inner_join: bool = False
+    # Full property-type catalog; lookups return the subset a query asks for. A property
+    # absent from the catalog is simply untyped — a legitimate state, not an error.
+    property_type_catalog: PropertyTypes = field(default_factory=PropertyTypes)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
 
     def persons_join_uses_inner_join(self) -> bool:
         return self.persons_inner_join
+
+    def property_type(self, kind: PropertyKind, name: str, group_type_index: Optional[int] = None) -> Optional[str]:
+        if kind == "event":
+            info = self.property_type_catalog.event.get(name)
+        elif kind == "person":
+            info = self.property_type_catalog.person.get(name)
+        else:
+            info = self.property_type_catalog.group.get(f"{group_type_index}_{name}")
+        return info.get("type") if info else None
+
+    def property_types(
+        self,
+        event_properties: list[str],
+        person_properties: list[str],
+        group_properties: dict[int, list[str]],
+    ) -> PropertyTypes:
+        group_keys = {f"{index}_{name}" for index, names in group_properties.items() for name in names}
+        requested_events = set(event_properties)
+        requested_persons = set(person_properties)
+        return PropertyTypes(
+            event={k: v for k, v in self.property_type_catalog.event.items() if k in requested_events},
+            person={k: v for k, v in self.property_type_catalog.person.items() if k in requested_persons},
+            group={k: v for k, v in self.property_type_catalog.group.items() if k in group_keys},
+        )

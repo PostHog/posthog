@@ -1,15 +1,26 @@
 from typing import Optional
 
-from django.db.models import Q
+from django.db import models
+from django.db.models import Prefetch, Q
+from django.db.models.functions.comparison import Coalesce
 
 import posthoganalytics
 
+from posthog.hogql.data_provider import PropertyKind, PropertyTypes
 from posthog.hogql.team_context import HogQLTeamContext
 
-from posthog.models import Team
+from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX
+from posthog.models import PropertyDefinition, Team
+from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+
+
+def _property_definitions_for_project(project_id: int):
+    return PropertyDefinition.objects.alias(
+        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+    ).filter(effective_project_id=project_id)
 
 
 class DjangoDataProvider:
@@ -80,3 +91,96 @@ class DjangoDataProvider:
                 send_feature_flag_events=False,
             )
         )
+
+    def property_type(self, kind: PropertyKind, name: str, group_type_index: Optional[int] = None) -> Optional[str]:
+        if kind == "person":
+            property_types = _property_definitions_for_project(self.team.project_id).filter(
+                name=name,
+                type=PropertyDefinition.Type.PERSON,
+            )
+        elif kind == "group":
+            property_types = _property_definitions_for_project(self.team.project_id).filter(
+                name=name,
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=group_type_index,
+            )
+        else:
+            property_types = _property_definitions_for_project(self.team.project_id).filter(
+                name=name,
+                type=PropertyDefinition.Type.EVENT,
+            )
+        return property_types[0].property_type if len(property_types) > 0 else None
+
+    def property_types(
+        self,
+        event_properties: list[str],
+        person_properties: list[str],
+        group_properties: dict[int, list[str]],
+    ) -> PropertyTypes:
+        # Load event property definitions with their materialized slots in a single query
+        event_property_definitions = (
+            _property_definitions_for_project(self.team.project_id)
+            .filter(
+                name__in=event_properties,
+                type__in=[None, PropertyDefinition.Type.EVENT],
+            )
+            .prefetch_related(
+                Prefetch(
+                    "materialized_column_slots",
+                    queryset=MaterializedColumnSlot.objects.filter(
+                        team_id=self.team.id, state=MaterializedColumnSlotState.READY
+                    ),
+                )
+            )
+            if event_properties
+            else []
+        )
+
+        event: dict[str, dict[str, str | None]] = {}
+        for prop_def in event_property_definitions:
+            if not prop_def.property_type:
+                continue
+
+            prop_info: dict[str, str | None] = {"type": prop_def.property_type}
+            slot = prop_def.materialized_column_slots.first()
+            if slot:
+                prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
+
+            event[prop_def.name] = prop_info
+
+        person_property_values = (
+            _property_definitions_for_project(self.team.project_id)
+            .filter(
+                name__in=person_properties,
+                type=PropertyDefinition.Type.PERSON,
+            )
+            .values_list("name", "property_type")
+            if person_properties
+            else []
+        )
+        person: dict[str, dict[str, str | None]] = {
+            name: {"type": property_type} for name, property_type in person_property_values if property_type
+        }
+
+        group: dict[str, dict[str, str | None]] = {}
+        for group_id, names in group_properties.items():
+            if not names:
+                continue
+            group_property_values = (
+                _property_definitions_for_project(self.team.project_id)
+                .filter(
+                    name__in=names,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=group_id,
+                )
+                .values_list("name", "property_type")
+            )
+            group.update(
+                {
+                    f"{group_id}_{name}": {"type": property_type}
+                    for name, property_type in group_property_values
+                    if property_type
+                }
+            )
+
+        return PropertyTypes(event=event, person=person, group=group)

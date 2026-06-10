@@ -6,17 +6,19 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, PropertyOperator
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, PropertyOperator
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import StaticDataProvider
+from posthog.hogql.data_provider import PropertyTypes, StaticDataProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import apply_path_cleaning_core, property_to_expr_core
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.team_context import HogQLTeamContext
+from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.models import Property
 
@@ -40,14 +42,21 @@ def _provider(**overrides) -> StaticDataProvider:
 
 
 class TestEngineIsolationGate(SimpleTestCase):
-    def _print_context(self) -> HogQLContext:
-        team_context = _team_context()
+    def _print_context(self, provider: StaticDataProvider | None = None) -> HogQLContext:
+        provider = provider or _provider()
         modifiers = create_default_modifiers_for_team_context(
-            team_context, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED), cloud=False
+            provider.team_context,
+            HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.DISABLED,
+                # Materialized-column resolution is the one compile read not yet behind
+                # the port (sequenced after the printer rearchitecture lands).
+                materializationMode=MaterializationMode.DISABLED,
+            ),
+            cloud=False,
         )
         return HogQLContext(
-            team_id=team_context.team_id,
-            data_provider=StaticDataProvider(team_context=team_context),
+            team_id=provider.team_context.team_id,
+            data_provider=provider,
             database=Database(),
             enable_select_queries=True,
             modifiers=modifiers,
@@ -68,9 +77,29 @@ class TestEngineIsolationGate(SimpleTestCase):
         ]
     )
     def test_compiles_with_static_provider_and_no_database(self, _name: str, query: str) -> None:
-        printed, _ = prepare_and_print_ast(parse_select(query), self._print_context(), dialect="hogql")
-        self.assertIsInstance(printed, str)
-        self.assertIn("SELECT", printed)
+        for dialect in ("hogql", "clickhouse"):
+            printed, _ = prepare_and_print_ast(parse_select(query), self._print_context(), dialect=dialect)
+            self.assertIsInstance(printed, str)
+            self.assertIn("SELECT", printed)
+
+    def test_property_type_catalog_is_fetched_through_the_provider(self) -> None:
+        provider = _provider(
+            property_type_catalog=PropertyTypes(
+                event={"$screen_height": {"type": "Numeric"}},
+                person={"is_paying": {"type": "Boolean"}},
+            )
+        )
+        context = self._print_context(provider)
+        node = parse_select(
+            "SELECT properties.$screen_height, properties.$untyped, person.properties.is_paying FROM events"
+        )
+        node = resolve_types(node, context, dialect="clickhouse")
+
+        build_property_swapper(node, context)
+
+        assert context.property_swapper is not None
+        self.assertEqual(context.property_swapper.event_properties, {"$screen_height": {"type": "Numeric"}})
+        self.assertEqual(context.property_swapper.person_properties, {"is_paying": {"type": "Boolean"}})
 
     def test_event_property_filter(self) -> None:
         expr = property_to_expr_core(
@@ -100,6 +129,30 @@ class TestEngineIsolationGate(SimpleTestCase):
                 right=ast.Constant(value=True),
             ),
         )
+
+    @parameterized.expand(
+        [
+            ("event", "event", "$is_subscribed", None),
+            ("person", "person", "is_paying", None),
+            ("group", "group", "is_enterprise", 2),
+        ]
+    )
+    def test_bool_coercion_via_provider(self, _name: str, kind: str, key: str, group_type_index: int | None) -> None:
+        provider = _provider(
+            property_type_catalog=PropertyTypes(
+                event={key: {"type": "Boolean"}},
+                person={key: {"type": "Boolean"}},
+                group={f"{group_type_index}_{key}": {"type": "Boolean"}},
+            )
+        )
+        expr = property_to_expr_core(
+            Property(
+                type=kind, key=key, operator=PropertyOperator.EXACT, value="true", group_type_index=group_type_index
+            ),
+            provider,
+        )
+        assert isinstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.right, ast.Constant(value=True))
 
     def test_relative_date_resolves_against_team_context_timezone(self) -> None:
         expr = property_to_expr_core(

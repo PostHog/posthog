@@ -1,9 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional, cast
 
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
@@ -22,107 +19,30 @@ from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
-    DMAT_STRING_COLUMN_NAME_PREFIX,
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
-from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
-    from posthog.models import PropertyDefinition
-    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-
     if not context or not context.team_id:
-        return
-
-    if not context.team:
-        context.team = Team.objects.get(id=context.team_id)
-
-    if not context.team:
         return
 
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # Load event property definitions with their materialized slots in a single query
-    event_property_definitions = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.event_properties,
-            type__in=[None, PropertyDefinition.Type.EVENT],
-        )
-        .prefetch_related(
-            models.Prefetch(
-                "materialized_column_slots",
-                queryset=MaterializedColumnSlot.objects.filter(
-                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
-                ),
-            )
-        )
-        if property_finder.event_properties
-        else []
+    catalog = context.data.property_types(
+        event_properties=sorted(property_finder.event_properties),
+        person_properties=sorted(property_finder.person_properties),
+        group_properties={group_id: sorted(names) for group_id, names in property_finder.group_properties.items()},
     )
-
-    event_properties: dict[str, dict[str, str | None]] = {}
-    for prop_def in event_property_definitions:
-        if not prop_def.property_type:
-            continue
-
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
-        slot = prop_def.materialized_column_slots.first()
-        if slot:
-            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
-
-        event_properties[prop_def.name] = prop_info
-
-    person_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.person_properties,
-            type=PropertyDefinition.Type.PERSON,
-        )
-        .values_list("name", "property_type")
-        if property_finder.person_properties
-        else []
-    )
-    person_properties: dict[str, dict[str, str | None]] = {
-        name: {"type": property_type} for name, property_type in person_property_values if property_type
-    }
-
-    group_properties: dict[str, dict[str, str | None]] = {}
-    for group_id, properties in property_finder.group_properties.items():
-        if not properties:
-            continue
-        group_property_values = (
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            )
-            .filter(
-                effective_project_id=context.team.project_id,
-                name__in=properties,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index=group_id,
-            )
-            .values_list("name", "property_type")
-        )
-        group_properties.update(
-            {
-                f"{group_id}_{name}": {"type": property_type}
-                for name, property_type in group_property_values
-                if property_type
-            }
-        )
+    event_properties = catalog.event
+    person_properties = catalog.person
+    group_properties = catalog.group
 
     if context.type_observability is not None:
         context.type_observability.record_property_definition_lookup(
