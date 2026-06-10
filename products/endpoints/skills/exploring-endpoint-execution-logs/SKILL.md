@@ -39,24 +39,24 @@ Endpoint execution failed · path=inline error=ResolutionError version=3
 
 Token meanings:
 
-| Token         | Values                                          | Meaning                                       |
-| ------------- | ----------------------------------------------- | --------------------------------------------- |
-| `path`        | `materialized` / `inline` / `ducklake` / `ducklake_fallback` | Which execution path ran          |
-| `cache`       | `hit` / `miss`                                  | Whether the query result cache was used (omitted for ducklake) |
-| `duration_ms` | integer                                         | Wall-clock execution time                     |
-| `rows`        | integer                                         | Number of result rows returned                |
-| `version`     | integer                                         | Which endpoint version ran                    |
-| `error`       | e.g. `ResolutionError`, `HogVMException`        | Error class / HogQL code name (failures only) |
+| Token         | Values                                                       | Meaning                                                        |
+| ------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| `path`        | `materialized` / `inline` / `ducklake` / `ducklake_fallback` | Which execution path ran                                       |
+| `cache`       | `hit` / `miss`                                               | Whether the query result cache was used (omitted for ducklake) |
+| `duration_ms` | integer                                                      | Wall-clock execution time                                      |
+| `rows`        | integer                                                      | Number of result rows returned                                 |
+| `version`     | integer                                                      | Which endpoint version ran                                     |
+| `error`       | e.g. `ResolutionError`, `HogVMException`                     | Error class / HogQL code name (failures only)                  |
 
 Each run gets a distinct `instance_id`, so logs group one-per-execution in the viewer.
 
 ## Available tools
 
-| Tool             | Purpose                                                                          |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `endpoint-logs`  | Primary. Execution log entries for one endpoint by name. Filter by level, search, time range, instance_id; `limit` up to 500. |
-| `endpoint-get`   | Endpoint config for context (current version, materialisation, query kind)       |
-| `execute-sql`    | Fallback / aggregation directly against `log_entries` (`log_source='endpoints'`) |
+| Tool            | Purpose                                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint-logs` | Primary. Execution log entries for one endpoint by name. Filter by level, search, time range, instance_id; `limit` up to 500. |
+| `endpoint-get`  | Endpoint config for context (current version, materialisation, query kind)                                                    |
+| `execute-sql`   | Fallback / aggregation directly against `log_entries` (`log_source='endpoints'`)                                              |
 
 ## Filtering
 
