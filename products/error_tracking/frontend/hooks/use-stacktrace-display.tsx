@@ -6,7 +6,7 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 
 export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string; copyableStacktraceText: string } => {
-    const { exceptionList, stackFrameRecords } = useValues(errorPropertiesLogic)
+    const { exceptionList, stackFrameRecords, stackFrameRecordsLoading } = useValues(errorPropertiesLogic)
 
     const stacktraceText = useMemo(() => {
         return exceptionList
@@ -20,7 +20,7 @@ export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string
             .join('\n\n')
     }, [exceptionList, stackFrameRecords])
 
-    const ready = exceptionList.length > 0 && Object.keys(stackFrameRecords).length > 0
+    const ready = exceptionList.length > 0 && !stackFrameRecordsLoading
 
     return { ready, stacktraceText, copyableStacktraceText }
 }
