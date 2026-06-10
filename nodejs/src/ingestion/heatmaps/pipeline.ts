@@ -22,17 +22,17 @@ import {
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
-import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
-import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
+import { createDisablePersonProcessingStep } from './disable-person-processing-step'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 import { HeatmapsOutput } from './outputs'
+import { createSkipEmitEventStep } from './skip-emit-event-step'
 
 export interface HeatmapsPipelineConfig {
     outputs: IngestionOutputs<HeatmapsOutput | IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
