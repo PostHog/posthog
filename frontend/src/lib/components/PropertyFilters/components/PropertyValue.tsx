@@ -209,7 +209,11 @@ export function PropertyValue({
 
     // show suggested values first, then any other available options that aren't in the suggested list
     const displayOptions = useMemo(() => {
-        const options = propertyOptions?.values || []
+        // Results produced for a different search input are stale — e.g. a background refresh
+        // that lands after the user kept typing. Showing them would make the dropdown filter to
+        // nothing, so fall back to the suggested values until a matching response arrives.
+        const isForCurrentInput = (propertyOptions?.searchInput ?? '') === currentSearchInput.current
+        const options = isForCurrentInput ? propertyOptions?.values || [] : []
         if (initialSuggestedValues.set.size === 0) {
             return options
         }
@@ -240,7 +244,7 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues])
+    }, [propertyOptions?.values, propertyOptions?.searchInput, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()

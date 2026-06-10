@@ -429,6 +429,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
+            if (refresh === 'force_cache' && (values.options[propertyKey]?.searchInput ?? '') !== (newInput || '')) {
+                // Background refresh scheduled for an earlier search input — drop it, or its
+                // results would overwrite the options for what the user is typing now.
+                return
+            }
+
+            // A new load supersedes any scheduled background poll for this key. Without this, a
+            // poll created for an earlier input fires later and clobbers the current results.
+            if (cache.pollingTimeouts?.[propertyKey]) {
+                clearTimeout(cache.pollingTimeouts[propertyKey])
+                delete cache.pollingTimeouts[propertyKey]
+            }
+
             const start = performance.now()
 
             await breakpoint(300)

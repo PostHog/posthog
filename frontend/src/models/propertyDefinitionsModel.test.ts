@@ -616,5 +616,71 @@ describe('the property definitions model', () => {
             expect(capturedUrls).toHaveLength(2)
             expect(capturedUrls[1]).toContain('refresh=force_cache')
         })
+
+        it('drops a scheduled poll once the search input has changed', async () => {
+            let pollCallback: (() => void) | null = null
+            const capturedUrls: string[] = []
+
+            const originalSetTimeout = global.setTimeout.bind(global)
+            jest.spyOn(global, 'setTimeout').mockImplementation(((
+                fn: TimerHandler,
+                delay?: number,
+                ...args: unknown[]
+            ) => {
+                if (delay === 2000) {
+                    pollCallback = () => (fn as (...a: unknown[]) => unknown)(...args)
+                    return 0 as unknown as ReturnType<typeof setTimeout>
+                }
+                return originalSetTimeout(fn, delay, ...args)
+            }) as typeof setTimeout)
+
+            useMocks({
+                get: {
+                    '/api/event/values': (req) => {
+                        capturedUrls.push(req.url.toString())
+                        const isFirst = capturedUrls.length === 1
+                        return [
+                            200,
+                            {
+                                results: isFirst ? [{ name: 'stale-value' }] : [{ name: 'fresh-value' }],
+                                refreshing: isFirst,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            // First search schedules a background poll for its own input
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: 'stale',
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            jest.restoreAllMocks()
+            expect(pollCallback).not.toBeNull()
+
+            // User keeps typing — a newer search lands
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: 'fresh',
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.options['browser'].values).toEqual([{ name: 'fresh-value' }])
+
+            // The stale poll fires anyway — it must not fetch or overwrite the newer results
+            await expectLogic(logic, () => pollCallback!()).toFinishAllListeners()
+
+            expect(capturedUrls).toHaveLength(2)
+            expect(logic.values.options['browser'].values).toEqual([{ name: 'fresh-value' }])
+            expect(logic.values.options['browser'].searchInput).toEqual('fresh')
+        })
     })
 })
