@@ -196,15 +196,15 @@ describe('SlackChannelPicker', () => {
         })
 
         // Focus and blur the picker without typing — the user clicks into the input and then
-        // clicks somewhere else. Use the input's blur event directly to match LemonInputSelect's
-        // _onBlur path that fires setInputValue('').
+        // clicks somewhere else. Clicking outside triggers LemonDropdown's onClickOutside, which
+        // clears popoverFocusRef and blurs the input, so _onBlur reaches setInputValue('').
         const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
         await userEvent.click(input)
-        input.blur()
+        await userEvent.click(document.body)
 
-        // Wait past kea-loaders' breakpoint window so a missed guard would have surfaced an extra
-        // GET .../channels?search= by now. Only the initial empty-search call should remain.
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        // The empty-search load has no breakpoint, so a missed guard fires its request during the
+        // awaited click above — verified by reverting the guard. 100ms is margin for CI scheduling.
+        await new Promise((resolve) => setTimeout(resolve, 100))
         expect(channelsRequestSearchQueries).toEqual([''])
     })
 
