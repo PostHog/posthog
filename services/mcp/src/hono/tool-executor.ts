@@ -113,11 +113,11 @@ export class ToolExecutor {
         state: ResolvedState
     ): Promise<unknown> {
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = tool.schema.safeParse(toolArgs)
+        const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
             return {
-                content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error, toolArgs) }],
+                content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error) }],
                 isError: true,
             }
         }
@@ -175,13 +175,11 @@ export class ToolExecutor {
         const resolved = this.resolveExecTool(state, execMetrics)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = resolved.schema.safeParse(toolArgs)
+        const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
             return {
-                content: [
-                    { type: 'text', text: formatInputValidationError(resolved.name, validation.error, toolArgs) },
-                ],
+                content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
                 isError: true,
             }
         }

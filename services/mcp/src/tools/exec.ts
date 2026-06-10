@@ -111,30 +111,22 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
 }
 
-/** Reads the value at a Zod issue path within the raw input, so we can tell a
- *  missing required field (value is `undefined`) apart from a present-but-wrong
- *  one without leaning on Zod's English message text. */
-function valueAtPath(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
-    let current: unknown = input
-    for (const key of path) {
-        if (current === null || typeof current !== 'object') {
-            return undefined
-        }
-        current = (current as Record<PropertyKey, unknown>)[key]
-    }
-    return current
-}
-
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
  *  not exist" — steering recovery toward re-checking the ID rather than the
- *  malformed parameter. */
-export function formatInputValidationError(toolName: string, error: z.ZodError, input: unknown): string {
+ *  malformed parameter.
+ *
+ *  Callers must `safeParse(input, { reportInput: true })` so `issue.input`
+ *  distinguishes a missing required field from a present-but-wrong one (the
+ *  key is absent without the option, and the check degrades to the wrong-type
+ *  message). `reportInput` embeds raw input values in the ZodError, including
+ *  its `.message` — keep the error local; never log or capture it. */
+export function formatInputValidationError(toolName: string, error: z.ZodError): string {
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
-            if (valueAtPath(input, issue.path) === undefined) {
+            if ('input' in issue && issue.input === undefined) {
                 return `missing required parameter: ${path}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
@@ -345,9 +337,9 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input)
+                    const validation = tool.schema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const message = formatInputValidationError(tool.name, validation.error, input)
+                        const message = formatInputValidationError(tool.name, validation.error)
                         trackInnerCall?.(tool.name, {
                             duration_ms: 0,
                             success: false,
