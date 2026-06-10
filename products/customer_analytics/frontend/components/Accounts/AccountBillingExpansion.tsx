@@ -37,7 +37,7 @@ export function AccountBillingExpansion({
     kind: AccountBillingKind
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
-    const { savedInsight, savedInsightLoading, dateRange, variableOverrides } = useValues(logic)
+    const { savedInsight, savedInsightLoading, dateRange, variableOverrides, queryKey } = useValues(logic)
     const { setDateRange } = useActions(logic)
 
     if (!externalId) {
@@ -68,7 +68,8 @@ export function AccountBillingExpansion({
             {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
             <div className="h-80 flex flex-col overflow-hidden">
                 <Query
-                    uniqueKey={`account-billing-${accountId}-${kind}`}
+                    key={queryKey}
+                    uniqueKey={queryKey}
                     query={query}
                     variablesOverride={variableOverrides ?? null}
                     readOnly

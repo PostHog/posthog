@@ -113,6 +113,11 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 return overrides
             },
         ],
+        queryKey: [
+            (s) => [s.resolvedDateRange, (_, p) => p.accountId, (_, p) => p.kind],
+            (resolvedDateRange, accountId, kind): string =>
+                `account-billing-${accountId}-${kind}-${resolvedDateRange.date_from}-${resolvedDateRange.date_to}`,
+        ],
     }),
     afterMount(({ actions, props }) => {
         if (props.externalId) {
