@@ -242,6 +242,7 @@ describe('TaxonomicFilterHeadless integration', () => {
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-list-recent_filters')).toBeInTheDocument()
         })
+        expect(screen.getByTestId('taxonomic-row-recent_filters-0').textContent).toMatch(/browser/i)
         expect(screen.getByTestId('taxonomic-row-recent_filters-0').textContent).not.toMatch(/Chrome/)
         expect(screen.getByTestId('taxonomic-row-recent_filters-1').textContent).toMatch(/Chrome/)
 
