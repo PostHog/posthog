@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.db import transaction
 
-from rest_framework import exceptions
+from rest_framework import exceptions, status
 
 from posthog.models.user import User
 from posthog.storage import object_storage
@@ -51,6 +51,14 @@ class SandboxCancelResult(TypedDict):
     task_id: str
     run_id: str
     run_status: str
+
+
+class SandboxCommandError(exceptions.APIException):
+    """A control command could not be delivered to the sandbox agent."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Failed to deliver the command to the sandbox agent."
+    default_code = "sandbox_command_failed"
 
 
 class MessageRoutingService(BaseSandboxService):
@@ -134,7 +142,11 @@ class MessageRoutingService(BaseSandboxService):
                 task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status
             )
 
-        send_cancel(run)
+        result = send_cancel(run)
+        if not result.success:
+            # Agent unreachable (no sandbox URL, blocked URL, connection error, timeout) —
+            # the run is still live, so a 200 here would falsely tell the frontend it's cancelling.
+            raise SandboxCommandError(f"Failed to cancel the run: {result.error}")
         run.refresh_from_db(fields=["status"])
 
         return SandboxCancelResult(task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status)

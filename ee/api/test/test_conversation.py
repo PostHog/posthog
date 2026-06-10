@@ -1280,6 +1280,44 @@ class TestConversationSandboxRoute(APIBaseTest):
         # Telemetry fires at the API boundary, after the service returns.
         m_telemetry.assert_called_once()
 
+    def test_sandbox_route_blocked_when_quota_limited(self):
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.is_team_limited", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        m_service.assert_not_called()
+
+    def test_sandbox_route_validates_request_body(self):
+        conversation = self._sandbox_conversation()
+        bad_payloads = [
+            {"content": "x" * 40001},  # over the content length cap
+            {"content": "hello", "trace_id": "not-a-uuid"},  # malformed trace id
+            {"trace_id": str(uuid.uuid4())},  # missing content
+        ]
+        for payload in bad_payloads:
+            with patch("ee.api.conversation.MessageRoutingService") as m_service:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                    payload,
+                )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
+            m_service.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    def test_get_throttles_returns_empty_for_sandbox_action(self):
+        # Like create, the sandbox action's AI throttles are applied conditionally in check_throttles().
+        viewset = ConversationViewSet()
+        viewset.action = "sandbox"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+        self.assertEqual(viewset.get_throttles(), [])
+
     def test_sandbox_route_rejects_langgraph_conversation(self):
         conversation = Conversation.objects.create(
             user=self.user,

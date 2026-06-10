@@ -286,8 +286,8 @@ class ConversationViewSet(
         return queryset
 
     def get_throttles(self):
-        # For create action, throttling is handled in check_throttles() for conditional logic
-        if self.action == "create":
+        # For message-sending actions, throttling is handled in check_throttles() for conditional logic
+        if self.action in ("create", "sandbox"):
             return []
         return super().get_throttles()
 
@@ -312,8 +312,8 @@ class ConversationViewSet(
         return False
 
     def check_throttles(self, request: Request):
-        # Only apply custom throttling for create action
-        if self.action != "create":
+        # Only apply custom throttling for message-sending actions
+        if self.action not in ("create", "sandbox"):
             return super().check_throttles(request)
 
         # Skip throttling in local development
@@ -633,6 +633,14 @@ class ConversationViewSet(
     )
     @action(detail=True, methods=["POST"], url_path="sandbox")
     def sandbox(self, request: Request, *args, **kwargs):
+        # Same billing gate as `create` — this is the follow-up path, so skipping it
+        # would let quota-limited teams keep launching runs.
+        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+            )
+        serializer = SandboxMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         conversation = self.get_object()
         if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
