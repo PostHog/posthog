@@ -7,8 +7,9 @@ class AlertsConfig(AppConfig):
     label = "alerts"
 
     def ready(self) -> None:
-        # Connect the alert-cleanup receivers (hog-function teardown, subscription delete logging)
-        # at app-population. They used to wire in via the viewset import; the lazy API router no
-        # longer pulls that, so connect here. The module's heavy insight-serializer import is
-        # deferred, so importing it at startup stays cheap.
-        from products.alerts.backend.api import alert  # noqa: F401, PLC0415
+        # Connect the alert activity-log and cleanup receivers (hog-function teardown,
+        # subscription delete logging) at app-population. They used to wire in via the viewset
+        # import; the lazy API router no longer pulls that, so connect here. They live in their
+        # own module because the API module imports the alert detector stack (numpy) at module
+        # scope — see activity_logging's docstring.
+        from products.alerts.backend import activity_logging  # noqa: F401, PLC0415

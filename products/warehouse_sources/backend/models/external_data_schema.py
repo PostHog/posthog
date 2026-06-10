@@ -1,3 +1,4 @@
+import sys
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
@@ -5,7 +6,6 @@ from typing import Any, Literal, Optional
 from django.conf import settings
 from django.db import models
 
-import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
@@ -278,7 +278,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     ) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
-        last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        # a numpy scalar can only arrive here if numpy is already imported (the import-pipeline
+        # paths that produce one import it); gating keeps numpy off the django.setup() path
+        if "numpy" in sys.modules:
+            import numpy  # noqa: PLC0415
+
+            last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        else:
+            last_value_py = last_value
         last_value_json: Any
 
         if last_value_py is None:

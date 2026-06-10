@@ -30,6 +30,9 @@ FORBIDDEN_AT_SETUP = [
     "modal",  # Modal SDK — only the tasks/notebooks sandbox runtime needs it
     "aiohttp",  # async HTTP — pulled by slack async client / temporal clickhouse, both deferred
     "s3fs",  # S3 filesystem — only warehouse delete/import paths need it
+    "pandas",  # only query/export paths need it — reached via clickhouse_connect's import-time probe
+    "pyarrow",  # arrow tables — reached via pandas.compat and batch-export internals, both deferred
+    "numpy",  # alert detectors / weighted sampling / warehouse coercion — all call-time now
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
@@ -196,7 +199,7 @@ _RELOCATED_RECEIVERS = [
     "products.managed_migrations.backend.api.batch_imports.handle_batch_import_change",
     "products.actions.backend.api.action.handle_action_change",
     "products.annotations.backend.api.annotation.handle_annotation_change",
-    "products.alerts.backend.api.alert.handle_alert_configuration_change",
+    "products.alerts.backend.activity_logging.handle_alert_configuration_change",
     "products.logs.backend.alerts_api.handle_logs_alert_activity",
     "products.logs.backend.sampling_api.handle_logs_sampling_rule_activity",
     "posthog.api.tagged_item.handle_tag_change",
