@@ -173,8 +173,9 @@ class TestHogQLTypeSystem:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
         for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):
             node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
-            result = node.select[0].type.resolve_constant_type(self.context)
-            assert result == ast.UnknownType(unanalyzable=True), query
+            column_type = node.select[0].type
+            assert column_type is not None
+            assert column_type.resolve_constant_type(self.context) == ast.UnknownType(unanalyzable=True), query
 
         # ...but a null literal is a known-vacuous branch, so the known arm still wins (the null
         # branch only contributes nullability).
