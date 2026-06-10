@@ -15,6 +15,12 @@ from posthog.models.team.production_event_activation import (
 )
 from posthog.models.team.team import Team
 
+# Fixed `now` for the transition assertions. The value is arbitrary — these
+# tests only check that whatever `now` we pass through lands in
+# `_last_checked_at` — but it must be a literal so the time-sensitivity
+# semgrep rule doesn't flag a bare `datetime.now()` in a test.
+_FIXED_NOW = datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
+
 
 @contextmanager
 def _mock_capture():
@@ -75,11 +81,11 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
 class TestMarkTeamsIngestedProductionEvent(BaseTest):
     def test_empty_input_returns_zero(self) -> None:
         with _mock_capture() as capture:
-            self.assertEqual(_mark_teams_ingested_production_event([], now=datetime.now(tz=UTC)), 0)
+            self.assertEqual(_mark_teams_ingested_production_event([], now=_FIXED_NOW), 0)
             capture.assert_not_called()
 
     def test_unflagged_team_is_marked_and_emits(self) -> None:
-        now = datetime.now(tz=UTC)
+        now = _FIXED_NOW
         self.assertFalse(self.team.ingested_production_event)
 
         with _mock_capture() as capture:
@@ -99,7 +105,7 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
         self.team.save(update_fields=["ingested_production_event"])
 
         with _mock_capture() as capture:
-            marked = _mark_teams_ingested_production_event([self.team.id], now=datetime.now(tz=UTC))
+            marked = _mark_teams_ingested_production_event([self.team.id], now=_FIXED_NOW)
 
         self.assertEqual(marked, 0)
         capture.assert_not_called()
@@ -109,7 +115,7 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
         flagged = Team.objects.create(organization=self.organization, name="flagged", ingested_production_event=True)
 
         with _mock_capture() as capture:
-            marked = _mark_teams_ingested_production_event([unflagged.id, flagged.id], now=datetime.now(tz=UTC))
+            marked = _mark_teams_ingested_production_event([unflagged.id, flagged.id], now=_FIXED_NOW)
 
         self.assertEqual(marked, 1)
         unflagged.refresh_from_db()
@@ -121,7 +127,7 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
 
 class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
     def test_empty_batch_is_noop(self) -> None:
-        self.assertEqual(evaluate_and_mark_team_batch([], now=datetime.now(tz=UTC)), (0, 0))
+        self.assertEqual(evaluate_and_mark_team_batch([], now=_FIXED_NOW), (0, 0))
 
     def test_qualifying_team_is_flagged(self) -> None:
         _seed_events_for_team(self.team.id, distinct_id_count=DISTINCT_USERS_THRESHOLD)
