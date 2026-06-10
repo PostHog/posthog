@@ -192,6 +192,42 @@ class TestRouteThreadMessage(TestCase):
         mock_resolve.assert_not_called()
         mock_start.assert_not_called()
 
+    # --- Cross-org access gate -------------------------------------------
+
+    def test_user_without_access_to_mapping_team_dropped_silently(self):
+        """A workspace can be connected to multiple orgs; the message author
+        may belong to a different org than the one that owns the thread's
+        mapping. The handler must drop silently rather than dispatch a
+        workflow against an integration the user has no access to."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        carol = User.objects.create(email="carol@example.com", distinct_id="user-3")
+        OrganizationMembership.objects.create(organization=other_org, user=carol)
+        # Carol's only org is "Other Org" — she has no access to ``self.team``,
+        # which owns the mapping. The same Slack workspace is wired to both.
+        Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T_SLACK",
+            config={"scope": self.integration.config["scope"]},
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U_CAROL",
+            email="carol@example.com",
+            display_name="Carol",
+            real_name="Carol Example",
+            refreshed_at=timezone.now(),
+        )
+
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
+            result = self._route(self._make_event(user="U_CAROL"))
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_start.assert_not_called()
+
     # --- User-resolution gate ---------------------------------------------
 
     def test_unknown_user_dropped_silently(self):

@@ -1423,13 +1423,16 @@ def _resolve_untagged_followup_mapping(
     rollout dashboards can tell them apart.
     """
     candidate_ids = [c.id for c in candidates]
+    # ``task`` is fetched separately inside the classifier activity — the
+    # handler hot path only needs the integration (for the FF check + the
+    # ``mention_target`` override downstream).
     mapping = (
         SlackThreadTaskMapping.objects.filter(
             integration_id__in=candidate_ids,
             channel=channel,
             thread_ts=thread_ts,
         )
-        .select_related("integration", "integration__team", "task")
+        .select_related("integration", "integration__team")
         .first()
     )
     if mapping is None:
@@ -1451,7 +1454,6 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
     flag enabled. Fail-closed on any error — a transient PostHog API outage
     must not silently enable the feature for everyone.
     """
-    return True
     try:
         enabled = posthoganalytics.feature_enabled(
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
@@ -1706,8 +1708,8 @@ def route_posthog_code_event_to_relevant_region(
                 return ROUTE_HANDLED_LOCALLY
             # ``message`` events are only interesting as thread replies. Top-level
             # channel posts dominate the wire volume; drop them before any DB hit.
-            thread_ts_value = event.get("thread_ts")
-            if not isinstance(thread_ts_value, str) or thread_ts_value == event.get("ts"):
+            top_level_thread_ts = event.get("thread_ts")
+            if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
                 return ROUTE_HANDLED_LOCALLY
 
         slack_user_id_str = str(event.get("user") or "")
@@ -1806,13 +1808,28 @@ def route_posthog_code_event_to_relevant_region(
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
         # the mapping was the user's last explicit choice in this thread, so no
-        # picker hint applies.
-        mention_target = target or (candidates[0] if len(candidates) == 1 else None)
+        # picker hint applies. The user must still have access to the bound
+        # integration's team though: ``resolution.candidates`` is already
+        # filtered by access, so requiring the mapping integration to be in it
+        # closes the gap where the message author belongs to a different org
+        # connected to the same workspace than the thread owner did.
         if untagged_followup_mapping is not None:
+            if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
+                logger.info(
+                    "posthog_code_thread_message_user_no_access_to_mapping_team",
+                    slack_team_id=slack_team_id,
+                    channel=channel_str,
+                    thread_ts=thread_ts_str,
+                    user_id=posthog_user.id,
+                    mapping_integration_id=untagged_followup_mapping.integration_id,
+                )
+                return ROUTE_HANDLED_LOCALLY
             mention_target = untagged_followup_mapping.integration
-        elif mention_target is None:
-            _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
-            return ROUTE_HANDLED_LOCALLY
+        else:
+            mention_target = target or (candidates[0] if len(candidates) == 1 else None)
+            if mention_target is None:
+                _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+                return ROUTE_HANDLED_LOCALLY
 
         slack = SlackIntegration(mention_target)
         missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
@@ -2157,10 +2174,9 @@ def _start_mention_workflow(
     classifier activity at the top of its body and short-circuits if the
     mapping is gone by the time the followup activity runs.
 
-    ``posthog_user`` is ``None`` for untagged followups — the handler skips
-    user resolution to keep the webhook fast, and the workflow falls back to
-    its legacy ``resolve_posthog_code_slack_user_activity`` to resolve the
-    Slack user under Temporal retries.
+    ``posthog_user`` is optional only to keep the door open for the legacy
+    in-workflow resolution path; in practice both event types resolve the
+    user at routing time and pass it in.
     """
     if not untagged_followup:
         assert posthog_user is not None, "app_mention path must always resolve a user before dispatch"
