@@ -1,6 +1,10 @@
 name: Frontend CI
 on:
     pull_request:
+        # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
+        # (the merge gate). ready_for_review re-triggers the full run on the
+        # current head when a PR leaves draft.
+        types: [opened, synchronize, reopened, ready_for_review]
     merge_group:
     push:
         branches:
@@ -100,11 +104,11 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-    # Pick which jest tests to run on PRs by passing changed files to
+    # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
-    # Skipped on master push and merge_group; the jest job falls back to its
-    # full FOSS×EE × chunk matrix in those cases. Master push runs the full
-    # suite as the safety net.
+    # Skipped on ready PRs, master push, and merge_group; the jest job falls back
+    # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
+    # full run is the merge gate.
     select-jest-tests:
         name: Select jest tests
         runs-on: ubuntu-latest
@@ -113,6 +117,7 @@ jobs:
         if: |
             always() && needs.changes.outputs.frontend_code == 'true'
             && github.event_name == 'pull_request'
+            && github.event.pull_request.draft == true
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
@@ -201,7 +206,7 @@ jobs:
 
                   # Selective mode: single EE-tree job, no chunk sharding. The FOSS
                   # structural check (ee/ removed) only matters when ee imports are
-                  # touched; defer that to the master push run. --findRelatedTests
+                  # touched; defer that to the ready-for-review full run. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
@@ -476,10 +481,10 @@ jobs:
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On PRs, select-jest-tests may narrow this to a single EE job running
-            # only the tests reachable from changed frontend source files. On master
-            # push and merge_group it's skipped, so we fall back to the full
-            # FOSS×EE × chunk fanout (the safety net).
+            # On draft PRs, select-jest-tests may narrow this to a single EE job
+            # running only the tests reachable from changed frontend source files.
+            # On ready PRs, master push, and merge_group it's skipped, so we fall
+            # back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
 
         steps:

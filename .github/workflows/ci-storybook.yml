@@ -1,6 +1,10 @@
 name: Storybook
 on:
     pull_request:
+        # Draft PRs run a narrowed visual-regression matrix (affected stories only);
+        # ready PRs run the full chromium matrix (the merge gate). ready_for_review
+        # re-triggers the full run on the current head when a PR leaves draft.
+        types: [opened, synchronize, reopened, ready_for_review]
     merge_group:
     push:
         branches:
@@ -172,9 +176,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
-        # always() so vr-setup still runs when select-stories is skipped (master push,
-        # merge_group). Without it, GitHub treats a skipped need as a skip-cascade and
-        # vr-setup wouldn't run when we still want it to.
+        # always() so vr-setup still runs when select-stories is skipped (ready PRs,
+        # master push, merge_group). Without it, GitHub treats a skipped need as a
+        # skip-cascade and vr-setup wouldn't run when we still want it to.
         if: |
             always()
             && needs.changes.outputs.frontend == 'true'
@@ -263,9 +267,10 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # On PRs, select-stories may narrow the matrix to a single chromium shard
-            # running just the affected story files. On master push it's skipped, so we
-            # fall back to changes.outputs.matrix (full suite — chromium + webkit).
+            # On draft PRs, select-stories may narrow the matrix to a single chromium
+            # shard running just the affected story files. On ready PRs and master push
+            # it's skipped, so we fall back to changes.outputs.matrix (ready PRs:
+            # full chromium; master push: chromium + webkit).
             # Storybook CI is skipped entirely on merge_group (changes.if).
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
@@ -616,11 +621,11 @@ jobs:
                   status-job: 'Visual regression tests pass'
 
     # Shadow measurement: reports which stories could have rendered differently
-    # Pick the visual-regression matrix on PRs based on which stories the
+    # Pick the visual-regression matrix on draft PRs based on which stories the
     # webpack module graph (emitted by ModuleGraphPlugin) says are affected
-    # by the diff. On master push and merge_group this job is skipped and
+    # by the diff. On ready PRs and master push this job is skipped and
     # visual-regression falls back to needs.changes.outputs.matrix (the full
-    # suite). The full master-push run remains the safety net — storybook
+    # suite). The ready-for-review full run is the merge gate — storybook
     # already skips merge_group entirely (changes.if).
     select-stories:
         name: Story selection
@@ -630,6 +635,7 @@ jobs:
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
+            && github.event.pull_request.draft == true
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
