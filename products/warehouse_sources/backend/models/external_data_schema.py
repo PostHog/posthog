@@ -239,6 +239,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def dwh_storage_key(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("dwh_storage_key")
+        return None
+
+    @property
     def foreign_keys(self) -> list[dict[str, str]] | None:
         metadata = self.schema_metadata
         if metadata:

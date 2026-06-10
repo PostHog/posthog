@@ -3,13 +3,9 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.conf import settings
-from django.test import override_settings
-
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import (
@@ -28,10 +24,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
-
-# Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
-# default). Same pattern as `posthog/test/test_permissions.py` and the OAuth provider tests.
-_OIDC_RSA_KEY = generate_rsa_key()
 
 
 def _authenticate_as_scout(test: APIBaseTest) -> None:
@@ -52,8 +44,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "client_type": OAuthApplication.CLIENT_PUBLIC,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://app.posthog.com/callback",
-                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint; the
-                # `_OIDC_RSA_KEY` override on the test class satisfies the signing-key requirement.
+                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
                 "algorithm": "RS256",
             },
         )
@@ -246,7 +237,6 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -327,7 +317,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -440,7 +429,6 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """The project profile is the scout's orientation surface — read once at run start.
 

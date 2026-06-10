@@ -158,6 +158,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
@@ -196,7 +197,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User"]
+    user: Optional["User | SyntheticUser"]
     connection_id: str | None
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
@@ -371,19 +372,22 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _compute_system_table_access_decision(
-    team: "Team", user: Optional["User"]
+    team: "Team", user: Optional["User | SyntheticUser"]
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
     access-control caches make later reads query-free) and the system-node table names to remove."""
     system_children = SystemTables().children
 
-    # No user: remove every access-controlled system table.
-    if user is None:
+    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
+    if user is None or isinstance(user, SyntheticUser):
+        readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, {
             name
             for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable)
+            and table_node.table.access_scope is not None
+            and table_node.table.access_scope not in readable_scopes
         }
 
     user_access_control = UserAccessControl(user=user, team=team)
@@ -922,7 +926,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -945,7 +949,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
