@@ -30,6 +30,7 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.posthog_ai.backend.message_routing import SandboxCancelResult, SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.api.conversation import ConversationViewSet
@@ -1260,7 +1261,9 @@ class TestConversationSandboxRoute(APIBaseTest):
 
     def test_sandbox_route_reachable_and_delegates_to_handler(self):
         conversation = self._sandbox_conversation()
-        sentinel = {"task_id": "t", "run_id": "r", "trace_id": None, "run_status": "queued", "just_created_run": True}
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
         with (
             patch("ee.api.conversation.MessageRoutingService") as m_service,
             patch("ee.api.conversation.report_user_action") as m_telemetry,
@@ -1272,7 +1275,7 @@ class TestConversationSandboxRoute(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), sentinel)
+        self.assertEqual(response.json(), sentinel.model_dump())
         m_service.return_value.handle.assert_called_once()
         # The service receives the resolved conversation, not just an id.
         passed_conversation = m_service.call_args[0][0]
@@ -1336,12 +1339,12 @@ class TestConversationSandboxRoute(APIBaseTest):
 
     def test_cancel_sandbox_conversation_delegates_to_sandbox_handler(self):
         conversation = self._sandbox_conversation()
-        sentinel = {"task_id": "t", "run_id": "r", "run_status": "cancelled"}
+        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="cancelled")
         with patch("ee.api.conversation.MessageRoutingService") as m_service:
             m_service.return_value.cancel.return_value = sentinel
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), sentinel)
+        self.assertEqual(response.json(), sentinel.model_dump())
         m_service.return_value.cancel.assert_called_once()
