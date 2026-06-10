@@ -11,7 +11,11 @@
 //! A dropped leaf produces no node, so [`CohortParseFlags::has_dropped_leaf`] records the loss
 //! during the parse. Negation and empty groups are recovered from the frozen tree.
 
+use std::collections::HashMap;
+
+use crate::filters::cohort_graph::RefGraphAnalysis;
 use crate::filters::tree::{BoolOp, CohortTree, FilterNode};
+use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 
 /// Per-cohort signals accumulated while parsing the cohort's filter tree, via the
@@ -40,8 +44,17 @@ pub enum ExcludedReason {
     /// A group anywhere in the tree has zero children. Without exclusion an empty AND evaluates to
     /// `true` (identity), making everyone a member.
     EmptyGroup,
-    /// Has a cohort-reference leaf.
+    /// Has a cohort-reference leaf whose targets are all *resolvable* (each is itself single-leaf,
+    /// composable, or a resolvable ref-bearer) and is not in a cycle. Excluded only because cascade
+    /// transport is not built yet — this is the exact sizing class for the transport slice: every
+    /// cohort here flips to composable once refs can read referenced membership.
     HasCohortRef,
+    /// In a cohort-reference SCC of size > 1, or self-referencing (TDD §2.7.1 layer 2). Even with
+    /// transport, a cycle never settles, so these stay excluded permanently.
+    CycleDetected,
+    /// A (transitive) cohort-reference target is missing from the team catalog, or itself excluded
+    /// for a non-transport reason — so this cohort cannot be composed even once transport lands.
+    UnresolvedRef,
     /// Lost a leaf during parse; the dropped constraint cannot be recovered, so the cohort is never
     /// composable.
     HasDroppedLeaf,
@@ -55,6 +68,8 @@ impl ExcludedReason {
             Self::TopLevelNegation => "excluded_top_level_negation",
             Self::EmptyGroup => "excluded_empty_group",
             Self::HasCohortRef => "excluded_has_cohort_ref",
+            Self::CycleDetected => "excluded_cycle_detected",
+            Self::UnresolvedRef => "excluded_unresolved_ref",
             Self::HasDroppedLeaf => "excluded_has_dropped_leaf",
         }
     }
@@ -128,6 +143,57 @@ pub fn classify(tree: &CohortTree, flags: &CohortParseFlags) -> CohortEligibilit
         None if flags.state_keyed_leaf_count >= 2 => CohortEligibility::Stage2Composable,
         None => CohortEligibility::Excluded(ExcludedReason::NotMultiLeaf),
     }
+}
+
+/// Refine each pass-1 `Excluded(HasCohortRef)` cohort against the team's reference graph, in
+/// referenced-before-referrer order so a transitive verdict is final when its referrer reads it.
+///
+/// Per cohort: in a cycle → [`CycleDetected`](ExcludedReason::CycleDetected); any target unresolvable
+/// → [`UnresolvedRef`](ExcludedReason::UnresolvedRef); otherwise it stays
+/// [`HasCohortRef`](ExcludedReason::HasCohortRef) (the transport-sizing class). A single pass suffices:
+/// `refinement_order` guarantees a cohort's targets are already final when read, and cycle members
+/// short-circuit before reading any target. Structural exclusions (`HasDroppedLeaf` / `EmptyGroup` /
+/// `TopLevelNegation`) are decided in pass 1 and never revisited here, so the net precedence is
+/// structural > `CycleDetected` > `UnresolvedRef` > `HasCohortRef`.
+pub(crate) fn refine_ref_bearing(
+    eligibility: &mut HashMap<CohortId, CohortEligibility>,
+    analysis: &RefGraphAnalysis,
+) {
+    for &cohort_id in &analysis.refinement_order {
+        // Only cohorts pass 1 left as HasCohortRef are refined; a structural exclusion already won.
+        if !matches!(
+            eligibility.get(&cohort_id),
+            Some(CohortEligibility::Excluded(ExcludedReason::HasCohortRef))
+        ) {
+            continue;
+        }
+        let refined = if analysis.in_cycle.contains(&cohort_id) {
+            ExcludedReason::CycleDetected
+        } else if analysis
+            .ref_targets
+            .get(&cohort_id)
+            .is_some_and(|targets| targets.iter().any(|&t| !is_resolvable(eligibility, t)))
+        {
+            ExcludedReason::UnresolvedRef
+        } else {
+            ExcludedReason::HasCohortRef
+        };
+        eligibility.insert(cohort_id, CohortEligibility::Excluded(refined));
+    }
+}
+
+/// Whether a reference target can be composed once cascade transport lands: it must be a single-leaf,
+/// a composable, or a ref-bearer that itself stayed resolvable ([`HasCohortRef`](ExcludedReason::HasCohortRef)).
+/// Absent-from-catalog, or any other exclusion (cycle, unresolved, or structural), is unresolvable.
+fn is_resolvable(eligibility: &HashMap<CohortId, CohortEligibility>, target: CohortId) -> bool {
+    matches!(
+        eligibility.get(&target),
+        Some(
+            CohortEligibility::SingleLeaf(_)
+                | CohortEligibility::Stage2Composable
+                | CohortEligibility::Excluded(ExcludedReason::HasCohortRef)
+        )
+    )
 }
 
 /// The [`LeafStateKey`] of a tree that is **exactly one** state-keyed leaf, or [`None`] otherwise
@@ -584,6 +650,14 @@ mod tests {
             "excluded_has_cohort_ref",
         );
         assert_eq!(
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected).metric_class(),
+            "excluded_cycle_detected",
+        );
+        assert_eq!(
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef).metric_class(),
+            "excluded_unresolved_ref",
+        );
+        assert_eq!(
             CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf).metric_class(),
             "excluded_has_dropped_leaf",
         );
@@ -605,6 +679,154 @@ mod tests {
         assert_eq!(
             classify(&tree, &positive(1)),
             CohortEligibility::SingleLeaf(LeafStateKey::for_person_property(&HASH_A)),
+        );
+    }
+
+    // ── refine_ref_bearing ───────────────────────────────────────────────────────
+
+    use std::collections::HashSet;
+
+    /// Build a [`RefGraphAnalysis`] from in-cycle ids, a referenced-before-referrer order, and each
+    /// ref-bearing cohort's targets — isolating `refine_ref_bearing` from the graph build.
+    fn analysis(
+        in_cycle: &[i32],
+        refinement_order: &[i32],
+        ref_targets: &[(i32, &[i32])],
+    ) -> RefGraphAnalysis {
+        RefGraphAnalysis {
+            in_cycle: in_cycle
+                .iter()
+                .map(|&c| CohortId(c))
+                .collect::<HashSet<_>>(),
+            refinement_order: refinement_order.iter().map(|&c| CohortId(c)).collect(),
+            ref_targets: ref_targets
+                .iter()
+                .map(|&(c, t)| (CohortId(c), t.iter().map(|&x| CohortId(x)).collect()))
+                .collect(),
+        }
+    }
+
+    fn eligibility_map(
+        entries: &[(i32, CohortEligibility)],
+    ) -> HashMap<CohortId, CohortEligibility> {
+        entries.iter().map(|&(c, e)| (CohortId(c), e)).collect()
+    }
+
+    #[test]
+    fn refine_cycle_member_is_cycle_detected() {
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(&mut elig, &analysis(&[1], &[1], &[(1, &[1])]));
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+        );
+    }
+
+    #[test]
+    fn refine_missing_target_is_unresolved_ref() {
+        // Cohort 1 references 99, which is absent from the eligibility map (missing from catalog).
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]));
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn refine_structurally_excluded_target_is_unresolved_ref() {
+        // 1 → 2, but 2 is structurally excluded (empty group), so 1 cannot resolve it.
+        let mut elig = eligibility_map(&[
+            (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (2, CohortEligibility::Excluded(ExcludedReason::EmptyGroup)),
+        ]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[2])]));
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn refine_unresolved_propagates_transitively() {
+        // 1 → 2 → 99(missing). Refining 2 first (referenced-before-referrer) makes it UnresolvedRef,
+        // which then makes 1 UnresolvedRef.
+        let mut elig = eligibility_map(&[
+            (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+        ]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[99])]));
+        assert_eq!(
+            elig[&CohortId(2)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn refine_ref_to_cycle_member_is_unresolved_ref() {
+        // 4 → 1, with 1 ⇄ 2 a cycle. The cycle members are CycleDetected; the tail 4 references a
+        // cycle member, which is unresolvable, so 4 is UnresolvedRef (not itself cyclic).
+        let mut elig = eligibility_map(&[
+            (4, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+        ]);
+        refine_ref_bearing(
+            &mut elig,
+            &analysis(&[1, 2], &[1, 2, 4], &[(4, &[1]), (1, &[2]), (2, &[1])]),
+        );
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+        );
+        assert_eq!(
+            elig[&CohortId(2)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+        );
+        assert_eq!(
+            elig[&CohortId(4)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn refine_resolvable_chain_stays_has_cohort_ref() {
+        // 1 → 2 → 3(single-leaf). Every target resolves, so both ref cohorts stay HasCohortRef — the
+        // transport-sizing class.
+        let mut elig = eligibility_map(&[
+            (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (3, CohortEligibility::SingleLeaf(LeafStateKey(HASH_A))),
+        ]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[3])]));
+        assert_eq!(
+            elig[&CohortId(2)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+        );
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+        );
+    }
+
+    #[test]
+    fn refine_never_touches_structural_exclusions() {
+        // A cohort excluded for a structural reason in pass 1 is never re-refined, even with an
+        // unresolvable target that would otherwise downgrade it.
+        let mut elig = eligibility_map(&[(
+            1,
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        )]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]));
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
         );
     }
 }

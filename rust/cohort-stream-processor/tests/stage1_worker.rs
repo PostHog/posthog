@@ -356,13 +356,16 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
         .all(|t| t.kind == TransitionKind::Entered));
 
     let event_ms = clickhouse_timestamp_to_millis(BASE_TS).unwrap();
+    // D9 calendar eviction: a whole-day window evicts at the local midnight after `day + window_days`,
+    // so the deadline is `start_of_day(event_day + window_days + 1)`, not `event_ms + window`.
+    let event_day = day_idx_in_tz(event_ms, UTC);
     let mut deadlines: Vec<i64> = lsks
         .iter()
         .map(|lsk| behavioral_deadline(&state_at(&store, *lsk, alice).unwrap()))
         .collect();
     deadlines.sort_unstable();
-    assert_eq!(deadlines[0], event_ms + 7 * 86_400 * 1000);
-    assert_eq!(deadlines[1], event_ms + 30 * 86_400 * 1000);
+    assert_eq!(deadlines[0], start_of_day_ms_in_tz(event_day + 7 + 1, UTC));
+    assert_eq!(deadlines[1], start_of_day_ms_in_tz(event_day + 30 + 1, UTC));
     assert_eq!(
         deadlines[1] - deadlines[0],
         (30 - 7) * 86_400 * 1000,
@@ -371,6 +374,7 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
 
     let later_ts = "2026-05-27 12:34:56.789000";
     let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
+    let later_day = day_idx_in_tz(later_ms, UTC);
     let second = CohortStreamEvent {
         timestamp: later_ts.to_string(),
         source_offset: 11,
@@ -386,8 +390,8 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
         .map(|lsk| behavioral_deadline(&state_at(&store, *lsk, alice).unwrap()))
         .collect();
     advanced.sort_unstable();
-    assert_eq!(advanced[0], later_ms + 7 * 86_400 * 1000);
-    assert_eq!(advanced[1], later_ms + 30 * 86_400 * 1000);
+    assert_eq!(advanced[0], start_of_day_ms_in_tz(later_day + 7 + 1, UTC));
+    assert_eq!(advanced[1], start_of_day_ms_in_tz(later_day + 30 + 1, UTC));
 
     // Replay the first event (lower offset): idempotent, no regression.
     let out = process_event(PARTITION_ID, &store, &filters, &first).unwrap();
@@ -410,6 +414,8 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     // Newest-by-event-time arrives first (offset 10), at a later ts than BASE_TS.
     let later_ts = "2026-05-27 12:34:56.789000";
     let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
+    // D9 calendar eviction: the deadline is the local midnight after the newest event's day + window.
+    let newest_deadline = start_of_day_ms_in_tz(day_idx_in_tz(later_ms, UTC) + 7 + 1, UTC);
     let newest = CohortStreamEvent {
         timestamp: later_ts.to_string(),
         ..event(alice, 1, 10)
@@ -419,8 +425,8 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     assert_eq!(out.transitions.len(), 1, "first match enters");
     assert_eq!(
         behavioral_deadline(&state_at(&store, lsk, alice).unwrap()),
-        later_ms + 7 * 86_400 * 1000,
-        "deadline seeded off the newest event",
+        newest_deadline,
+        "deadline seeded off the newest event's calendar day",
     );
 
     // A late event (earlier ts, higher offset) is applied — not a replay — but must not regress the deadline.
@@ -437,8 +443,68 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     );
     assert_eq!(
         behavioral_deadline(&state_at(&store, lsk, alice).unwrap()),
-        later_ms + 7 * 86_400 * 1000,
-        "a late lower-ts event must not regress the deadline below newest_ms + window",
+        newest_deadline,
+        "a late lower-ts event must not regress the deadline below the newest event's midnight",
+    );
+}
+
+#[test]
+fn single_eviction_deadline_is_team_local_midnight_for_both_edge_persons() {
+    // D9: a `performed_event` single evicts at the team-local midnight after `day + window`, so two
+    // persons whose matching events fall on the same calendar day — one just after local midnight, one
+    // just before the next — share one eviction deadline despite being ~23h apart in event time.
+    // Freeze under Asia/Kolkata (+05:30, no DST) so the deadline is observably not the UTC midnight.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters_tz(
+        vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))],
+        Kolkata,
+    );
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+
+    let alice = person(1);
+    let bob = person(2);
+    // 00:30 and 23:30 Kolkata local on 2026-05-20, expressed in UTC (−05:30) → one Kolkata day.
+    let alice_ts = "2026-05-19 19:00:00.000000"; // 00:30 next-day Kolkata
+    let bob_ts = "2026-05-20 18:00:00.000000"; // 23:30 same-day Kolkata
+    let alice_ms = clickhouse_timestamp_to_millis(alice_ts).unwrap();
+    let bob_ms = clickhouse_timestamp_to_millis(bob_ts).unwrap();
+    let kolkata_day = day_idx_in_tz(alice_ms, Kolkata);
+    assert_eq!(
+        kolkata_day,
+        day_idx_in_tz(bob_ms, Kolkata),
+        "both events fall on the same Kolkata calendar day",
+    );
+
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, alice_ts, 1, 10),
+    )
+    .unwrap();
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(bob, bob_ts, 1, 11),
+    )
+    .unwrap();
+
+    let expected = start_of_day_ms_in_tz(kolkata_day + 7 + 1, Kolkata);
+    assert_eq!(
+        behavioral_deadline(&state_at(&store, lsk, alice).unwrap()),
+        expected,
+        "alice (00:30 local) evicts at the team-local midnight after day + 7",
+    );
+    assert_eq!(
+        behavioral_deadline(&state_at(&store, lsk, bob).unwrap()),
+        expected,
+        "bob (23:30 local) shares the same eviction midnight as alice",
+    );
+    assert_ne!(
+        expected,
+        start_of_day_ms_in_tz(kolkata_day + 7 + 1, UTC),
+        "the deadline is the team-local (Kolkata) midnight, not the UTC midnight",
     );
 }
 

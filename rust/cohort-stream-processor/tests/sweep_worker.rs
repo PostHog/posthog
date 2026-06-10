@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono_tz::UTC;
+use chrono_tz::Asia::Kolkata;
+use chrono_tz::{Tz, UTC};
 use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
@@ -117,6 +118,16 @@ fn build_team_filters_multi(cohorts: Vec<(CohortId, Vec<Value>)>) -> TeamFilters
             .expect("add cohort");
     }
     builder.freeze(UTC)
+}
+
+/// A single-cohort catalog frozen under an explicit team timezone, so the sweep evicts at that zone's
+/// local midnight rather than UTC's.
+fn build_team_filters_tz(leaves: Vec<Value>, tz: Tz) -> TeamFilters {
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(CohortId(1), TeamId(TEAM), &cohort(leaves))
+        .expect("add cohort");
+    builder.freeze(tz)
 }
 
 fn catalog_of(filters: TeamFilters) -> Arc<CatalogHandle> {
@@ -338,6 +349,89 @@ async fn sweep_on_an_empty_queue_is_a_noop() {
             .contains_key(&(PARTITION_ID as i32)),
         "a sweep-only batch advances no offset",
     );
+}
+
+#[tokio::test]
+async fn single_does_not_evict_before_its_calendar_midnight_and_does_after() {
+    // D9 boundary regression: two persons whose matching events fall on the same team-local calendar
+    // day — one at 00:30, one at 23:30 Kolkata — share one eviction midnight,
+    // `start_of_day(day + window + 1)` in the team zone. A sweep at that exact midnight evicts neither
+    // (the queue pops strictly before its cutoff); one ms past evicts both in the same tick. The old
+    // instant-granular deadline would have split them ~23h apart. Kolkata (+05:30) makes the deadline
+    // observably the team-local midnight, not UTC's.
+    let lsk = behavioral_lsk(&build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata));
+    let alice = person(1);
+    let bob = person(2);
+    // 00:30 and 23:30 Kolkata local on 2026-05-20, expressed in UTC (−05:30) → one Kolkata day.
+    let early = "2026-05-19 19:00:00.000000"; // 00:30 next-day Kolkata
+    let late = "2026-05-20 18:00:00.000000"; // 23:30 same-day Kolkata
+    let kolkata_day = day_idx_in_tz(clickhouse_timestamp_to_millis(early).unwrap(), Kolkata);
+    let midnight = start_of_day_ms_in_tz(kolkata_day + 7 + 1, Kolkata);
+    assert_ne!(
+        midnight,
+        start_of_day_ms_in_tz(kolkata_day + 7 + 1, UTC),
+        "the eviction boundary is the team-local (Kolkata) midnight, not UTC's",
+    );
+
+    // A sweep exactly at the shared midnight evicts neither edge person.
+    {
+        let (_dir, store) = temp_store();
+        let sink = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        let (tx, worker) = spawn_worker(
+            &store,
+            catalog_of(build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata)),
+            Arc::new(sink.clone()),
+            tracker.clone(),
+        );
+        send_event(&tracker, &tx, event_at(alice, early, 0), 0).await;
+        send_event(&tracker, &tx, event_at(bob, late, 1), 1).await;
+        send_sweep(&tx, midnight).await;
+        drop(tx);
+        worker.join().await.unwrap();
+
+        let changes = sink.changes();
+        assert_eq!(
+            changes.len(),
+            2,
+            "two Entered, no premature Left at the exact midnight",
+        );
+        assert!(changes
+            .iter()
+            .all(|c| c.status == MembershipStatus::Entered));
+        assert!(state_at(&store, lsk, alice).is_some());
+        assert!(state_at(&store, lsk, bob).is_some());
+    }
+
+    // One ms past the shared midnight evicts both edge persons in the same tick.
+    {
+        let (_dir, store) = temp_store();
+        let sink = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        let (tx, worker) = spawn_worker(
+            &store,
+            catalog_of(build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata)),
+            Arc::new(sink.clone()),
+            tracker.clone(),
+        );
+        send_event(&tracker, &tx, event_at(alice, early, 0), 0).await;
+        send_event(&tracker, &tx, event_at(bob, late, 1), 1).await;
+        send_sweep(&tx, midnight + 1).await;
+        drop(tx);
+        worker.join().await.unwrap();
+
+        let lefts = sink
+            .changes()
+            .iter()
+            .filter(|c| c.status == MembershipStatus::Left)
+            .count();
+        assert_eq!(
+            lefts, 2,
+            "both edge persons leave in the same tick one ms past midnight",
+        );
+        assert!(state_at(&store, lsk, alice).is_none());
+        assert!(state_at(&store, lsk, bob).is_none());
+    }
 }
 
 // ── BehavioralDailyBuckets eviction ──────────────────────────────────────────────
@@ -1168,9 +1262,8 @@ fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
     let (_dir, store) = temp_store();
     let alice = person(1);
     let ts = "2026-05-20 10:00:00.000000";
-    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
 
-    // A relative window schedules its eviction at event + window.
+    // A whole-day window schedules its eviction at the local midnight after `day + window` (D9).
     let relative = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&relative);
     let out = process_event(PARTITION_ID, &store, &relative, &event_at(alice, ts, 0)).unwrap();
@@ -1184,9 +1277,9 @@ fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
                 leaf_state_key: lsk,
                 person_id: alice,
             },
-            event_ms + 7 * DAY_MS,
+            start_of_day_ms_in_tz(day_of(ts) + 7 + 1, UTC),
         )],
-        "a relative-window single schedules at event + window",
+        "a whole-day single schedules at the calendar midnight after day + window",
     );
 
     // An explicit date range is permanent membership → never scheduled (deadline i64::MAX).

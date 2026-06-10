@@ -461,9 +461,11 @@ fn mutate_behavioral(
 
     let last_event_at_ms = prev_last_event.max(event_ms);
     let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
-    // Tracks the newest matching event; a late event must not pull the deadline earlier.
-    let earliest_eviction_at_ms =
-        window.map_or(i64::MAX, |w| w.earliest_eviction_at_ms(last_event_at_ms));
+    // Tracks the newest matching event; a late event must not pull the deadline earlier. The team tz
+    // anchors a whole-day window's eviction at local midnight (D9).
+    let earliest_eviction_at_ms = window.map_or(i64::MAX, |w| {
+        w.earliest_eviction_at_ms(last_event_at_ms, filters.timezone)
+    });
 
     let record = StatefulRecord {
         state: Stage1State::BehavioralSingle {

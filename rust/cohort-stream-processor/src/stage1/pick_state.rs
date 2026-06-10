@@ -4,7 +4,10 @@
 //! `INTERVAL_TO_SECONDS` exactly (`month = 30d`, `year = 365d`) as the cross-runtime windowing
 //! contract. Calendar month/year arithmetic would diverge from the existing pipeline.
 
+use chrono_tz::Tz;
+
 use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
+use crate::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use crate::stage1::state::StateVariant;
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 
@@ -56,8 +59,15 @@ impl TimeInterval {
 /// How a [`StateVariant::BehavioralSingle`] leaf's eviction deadline is derived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvictionWindow {
-    /// A rolling window of `seconds` relative to each matching event.
-    Relative { seconds: i64 },
+    /// A whole-day window (`day`/`week`/`month`/`year`): D9 calendar eviction. The deadline is
+    /// tz-midnight of `day(newest_event) + days + 1` — the same boundary
+    /// [`daily_eviction_deadline`](crate::stage1::daily::daily_eviction_deadline) computes — so two
+    /// events on the same calendar day share one eviction midnight regardless of time of day.
+    RelativeDays { days: u32 },
+    /// A sub-day window (`hour`/`minute`): instant-granular. The existing pipeline's
+    /// `relative_date_parse("-Nh")` is not day-floored, so neither is this — the deadline is
+    /// `newest_event + seconds`.
+    RelativeSeconds { seconds: i64 },
     /// A fixed explicit date range `[from, to_ms]`. `to_ms` is retained for documentation/parity but
     /// is **not** an eviction deadline: a `performed_event` over an explicit range is a fixed
     /// historical question, so once matched the person is a member permanently — see
@@ -68,16 +78,31 @@ pub enum EvictionWindow {
 impl EvictionWindow {
     /// The earliest epoch-ms at which state seeded by the newest matching event may be evicted.
     /// Pass the *newest* matching event time so a late (out-of-order) event cannot pull the
-    /// deadline earlier.
+    /// deadline earlier, and the team's `tz` so a whole-day window evicts at local midnight (D9).
+    ///
+    /// A whole-day window holds the member through the end of the last in-window calendar day, so its
+    /// deadline is tz-midnight of `day(newest_event) + days + 1` — identical to the daily-bucket
+    /// variant, so a `performed_event` and a `performed_event_multiple` over the same window evict
+    /// together. A sub-day window stays instant-granular (the old pipeline does not day-floor `-Nh`).
     ///
     /// An explicit window never evicts ([`i64::MAX`]): re-evaluating an explicit `[from, to]` range
     /// always finds the matched event still inside it, so membership is permanent. Returning `to_ms`
     /// here instead would have the sweep emit a spurious `Left` at `to`, diverging unboundedly from
     /// the existing pipeline. The sweep filters out the `i64::MAX` deadline, so such a leaf is never
     /// scheduled.
-    pub fn earliest_eviction_at_ms(self, newest_event_ms: i64) -> i64 {
+    pub fn earliest_eviction_at_ms(self, newest_event_ms: i64, tz: Tz) -> i64 {
         match self {
-            Self::Relative { seconds } => {
+            Self::RelativeDays { days } => {
+                // Computed in i64 so a far-future event can't overflow the day index; a leave-day past
+                // i32::MAX falls back to never-evict (i64::MAX) — a missed eviction beats a premature
+                // `Left`.
+                let leave_day = i64::from(day_idx_in_tz(newest_event_ms, tz)) + i64::from(days) + 1;
+                match i32::try_from(leave_day) {
+                    Ok(day) => start_of_day_ms_in_tz(day, tz),
+                    Err(_) => i64::MAX,
+                }
+            }
+            Self::RelativeSeconds { seconds } => {
                 newest_event_ms.saturating_add(seconds.saturating_mul(1_000))
             }
             Self::Explicit { .. } => i64::MAX,
@@ -166,7 +191,9 @@ pub fn pick_state_variant(
 }
 
 /// An `explicit_datetime[_to]` leaf uses the explicit end bound; otherwise a relative
-/// `time_value × time_interval` window. A leaf with neither is unsupported.
+/// `time_value × time_interval` window, split by interval kind: a whole-day window evicts at
+/// calendar midnight (D9), a sub-day window stays instant-granular. A leaf with neither is
+/// unsupported.
 fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, UnsupportedVariant> {
     if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
         let to_ms = leaf
@@ -181,10 +208,22 @@ fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, Unsupp
         .and_then(TimeInterval::from_wire)
         .ok_or(UnsupportedVariant::MissingWindow)?;
     // A negative or absent time_value clamps to 0 rather than going negative.
-    let time_value = i64::from(leaf.time_value.unwrap_or(0).max(0));
-    Ok(EvictionWindow::Relative {
-        seconds: time_value.saturating_mul(interval.seconds()),
-    })
+    let time_value = leaf.time_value.unwrap_or(0).max(0);
+    if interval.to_days() == 0 {
+        // Sub-day (hour/minute): instant-granular, matching the old pipeline's non-day-floored
+        // `relative_date_parse("-Nh")`.
+        Ok(EvictionWindow::RelativeSeconds {
+            seconds: i64::from(time_value).saturating_mul(interval.seconds()),
+        })
+    } else {
+        // Whole-day (day/week/month/year): the same `time_value × to_days()` day count
+        // `effective_window_days` routes the bucket variants on, so week/month/year → 7/30/365.
+        Ok(EvictionWindow::RelativeDays {
+            days: u32::try_from(time_value)
+                .unwrap_or(0)
+                .saturating_mul(interval.to_days()),
+        })
+    }
 }
 
 /// The whole-day window for a `performed_event_multiple` leaf: `time_value × interval.to_days()`,
@@ -209,10 +248,22 @@ pub(crate) fn effective_window_days(leaf: &BehavioralLeafConfig) -> u32 {
 mod tests {
     use std::sync::Arc;
 
+    use chrono::{TimeZone, Utc};
+    use chrono_tz::America::New_York;
+    use chrono_tz::UTC;
+
     use super::*;
     use crate::stage1::key::LeafStateKey;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
+
+    /// Epoch-ms of a UTC wall-clock time, computed via chrono so the deadline goldens don't re-derive
+    /// the day math under test.
+    fn utc_ms(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
+        Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .unwrap()
+            .timestamp_millis()
+    }
 
     fn leaf(
         value: BehavioralValue,
@@ -283,12 +334,37 @@ mod tests {
             pick_state_variant(&leaf(BehavioralValue::PerformedEvent, Some(7), Some("day")))
                 .unwrap();
         assert_eq!(variant, StateVariant::BehavioralSingle);
-        assert_eq!(
-            window,
-            Some(EvictionWindow::Relative {
-                seconds: 7 * 86_400
-            })
-        );
+        assert_eq!(window, Some(EvictionWindow::RelativeDays { days: 7 }));
+    }
+
+    #[test]
+    fn day_window_yields_relative_days_and_subday_yields_seconds() {
+        // Whole-day intervals (day/week/month/year) route to a calendar `RelativeDays` window with the
+        // same day count `effective_window_days` uses; sub-day (hour/minute) stays instant `RelativeSeconds`.
+        let cases = [
+            ("day", EvictionWindow::RelativeDays { days: 2 }),
+            ("week", EvictionWindow::RelativeDays { days: 2 * 7 }),
+            ("month", EvictionWindow::RelativeDays { days: 2 * 30 }),
+            ("year", EvictionWindow::RelativeDays { days: 2 * 365 }),
+            (
+                "hour",
+                EvictionWindow::RelativeSeconds { seconds: 2 * 3_600 },
+            ),
+            (
+                "minute",
+                EvictionWindow::RelativeSeconds { seconds: 2 * 60 },
+            ),
+        ];
+        for (interval, expected) in cases {
+            let (variant, window) = pick_state_variant(&leaf(
+                BehavioralValue::PerformedEvent,
+                Some(2),
+                Some(interval),
+            ))
+            .unwrap();
+            assert_eq!(variant, StateVariant::BehavioralSingle, "{interval}");
+            assert_eq!(window, Some(expected), "{interval}");
+        }
     }
 
     #[test]
@@ -433,13 +509,64 @@ mod tests {
     }
 
     #[test]
-    fn relative_window_deadline_is_event_plus_window() {
-        let window = EvictionWindow::Relative {
-            seconds: 7 * 86_400,
-        };
+    fn subday_window_deadline_is_event_plus_window() {
+        // A sub-day window stays instant-granular: deadline = newest_event + seconds (tz-independent).
+        let window = EvictionWindow::RelativeSeconds { seconds: 5 * 3_600 };
         assert_eq!(
-            window.earliest_eviction_at_ms(1_000),
-            1_000 + 7 * 86_400 * 1_000
+            window.earliest_eviction_at_ms(1_000, UTC),
+            1_000 + 5 * 3_600 * 1_000,
+        );
+        assert_eq!(
+            window.earliest_eviction_at_ms(1_000, New_York),
+            1_000 + 5 * 3_600 * 1_000,
+            "a sub-day deadline does not depend on the timezone",
+        );
+    }
+
+    #[test]
+    fn relative_days_deadline_is_local_midnight_after_the_window() {
+        // A whole-day window evicts at tz-midnight of `day(newest_event) + days + 1`, identical to the
+        // daily-bucket variant. Golden in both UTC and a negative-offset zone.
+        let event_ms = utc_ms(2026, 5, 26, 12, 34);
+        let window = EvictionWindow::RelativeDays { days: 7 };
+        for tz in [UTC, New_York] {
+            let leave_day = day_idx_in_tz(event_ms, tz) + 7 + 1;
+            assert_eq!(
+                window.earliest_eviction_at_ms(event_ms, tz),
+                start_of_day_ms_in_tz(leave_day, tz),
+                "{tz}",
+            );
+        }
+        // The zone matters: New York's local midnight is a different instant than UTC's.
+        assert_ne!(
+            window.earliest_eviction_at_ms(event_ms, UTC),
+            window.earliest_eviction_at_ms(event_ms, New_York),
+        );
+    }
+
+    #[test]
+    fn calendar_identical_events_share_one_eviction_midnight() {
+        // The boundary regression: two events on the same local calendar day — one just after midnight,
+        // one just before the next — must yield the *same* eviction midnight, not deadlines ~23h apart.
+        let window = EvictionWindow::RelativeDays { days: 7 };
+        let early = utc_ms(2026, 5, 26, 0, 30); // 00:30 UTC
+        let late = utc_ms(2026, 5, 26, 23, 30); // 23:30 UTC, same calendar day
+        assert_eq!(
+            window.earliest_eviction_at_ms(early, UTC),
+            window.earliest_eviction_at_ms(late, UTC),
+            "two events on day D share the eviction midnight of D + 8",
+        );
+    }
+
+    #[test]
+    fn zero_time_value_day_window_evicts_at_the_next_midnight() {
+        // `time_value = 0, day` (the old `-0d`) holds the member through the end of the event's own
+        // day, so eviction is the next local midnight (`day + 0 + 1`).
+        let window = EvictionWindow::RelativeDays { days: 0 };
+        let event_ms = utc_ms(2026, 5, 26, 9, 0);
+        assert_eq!(
+            window.earliest_eviction_at_ms(event_ms, UTC),
+            start_of_day_ms_in_tz(day_idx_in_tz(event_ms, UTC) + 1, UTC),
         );
     }
 
@@ -450,11 +577,11 @@ mod tests {
         // `to` would make the sweep emit a spurious `Left` at `to`; `i64::MAX` keeps the leaf out of
         // the sweep queue entirely.
         assert_eq!(
-            EvictionWindow::Explicit { to_ms: Some(5_000) }.earliest_eviction_at_ms(1_000),
+            EvictionWindow::Explicit { to_ms: Some(5_000) }.earliest_eviction_at_ms(1_000, UTC),
             i64::MAX,
         );
         assert_eq!(
-            EvictionWindow::Explicit { to_ms: None }.earliest_eviction_at_ms(1_000),
+            EvictionWindow::Explicit { to_ms: None }.earliest_eviction_at_ms(1_000, UTC),
             i64::MAX,
         );
     }

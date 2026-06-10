@@ -5,6 +5,7 @@
 //! and builds the `condition_hash` reverse indices — refreshed every 5 min (±1 min jitter) with an
 //! atomic `Arc<FilterCatalog>` swap.
 
+pub(crate) mod cohort_graph;
 pub mod leaf_classifier;
 pub mod loader;
 pub mod manager;

@@ -21,8 +21,17 @@ pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 /// Rebuild-driven (every cohort is re-classified each refresh), so graph its rate, not its level.
 /// `class` is one of `single_leaf`, `stage2_composable`, or `excluded_<reason>`
 /// (`excluded_not_multi_leaf`, `excluded_top_level_negation`, `excluded_empty_group`,
-/// `excluded_has_cohort_ref`, `excluded_has_dropped_leaf`).
+/// `excluded_cycle_detected`, `excluded_unresolved_ref`, `excluded_has_cohort_ref`,
+/// `excluded_has_dropped_leaf`). `excluded_has_cohort_ref` is now narrowed to ref cohorts whose
+/// targets all resolve and that are not in a cycle — the exact set that flips to composable once
+/// cascade transport lands, so it doubles as that slice's sizing metric.
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
+/// Cohorts excluded because they sit in a cohort-reference cycle — an SCC of size > 1 or a self-loop
+/// — found by Tarjan SCC at filter freeze (counter). Rebuild-driven (re-counted each refresh), so
+/// graph its rate, not its level. **Label-free on purpose**: the TDD specifies a `cohort_id` label,
+/// but repo precedent keeps unbounded ids out of metric labels (cf. [`FILTER_CATALOG_TZ_FALLBACK`]) —
+/// the offending ids go to the freeze `warn!` instead.
+pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
 
 // ── Stage 2 composition ────────────────────────────────────────────────────────
 /// `(cohort, person)` pairs re-evaluated by event-driven Stage 2 composition (counter); pairs with

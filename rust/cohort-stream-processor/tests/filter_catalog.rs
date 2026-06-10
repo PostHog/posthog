@@ -4,6 +4,7 @@
 use cohort_stream_processor::filters::{
     build_catalog_from_rows, CohortId, CohortLeaf, CohortRow, FilterNode, TeamId,
 };
+use cohort_stream_processor::stage2::{CohortEligibility, ExcludedReason};
 use serde_json::{json, Value};
 
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
@@ -217,5 +218,113 @@ fn or_group_of_two_person_leaves_is_not_sibling_merged() {
         children.len(),
         2,
         "single-property siblings must not be merged"
+    );
+}
+
+// ── Cohort-reference cycle defense + dependency-aware eligibility ─────────────────
+
+#[test]
+fn cycle_of_realtime_cohorts_is_excluded_cycle_detected() {
+    // 1 → 2 → 3 → 1, plus an unrelated composable sibling (4) that the cycle must not touch.
+    let catalog = build_catalog_from_rows(vec![
+        row(1, 7, cohort(vec![cohort_ref(2)])),
+        row(2, 7, cohort(vec![cohort_ref(3)])),
+        row(3, 7, cohort(vec![cohort_ref(1)])),
+        row(
+            4,
+            7,
+            cohort(vec![behavioral_performed_event(7), person_leaf()]),
+        ),
+    ]);
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+
+    for id in [1, 2, 3] {
+        assert_eq!(
+            team.eligibility[&CohortId(id)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+            "cohort {id} is a cycle member",
+        );
+    }
+    assert_eq!(
+        team.eligibility[&CohortId(4)],
+        CohortEligibility::Stage2Composable,
+        "the composable sibling is untouched by the cycle",
+    );
+}
+
+#[test]
+fn self_referencing_cohort_is_cycle_detected() {
+    let catalog = build_catalog_from_rows(vec![row(1, 7, cohort(vec![cohort_ref(1)]))]);
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+    assert_eq!(
+        team.eligibility[&CohortId(1)],
+        CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+    );
+}
+
+#[test]
+fn ref_to_unloaded_cohort_is_unresolved_ref() {
+    // Cohort 1 references 99, which is absent from the catalog (deleted, non-realtime, or never loaded).
+    let catalog = build_catalog_from_rows(vec![row(1, 7, cohort(vec![cohort_ref(99)]))]);
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+    assert_eq!(
+        team.eligibility[&CohortId(1)],
+        CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+    );
+}
+
+#[test]
+fn ref_to_another_teams_cohort_is_unresolved_ref() {
+    // The reference graph is team-scoped: cohort 1 (team 7) references cohort 2, which exists only in
+    // team 8, so from team 7's view it is missing → UnresolvedRef.
+    let catalog = build_catalog_from_rows(vec![
+        row(1, 7, cohort(vec![cohort_ref(2)])),
+        row(2, 8, cohort(vec![person_leaf()])),
+    ]);
+    assert_eq!(
+        catalog.team(TeamId(7)).expect("team 7").eligibility[&CohortId(1)],
+        CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+    );
+    // Team 8's cohort 2 is a normal single-leaf — the cross-team reference does not affect it.
+    assert!(matches!(
+        catalog.team(TeamId(8)).expect("team 8").eligibility[&CohortId(2)],
+        CohortEligibility::SingleLeaf(_),
+    ));
+}
+
+#[test]
+fn resolvable_ref_stays_has_cohort_ref_and_contributes_no_emit_mapping() {
+    // Cohort 1 → cohort 2 (a resolvable single-leaf), so 1 stays `HasCohortRef` (the transport-sizing
+    // class) and, being a non-emitting reference cohort, appears in neither emit map.
+    let catalog = build_catalog_from_rows(vec![
+        row(1, 7, cohort(vec![cohort_ref(2)])),
+        row(2, 7, cohort(vec![behavioral_performed_event(7)])),
+    ]);
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+
+    assert_eq!(
+        team.eligibility[&CohortId(1)],
+        CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+    );
+    assert!(matches!(
+        team.eligibility[&CohortId(2)],
+        CohortEligibility::SingleLeaf(_),
+    ));
+
+    let in_single = team
+        .by_lsk_to_single_leaf_cohorts
+        .values()
+        .any(|owners| owners.contains(&CohortId(1)));
+    let in_composable = team
+        .by_lsk_to_composable_cohorts
+        .values()
+        .any(|owners| owners.contains(&CohortId(1)));
+    assert!(
+        !in_single,
+        "a ref-bearing cohort drives no single-leaf membership",
+    );
+    assert!(
+        !in_composable,
+        "a ref-bearing cohort is not composable, so it owns no composable mapping",
     );
 }

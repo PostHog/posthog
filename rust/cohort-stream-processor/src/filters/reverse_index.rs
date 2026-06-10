@@ -11,16 +11,21 @@ use std::sync::Arc;
 use chrono_tz::{Tz, UTC};
 use metrics::counter;
 use serde_json::Value;
+use tracing::warn;
 
+use crate::filters::cohort_graph;
 use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::observability::metrics::{COHORT_ELIGIBILITY_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES};
+use crate::observability::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
+};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
 use crate::stage1::state::StateVariant;
+use crate::stage2::eligibility::refine_ref_bearing;
 use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
 
 /// Per-`LeafStateKey` worker metadata derived at freeze time: the state representation and (for
@@ -188,9 +193,8 @@ impl TeamFiltersBuilder {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
-        let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
-            HashMap::new();
-        let mut by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>> = HashMap::new();
+
+        // Pass 1 — per-leaf worker meta + each cohort's pass-1 eligibility verdict.
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
@@ -200,7 +204,40 @@ impl TeamFiltersBuilder {
                 &mut person_property_conditions,
             );
             let flags = self.flags.get(&tree.cohort_id).copied().unwrap_or_default();
-            let class = classify(tree, &flags);
+            eligibility.insert(tree.cohort_id, classify(tree, &flags));
+        }
+
+        // Pass 2 — dependency-aware refinement of cohort-reference cohorts, gated on any cohort ref so
+        // a ref-free team skips the O(V+E) graph build. Refinement only moves `Excluded(HasCohortRef)`
+        // to a more specific `Excluded` reason, so the emit maps in pass 3 are unaffected.
+        if self.flags.values().any(|flags| flags.has_cohort_ref) {
+            let analysis = cohort_graph::analyze(&self.cohorts);
+            refine_ref_bearing(&mut eligibility, &analysis);
+            if !analysis.in_cycle.is_empty() {
+                counter!(COHORT_IN_CYCLE_TOTAL).increment(analysis.in_cycle.len() as u64);
+                let mut cycle_ids: Vec<i32> = analysis.in_cycle.iter().map(|id| id.0).collect();
+                cycle_ids.sort_unstable();
+                // One builder holds exactly one team, so any cohort's `team_id` is the team's.
+                let team_id = self
+                    .cohorts
+                    .values()
+                    .next()
+                    .map_or(0, |tree| tree.team_id.0);
+                warn!(
+                    team_id,
+                    ?cycle_ids,
+                    "cohort reference cycle detected; excluding members from composition",
+                );
+            }
+        }
+
+        // Pass 3 — emit `cohort_eligibility_total` with the FINAL class and derive the emit maps from
+        // it, keeping "the maps follow from the final eligibility" literally true.
+        let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
+            HashMap::new();
+        let mut by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>> = HashMap::new();
+        for tree in self.cohorts.values() {
+            let class = eligibility[&tree.cohort_id];
             counter!(COHORT_ELIGIBILITY_TOTAL, "class" => class.metric_class()).increment(1);
             match class {
                 // A `SingleLeaf` cohort's lone leaf flip equals its whole membership. A cohort that
@@ -224,7 +261,6 @@ impl TeamFiltersBuilder {
                 }
                 CohortEligibility::Excluded(_) => {}
             }
-            eligibility.insert(tree.cohort_id, class);
         }
         for cohorts in by_lsk_to_single_leaf_cohorts.values_mut() {
             cohorts.sort_unstable();
@@ -510,9 +546,7 @@ mod tests {
         assert_eq!(beh_meta.variant, StateVariant::BehavioralSingle);
         assert_eq!(
             beh_meta.window,
-            Some(EvictionWindow::Relative {
-                seconds: 7 * 86_400
-            })
+            Some(EvictionWindow::RelativeDays { days: 7 })
         );
 
         let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -764,9 +798,11 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
+        // `cohort_ref()` targets cohort 99, absent from this team's catalog, so freeze-time refinement
+        // narrows the pass-1 `HasCohortRef` to `UnresolvedRef`.
         assert_eq!(
             frozen.eligibility[&CohortId(1)],
-            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
         );
     }
 
