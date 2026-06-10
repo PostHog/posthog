@@ -185,7 +185,9 @@ export function computeRetentionSeriesValue(
     }
     if (reference === 'previous') {
         if (intervalIndex === 0) {
-            return 100
+            // referenceCount at interval 0 is the cohort's own size, so an empty cohort is 0%, not
+            // 100% — mirrors retentionLogic's `referenceCount > 0 ? ... : 0`.
+            return current.count > 0 ? 100 : 0
         }
         const prev = values[intervalIndex - 1]
         if (!prev || prev.count === 0) {
@@ -220,14 +222,17 @@ export function sortRetentionCohorts<C extends RetentionCohortLike>(cohorts: C[]
     })
 }
 
+// Known retention aggregations (`RetentionAggregationType`): 'count' (unique users, shown as a
+// percentage), 'sum', and 'avg'. Any future/unknown aggregation falls back to 'Avg' rather than
+// throwing — keep this in sync if the backend adds an aggregation type.
+const RETENTION_Y_AXIS_LABELS: Record<string, string> = {
+    count: 'Retention %',
+    sum: 'Sum',
+    avg: 'Avg',
+}
+
 function retentionYAxisLabel(aggregationType: string): string {
-    if (aggregationType === 'count') {
-        return 'Retention %'
-    }
-    if (aggregationType === 'sum') {
-        return 'Sum'
-    }
-    return 'Avg'
+    return RETENTION_Y_AXIS_LABELS[aggregationType] ?? 'Avg'
 }
 
 export interface BuildRetentionChartModelOpts {
