@@ -29,6 +29,16 @@ initialize_otel()
 gc.disable()
 try:
     _django_application = get_wsgi_application()
+
+    # Resolve the URLconf now, pre-fork. The lazy API router otherwise builds on each
+    # worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
+    # middleware and never warm it — costing seconds per worker after every deploy.
+    # Building it here lands the router in the frozen heap, COW-shared across workers,
+    # which is exactly the pre-lazy-router behavior for web. Non-web processes (celery,
+    # temporal, migrate, shell) never load this module and keep the lazy win.
+    from django.urls import get_resolver
+
+    _ = get_resolver().url_patterns  # property access triggers the build
 finally:
     gc.freeze()
     gc.enable()

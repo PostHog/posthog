@@ -425,3 +425,29 @@ def test_no_new_heavy_imports_at_setup() -> None:
         "importer of the offending package. Only if the package is genuinely required by every process during "
         "django.setup() may it be baselined, with a comment justifying why."
     )
+
+
+# Counterpart to the lazy-router guard for WEB specifically: the router must NOT build at a
+# bare django.setup() (every process pays), but it MUST build at web-entrypoint import —
+# pre-fork, so workers share it copy-on-write. Without this, each worker builds the router
+# on its first live request (k8s probes short-circuit in middleware and never warm it),
+# which measured at multiple seconds per worker after every deploy.
+def test_web_entrypoint_prebuilds_the_router() -> None:
+    probe = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import posthog.wsgi  # noqa: F401 — the real web entry; builds the app and resolves the URLconf
+import sys
+assert "posthog.api.rest_router" in sys.modules, "wsgi import did not build the API router"
+from django.urls import get_resolver
+assert get_resolver()._populated or get_resolver().url_patterns, "URLconf not resolved"
+print("WSGI_PREBUILD_OK")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
+    assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]

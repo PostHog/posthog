@@ -23,6 +23,10 @@ Real submodules (`posthog.api.monitoring`, `.file_system`, …) resolve directly
 
 This is the laziness Django already intends: the URLconf is the entry point, and non-web processes never resolve it.
 
+Web is the exception and resolves it eagerly: `wsgi.py`/`asgi.py` build the URLconf at import, pre-fork, inside the GC window — because the k8s probes (`/_livez`, `/_readyz`) are served by short-circuiting middleware and never resolve URLs, each worker would otherwise build the router on its **first live request** (measured at multiple seconds per worker, after every deploy).
+Pre-building lands the router in the frozen heap, copy-on-write-shared across workers — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
+`test_web_entrypoint_prebuilds_the_router` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
+
 ### 2. Model registration
 
 Importing a viewset module used to be what registered some models (importing a model class runs `ModelBase.__new__` → `apps.register_model`).
