@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-export type ButtonVariant = 'default' | 'outline' | 'danger' | 'panel'
+type ButtonVariant = 'default' | 'outline' | 'danger' | 'panel'
 
 export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 

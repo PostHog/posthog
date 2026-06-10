@@ -92,12 +92,10 @@ export function CollapsibleExceptionList({
     className,
     expandedFrameRawIds,
     onFrameExpandedChange,
-    renderExceptionHeaderActions,
 }: {
     expandedFrameRawIds: Set<string>
     onFrameExpandedChange: (rawId: string, expanded: boolean) => void
     className?: string
-    renderExceptionHeaderActions?: () => JSX.Element | null
 }): JSX.Element {
     const [expandedVendorFrameGroups, setExpandedVendorFrameGroups] = useState<Record<string, boolean>>({})
     const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords, stackFrameRecordsLoading } =
@@ -171,10 +169,8 @@ export function CollapsibleExceptionList({
                                     loading={false}
                                     fingerprint={part}
                                     runtime={exceptionAttributes?.runtime}
-                                    renderActions={renderExceptionHeaderActions}
                                 />
                             )}
-                            renderFilteredTrace={() => null}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
                                 <GroupedStackTraceRenderer
                                     frames={frames}

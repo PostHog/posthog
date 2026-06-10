@@ -17,7 +17,6 @@ export type CollapsibleExceptionHeaderProps = {
     part?: FingerprintRecordPart
     fingerprint?: FingerprintRecordPart
     truncate?: boolean
-    renderActions?: () => JSX.Element | null
 }
 
 export function CollapsibleExceptionHeader({
@@ -26,7 +25,6 @@ export function CollapsibleExceptionHeader({
     part,
     loading,
     truncate = false,
-    renderActions,
 }: CollapsibleExceptionHeaderProps): JSX.Element {
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception
@@ -65,7 +63,6 @@ export function CollapsibleExceptionHeader({
                         </>
                     )}
                 </div>
-                {!loading && renderActions?.()}
             </div>
             {(loading || value) && (
                 <div>

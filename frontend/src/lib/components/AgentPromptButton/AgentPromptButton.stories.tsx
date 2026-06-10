@@ -74,9 +74,10 @@ export const SingleAction: Story = {
 }
 
 export const SizeVariants: Story = {
+    args: { actions: ERROR_ACTIONS },
     render: (): JSX.Element => (
         <div className="flex flex-col items-start gap-2">
-            {(['xxs', 'xs', 'sm', 'base', 'lg'] as const).map((size) => (
+            {(['xs', 'sm', 'default', 'lg'] as const).map((size) => (
                 <AgentPromptButton
                     key={size}
                     actions={ERROR_ACTIONS}
@@ -89,6 +90,7 @@ export const SizeVariants: Story = {
 }
 
 export const IntentVariants: Story = {
+    args: { actions: ERROR_ACTIONS },
     render: (): JSX.Element => (
         <div className="flex flex-col items-start gap-2">
             {(['default', 'primary', 'outline', 'destructive', 'link-muted'] as const).map((variant) => (
