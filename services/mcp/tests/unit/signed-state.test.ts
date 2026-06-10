@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-    loadSigningKeysFromEnv,
+    loadSigningKeyFromEnv,
     NonceLedger,
     SignedStateAlreadyConsumed,
     SignedStateCodec,
@@ -17,7 +17,7 @@ function makeCodec(now = 1_700_000_000_000): {
     advance: (ms: number) => void
 } {
     let clock = now
-    const codec = new SignedStateCodec(Buffer.alloc(32, 0x42), undefined, {
+    const codec = new SignedStateCodec(Buffer.alloc(32, 0x42), {
         now: () => clock,
         randomNonce: () => 'fixed-nonce',
         ttlSeconds: 300,
@@ -68,39 +68,34 @@ describe('SignedStateCodec', () => {
         expect(() => codec.decode('only.two', 'u', 'p')).toThrow(SignedStateMalformed)
     })
 
-    it('verifies tokens signed with the secondary key (rotation)', () => {
-        const primary = Buffer.alloc(32, 0x11)
-        const secondary = Buffer.alloc(32, 0x22)
-        const oldCodec = new SignedStateCodec(secondary, undefined, { now: () => 1_700_000_000_000 })
-        const rotated = new SignedStateCodec(primary, secondary, { now: () => 1_700_000_000_000 })
-        const { token } = oldCodec.encode({ sub: 'u1', purpose: 'p1', payload: null })
-        expect(rotated.decode(token, 'u1', 'p1').sub).toBe('u1')
+    it('rejects a token signed with a different key', () => {
+        const a = new SignedStateCodec(Buffer.alloc(32, 0x11), { now: () => 1_700_000_000_000 })
+        const b = new SignedStateCodec(Buffer.alloc(32, 0x22), { now: () => 1_700_000_000_000 })
+        const { token } = a.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        expect(() => b.decode(token, 'u1', 'p1')).toThrow(SignedStateSignatureInvalid)
     })
 })
 
-describe('loadSigningKeysFromEnv', () => {
+describe('loadSigningKeyFromEnv', () => {
     it('throws in production when key is missing or too short', () => {
-        expect(() => loadSigningKeysFromEnv({ NODE_ENV: 'production' })).toThrow(/must be set/)
-        expect(() => loadSigningKeysFromEnv({ NODE_ENV: 'production', MCP_SIGNED_STATE_KEY: 'short' })).toThrow(
+        expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'production' })).toThrow(/must be set/)
+        expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'production', MCP_SIGNED_STATE_KEY: 'short' })).toThrow(
             /must be set/
         )
     })
 
     it('returns a dev placeholder outside production', () => {
-        const { primary } = loadSigningKeysFromEnv({ NODE_ENV: 'development' })
-        expect(primary.length).toBeGreaterThan(0)
+        const key = loadSigningKeyFromEnv({ NODE_ENV: 'development' })
+        expect(key.length).toBeGreaterThan(0)
     })
 
-    it('returns the primary + secondary when both configured', () => {
+    it('returns the configured key when present', () => {
         const longKey = 'a'.repeat(32)
-        const oldKey = 'b'.repeat(32)
-        const { primary, secondary } = loadSigningKeysFromEnv({
+        const key = loadSigningKeyFromEnv({
             NODE_ENV: 'production',
             MCP_SIGNED_STATE_KEY: longKey,
-            MCP_SIGNED_STATE_KEY_OLD: oldKey,
         })
-        expect(primary.toString()).toBe(longKey)
-        expect(secondary?.toString()).toBe(oldKey)
+        expect(key.toString()).toBe(longKey)
     })
 })
 

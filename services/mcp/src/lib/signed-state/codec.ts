@@ -15,20 +15,13 @@
  *   - `iat/exp` — unix seconds; expiry caps the replay window
  *   - `nonce`   — 128 random bits; the key for the single-use ledger
  *
- * Two keys may be configured: a primary (`MCP_SIGNED_STATE_KEY`, used for
- * sign + verify) and an optional secondary (`_OLD`, verify only) for
- * zero-downtime rotation. No encryption — confidentiality of `payload` is
- * the caller's responsibility.
+ * One key: `MCP_SIGNED_STATE_KEY`. No encryption — confidentiality of
+ * `payload` is the caller's responsibility.
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
-import {
-    DEFAULT_STATE_TTL_SECONDS,
-    SIGNING_KEY_ENV_VAR,
-    SIGNING_KEY_MIN_BYTES,
-    SIGNING_KEY_OLD_ENV_VAR,
-} from './constants'
+import { DEFAULT_STATE_TTL_SECONDS, SIGNING_KEY_ENV_VAR, SIGNING_KEY_MIN_BYTES } from './constants'
 import {
     SignedStateExpired,
     SignedStateMalformed,
@@ -63,15 +56,13 @@ export interface SignedStateCodecOptions {
 }
 
 export class SignedStateCodec {
-    private readonly primaryKey: Buffer
-    private readonly secondaryKey: Buffer | undefined
+    private readonly key: Buffer
     private readonly ttlSeconds: number
     private readonly now: () => number
     private readonly randomNonce: () => string
 
-    constructor(primary: Buffer, secondary: Buffer | undefined, options: SignedStateCodecOptions = {}) {
-        this.primaryKey = primary
-        this.secondaryKey = secondary
+    constructor(key: Buffer, options: SignedStateCodecOptions = {}) {
+        this.key = key
         this.ttlSeconds = options.ttlSeconds ?? DEFAULT_STATE_TTL_SECONDS
         this.now = options.now ?? (() => Date.now())
         this.randomNonce = options.randomNonce ?? (() => randomBytes(16).toString('hex'))
@@ -91,7 +82,7 @@ export class SignedStateCodec {
         const headerB64 = base64UrlEncode(JSON.stringify(HEADER))
         const payloadB64 = base64UrlEncode(JSON.stringify(claims))
         const signingInput = `${headerB64}.${payloadB64}`
-        const signature = sign(signingInput, this.primaryKey)
+        const signature = sign(signingInput, this.key)
         return { token: `${signingInput}.${signature}`, claims }
     }
 
@@ -108,8 +99,8 @@ export class SignedStateCodec {
         const [headerB64, payloadB64, signatureB64] = parts as [string, string, string]
 
         const signingInput = `${headerB64}.${payloadB64}`
-        if (!verify(signingInput, signatureB64, this.primaryKey, this.secondaryKey)) {
-            throw new SignedStateSignatureInvalid('Signature does not match any configured key')
+        if (!verify(signingInput, signatureB64, this.key)) {
+            throw new SignedStateSignatureInvalid('Signature does not match the configured key')
         }
 
         let parsedHeader: unknown
@@ -140,17 +131,14 @@ export class SignedStateCodec {
 }
 
 /**
- * Load signing keys from the environment. In production, refuses to start
- * without a key of sufficient length (mirrors Django `SECRET_KEY` guard).
- * In dev/test, falls back to a loud-warning placeholder.
+ * Load the signing key from the environment. In production, refuses to
+ * start without a key of sufficient length (mirrors Django `SECRET_KEY`
+ * guard). In dev/test, falls back to a loud-warning placeholder.
  */
-export function loadSigningKeysFromEnv(env: NodeJS.ProcessEnv = process.env): {
-    primary: Buffer
-    secondary: Buffer | undefined
-} {
-    const primaryRaw = env[SIGNING_KEY_ENV_VAR] ?? ''
-    const primary = Buffer.from(primaryRaw, 'utf8')
-    if (primary.length < SIGNING_KEY_MIN_BYTES) {
+export function loadSigningKeyFromEnv(env: NodeJS.ProcessEnv = process.env): Buffer {
+    const raw = env[SIGNING_KEY_ENV_VAR] ?? ''
+    const key = Buffer.from(raw, 'utf8')
+    if (key.length < SIGNING_KEY_MIN_BYTES) {
         if (env.NODE_ENV === 'production') {
             throw new Error(
                 `${SIGNING_KEY_ENV_VAR} must be set to at least ${SIGNING_KEY_MIN_BYTES} bytes in production`
@@ -159,15 +147,9 @@ export function loadSigningKeysFromEnv(env: NodeJS.ProcessEnv = process.env): {
         console.warn(
             `[signed-state] ${SIGNING_KEY_ENV_VAR} not set or too short; using insecure dev placeholder. Never deploy this.`
         )
-        return {
-            primary: Buffer.from('dev-placeholder-signing-key-do-not-use-in-prod', 'utf8'),
-            secondary: undefined,
-        }
+        return Buffer.from('dev-placeholder-signing-key-do-not-use-in-prod', 'utf8')
     }
-    const secondaryRaw = env[SIGNING_KEY_OLD_ENV_VAR]
-    const secondary =
-        secondaryRaw && secondaryRaw.length >= SIGNING_KEY_MIN_BYTES ? Buffer.from(secondaryRaw, 'utf8') : undefined
-    return { primary, secondary }
+    return key
 }
 
 // --- helpers ---
@@ -176,19 +158,10 @@ function sign(input: string, key: Buffer): string {
     return base64UrlEncode(createHmac('sha256', key).update(input).digest())
 }
 
-function verify(input: string, signatureB64: string, primary: Buffer, secondary: Buffer | undefined): boolean {
+function verify(input: string, signatureB64: string, key: Buffer): boolean {
     const provided = base64UrlDecode(signatureB64)
-    const primarySig = createHmac('sha256', primary).update(input).digest()
-    if (constantTimeEqual(provided, primarySig)) {
-        return true
-    }
-    if (secondary) {
-        const secondarySig = createHmac('sha256', secondary).update(input).digest()
-        if (constantTimeEqual(provided, secondarySig)) {
-            return true
-        }
-    }
-    return false
+    const expected = createHmac('sha256', key).update(input).digest()
+    return constantTimeEqual(provided, expected)
 }
 
 function constantTimeEqual(a: Buffer, b: Buffer): boolean {

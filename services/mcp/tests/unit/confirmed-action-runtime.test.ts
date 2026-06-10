@@ -29,7 +29,7 @@ function makeContext(distinctId: string = 'did-1'): Context {
 }
 
 function makeCodec(): SignedStateCodec {
-    return new SignedStateCodec(Buffer.alloc(32, 0x42), undefined, {
+    return new SignedStateCodec(Buffer.alloc(32, 0x42), {
         now: () => 1_700_000_000_000,
         randomNonce: () => 'nonce-fixed',
         ttlSeconds: 300,
@@ -220,7 +220,7 @@ describe('confirmed-action metrics', () => {
     })
 
     function makeCodec(): SignedStateCodec {
-        return new SignedStateCodec(Buffer.alloc(32, 0x42), undefined, {
+        return new SignedStateCodec(Buffer.alloc(32, 0x42), {
             now: () => 1_700_000_000_000,
             randomNonce: () => 'nonce-metrics',
             ttlSeconds: 300,

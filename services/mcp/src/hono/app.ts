@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 
-import { loadSigningKeysFromEnv, NonceLedger, SignedStateCodec } from '@/lib/signed-state'
+import { loadSigningKeyFromEnv, NonceLedger, SignedStateCodec } from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 
 import { httpMetrics, securityHeaders } from './middleware'
@@ -30,9 +30,8 @@ export function createApp(redis: RedisWithPing): App {
     // Install the typed-confirm runtime exactly once per process. Generated
     // -prepare/-execute handlers call getConfirmedActionRuntime() at request
     // time and throw if it's missing, so do this before any tool dispatch.
-    const keys = loadSigningKeysFromEnv()
     setConfirmedActionRuntime({
-        codec: new SignedStateCodec(keys.primary, keys.secondary),
+        codec: new SignedStateCodec(loadSigningKeyFromEnv()),
         ledger: new NonceLedger(redis),
     })
 

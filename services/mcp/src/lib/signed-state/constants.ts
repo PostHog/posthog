@@ -20,6 +20,5 @@ export const SIGNING_KEY_MIN_BYTES = 32
 /** Redis key prefix for the single-use nonce ledger. */
 export const NONCE_KEY_PREFIX = 'mcp:signed-state:nonce'
 
-/** Env var names. */
+/** Env var name. */
 export const SIGNING_KEY_ENV_VAR = 'MCP_SIGNED_STATE_KEY'
-export const SIGNING_KEY_OLD_ENV_VAR = 'MCP_SIGNED_STATE_KEY_OLD'

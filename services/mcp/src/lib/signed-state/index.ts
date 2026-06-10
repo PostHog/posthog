@@ -6,7 +6,7 @@
  * implementation detail.
  */
 
-export { DEFAULT_STATE_TTL_SECONDS, SIGNING_KEY_ENV_VAR, SIGNING_KEY_OLD_ENV_VAR } from './constants'
+export { DEFAULT_STATE_TTL_SECONDS, SIGNING_KEY_ENV_VAR } from './constants'
 export {
     SignedStateAlreadyConsumed,
     SignedStateError,
@@ -16,7 +16,7 @@ export {
     SignedStateSignatureInvalid,
     SignedStateUserMismatch,
 } from './errors'
-export { loadSigningKeysFromEnv, SignedStateCodec } from './codec'
+export { loadSigningKeyFromEnv, SignedStateCodec } from './codec'
 export type { SignedStateClaims, SignedStateCodecOptions } from './codec'
 export { NonceLedger } from './nonce-ledger'
 export type { NonceLedgerRedis } from './nonce-ledger'
