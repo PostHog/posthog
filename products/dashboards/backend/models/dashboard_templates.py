@@ -378,32 +378,6 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "description": "Which sites send you the most visitors, like search, social, and direct. Your acquisition channels at a glance.",
                 },
                 {
-                    "type": "BUTTON",
-                    "color": None,
-                    "transparent_background": True,
-                    "url": "/web",
-                    "text": "Open web analytics",
-                    "placement": "left",
-                    "style": "primary",
-                    "layouts": {
-                        "sm": {"h": 1, "w": 4, "x": 0, "y": 24, "minH": 1, "minW": 2},
-                        "xs": {"h": 1, "w": 1, "x": 0, "y": 38, "minH": 1, "minW": 1},
-                    },
-                },
-                {
-                    "type": "BUTTON",
-                    "color": None,
-                    "transparent_background": True,
-                    "url": "/activity/explore",
-                    "text": "Browse activity",
-                    "placement": "left",
-                    "style": "secondary",
-                    "layouts": {
-                        "sm": {"h": 1, "w": 4, "x": 4, "y": 24, "minH": 1, "minW": 2},
-                        "xs": {"h": 1, "w": 1, "x": 0, "y": 39, "minH": 1, "minW": 1},
-                    },
-                },
-                {
                     "type": "TEXT",
                     "color": None,
                     "transparent_background": True,
@@ -413,8 +387,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "to measure real conversion."
                     ),
                     "layouts": {
-                        "sm": {"h": 2, "w": 12, "x": 0, "y": 25, "minH": 1, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 40, "minH": 1, "minW": 1},
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 24, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 38, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -457,10 +431,301 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 27, "minH": 5, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 43, "minH": 5, "minW": 1},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 26, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 41, "minH": 5, "minW": 1},
                     },
                     "description": "Of people who land on a page, how many go on to interact. Replace these steps with your own events to track real conversions.",
+                },
+                {
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "## What to do next\n\n"
+                        "You've got the numbers. Watch how people actually behave, explore raw events, or dig "
+                        "into traffic and acquisition."
+                    ),
+                    "layouts": {
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 31, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 46, "minH": 1, "minW": 1},
+                    },
+                },
+                {
+                    "type": "BUTTON",
+                    "color": None,
+                    "transparent_background": True,
+                    "url": "/replay/home",
+                    "text": "Watch session replays",
+                    "placement": "left",
+                    "style": "primary",
+                    "layouts": {
+                        "sm": {"h": 1, "w": 4, "x": 0, "y": 33, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 49, "minH": 1, "minW": 1},
+                    },
+                },
+                {
+                    "type": "BUTTON",
+                    "color": None,
+                    "transparent_background": True,
+                    "url": "/web",
+                    "text": "Open web analytics",
+                    "placement": "left",
+                    "style": "secondary",
+                    "layouts": {
+                        "sm": {"h": 1, "w": 4, "x": 4, "y": 33, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 50, "minH": 1, "minW": 1},
+                    },
+                },
+                {
+                    "type": "BUTTON",
+                    "color": None,
+                    "transparent_background": True,
+                    "url": "/activity/explore",
+                    "text": "Browse activity",
+                    "placement": "left",
+                    "style": "secondary",
+                    "layouts": {
+                        "sm": {"h": 1, "w": 4, "x": 8, "y": 33, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 51, "minH": 1, "minW": 1},
+                    },
+                },
+            ],
+            tags=[],
+        )
+
+    @staticmethod
+    def legacy_signup_template() -> "DashboardTemplate":
+        """
+        Pre-2026 default signup dashboard (control arm of starter-dashboard-v2 experiment).
+        This OG template is not stored in https://github.com/PostHog/templates-repository
+        The system assumes this template is always present and doesn't wait to import it from the template repository
+        """
+        return DashboardTemplate(
+            template_name="Product analytics",
+            dashboard_description=(
+                "A starter view of how people use your app: how many visit, whether they come back, "
+                "where traffic comes from, and how they move through your pages."
+            ),
+            dashboard_filters={},
+            tiles=[
+                {
+                    "name": "Daily active users (DAUs)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {
+                                    "kind": "GroupNode",
+                                    "operator": "OR",
+                                    "nodes": [
+                                        {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                                        {"kind": "EventsNode", "event": "$screen", "name": "$screen"},
+                                    ],
+                                    "math": "dau",
+                                    "name": "Pageview or screen",
+                                }
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-30d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that view a page or screen in your app every day.",
+                },
+                {
+                    "name": "Weekly active users (WAUs)",
+                    "type": "INSIGHT",
+                    "color": "green",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {
+                                    "kind": "GroupNode",
+                                    "operator": "OR",
+                                    "nodes": [
+                                        {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                                        {"kind": "EventsNode", "event": "$screen", "name": "$screen"},
+                                    ],
+                                    "math": "dau",
+                                    "name": "Pageview or screen",
+                                }
+                            ],
+                            "interval": "week",
+                            "dateRange": {"date_from": "-90d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsLineGraph",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that view a page or screen in your app every week.",
+                },
+                {
+                    "name": "Retention",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "RetentionQuery",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "retentionFilter": {
+                                "period": "Week",
+                                "targetEntity": {"id": "$pageview", "type": "events"},
+                                "retentionType": "retention_first_time",
+                                "totalIntervals": 11,
+                                "returningEntity": {"id": "$pageview", "type": "events"},
+                            },
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                    },
+                    "description": "Weekly retention of your users based on pageviews.",
+                },
+                {
+                    "name": "Growth accounting",
+                    "type": "INSIGHT",
+                    "color": "purple",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "LifecycleQuery",
+                            "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview"}],
+                            "interval": "week",
+                            "dateRange": {"date_from": "-30d", "explicitDate": False},
+                            "properties": [],
+                            "lifecycleFilter": {"showLegend": False},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3},
+                    },
+                    "description": "How many of your users are new, returning, resurrecting, or dormant each week based on pageviews.",
+                },
+                {
+                    "name": "Referring domain (last 14 days)",
+                    "type": "INSIGHT",
+                    "color": "black",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-14d", "explicitDate": False},
+                            "properties": [],
+                            "trendsFilter": {
+                                "display": "ActionsBarValue",
+                                "showLegend": False,
+                                "yAxisScaleType": "linear",
+                                "showValuesOnSeries": False,
+                                "smoothingIntervals": 1,
+                                "showPercentStackView": False,
+                                "aggregationAxisFormat": "numeric",
+                                "showAlertThresholdLines": False,
+                            },
+                            "breakdownFilter": {"breakdown": "$referring_domain", "breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the most common referring domains for your users over the past 14 days. Pageviews only.",
+                },
+                {
+                    "name": "Pageview funnel, by browser",
+                    "type": "INSIGHT",
+                    "color": "green",
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "FunnelsQuery",
+                            "series": [
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "First page view",
+                                },
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "Second page view",
+                                },
+                                {
+                                    "kind": "EventsNode",
+                                    "name": "$pageview",
+                                    "event": "$pageview",
+                                    "custom_name": "Third page view",
+                                },
+                            ],
+                            "interval": "day",
+                            "dateRange": {"date_from": "-7d", "explicitDate": False},
+                            "properties": [],
+                            "funnelsFilter": {
+                                "layout": "horizontal",
+                                "exclusions": [],
+                                "funnelVizType": "steps",
+                                "funnelOrderType": "ordered",
+                                "funnelStepReference": "total",
+                                "funnelWindowInterval": 14,
+                                "breakdownAttributionType": "first_touch",
+                                "funnelWindowIntervalUnit": "day",
+                            },
+                            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                            "filterTestAccounts": False,
+                        },
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3},
+                    },
+                    "description": "This example funnel shows how many of your users have completed 3 page views, broken down by browser. Pageviews only.",
                 },
             ],
             tags=[],
