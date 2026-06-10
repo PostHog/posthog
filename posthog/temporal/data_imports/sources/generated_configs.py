@@ -274,7 +274,7 @@ class BrevoSourceConfig(config.Config):
 
 @config.config
 class BrexSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
