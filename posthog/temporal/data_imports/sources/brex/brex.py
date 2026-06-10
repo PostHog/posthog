@@ -151,7 +151,7 @@ def _list_cash_account_ids(fetch_page: PageFetcher, logger: FilteringBoundLogger
         url = _build_url(CASH_ACCOUNTS_PATH, {"limit": PAGE_SIZE, "cursor": cursor})
         data = fetch_page(url)
         items = data.get("items", []) or []
-        account_ids.extend(item["id"] for item in items if item.get("id"))
+        account_ids.extend(item["id"] for item in items)
 
         cursor = data.get("next_cursor")
         if not cursor:
@@ -271,7 +271,7 @@ def brex_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=list(config.primary_keys),
+        primary_keys=config.primary_keys,
         # Brex doesn't expose a sort param and doesn't document list ordering. "desc" makes the
         # pipeline commit the incremental watermark only after a fully successful run, which is
         # the safe choice when ascending order can't be requested.

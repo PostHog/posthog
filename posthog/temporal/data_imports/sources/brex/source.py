@@ -72,15 +72,17 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        schemas = []
+        for endpoint in ENDPOINTS:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=incremental_fields is not None,
+                    supports_append=incremental_fields is not None,
+                    incremental_fields=incremental_fields or [],
+                )
             )
-            for endpoint in list(ENDPOINTS)
-        ]
 
         if names is not None:
             names_set = set(names)

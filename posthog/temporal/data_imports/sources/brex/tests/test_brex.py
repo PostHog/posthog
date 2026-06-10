@@ -244,7 +244,7 @@ class TestGetRows:
     def test_4xx_raises_immediately(self, mock_session):
         response = _response({}, status_code=401)
         response.raise_for_status.side_effect = requests.HTTPError(
-            "401 Client Error: Unauthorized for url: https://api.brex.com/v2/users"
+            "401 Client Error: Unauthorized for url: https://api.brex.com/v2/users", response=response
         )
         response.text = "unauthorized"
         mock_session.return_value.get.return_value = response
