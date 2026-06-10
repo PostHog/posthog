@@ -25,7 +25,13 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
         lines.push({ label: 'SLA', value: filters.sla })
     }
     if (filters.tags?.length) {
-        lines.push({ label: 'Tags', value: filters.tags.join(', ') })
+        lines.push({
+            label: filters.tagsMatch === 'all' ? 'Tags (all)' : 'Tags (any)',
+            value: filters.tags.join(', '),
+        })
+    }
+    if (filters.tagsExclude?.length) {
+        lines.push({ label: 'Exclude tags', value: filters.tagsExclude.join(', ') })
     }
     if (filters.assignee && filters.assignee !== 'all') {
         const val =

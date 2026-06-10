@@ -14,11 +14,10 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
@@ -60,7 +59,6 @@ export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
     selectedVersion?: number | null
-    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -150,10 +148,7 @@ function isNameFieldValidationError(error: unknown): error is { attr: 'name'; de
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(
-        ({ promptName, selectedVersion, tabId }) =>
-            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
-    ),
+    key(({ promptName, selectedVersion }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -777,7 +772,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         actions.setPromptFormValues(existing ? getPromptFormDefaults(existing) : DEFAULT_PROMPT_FORM_VALUES)
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)

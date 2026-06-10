@@ -57,7 +57,7 @@ describe('EditErrorTrackingWidgetModal', () => {
         await userEvent.clear(limitInput)
         await userEvent.type(limitInput, '30')
 
-        expect(screen.getByText('Must be an integer between 1 and 25.')).toBeInTheDocument()
+        expect(screen.getByText('Too big: expected number to be <=25')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
         expect(onSave).not.toHaveBeenCalled()
     })
@@ -121,32 +121,6 @@ describe('EditErrorTrackingWidgetModal', () => {
                 filterTestAccounts: false,
             }),
             {}
-        )
-    })
-
-    it('saves description from widget settings modal', async () => {
-        const onSave = jest.fn().mockResolvedValue(undefined)
-
-        render(
-            <EditErrorTrackingWidgetModal
-                isOpen
-                onClose={jest.fn()}
-                config={{ limit: 10, orderBy: 'occurrences', dateRange: { date_from: '-7d' } }}
-                description=""
-                onSave={onSave}
-            />
-        )
-
-        await userEvent.type(screen.getByPlaceholderText('Enter description (optional)'), 'Top crashes this week')
-        const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
-
-        expect(onSave).toHaveBeenCalledTimes(1)
-        expect(onSave).toHaveBeenCalledWith(
-            expect.objectContaining({
-                limit: 10,
-            }),
-            { description: 'Top crashes this week' }
         )
     })
 

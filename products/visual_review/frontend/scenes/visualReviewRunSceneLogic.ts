@@ -65,6 +65,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        toggleQuarantinedThumbnails: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -107,6 +108,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        showQuarantinedThumbnails: [
+            false,
+            {
+                toggleQuarantinedThumbnails: (state) => !state,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -123,6 +130,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 loadSnapshots: async () => {
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
+                        include_quarantined: true,
                     })
                     return response.results
                 },
@@ -173,12 +181,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     selectors({
         selectedSnapshot: [
-            (s) => [s.snapshots, s.selectedSnapshotId],
-            (snapshots, selectedSnapshotId): SnapshotApi | null => {
-                if (!selectedSnapshotId) {
-                    return snapshots.find((s) => s.result !== 'unchanged') || snapshots[0] || null
+            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet],
+            (snapshots, selectedSnapshotId, quarantinedIdentifierSet): SnapshotApi | null => {
+                if (selectedSnapshotId) {
+                    return snapshots.find((s) => s.id === selectedSnapshotId) || null
                 }
-                return snapshots.find((s) => s.id === selectedSnapshotId) || null
+                const changed = snapshots.filter((s) => s.result !== 'unchanged')
+                const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
+                return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
         ],
         changedSnapshots: [

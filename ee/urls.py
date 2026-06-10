@@ -23,25 +23,14 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import (
-    authentication,
-    billing,
-    conversation,
-    core_memory,
-    dashboard_collaborator,
-    license,
-    sentry_stats,
-    subscription,
-)
+from .api import authentication, billing, conversation, core_memory, license, sentry_stats, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environment_dashboards_router,
         environments_router,
-        legacy_project_dashboards_router,
         organizations_router,
         register_legacy_dual_route_team_nested_viewset,
         router as root_router,
@@ -65,19 +54,6 @@ def extend_api_router() -> None:
         ["organization_id", "role_id"],
     )
     register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
-
-    environment_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "environment_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
-    legacy_project_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "project_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
 
     _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]

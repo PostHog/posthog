@@ -1,12 +1,6 @@
-import random
-
 import pytest
 from unittest.mock import patch
 
-import pytest_asyncio
-from asgiref.sync import sync_to_async
-
-from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -24,25 +18,6 @@ from products.signals.backend.temporal.summary import (
 )
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
-
-
-@pytest_asyncio.fixture
-async def aorganization():
-    organization = await sync_to_async(Organization.objects.create)(
-        name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
-    )
-    yield organization
-    await sync_to_async(organization.delete)()
-
-
-@pytest_asyncio.fixture
-async def ateam(aorganization):
-    team = await sync_to_async(Team.objects.create)(
-        organization=aorganization,
-        name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
-    )
-    yield team
-    await sync_to_async(team.delete)()
 
 
 @pytest.mark.asyncio
