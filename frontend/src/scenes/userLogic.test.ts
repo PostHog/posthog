@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -214,6 +215,25 @@ describe('userLogic', () => {
             })
                 .toDispatchActions(['updateUserFailure'])
                 .toMatchValues({ user: userWithLightTheme })
+        })
+
+        it('shows the backend error detail in a toast when email change is rejected', async () => {
+            const ssoError =
+                "You can't change your email because SSO is enforced on your current email's domain."
+            jest.spyOn(api, 'update').mockRejectedValue({ status: 400, detail: ssoError })
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+            try {
+                await expectLogic(userLogic, () => {
+                    userLogic.actions.updateUser({ email: 'new@example.com' })
+                })
+                    .toDispatchActions(['updateUserFailure'])
+                    .toFinishAllListeners()
+
+                expect(errorSpy).toHaveBeenCalledWith(ssoError, { toastId: 'updateUser' })
+            } finally {
+                errorSpy.mockRestore()
+            }
         })
 
         it.each([502, 503, 504])(
