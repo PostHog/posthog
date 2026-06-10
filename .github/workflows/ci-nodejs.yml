@@ -596,6 +596,13 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: pnpm --filter=@posthog/nodejs setup:test
 
+            # The Node ingestion API worker runs as a real subprocess (tsx src/index.ts), so it
+            # needs the compiled workspace dependencies (e.g. @posthog/hogvm/dist) on disk. The
+            # regular Jest job gets these via `bin/turbo run test` (^build); here we build them
+            # explicitly since we invoke the test directly.
+            - name: Build Node.js workspace dependencies
+              run: bin/turbo --filter=@posthog/nodejs prepare
+
             - name: Test Rust ingestion consumer with Node ingestion API
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
