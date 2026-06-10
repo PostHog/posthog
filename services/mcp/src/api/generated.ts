@@ -46385,6 +46385,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
+    /**
      * Filter to observations of a specific session recording.
      */
     session_id?: string;
@@ -52911,6 +52915,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
     /**
      * Filter to observations of a specific session recording.
      */

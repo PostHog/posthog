@@ -3,6 +3,7 @@ import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, re
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,6 +62,57 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
+}
+
+const UNIT_BY_LETTER: Record<string, dayjs.ManipulateType> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    y: 'year',
+}
+
+const START_OF_BY_PREFIX: Record<string, dayjs.ManipulateType> = {
+    dStart: 'day',
+    wStart: 'week',
+    mStart: 'month',
+    yStart: 'year',
+}
+
+function chartRangeToDayjs(expr: string): dayjs.Dayjs | null {
+    const relative = expr.match(/^-(\d+)([hdwmy])(Start|End)?$/)
+    if (relative) {
+        const [, n, letter, suffix] = relative
+        const unit = UNIT_BY_LETTER[letter]
+        const date = dayjs().subtract(parseInt(n, 10), unit)
+        if (suffix === 'Start') {
+            return date.startOf(unit)
+        }
+        if (suffix === 'End') {
+            return date.endOf(unit)
+        }
+        return date
+    }
+    if (expr in START_OF_BY_PREFIX) {
+        return dayjs().startOf(START_OF_BY_PREFIX[expr])
+    }
+    if (expr === 'all') {
+        return dayjs().subtract(1, 'year')
+    }
+    const parsed = dayjs(expr)
+    return parsed.isValid() ? parsed : null
+}
+
+function daysFromChartRange(dateFrom: string | null, dateTo: string | null): number {
+    if (!dateFrom) {
+        return 14
+    }
+    const from = chartRangeToDayjs(dateFrom)
+    if (!from) {
+        return 14
+    }
+    const to = dateTo ? chartRangeToDayjs(dateTo) || dayjs() : dayjs()
+    return Math.max(1, to.diff(from, 'day'))
 }
 
 interface ObservationListParams {
@@ -655,6 +707,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTagFilter: () => reloadObservationsAndStats(),
             clearObservationFilters: () => reloadObservationsAndStats(),
 
+            setChartDateRange: () => {
+                actions.loadObservationStats()
+            },
+
             loadObservationStats: async () => {
                 if (props.id === 'new') {
                     actions.loadObservationStatsFailure()
@@ -667,7 +723,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
                     const { order_by: _ignored, ...params } = buildObservationListParams(values)
-                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, params)
+                    const recentDays = daysFromChartRange(values.chartDateFrom, values.chartDateTo)
+                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, {
+                        ...params,
+                        recent_days: recentDays,
+                    })
                     actions.loadObservationStatsSuccess(response)
                 } catch {
                     actions.loadObservationStatsFailure()
