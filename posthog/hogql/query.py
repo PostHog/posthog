@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
@@ -60,6 +61,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from common.hogvm.python.utils import HogVMException
 
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
@@ -334,7 +337,28 @@ class HogQLQueryExecutor:
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
-                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
+                try:
+                    self.select_query = cast(
+                        ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders)
+                    )
+                except HogVMException as e:
+                    # A {filters.*}/{variables.*} placeholder that escaped substitution is a
+                    # malformed query, not an internal error — surface it as a user-facing one.
+                    match = re.fullmatch(r"Global variable not found: (filters|variables)", str(e))
+                    if not match:
+                        raise
+                    name = match.group(1)
+                    provided = self.filters is not None if name == "filters" else bool(self.variables)
+                    if provided:
+                        # Substitution only handles direct fields; a complex expression like
+                        # {toDateTime(filters.dateRange.from)} skips it and lands here.
+                        message = (
+                            f"'{name}' can only be used as a direct placeholder field "
+                            f"(e.g. {{{name}.foo}}), not inside a placeholder expression."
+                        )
+                    else:
+                        message = f"Query uses '{name}' in a placeholder, but no {name} were provided with the query."
+                    raise QueryError(message) from e
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_limit")
     def _apply_limit(self):

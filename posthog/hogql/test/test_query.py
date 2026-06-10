@@ -47,6 +47,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
+from common.hogvm.python.utils import HogVMException
+
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
@@ -1632,6 +1634,37 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             str(e.exception),
             "Variable variable_two is missing from query. Did you mean: variable_one?",
         )
+
+    @parameterized.expand(
+        [
+            ("variables", "SELECT {variables.test_var}"),
+            ("filters", "SELECT event FROM events WHERE {toDateTime(filters.dateRange.from)} < now()"),
+        ]
+    )
+    def test_placeholder_without_globals_raises_query_error(self, name: str, query: str):
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            str(e.exception),
+            f"Query uses '{name}' in a placeholder, but no {name} were provided with the query.",
+        )
+
+    def test_placeholder_expression_with_filters_provided_raises_query_error(self):
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(
+                "SELECT event FROM events WHERE {toDateTime(filters.dateRange.from)} < now()",
+                team=self.team,
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            )
+        self.assertEqual(
+            str(e.exception),
+            "'filters' can only be used as a direct placeholder field "
+            "(e.g. {filters.foo}), not inside a placeholder expression.",
+        )
+
+    def test_placeholder_with_unknown_global_reraises_hogvm_exception(self):
+        with self.assertRaises(HogVMException):
+            execute_hogql_query("SELECT {nonexistent.x}", team=self.team)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
