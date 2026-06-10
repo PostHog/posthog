@@ -69,6 +69,13 @@ def cmd_create(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate(args: argparse.Namespace) -> int:
+    backend = build_backend(args)
+    backend.provision()
+    build_stack(backend, args).migrate()
+    return 0
+
+
 def cmd_seed(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.provision()  # resolves the existing box when --box-id is set
@@ -111,6 +118,10 @@ def main(argv: list[str] | None = None) -> int:
 
     cr = sub.add_parser("create", help="provision the box only")
     cr.set_defaults(func=cmd_create)
+
+    mg = sub.add_parser("migrate", help="run postgres + clickhouse migrations on an existing box")
+    mg.add_argument("--box-id", required=True)
+    mg.set_defaults(func=cmd_migrate)
 
     sd = sub.add_parser("seed", help="run demo-data seeding on an existing box")
     sd.add_argument("--box-id", required=True)

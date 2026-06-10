@@ -7,19 +7,30 @@ wait for health. It talks to the box only through ``backend.exec`` /
 whether the box is a hogbox or a droplet. Swapping the layer changes the
 backend, not this file.
 
-Recipe (proven 2026-06-10, single-origin on the box's web port):
-  - master's ``build: .`` is broken today (stale apt pin), so we run the
-    PUBLISHED image with the live source mounted over it.
+Recipe (validated 2026-06-10, single-origin on the box's web port):
+  - Run the PUBLISHED image as-is. master's ``build: .`` is broken today (stale
+    apt pin), AND the prod image runs its own baked code from /code — the
+    dev-full ``.:/app/posthog`` mount is ignored (workdir=/code). So this is
+    effectively "run the image", like hobby: to preview a specific PR, pull
+    that PR's image (``ghcr.io/posthog/posthog:pr-<n>``), don't mount a branch.
   - prod image -> prod settings: DEBUG=0, or DEBUG=1 pulls dev-only
     INSTALLED_APPS the prod image doesn't ship (ModuleNotFoundError).
+  - The DB must be COHERENT with the image: migrate Postgres AND ClickHouse
+    with the image's own migrations on a fresh DB. A golden's pre-migrated DB
+    drifts from a different image (so a fast-restore golden must bake the
+    image + its migrated DB together; the DB is not a reusable asset across
+    image versions).
   - serve at the box's own clean URL so the SPA's absolute asset/API paths
     resolve at the origin root (that's what the single-port edge buys us).
-  - seed demo data with ``manage.py n`` — same step hobby/sandbox use, so the
-    preview opens to a populated instance with a login, not an empty preflight.
+  - seed demo data with ``manage.py generate_demo_data`` (the step hobby-ci
+    uses) so the preview opens populated with a login. Best-effort: needs a
+    coherent image — bleeding ``:master`` can have a model ahead of its
+    migrations and fail the seed (the preview still serves, just empty).
 """
 
 from __future__ import annotations
 
+import sys
 import secrets
 
 from .backend import PreviewBackend
@@ -78,7 +89,14 @@ class PostHogPreviewStack:
         self.up_services()
         self.migrate()
         if self.seed_demo_data:
-            self.generate_demo_data()
+            # Best-effort: a transiently-broken image (e.g. `:master` with a
+            # model ahead of its migrations) shouldn't sink an otherwise-good
+            # preview — it just opens empty. Pin a coherent tag (a release, or
+            # the PR's own pr-<n> image like hobby-ci) for reliable demo data.
+            try:
+                self.generate_demo_data()
+            except Exception as e:  # noqa: BLE001
+                sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
         self.wait_for_health()
         return url
 
@@ -102,17 +120,27 @@ class PostHogPreviewStack:
         self.backend.run_long(self._compose(f"up -d --no-build {services}"), name="up", timeout=900)
 
     def migrate(self) -> None:
+        # PostHog needs both: Postgres (schema) and ClickHouse (events DB +
+        # tables). The dev all-in-one `manage.py n` does both but is dev-only;
+        # the prod image exposes them separately. ClickHouse must be migrated
+        # before demo-data generation, which writes events to it.
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate --noinput"),
             name="migrate",
             timeout=1800,
         )
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py migrate_clickhouse"),
+            name="migrate-clickhouse",
+            timeout=1800,
+        )
 
     def generate_demo_data(self) -> None:
-        # `manage.py n` (the setup_dev successor) seeds a demo org + the
-        # test@posthog.com / 12345678 login — same step hobby-ci uses.
+        # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
+        # test@posthog.com / 12345678 login so the preview opens populated.
+        # (`manage.py n` is a dev-only alias, not registered in the prod image.)
         self.backend.run_long(
-            self._compose("run --rm -T web python manage.py n --skip-flag-sync"),
+            self._compose("run --rm -T web python manage.py generate_demo_data"),
             name="seed",
             timeout=1800,
         )
