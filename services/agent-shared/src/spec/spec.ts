@@ -618,6 +618,40 @@ export const ResumeConfigSchema = z.object({
         .default(7 * 24 * 60 * 60 * 1000),
 })
 
+/**
+ * Trust profile for the per-session sandbox. `frozen` is today's behaviour
+ * (author-frozen custom tools only, no coding powers). The `coding-*` tiers
+ * provision a tier-2 coding sandbox running the agent-server harness — see
+ * docs/agent-platform/plans/agent-sandbox-tiers.md. PoC slice: only `frozen`
+ * and `coding-readonly` are wired.
+ */
+export const TrustProfileSchema = z.enum(['frozen', 'coding-readonly', 'coding-write', 'coding-pr'])
+
+/**
+ * Where the agent loop runs. `in_sandbox` (default for coding profiles) runs
+ * the agent-server harness inside the tier-2 sandbox; `in_process` keeps the
+ * loop in the runner and dispatches code actions to the sandbox as "dumb
+ * hands" (deferred — agent-sandbox-tiers.md §6).
+ */
+export const LoopLocationSchema = z.enum(['in_sandbox', 'in_process'])
+
+/**
+ * Opt-in coding-agent config. Optional + additive: existing specs that omit
+ * it keep today's `frozen` behaviour. Presence of a `coding-*` trust_profile
+ * is what provisions the tier-2 sandbox.
+ */
+export const SandboxConfigSchema = z.object({
+    trust_profile: TrustProfileSchema.default('frozen'),
+    loop_location: LoopLocationSchema.default('in_sandbox'),
+    /** Repo/ref to check out into the workspace. Pinned by SHA at freeze time. */
+    workspace: z
+        .object({
+            repo: z.string().optional(),
+            ref: z.string().default('main'),
+        })
+        .optional(),
+})
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -637,9 +671,13 @@ export const AgentSpecSchema = z.object({
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
+    sandbox: SandboxConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
+export type SandboxConfig = z.infer<typeof SandboxConfigSchema>
+export type TrustProfile = z.infer<typeof TrustProfileSchema>
+export type LoopLocation = z.infer<typeof LoopLocationSchema>
 export type Trigger = z.infer<typeof TriggerSchema>
 export type TriggerType = Trigger['type']
 

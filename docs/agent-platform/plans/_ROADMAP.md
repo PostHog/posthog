@@ -39,7 +39,8 @@ We group the plans into five layers, roughly:
 │     agent-authoring-flow.md · self-healing-agents.md        │
 ├─────────────────────────────────────────────────────────────┤
 │  C. Capability extensions                                   │
-│     sandboxed-agent-inference.md · runtime-mcps.md ·        │
+│     sandboxed-agent-inference.md · agent-sandbox-tiers.md · │
+│     runtime-mcps.md ·                                        │
 │     skill-templates.md · resumable-conversations.md ·       │
 │     cron-trigger-scheduler.md · revision-routing.md ·       │
 │     agent-as-mcp-server.md · streaming-and-reasoning.md     │
@@ -228,6 +229,22 @@ first-class; whitelisted exec shell; pinned ref per session; artifact
 channel for non-inline output. Hard-depends on **B.2** (every
 `repo-pr` tool is mandatorily approval-gated) and **B.1** (high-trust
 agents need strict principal enforcement).
+
+### C.1b [`agent-sandbox-tiers.md`](agent-sandbox-tiers.md) — **Ben** (with C.1)
+
+The runtime-topology substrate under **C.1**. Commits to **converging
+on the tasks product's harness** (`agent-server` in a Modal sandbox,
+driven over JSON-RPC) rather than building a parallel exec-tool family:
+the agent loop runs _in the sandbox_ where the files are, and our
+runner becomes a supervisor/relay (the role tasks' Django/Temporal
+plays today). Three trust tiers — supervisor/relay (in-process), the
+in-sandbox agent (`agent-server` + agentsh), and the existing
+secrets-bearing custom-tool sandbox exposed to the harness as an MCP
+server over RPC (the gRPC-style tools we keep). Security property:
+custom-tool secret isolation survives full compromise of the coding
+tier; the one new exposure is a scoped, inference-only gateway token in
+the sandbox. An in-process agent loop stays as a v2 opt-in mode for
+conversational-with-light-code agents. Ships in lockstep with **C.1**.
 
 ### C.2 [`runtime-mcps.md`](runtime-mcps.md) — **Danilo**
 

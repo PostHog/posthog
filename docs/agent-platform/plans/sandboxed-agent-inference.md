@@ -2,6 +2,13 @@
 
 **Status:** draft / open questions. **Owner:** ben.
 
+> The **runtime topology** under this plan — the three-tier
+> orchestrator / coding-sandbox / secrets-sandbox split, the injected
+> harness, and the secret-isolation guarantee — lives in
+> [`agent-sandbox-tiers.md`](agent-sandbox-tiers.md). This plan is the
+> capability/tool surface; that one is the security substrate. Read
+> together.
+
 This is `_TODO.md` item #1. The motivating use case is "an agent that
 writes and runs PostHog code on our infrastructure" — an agent that
 can read the repo, propose edits, run tests, and ship a patch. What

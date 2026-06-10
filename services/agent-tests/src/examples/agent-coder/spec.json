@@ -1,0 +1,35 @@
+{
+    "model": "anthropic/claude-sonnet-4-6",
+    "reasoning": "medium",
+    "sandbox": {
+        "trust_profile": "coding-write",
+        "loop_location": "in_sandbox",
+        "workspace": {
+            "ref": "local"
+        }
+    },
+    "triggers": [
+        {
+            "type": "chat",
+            "config": {},
+            "auth": {
+                "modes": [
+                    { "type": "posthog", "scopes": ["agents:read", "agents:write", "agent_session:read"] },
+                    { "type": "posthog_internal" }
+                ]
+            }
+        }
+    ],
+    "tools": [],
+    "mcps": [],
+    "skills": [],
+    "integrations": [],
+    "secrets": [],
+    "limits": {
+        "max_turns": 50,
+        "max_tool_calls": 300,
+        "max_wall_seconds": 1800,
+        "max_memory_mb": 4096,
+        "max_cpu_cores": 2
+    }
+}
