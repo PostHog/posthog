@@ -2893,6 +2893,8 @@ export namespace Schemas {
 
     export interface LifecycleFilter {
       showLegend?: boolean | null;
+      /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+      showPercentagesOnSeries?: boolean | null;
       showValuesOnSeries?: boolean | null;
       stacked?: boolean | null;
       toggledLifecycles?: LifecycleToggle[] | null;
@@ -13408,6 +13410,85 @@ export namespace Schemas {
      * * `Resend` - Resend
      * * `PgAnalyze` - PgAnalyze
      * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13561,6 +13642,85 @@ export namespace Schemas {
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
       WorkOS: 'WorkOS',
+      AmazonS3: 'AmazonS3',
+      GoogleCloudStorage: 'GoogleCloudStorage',
+      Databricks: 'Databricks',
+      Dynamics365: 'Dynamics365',
+      SalesforceMarketingCloud: 'SalesforceMarketingCloud',
+      Db2: 'Db2',
+      Heap: 'Heap',
+      AdobeAnalytics: 'AdobeAnalytics',
+      Matomo: 'Matomo',
+      Optimizely: 'Optimizely',
+      Adyen: 'Adyen',
+      GoCardless: 'GoCardless',
+      Mollie: 'Mollie',
+      CheckoutCom: 'CheckoutCom',
+      Branch: 'Branch',
+      Criteo: 'Criteo',
+      Outbrain: 'Outbrain',
+      Taboola: 'Taboola',
+      AdRoll: 'AdRoll',
+      DisplayVideo360: 'DisplayVideo360',
+      GoogleAdManager: 'GoogleAdManager',
+      CampaignManager360: 'CampaignManager360',
+      SearchAds360: 'SearchAds360',
+      AdobeCommerce: 'AdobeCommerce',
+      AmazonSellingPartner: 'AmazonSellingPartner',
+      Ebay: 'Ebay',
+      Commercetools: 'Commercetools',
+      LightspeedRetail: 'LightspeedRetail',
+      ShipStation: 'ShipStation',
+      ConstantContact: 'ConstantContact',
+      Mailgun: 'Mailgun',
+      Eloqua: 'Eloqua',
+      Sailthru: 'Sailthru',
+      Ortto: 'Ortto',
+      Attentive: 'Attentive',
+      Kustomer: 'Kustomer',
+      Dixa: 'Dixa',
+      Gladly: 'Gladly',
+      Qualtrics: 'Qualtrics',
+      Delighted: 'Delighted',
+      AzureDevOps: 'AzureDevOps',
+      Rollbar: 'Rollbar',
+      Opsgenie: 'Opsgenie',
+      IncidentIo: 'IncidentIo',
+      Pingdom: 'Pingdom',
+      Cloudflare: 'Cloudflare',
+      CosmosDB: 'CosmosDB',
+      PlanetScale: 'PlanetScale',
+      SapHana: 'SapHana',
+      Rippling: 'Rippling',
+      HiBob: 'HiBob',
+      Personio: 'Personio',
+      Deel: 'Deel',
+      AdpWorkforceNow: 'AdpWorkforceNow',
+      Paylocity: 'Paylocity',
+      Gusto: 'Gusto',
+      CultureAmp: 'CultureAmp',
+      Lattice: 'Lattice',
+      SageIntacct: 'SageIntacct',
+      FreshBooks: 'FreshBooks',
+      Expensify: 'Expensify',
+      Ramp: 'Ramp',
+      Brex: 'Brex',
+      Coupa: 'Coupa',
+      SapConcur: 'SapConcur',
+      Apollo: 'Apollo',
+      Crunchbase: 'Crunchbase',
+      ZoomInfo: 'ZoomInfo',
+      Clari: 'Clari',
+      Chorus: 'Chorus',
+      Coda: 'Coda',
+      Guru: 'Guru',
+      Dropbox: 'Dropbox',
+      Docusign: 'Docusign',
+      PandaDoc: 'PandaDoc',
+      SapErp: 'SapErp',
+      SapSuccessFactors: 'SapSuccessFactors',
+      OracleEbs: 'OracleEbs',
+      OracleFusion: 'OracleFusion',
       Custom: 'Custom',
     } as const;
 
@@ -13721,6 +13881,85 @@ export namespace Schemas {
        * * `Resend` - Resend
        * * `PgAnalyze` - PgAnalyze
        * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -17597,6 +17836,85 @@ export namespace Schemas {
        * * `Resend` - Resend
        * * `PgAnalyze` - PgAnalyze
        * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21375,6 +21693,28 @@ export namespace Schemas {
     export const JsonrpcEnum = {
       '20': '2.0',
     } as const;
+
+    /**
+     * One chunk in a drill-down window over a single knowledge document.
+     *
+     * Output-only — the rows come from the `get_document_window` logic helper
+     * (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+     * read serializer rather than a `ModelSerializer`.
+     */
+    export interface KnowledgeDocumentWindow {
+      /** Stable identifier of this chunk. Same value used in search results. */
+      readonly chunk_id: string;
+      /** Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window. */
+      readonly ordinal: number;
+      /** The chunk's text content. */
+      readonly content: string;
+      /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+      readonly heading_path: string;
+      /** Human label of the knowledge source this chunk belongs to. */
+      readonly source_name: string;
+      /** Title of the document this chunk belongs to. */
+      readonly document_title: string;
+    }
 
     /**
      * * `text` - Text
@@ -46385,6 +46725,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
+    /**
      * Filter to observations of a specific session recording.
      */
     session_id?: string;
@@ -47639,6 +47983,17 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type BusinessKnowledgeDocumentsWindowListParams = {
+    /**
+     * Zero-based chunk ordinal to center the window on (from a search result).
+     */
+    around_ordinal: number;
+    /**
+     * Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].
+     */
+    radius?: number;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
@@ -52911,6 +53266,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number;
     /**
      * Filter to observations of a specific session recording.
      */

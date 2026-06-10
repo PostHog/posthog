@@ -10,6 +10,7 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
 
@@ -174,6 +175,7 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
