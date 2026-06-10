@@ -31,7 +31,7 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, type CSSProperties, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconMessage, IconSend, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
@@ -56,7 +56,12 @@ import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/m
 import { MaxContextType } from 'scenes/max/maxTypes'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import {
+    ArtifactContentType,
+    type ArtifactMessage,
+    AssistantMessageType,
+    type NotebookArtifactContent,
+} from '~/queries/schema/schema-assistant-messages'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -67,6 +72,7 @@ import {
     buildMarkdownNotebookContent,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
+    notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
@@ -154,6 +160,20 @@ type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
     panelId: string
     uiContext?: Partial<MaxUIContext>
 }
+
+type NotebookArtifactThreadMessage = ArtifactMessage &
+    ThreadMessage & {
+        content: NotebookArtifactContent
+    }
+
+type MarkdownNotebookRuntimeContextValue = {
+    notebookShortId: string | null
+    notebookTitle: string
+    markdown: string
+    applyNotebookArtifactContent: (content: NotebookArtifactContent, chatId?: string) => void
+}
+
+const MarkdownNotebookRuntimeContext = createContext<MarkdownNotebookRuntimeContextValue | null>(null)
 
 export function MarkdownNotebookV2(): JSX.Element {
     const { content, isEditable, notebook } = useValues(notebookLogic)
@@ -249,22 +269,13 @@ export function MarkdownNotebookV2(): JSX.Element {
             markdownWithChat,
             selectedMarkdown,
         }: MarkdownNotebookAskAIRequest): void => {
-            const notebookShortId = notebook?.short_id
-            const notebookTitle = notebook?.title ?? 'Untitled notebook'
-            const uiContext: Partial<MaxUIContext> | undefined = notebookShortId
-                ? {
-                      notebooks: [
-                          {
-                              type: MaxContextType.NOTEBOOK,
-                              id: notebookShortId,
-                              name: notebookTitle,
-                              markdown_with_insertion_placeholder: markdownWithChat,
-                              insertion_placeholder_block_id: chatId,
-                              insertion_placeholder_marker: chatMarker,
-                          },
-                      ],
-                  }
-                : undefined
+            const uiContext = getNotebookAIChatUIContext({
+                notebookShortId: notebook?.short_id ?? null,
+                notebookTitle: notebook?.title ?? 'Untitled notebook',
+                markdown: markdownWithChat,
+                chatId,
+                chatMarker,
+            })
 
             const inlineAIRequest: InlineNotebookAIRequest = {
                 chatId,
@@ -286,6 +297,36 @@ export function MarkdownNotebookV2(): JSX.Element {
         [notebook?.short_id, notebook?.title]
     )
 
+    const applyNotebookArtifactContent = useCallback(
+        (content: NotebookArtifactContent, chatId?: string): void => {
+            const artifactMarkdown = notebookArtifactContentToMarkdown(content)
+            if (!artifactMarkdown.trim()) {
+                return
+            }
+
+            const nextMarkdown = preserveNotebookAIChatMarker(artifactMarkdown, latestMarkdownRef.current, chatId)
+            if (nextMarkdown === latestMarkdownRef.current) {
+                return
+            }
+
+            bufferedMarkdownRef.current = null
+            latestMarkdownRef.current = nextMarkdown
+            setDraftMarkdown(null)
+            setLocalContent(buildMarkdownNotebookContent(nextMarkdown, nodeIdRef.current))
+        },
+        [setLocalContent]
+    )
+
+    const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
+        () => ({
+            notebookShortId: notebook?.short_id ?? null,
+            notebookTitle: notebook?.title ?? 'Untitled notebook',
+            markdown: renderedMarkdown,
+            applyNotebookArtifactContent,
+        }),
+        [applyNotebookArtifactContent, notebook?.short_id, notebook?.title, renderedMarkdown]
+    )
+
     const handleInlineAIComplete = useCallback((request: InlineNotebookAIRequest): void => {
         window.setTimeout(() => {
             setInlineAIRequests((currentRequests) =>
@@ -301,7 +342,7 @@ export function MarkdownNotebookV2(): JSX.Element {
     }, [])
 
     return (
-        <>
+        <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
             <MarkdownNotebook
                 value={renderedMarkdown}
                 remoteValue={remoteMarkdown}
@@ -325,7 +366,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                     onError={handleInlineAIError}
                 />
             ))}
-        </>
+        </MarkdownNotebookRuntimeContext.Provider>
     )
 }
 
@@ -382,6 +423,7 @@ function InlineNotebookAIThread({
     const { threadRaw, threadLoading } = useValues(threadLogicInstance)
     const didAskRef = useRef(false)
     const didCompleteRef = useRef(false)
+    useApplyNotebookArtifactMessages(threadRaw, request.chatId)
 
     useEffect(() => {
         if (didAskRef.current) {
@@ -466,6 +508,43 @@ function getInlineAIStatusText(value: string | undefined, fallback: string): str
     return oneLineValue.length > 160 ? `${oneLineValue.slice(0, 157)}...` : oneLineValue
 }
 
+function useApplyNotebookArtifactMessages(threadRaw: ThreadMessage[], chatId: string): void {
+    const runtimeContext = useContext(MarkdownNotebookRuntimeContext)
+    const appliedArtifactKeysRef = useRef<Set<string>>(new Set())
+
+    useEffect(() => {
+        if (!runtimeContext) {
+            return
+        }
+
+        for (const message of threadRaw) {
+            if (!isCompletedNotebookArtifactMessage(message)) {
+                continue
+            }
+
+            const artifactKey = getNotebookArtifactMessageKey(message)
+            if (appliedArtifactKeysRef.current.has(artifactKey)) {
+                continue
+            }
+
+            runtimeContext.applyNotebookArtifactContent(message.content, chatId)
+            appliedArtifactKeysRef.current.add(artifactKey)
+        }
+    }, [chatId, runtimeContext, threadRaw])
+}
+
+function isCompletedNotebookArtifactMessage(message: ThreadMessage): message is NotebookArtifactThreadMessage {
+    return (
+        message.type === AssistantMessageType.Artifact &&
+        message.status === 'completed' &&
+        message.content.content_type === ArtifactContentType.Notebook
+    )
+}
+
+function getNotebookArtifactMessageKey(message: NotebookArtifactThreadMessage): string {
+    return `${message.artifact_id}:${message.id ?? ''}:${JSON.stringify(message.content.blocks)}`
+}
+
 const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry([
     ...MARKDOWN_NODE_DEFINITIONS.map((definition) => {
         const nodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[definition.tagName]
@@ -548,6 +627,58 @@ function getNotebookAIChatTitle(node: NotebookComponentBlockNode): string | null
         getNotebookStringProp(node.props.title) ??
         summarizeTitle(getNotebookStringProp(node.props.lastAnswer) ?? getNotebookStringProp(node.props.answer))
     )
+}
+
+function getNotebookAIChatUIContext({
+    notebookShortId,
+    notebookTitle,
+    markdown,
+    chatId,
+    chatMarker = getNotebookAIChatMarker(chatId),
+}: {
+    notebookShortId: string | null
+    notebookTitle: string
+    markdown: string
+    chatId: string
+    chatMarker?: string
+}): Partial<MaxUIContext> | undefined {
+    if (!notebookShortId) {
+        return undefined
+    }
+
+    return {
+        notebooks: [
+            {
+                type: MaxContextType.NOTEBOOK,
+                id: notebookShortId,
+                name: notebookTitle,
+                markdown_with_insertion_placeholder: markdown,
+                insertion_placeholder_block_id: chatId,
+                insertion_placeholder_marker: chatMarker,
+            },
+        ],
+    }
+}
+
+function preserveNotebookAIChatMarker(
+    nextMarkdown: string,
+    currentMarkdown: string,
+    chatId: string | undefined
+): string {
+    if (!chatId) {
+        return nextMarkdown
+    }
+
+    const chatMarker = getNotebookAIChatMarker(chatId)
+    if (!currentMarkdown.includes(chatMarker) || nextMarkdown.includes(chatMarker)) {
+        return nextMarkdown
+    }
+
+    return [nextMarkdown.trimEnd(), chatMarker].filter((block) => block.trim()).join('\n\n')
+}
+
+function getNotebookAIChatMarker(chatId: string): string {
+    return `<Chat id="${chatId}" />`
 }
 
 function getInlineNotebookAIPanelId(chatId: string, mode: 'inline' | 'full'): string {
@@ -751,6 +882,7 @@ function NotebookAIChatById({
 
     return (
         <NotebookAIChatThread
+            chatId={chatId}
             threadLogicProps={{ ...threadLogicProps, skipInitialLoad: !loadOlderMessages }}
             cachedTitle={cachedTitle}
             cachedLastAnswer={cachedLastAnswer}
@@ -767,6 +899,7 @@ function NotebookAIChatById({
 }
 
 function NotebookAIChatThread({
+    chatId,
     threadLogicProps,
     cachedTitle,
     cachedLastAnswer,
@@ -779,6 +912,7 @@ function NotebookAIChatThread({
     onQueuedReplyConsumed,
     updateProps,
 }: {
+    chatId: string
     threadLogicProps: MaxThreadLogicProps
     cachedTitle: string | null
     cachedLastAnswer: string | null
@@ -795,7 +929,18 @@ function NotebookAIChatThread({
     useMountedLogic(threadLogicInstance)
 
     const { askMax } = useActions(threadLogicInstance)
-    const { conversation, threadGrouped, threadLoading } = useValues(threadLogicInstance)
+    const { conversation, threadGrouped, threadLoading, threadRaw } = useValues(threadLogicInstance)
+    const runtimeContext = useContext(MarkdownNotebookRuntimeContext)
+    const replyUiContext = useMemo(
+        () =>
+            getNotebookAIChatUIContext({
+                notebookShortId: runtimeContext?.notebookShortId ?? null,
+                notebookTitle: runtimeContext?.notebookTitle ?? 'Untitled notebook',
+                markdown: runtimeContext?.markdown ?? '',
+                chatId,
+            }),
+        [chatId, runtimeContext?.markdown, runtimeContext?.notebookShortId, runtimeContext?.notebookTitle]
+    )
     const threadMessages = getNotebookAIChatThreadMessages(threadGrouped, threadLoading)
     const visibleMessages =
         loadOlderMessages && threadMessages.length > 0 ? threadMessages : [...baseMessages, ...threadMessages]
@@ -806,15 +951,16 @@ function NotebookAIChatThread({
     const conversationTitle = getUnknownStringProp(conversation?.title)
     const latestAnswer = getLatestNotebookAIChatAnswer(visibleMessages)
     const isThinking = threadLoading || displayMessages.at(-1)?.role === 'thinking'
+    useApplyNotebookArtifactMessages(threadRaw, chatId)
 
     useEffect(() => {
         if (!queuedReply) {
             return
         }
 
-        askMax(queuedReply)
+        askMax(queuedReply, true, replyUiContext)
         onQueuedReplyConsumed()
-    }, [askMax, onQueuedReplyConsumed, queuedReply])
+    }, [askMax, onQueuedReplyConsumed, queuedReply, replyUiContext])
 
     useEffect(() => {
         const nextProps: Partial<NotebookComponentProps> = {}
@@ -842,7 +988,7 @@ function NotebookAIChatThread({
             showCollapseOlderMessages={loadOlderMessages}
             onShowOlderMessages={onShowOlderMessages}
             onCollapseOlderMessages={onCollapseOlderMessages}
-            onReply={(reply) => askMax(reply)}
+            onReply={(reply) => askMax(reply, true, replyUiContext)}
         />
     )
 }

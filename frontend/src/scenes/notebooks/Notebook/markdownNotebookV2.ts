@@ -1,7 +1,16 @@
-import { serializeNode } from 'lib/components/MarkdownNotebook/markdown'
-import { NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
+import {
+    parseMarkdownNotebook,
+    serializeMarkdownNotebook,
+    serializeNode,
+} from 'lib/components/MarkdownNotebook/markdown'
+import { NotebookBlockNode, NotebookComponentProps, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+
+import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
+import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 
 import { NotebookNodeType } from '../types'
 
@@ -96,6 +105,18 @@ export function serializeMarkdownNotebookComponent(tagName: string, props: Noteb
     })
 }
 
+export function notebookArtifactContentToMarkdown(content: NotebookArtifactContent): string {
+    const nodes = content.blocks.flatMap(notebookArtifactBlockToMarkdownNodes)
+    const markdown = serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
+    const title = normalizeArtifactTitle(content.title)
+
+    if (!title || /^\s*#\s+/m.test(markdown)) {
+        return markdown
+    }
+
+    return [`# ${title}`, markdown].filter((block) => block.trim()).join('\n\n')
+}
+
 export function convertNotebookContentToMarkdown(content: JSONContent | null | undefined): string {
     if (isMarkdownNotebookContent(content)) {
         return getMarkdownNotebookMarkdown(content)
@@ -125,6 +146,78 @@ function getMarkdownNotebookNode(content: JSONContent | null | undefined): Markd
         return null
     }
     return nodes[0] as MarkdownNotebookV2Node
+}
+
+function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlockNode[] {
+    if (block.type === 'markdown') {
+        return parseMarkdownNotebook(block.content).nodes
+    }
+
+    if (block.type === 'visualization') {
+        const query = getNotebookArtifactVisualizationQuery(block)
+        if (!query) {
+            return []
+        }
+
+        return [
+            {
+                id: '',
+                type: 'component',
+                tagName: 'Query',
+                props: {
+                    query,
+                    ...getOptionalTitleProp(block.title),
+                },
+            },
+        ]
+    }
+
+    if (block.type === 'session_replay') {
+        return [
+            {
+                id: '',
+                type: 'component',
+                tagName: 'Recording',
+                props: {
+                    id: block.session_id,
+                    timestampMs: block.timestamp_ms,
+                    ...getOptionalTitleProp(block.title),
+                },
+            },
+        ]
+    }
+
+    return []
+}
+
+function getNotebookArtifactVisualizationQuery(block: VisualizationBlock): NotebookPropValue | null {
+    const source = block.query as QuerySchemaRoot
+    const query: QuerySchemaRoot | DataVisualizationNode | InsightVizNode = isHogQLQuery(source)
+        ? { kind: NodeKind.DataVisualizationNode, source }
+        : isInsightQueryNode(source)
+          ? { kind: NodeKind.InsightVizNode, source, showHeader: true }
+          : source
+
+    return toNotebookPropValue(query)
+}
+
+function getOptionalTitleProp(title: string | null | undefined): Partial<Pick<NotebookComponentProps, 'title'>> {
+    return title?.trim() ? { title: title.trim() } : {}
+}
+
+function normalizeArtifactTitle(title: string | null | undefined): string | null {
+    const normalizedTitle = title?.replace(/\s+/g, ' ').trim()
+    return normalizedTitle || null
+}
+
+function toNotebookPropValue(value: unknown): NotebookPropValue | null {
+    const serializedValue = JSON.stringify(value)
+    if (serializedValue === undefined) {
+        return null
+    }
+
+    const parsedValue = JSON.parse(serializedValue) as unknown
+    return isNotebookPropValue(parsedValue) ? parsedValue : null
 }
 
 function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
