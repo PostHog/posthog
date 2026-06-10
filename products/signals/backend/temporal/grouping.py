@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
     EMBEDDING_MODEL,
@@ -1192,7 +1193,7 @@ async def _process_signal_batch(
                     assign_result.run_count,
                 )
 
-        except Exception:
+        except Exception as e:
             dropped += 1
             logger.exception(
                 "Failed to process signal in batch",
@@ -1201,6 +1202,7 @@ async def _process_signal_batch(
                 source_type=signal.source_type,
                 source_id=signal.source_id,
             )
+            await capture_signal_dropped(signal, e, stage="grouping_sequential")
 
     # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
     if emitted_signals:
