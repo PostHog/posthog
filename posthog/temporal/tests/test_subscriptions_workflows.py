@@ -2199,7 +2199,7 @@ async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
 
     with (
         patch(_IS_OVER_BUDGET, return_value=True),
-        patch(_GENERATE_MARKDOWN) as mock_generate,
+        patch(_GENERATE_REPORT) as mock_generate,
         patch(_CREDIT_LIMITED_EMAIL) as mock_email,
     ):
         result = await ActivityEnvironment().run(
@@ -2223,7 +2223,7 @@ async def test_generate_ai_report_credit_check_fails_open(team, user):
 
     with (
         patch(_IS_OVER_BUDGET, side_effect=RuntimeError("quota cache unavailable")),
-        patch(_GENERATE_MARKDOWN, return_value="# Report") as mock_generate,
+        patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Report", diagnostics=())) as mock_generate,
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
@@ -2244,7 +2244,7 @@ async def test_generate_ai_report_already_generated_bypasses_credit_gate(team, u
 
     with (
         patch(_IS_OVER_BUDGET, return_value=True) as mock_over_budget,
-        patch(_GENERATE_MARKDOWN) as mock_generate,
+        patch(_GENERATE_REPORT) as mock_generate,
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
@@ -2371,7 +2371,7 @@ async def test_skip_helper_falls_back_when_billing_period_unsynced(team, user):
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch(_CREDIT_LIMITED_EMAIL)
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
-@patch(_GENERATE_MARKDOWN)
+@patch(_GENERATE_REPORT)
 @patch(_IS_OVER_BUDGET, return_value=True)
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
