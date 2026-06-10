@@ -7139,6 +7139,9 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    /**
+     * Read serializer for `AgentNoticeData` facade DTOs.
+     */
     export interface AgentNotice {
       /** Unique identifier of the notice. */
       id: string;
@@ -7148,7 +7151,7 @@ export namespace Schemas {
          * Optional feature flag key gating delivery; when set, deliver only if the flag evaluates true.
          * @nullable
          */
-      readonly feature_flag_key: string | null;
+      feature_flag_key: string | null;
       /** When the notice becomes active. */
       starts_at: string;
       /** When the notice stops being delivered. */
