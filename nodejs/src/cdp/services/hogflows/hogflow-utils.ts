@@ -105,11 +105,32 @@ export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string =>
     return `[Action:${action.id}]`
 }
 
-// A wait_until_condition with no property filters compiles to always-true bytecode. Treat such a
-// condition as absent so it never matches on entry or wakes the job on an unrelated event; the wait
-// then relies on its `events` / the step timeout.
-export function waitConditionHasProperties(condition?: { filters?: { properties?: unknown[] } }): boolean {
-    return (condition?.filters?.properties?.length ?? 0) > 0
+// An empty wait condition compiles to always-true bytecode (op TRUE), which would match on entry and
+// wake the job on every event. We detect that exact compiled program and treat such a condition as
+// absent. Keying on the bytecode rather than the presence of `properties` keeps a real condition that
+// is expressed through events/actions filters (and so has no top-level `properties`) evaluable. Both
+// the versioned `_H` and the legacy `_h` compilers emit TRUE (29) as the whole program for an empty
+// filter.
+const ALWAYS_TRUE_BYTECODES: readonly unknown[][] = [
+    ['_H', 1, 29],
+    ['_h', 29],
+]
+
+function isAlwaysTrueBytecode(bytecode: unknown): boolean {
+    return (
+        Array.isArray(bytecode) &&
+        ALWAYS_TRUE_BYTECODES.some(
+            (pattern) => pattern.length === bytecode.length && pattern.every((op, i) => op === bytecode[i])
+        )
+    )
+}
+
+// A wait condition is only worth evaluating when it has a real compiled filter: a non-empty bytecode
+// that isn't the always-true program. Empty, missing, or always-true conditions are treated as absent
+// so the wait relies on its `events` / the step timeout instead.
+export function isEvaluableCondition(condition?: { filters?: { bytecode?: unknown } }): boolean {
+    const bytecode = condition?.filters?.bytecode
+    return Array.isArray(bytecode) && bytecode.length > 0 && !isAlwaysTrueBytecode(bytecode)
 }
 
 const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']

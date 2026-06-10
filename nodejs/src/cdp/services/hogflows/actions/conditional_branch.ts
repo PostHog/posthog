@@ -4,7 +4,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findContinueAction, findNextAction, waitConditionHasProperties } from '../hogflow-utils'
+import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -38,12 +38,10 @@ export class ConditionalBranchHandler implements ActionHandler {
                       ...action,
                       type: 'conditional_branch',
                       config: {
-                          // An empty property condition compiles to always-true bytecode, which would
-                          // match on entry and fire the wait immediately. Only honor a condition that
-                          // has real properties; otherwise the wait relies on its events / the timeout.
-                          conditions: waitConditionHasProperties(action.config.condition)
-                              ? [action.config.condition]
-                              : [],
+                          // An empty condition compiles to always-true bytecode, which would match on
+                          // entry and fire the wait immediately. Only honor a condition with a real
+                          // compiled filter; otherwise the wait relies on its events / the timeout.
+                          conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
                       },
                   }

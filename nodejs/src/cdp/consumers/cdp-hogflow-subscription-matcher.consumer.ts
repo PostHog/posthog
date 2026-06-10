@@ -11,7 +11,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { waitConditionHasProperties } from '../services/hogflows/hogflow-utils'
+import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -241,10 +241,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 return true
             }
         }
-        // An empty property condition compiles to always-true bytecode, which would wake the job
-        // on the next event of any kind. Only evaluate the condition when it has real properties;
+        // An empty condition compiles to always-true bytecode, which would wake the job on the next
+        // event of any kind. Only evaluate the condition when it has a real compiled filter;
         // otherwise the wait relies on its `events` / the step timeout.
-        if (!waitConditionHasProperties(action.config.condition)) {
+        if (!isEvaluableCondition(action.config.condition)) {
             return false
         }
         return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
