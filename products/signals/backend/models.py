@@ -405,18 +405,43 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
-    def append_status(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
+    def append_status(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        type: str,
+        content: str,
+        reevaluate_autostart: bool = True,
+    ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
         Status artefacts are append-only: each (re)assessment creates a new row, and the report's
         current status is the latest row of that type (by `created_at`). `content` is JSON text.
+
+        Appending a `suggested_reviewers` status re-evaluates auto-start on commit (idempotent),
+        since changing reviewers can newly satisfy it. Callers that orchestrate auto-start
+        themselves with full in-hand context — the agentic pipeline / custom agents, which run on
+        the async worker and call it directly — pass ``reevaluate_autostart=False``.
         """
         if type not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type!r} is not a status artefact type")
         artefact = cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
-        if type == cls.ArtefactType.SUGGESTED_REVIEWERS:
+        if reevaluate_autostart and type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
+
+    @classmethod
+    def append_finding(cls, *, team_id: int, report_id: str, content: str) -> "SignalReportArtefact":
+        """Append a `signal_finding` artefact (one investigation result; latest per `signal_id` wins).
+
+        `signal_finding` is neither a status nor a log type — it has its own identity keyed by the
+        finding's `signal_id` — so it gets a dedicated appender rather than going through
+        `append_status` / `add_log`. `content` is serialized JSON text.
+        """
+        return cls.objects.create(
+            team_id=team_id, report_id=report_id, type=cls.ArtefactType.SIGNAL_FINDING, content=content
+        )
 
     @staticmethod
     def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:

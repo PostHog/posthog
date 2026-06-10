@@ -1,6 +1,8 @@
 import json
 from dataclasses import dataclass
 
+from django.db import transaction
+
 import structlog
 import temporalio
 import posthoganalytics
@@ -175,72 +177,74 @@ def _build_reviewers_content(
     return reviewers_content
 
 
-def _append_agentic_report_artefacts(artefacts: list[SignalReportArtefact]) -> None:
+def _append_agentic_report_artefacts(
+    *,
+    team_id: int,
+    report_id: str,
+    repo_selection_json: str,
+    finding_jsons: list[str],
+    actionability_json: str,
+    priority_json: str | None,
+    reviewers_json: str | None,
+) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
     # Prior versions are intentionally retained as report-log history. `_AGENTIC_ARTEFACT_TYPES`
     # is kept as the documented set these versions belong to (and is asserted disjoint from the
-    # log types in tests).
-    SignalReportArtefact.objects.bulk_create(artefacts)
+    # log types in tests). Written through the model helpers (the single artefact write path) in
+    # one transaction; the caller orchestrates auto-start explicitly, so the suggested_reviewers
+    # append opts out of the model's auto-start re-evaluation hook.
+    with transaction.atomic():
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=repo_selection_json,
+        )
+        for finding_json in finding_jsons:
+            SignalReportArtefact.append_finding(team_id=team_id, report_id=report_id, content=finding_json)
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=actionability_json,
+        )
+        if priority_json is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content=priority_json,
+            )
+        if reviewers_json is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=reviewers_json,
+                reevaluate_autostart=False,
+            )
 
 
 async def _persist_agentic_report_artefacts(
     team_id: int, report_id: str, result: ReportResearchOutput, repo_selection: RepoSelectionResult
 ) -> None:
-    artefacts: list[SignalReportArtefact] = [
-        SignalReportArtefact(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=repo_selection.model_dump_json(),
-        ),
-    ]
-    artefacts.extend(
-        SignalReportArtefact(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
-            content=finding.model_dump_json(),
-        )
-        for finding in result.findings
-    )
-    artefacts.append(
-        SignalReportArtefact(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=result.actionability.model_dump_json(),
-        )
-    )
-    if result.priority:
-        artefacts.append(
-            SignalReportArtefact(
-                team_id=team_id,
-                report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content=result.priority.model_dump_json(),
-            )
-        )
-
     # Resolve suggested reviewers from commit hashes
     reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
         repository=repo_selection.repository or "",
         findings=result.findings,
     )
-    if reviewers_content:
-        artefacts.append(
-            SignalReportArtefact(
-                team_id=team_id,
-                report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps(reviewers_content),
-            )
-        )
 
     await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
-        artefacts=artefacts,
+        team_id=team_id,
+        report_id=report_id,
+        repo_selection_json=repo_selection.model_dump_json(),
+        finding_jsons=[finding.model_dump_json() for finding in result.findings],
+        actionability_json=result.actionability.model_dump_json(),
+        priority_json=result.priority.model_dump_json() if result.priority else None,
+        reviewers_json=json.dumps(reviewers_content) if reviewers_content else None,
     )
 
     try:

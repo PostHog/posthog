@@ -40,39 +40,37 @@ def create_custom_agent_ready_report(
             total_weight=0.0,
         )
 
-        artefacts: list[SignalReportArtefact] = [
-            SignalReportArtefact(
-                team_id=team_id,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-                content=repo_selection.model_dump_json(),
-            ),
-            SignalReportArtefact(
-                team_id=team_id,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                content=final_report.actionability.model_dump_json(),
-            ),
-        ]
+        # Written through the model helpers (the single artefact write path). Auto-start is
+        # orchestrated explicitly by the caller after persistence, so the suggested_reviewers
+        # append opts out of the model's auto-start re-evaluation hook.
+        report_id = str(report.id)
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=repo_selection.model_dump_json(),
+        )
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=final_report.actionability.model_dump_json(),
+        )
         if final_report.priority is not None:
-            artefacts.append(
-                SignalReportArtefact(
-                    team_id=team_id,
-                    report=report,
-                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    content=final_report.priority.model_dump_json(),
-                )
+            SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content=final_report.priority.model_dump_json(),
             )
         if final_report.assignees:
-            artefacts.append(
-                SignalReportArtefact(
-                    team_id=team_id,
-                    report=report,
-                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                    content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
-                )
+            SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
+                reevaluate_autostart=False,
             )
-        SignalReportArtefact.objects.bulk_create(artefacts)
 
         if task_id is not None:
             SignalReportTask.objects.create(

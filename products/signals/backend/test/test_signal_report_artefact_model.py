@@ -94,6 +94,26 @@ class TestSignalReportArtefactHelpers(BaseTest):
                 content=json.dumps({"note": "x"}),
             )
 
+    # --- append_finding ---
+
+    def test_append_finding_appends_signal_finding(self):
+        report = self._report()
+        first = SignalReportArtefact.append_finding(
+            team_id=self.team.id, report_id=str(report.id), content=json.dumps({"signal_id": "s1"})
+        )
+        second = SignalReportArtefact.append_finding(
+            team_id=self.team.id, report_id=str(report.id), content=json.dumps({"signal_id": "s2"})
+        )
+
+        assert first.type == SignalReportArtefact.ArtefactType.SIGNAL_FINDING
+        assert first.id != second.id
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING
+            ).count()
+            == 2
+        )
+
     # --- update_content ---
 
     def test_update_content_replaces_and_stamps_updated_at(self):
