@@ -122,6 +122,19 @@ so the next time a similar alert fires it can short-circuit the
 investigation. Higher-trust actions (k8s exec, restarting pods)
 are gated behind explicit human approval.
 
+It also curates a **runbook corpus in prose memory** — a structured
+`runbooks/` tree split into alert-specific runbooks
+(`runbooks/alerts/<signature>.md`), how-systems-work notes
+(`runbooks/systems/<area>.md`), and reusable procedures
+(`runbooks/procedures/<task>.md`). Reads are open and consulted at the
+start of triage; **writes are approval-gated** — when the bot proposes
+a new or refined runbook on a user's behalf, the dispatcher queues a
+synthetic approval envelope and links the user to approve (and
+optionally edit) it before it lands. A dedicated `runbook-memory` skill
+teaches the bot the taxonomy, the quality bar for a good runbook, and
+the propose-and-link flow. This is how institutional knowledge accretes
+without the bot silently rewriting it.
+
 **Spec sketch.**
 
 ```yaml
@@ -179,10 +192,16 @@ reasoning: high
       so the runtime side ([`runtime-mcps.md`](runtime-mcps.md)) is
       already shipped — only the deploy machinery is missing.
       [`tailscale-mcps.md`](tailscale-mcps.md) is parked.
-- [ ] ⚠️ Runbook corpus retrieval — `web-fetch` works for a
-      single URL but the agent needs a grounded index over the
-      whole runbook tree. Memory store could host a periodic
-      mirror; no loader job today. **Gap.**
+- [x] ✅ Runbook corpus — now backed by **prose memory**
+      (`@posthog/memory-*`) as a structured `runbooks/` tree
+      (alerts / systems / procedures), consulted on triage and
+      curated via **approval-gated** `memory-write` / `-update`. The
+      `runbook-memory` skill carries the taxonomy + quality bar + the
+      propose-and-link approval flow. `web-fetch` still covers
+      one-off external URLs; the agent-owned corpus is the durable,
+      self-improving layer. A periodic mirror of an _external_ runbook
+      tree into memory (loader job) remains a possible future add, but
+      is no longer the blocker — the agent builds the corpus itself.
 
 **Feasibility today.** **Both v0 and v1-with-memory shipped on this
 branch.** Bundle at

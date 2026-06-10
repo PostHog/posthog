@@ -15,20 +15,23 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-this-version) below.
 
 ## What it does
 
-| Capability                                 | How                                                                                                                    |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Auto-triggered by incident.io webhooks** | `webhook` trigger at `/agents/<slug>/webhook` — point incident.io's webhook config here for hands-off alert response.  |
-| Triggered by Grafana / alertmanager        | Same `webhook` endpoint, different payload shape — auto-detected by the agent.                                         |
-| Triggered by Slack `@mention`              | `slack` trigger, `mention_only: true`                                                                                  |
-| Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                             |
-| Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                |
-| **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline. |
-| Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                         |
-| Fetches runbook URLs                       | `@posthog/web-fetch`                                                                                                   |
-| Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)   |
-| Follows a structured triage flow           | `skills/triage-playbook/SKILL.md`                                                                                      |
-| Follows a consistent Slack message format  | `skills/slack-thread-protocol/SKILL.md`                                                                                |
-| Follows a consistent incident.io flow      | `skills/incident-io-playbook/SKILL.md`                                                                                 |
+| Capability                                 | How                                                                                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Auto-triggered by incident.io webhooks** | `webhook` trigger at `/agents/<slug>/webhook` — point incident.io's webhook config here for hands-off alert response.             |
+| Triggered by Grafana / alertmanager        | Same `webhook` endpoint, different payload shape — auto-detected by the agent.                                                    |
+| Triggered by Slack `@mention`              | `slack` trigger, `mention_only: true`                                                                                             |
+| Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                                        |
+| Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                           |
+| **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.            |
+| Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                                    |
+| Fetches runbook URLs                       | `@posthog/web-fetch`                                                                                                              |
+| Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)              |
+| **Consults a runbook corpus on triage**    | `@posthog/memory-search` / `-read` over `runbooks/` (alert / system / procedure runbooks) — see [Runbook memory](#runbook-memory) |
+| **Proposes runbook updates for users**     | `@posthog/memory-write` / `-update`, **approval-gated** — queues the change and links the user to approve it                      |
+| Follows a structured triage flow           | `skills/triage-playbook/SKILL.md`                                                                                                 |
+| Follows a consistent Slack message format  | `skills/slack-thread-protocol/SKILL.md`                                                                                           |
+| Follows a consistent incident.io flow      | `skills/incident-io-playbook/SKILL.md`                                                                                            |
+| Knows how to build good memory             | `skills/runbook-memory/SKILL.md`                                                                                                  |
 
 ## What it cannot do
 
@@ -48,8 +51,38 @@ sre-slack-bot/
 └── skills/
     ├── triage-playbook/SKILL.md           # how to investigate
     ├── slack-thread-protocol/SKILL.md     # how to reply in Slack
-    └── incident-io-playbook/SKILL.md      # how to query + update incident.io
+    ├── incident-io-playbook/SKILL.md      # how to query + update incident.io
+    └── runbook-memory/SKILL.md            # the runbook corpus: taxonomy, quality bar, approval-gated writes
 ```
+
+## Runbook memory
+
+Beyond the tabular `incidents` table (fast "signature → outcome"
+lookups), the bot maintains a **runbook corpus** in prose memory
+(`@posthog/memory-*`). This is the institutional knowledge that makes
+it faster over time — it consults the corpus at the start of triage
+and proposes additions after a resolution.
+
+Three folders, each a distinct job (full detail in the
+[`runbook-memory`](skills/runbook-memory/SKILL.md) skill):
+
+```text
+runbooks/
+├── alerts/<signature>.md      # what to do when a specific alert fires (grows per incident)
+├── systems/<area>.md          # how a subsystem works — architecture, deps, dashboards, owners
+└── procedures/<task>.md       # reusable ops procedures (rollback, scale, drain)
+```
+
+**Reads are open; writes are gated.** `@posthog/memory-search` /
+`-list` / `-read` need no approval. `@posthog/memory-write` /
+`-update` are **approval-gated** (`approvers: ["team_admins"]`,
+`allow_edit: true`): when the bot proposes a runbook change it gets a
+synthetic `queued` envelope back instead of a write, surfaces the
+`approval_url` to the user, and the change only lands once a human
+approves (and optionally edits) it. The bot curates runbooks **on
+behalf of** the team — a person signs off on what enters the corpus.
+This is the same gate the [agent-approval-demo](../agent-approval-demo/)
+bundle showcases, applied to a real curation loop.
 
 ## Prerequisites for deploying
 

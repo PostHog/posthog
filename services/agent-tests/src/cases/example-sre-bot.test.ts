@@ -16,6 +16,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
+import { serializeMemoryDoc } from '@posthog/agent-shared'
+
 import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxCallTool, fauxText } from '../harness'
 
 const WEBHOOK_SECRET = 'sre-test-webhook-secret'
@@ -27,6 +29,7 @@ const BUNDLE_FILES = [
     'skills/triage-playbook/SKILL.md',
     'skills/slack-thread-protocol/SKILL.md',
     'skills/incident-io-playbook/SKILL.md',
+    'skills/runbook-memory/SKILL.md',
 ] as const
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
@@ -64,7 +67,7 @@ describe('example: sre-slack-bot bundle', () => {
         await closeSharedPool()
     })
 
-    it('loads cleanly — spec parses, all 3 bundle files are present', async () => {
+    it('loads cleanly — spec parses, every skill path resolves to a bundle file', async () => {
         const { spec, files } = await loadBundle()
         // Sanity: every skill path referenced in spec.skills[] is also a file
         // we shipped. Drift between the two is the most common bundle bug.
@@ -332,4 +335,119 @@ describe('example: sre-slack-bot bundle', () => {
             mitigation: 'scaled consumer group, lag drained in 4m',
         })
     })
+
+    it('reads the runbook corpus during triage and proposes an approval-gated runbook update', async () => {
+        const { spec, files } = await loadBundle()
+
+        const SEED_RUNBOOK = 'runbooks/systems/ingestion.md'
+        const NEW_RUNBOOK = 'runbooks/alerts/ingestion-500s.md'
+        const proposedContent =
+            '# Alert: ingestion-500s\n\n' +
+            '**What it means:** the ingestion pipeline is returning 500s to capture.\n\n' +
+            '## First checks\n1. Kafka consumer lag on `events-main`.\n\n' +
+            '## Known causes\n- Kafka consumer lag after a deploy. Mitigation: scale the consumer group. (seen 2026-05-29)\n'
+
+        c.setScript([
+            // Consult the corpus first — reads are open (no approval).
+            fauxCallTool('@posthog/load-skill', { id: 'runbook-memory' }),
+            fauxCallTool('@posthog/memory-search', { cue: 'ingestion 500s kafka lag', prefix: 'runbooks/' }),
+            fauxCallTool('@posthog/memory-read', { path: SEED_RUNBOOK }),
+            // Propose a brand-new alert runbook — APPROVAL-GATED, so this queues
+            // a synthetic envelope instead of writing.
+            fauxCallTool('@posthog/memory-write', {
+                path: NEW_RUNBOOK,
+                description: 'Alert runbook: ingestion 500s — kafka consumer lag is the usual cause',
+                content: proposedContent,
+                tags: ['ingestion', 'kafka', 'alert'],
+            }),
+            // Model reacts to the queued envelope: link the human to approve.
+            fauxText(
+                'Drafted a runbook for ingestion-500s and queued it for approval — approve at the link to save it.'
+            ),
+            // After the approval wake, wrap up.
+            fauxText('Runbook approved and saved — future ingestion-500s alerts will short-circuit.'),
+        ])
+
+        const { application } = await c.deployAgent({ slug: 'sre-slack-bot', spec, files })
+        const scope = { teamId: 1, applicationId: application.id }
+
+        // Seed a system runbook so the corpus read returns real content.
+        await c.memoryStore.put(
+            scope,
+            SEED_RUNBOOK,
+            serializeMemoryDoc({
+                description: 'How the ingestion pipeline works — Kafka → plugin-server → ClickHouse',
+                tags: ['ingestion', 'system'],
+                content: '# Ingestion pipeline\n\nKafka → plugin-server → ClickHouse. Owner: #team-ingestion.\n',
+                createdAt: '2026-05-01T00:00:00.000Z',
+                updatedAt: '2026-05-01T00:00:00.000Z',
+            })
+        )
+
+        const res = await request(c.ingress)
+            .post('/agents/sre-slack-bot/webhook')
+            .set('x-webhook-secret', WEBHOOK_SECRET)
+            .send({ alerts: [{ labels: { alertname: 'Ingestion500s' } }] })
+        expect(res.status).toBe(200)
+        const sessionId = res.body.session_id as string
+        await c.drain({ iterations: 100 })
+
+        // The gated write did NOT land — the proposed runbook is still absent.
+        expect(await c.memoryStore.exists(scope, NEW_RUNBOOK)).toBe(false)
+
+        // The model received a queued envelope carrying an approval URL, not a write.
+        const session = await c.queue.get(sessionId)
+        const queued = findApprovalPayload(session!.conversation)
+        expect(queued).not.toBeNull()
+        expect(queued!.approval_url).toMatch(/\/approvals\//)
+
+        // Exactly one queued approval for the memory-write, queryable via janitor.
+        const listed = await request(c.janitor)
+            .get('/approvals')
+            .query({ application_id: application.id, state: 'queued' })
+        expect(listed.status).toBe(200)
+        const queuedRows = listed.body.results as Array<{ id: string; tool_name: string }>
+        expect(queuedRows).toHaveLength(1)
+        expect(queuedRows[0].tool_name).toBe('@posthog/memory-write')
+
+        // Approve it — the runbook lands in real memory on dispatch.
+        const decided = await request(c.janitor)
+            .post(`/approvals/${queuedRows[0].id}/decide`)
+            .send({ decision: 'approve', decided_by: '00000000-0000-0000-0000-000000000009' })
+        expect(decided.status).toBe(200)
+        await c.drain({ iterations: 100 })
+
+        const landed = await c.memoryStore.read(scope, NEW_RUNBOOK)
+        expect(landed.content).toContain('Kafka consumer lag')
+        expect(landed.frontmatter.description).toContain('ingestion 500s')
+    })
 })
+
+/**
+ * Pull the synthetic queued-approval envelope out of a conversation — the
+ * dispatcher lands it as a `toolResult` carrying `{ approval: { state, … } }`
+ * instead of the real tool result. Mirrors the helper in approval-gated cases.
+ */
+function findApprovalPayload(
+    conversation: unknown[]
+): { request_id: string; state: string; approval_url?: string } | null {
+    for (const msg of conversation) {
+        const m = msg as { role?: string; content?: string | Array<{ type?: string; text?: string }> }
+        if (m.role !== 'toolResult' && m.role !== 'user') {
+            continue
+        }
+        const text = Array.isArray(m.content) ? m.content[0]?.text : typeof m.content === 'string' ? m.content : null
+        if (typeof text !== 'string') {
+            continue
+        }
+        try {
+            const parsed = JSON.parse(text)
+            if (parsed?.approval?.state === 'queued') {
+                return parsed.approval
+            }
+        } catch {
+            // not a JSON envelope
+        }
+    }
+    return null
+}

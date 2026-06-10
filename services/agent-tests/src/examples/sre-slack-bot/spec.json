@@ -27,7 +27,32 @@
         { "kind": "native", "id": "@posthog/http-request" },
         { "kind": "native", "id": "@posthog/table-membership" },
         { "kind": "native", "id": "@posthog/table-append" },
-        { "kind": "native", "id": "@posthog/table-query" }
+        { "kind": "native", "id": "@posthog/table-query" },
+        { "kind": "native", "id": "@posthog/memory-list" },
+        { "kind": "native", "id": "@posthog/memory-search" },
+        { "kind": "native", "id": "@posthog/memory-read" },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-write",
+            "requires_approval": true,
+            "approval_policy": {
+                "approvers": ["team_admins"],
+                "allow_edit": true,
+                "ttl_ms": 604800000,
+                "allow_agent_approver": false
+            }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-update",
+            "requires_approval": true,
+            "approval_policy": {
+                "approvers": ["team_admins"],
+                "allow_edit": true,
+                "ttl_ms": 604800000,
+                "allow_agent_approver": false
+            }
+        }
     ],
     "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN"],
     "skills": [
@@ -45,6 +70,11 @@
             "id": "incident-io-playbook",
             "path": "skills/incident-io-playbook/SKILL.md",
             "description": "How to query and update incident.io — list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
+        },
+        {
+            "id": "runbook-memory",
+            "path": "skills/runbook-memory/SKILL.md",
+            "description": "The runbook corpus in agent memory — the folder taxonomy (runbooks/alerts, runbooks/systems, runbooks/procedures), how to read it during triage, how to write a GOOD runbook entry, and the approval-gated flow for proposing a new or updated runbook on a user's behalf. ALWAYS load before reading or proposing any change to a runbook — i.e. at the start of triage (to consult) and after a resolution (to capture the lesson)."
         }
     ],
     "integrations": [],
