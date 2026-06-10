@@ -1,8 +1,7 @@
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Before Onboarding', () => {
-    // A fresh workspace has incomplete onboarding by default, so we don't skip it here —
-    // this exercises reaching settings pages before any product is set up.
+    // Use a fresh workspace without demo data to exercise reaching settings pages on a new org/team.
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
