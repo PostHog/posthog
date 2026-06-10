@@ -8,7 +8,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 
 from django.apps import apps
-from django.conf import settings
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -17,7 +16,6 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -183,13 +181,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         )
 
 
-@override_settings(
-    ROOT_URLCONF=__name__,
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
+@override_settings(ROOT_URLCONF=__name__)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     """Test that OAuth access tokens work through the routing layer with proper permissions"""
 
