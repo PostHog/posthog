@@ -10,6 +10,7 @@ import {
     IconMemory,
     IconNotebook,
     IconNotification,
+    IconPeople,
     IconPlug,
     IconSearch,
     IconShuffle,
@@ -620,6 +621,48 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering issues...'
         },
     },
+    upsert_account: {
+        name: 'Manage accounts',
+        description: 'Manage accounts by creating them or updating roles, properties, and tags',
+        product: Scene.CustomerAnalytics,
+        icon: iconForType('cohort'),
+        modes: [AgentMode.CustomerAnalytics],
+        displayFormatter: (toolCall) => {
+            const action = toolCall.args?.action
+            const isUpdate = isObject(action) && 'action' in action && action.action === 'update'
+            if (isUpdate) {
+                return toolCall.status === 'completed' ? 'Updated account' : 'Updating account...'
+            }
+            return toolCall.status === 'completed' ? 'Created account' : 'Creating account...'
+        },
+    },
+    upsert_account_notebook: {
+        name: 'Manage account notes',
+        description: 'Manage account notes — call recaps, summaries, or edits to an existing note',
+        product: Scene.CustomerAnalytics,
+        icon: iconForType('notebook'),
+        modes: [AgentMode.CustomerAnalytics],
+        displayFormatter: (toolCall) => {
+            const action = toolCall.args?.action
+            const isUpdate = isObject(action) && 'action' in action && action.action === 'update'
+            if (isUpdate) {
+                return toolCall.status === 'completed' ? 'Updated account note' : 'Updating account note...'
+            }
+            return toolCall.status === 'completed' ? 'Created account note' : 'Creating account note...'
+        },
+    },
+    open_account: {
+        name: 'Open account',
+        description: 'Open account details and tabs',
+        product: Scene.CustomerAnalytics,
+        icon: <IconPeople />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Opened account'
+            }
+            return 'Opening account...'
+        },
+    },
     search_error_tracking_issues: {
         name: 'Search issues',
         description: 'Search issues in error tracking',
@@ -683,6 +726,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Summarized session summaries'
             }
             return 'Summarizing session summaries...'
+        },
+    },
+    draft_replay_vision_scanner_prompt: {
+        name: 'Write scanner prompts',
+        description: 'Write scanner prompts for Replay Vision scanners',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Drafted scanner prompt'
+            }
+            return 'Drafting scanner prompt...'
         },
     },
     create_survey: {
@@ -777,6 +832,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('web_analytics'),
         displayFormatter: (toolCall) => {
             return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
+        },
+    },
+    assess_heatmap: {
+        name: 'Assess a heatmap',
+        description:
+            'Assess a heatmap for a page — click, rageclick, and scroll-depth data plus the elements under the hot spots — and recommend concrete changes',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Assessed heatmap' : 'Assessing heatmap...'
         },
     },
     marketing_diagnose_setup: {
@@ -1291,6 +1356,14 @@ export const MODE_DEFINITIONS: Record<
         icon: iconForType('user_interview'),
         scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
         flag: 'USER_INTERVIEWS',
+    },
+    [AgentMode.CustomerAnalytics]: {
+        name: 'Customer analytics',
+        description:
+            'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
+        icon: iconForType('cohort'),
+        scenes: new Set([Scene.CustomerAnalytics]),
+        flag: 'CUSTOMER_ANALYTICS_CSP',
     },
 }
 

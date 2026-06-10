@@ -9,6 +9,7 @@ from structlog import get_logger
 
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.ph_client import ph_scoped_capture
+from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -16,13 +17,12 @@ from products.annotations.backend.api.annotation_context import build_annotation
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.llm_change_summary import generate_change_summary
-from products.exports.backend.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 
 LOGGER = get_logger(__name__)
 
@@ -443,8 +443,8 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     # graceful degradation beats failing the whole delivery. Fail open on a quota-lookup
     # error: generate the summary rather than silently dropping it on a transient blip.
     try:
-        is_over_credit_budget = await sync_to_async(is_team_limited, thread_sensitive=False)(
-            subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        is_over_credit_budget = await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(
+            subscription.team.api_token
         )
     except Exception as e:
         is_over_credit_budget = False

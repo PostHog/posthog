@@ -14,7 +14,7 @@ from ee.hogai.tool import MaxSubtool
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types import AssistantState
 
-from .prompts import BILLING_CONTEXT_PROMPT
+from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT
 
 # sync with frontend/src/scenes/billing/constants.ts
 USAGE_TYPES = [
@@ -55,7 +55,7 @@ class ReadBillingTool(MaxSubtool):
     async def execute(self) -> str:
         billing_context = self._context_manager.get_billing_context()
         if not billing_context:
-            return "No billing information available"
+            return BILLING_CONTEXT_UNAVAILABLE_PROMPT
         formatted_billing_context = await self._format_billing_context(billing_context)
         return formatted_billing_context
 

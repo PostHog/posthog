@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPostHogClient } from '@/lib/posthog'
+import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
@@ -430,11 +431,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         // Never let observability break the request.
     }
 
+    // A 5xx returns an opaque server body the agent can't act on. When the
+    // failed endpoint has a known recovery path (e.g. a logs query that scanned
+    // too much data), append a short "here's how to recover" footer so the agent
+    // narrows and retries instead of re-issuing the same failing call.
+    // `recoverableApiError` was unwrapped from any `cause` chain above; only 5xx
+    // reach here (4xx short-circuited earlier).
+    const recoveryHint =
+        recoverableApiError instanceof PostHogApiError
+            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            : undefined
+
     return {
         content: [
             {
                 type: 'text',
-                text: `Error: [${mcpError.tool}]: ${mcpError.message}`,
+                text: `Error: [${mcpError.tool}]: ${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
             },
         ],
         isError: true,

@@ -72,6 +72,8 @@ export interface RadialChartProps<Meta = unknown> {
     onSliceClick?: (payload: RadialSlicePayload<Meta>) => void
     /** Slack beyond `outerRadius` for hit-testing — typically the hover pop-out distance. */
     hitOuterSlack?: number
+    /** Duration (ms) of the hover-overlay transition. `0` disables (instant pop-out). */
+    hoverAnimationMs?: number
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -87,6 +89,7 @@ export function RadialChart<Meta = unknown>({
     showTooltip = true,
     onSliceClick,
     hitOuterSlack = 0,
+    hoverAnimationMs = 0,
     className,
     dataAttr,
     children,
@@ -149,6 +152,7 @@ export function RadialChart<Meta = unknown>({
         theme,
         drawStatic,
         drawHover,
+        hoverAnimationMs,
     })
 
     const ariaLabel = useMemo(() => {
@@ -215,7 +219,7 @@ export function RadialChart<Meta = unknown>({
                                     <Tooltip
                                         context={tooltipCtx}
                                         renderTooltip={renderTooltip}
-                                        placement="follow-data"
+                                        placement="cursor"
                                     />
                                 )}
                             </div>

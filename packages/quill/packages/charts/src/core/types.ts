@@ -108,6 +108,11 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** Grouped layouts only: `true` when the cursor was in the bar's band slot but beyond its
+     *  filled value extent — i.e. the track region above (vertical) or past (horizontal) a short
+     *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
+     *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
+    inTrackArea?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -182,6 +187,9 @@ export interface ChartConfig {
 
     /** Show horizontal grid lines at y-axis tick positions. */
     showGrid?: boolean
+    /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
+     *  when `showGrid` is true, since the grid already frames the plot. */
+    showAxisLines?: boolean
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -230,6 +238,8 @@ export type ValueDomain =
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
+export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
+
 export interface BarsConfig {
     /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
      *  segment. Defaults to 0 (square). */
@@ -237,10 +247,15 @@ export interface BarsConfig {
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
-     *  semantics don't apply when bars share a band). Defaults to `false`. */
-    track?: boolean
+     *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
+     *  highlights the track region on hover; pass `{ hover: false }` to draw the track
+     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
+    track?: boolean | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
+     *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
+    fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
      *  baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean
@@ -332,6 +347,13 @@ export interface YAxisScale {
     position: 'left' | 'right'
 }
 
+/** Band-axis slot of a single bar: left-edge coordinate (`x`) and width along the band axis.
+ *  Callers derive the center as `x + width / 2` (e.g. to anchor a tooltip on the hovered bar). */
+export interface BandSlot {
+    x: number
+    width: number
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. For chart types where data points
@@ -350,6 +372,11 @@ export interface ChartScales {
      *  band width so {@link TooltipContext.position.width} carries it through to the
      *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
     extent?: (label: string) => number | undefined
+    /** Optional cursor-aware band-slot resolver for grouped layouts. Given the hovered label
+     *  and cursor (canvas pixels), returns the `{ x, width }` slot of the specific bar under the
+     *  cursor, so the tooltip anchors on that bar rather than the whole group. Falls back to
+     *  `x`/`extent` when absent or when it returns undefined. */
+    bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => BandSlot | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

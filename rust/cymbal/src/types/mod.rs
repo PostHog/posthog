@@ -498,6 +498,7 @@ impl Stacktrace {
         &self,
         team_id: i32,
         lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+        debug_images: &[AppleDebugImage],
     ) -> Option<Self> {
         let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
@@ -505,7 +506,7 @@ impl Stacktrace {
 
         let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
         for raw_frame in raw_frames {
-            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+            match lookup_table.get(&raw_frame.raw_id(team_id, debug_images)) {
                 Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }

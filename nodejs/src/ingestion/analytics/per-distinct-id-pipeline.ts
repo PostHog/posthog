@@ -14,10 +14,6 @@ import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-ste
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
-import {
-    ClientIngestionWarningSubpipelineInput,
-    createClientIngestionWarningSubpipeline,
-} from './client-ingestion-warning-subpipeline'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
 import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
 import {
@@ -29,10 +25,7 @@ import {
     PersonsOutput,
 } from './outputs'
 
-export type PerDistinctIdPipelineInput = EventSubpipelineInput &
-    HeatmapSubpipelineInput &
-    ClientIngestionWarningSubpipelineInput &
-    AiEventSubpipelineInput
+export type PerDistinctIdPipelineInput = EventSubpipelineInput & HeatmapSubpipelineInput & AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
@@ -54,10 +47,9 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'ai' | 'event'
+type EventBranch = 'heatmap' | 'ai' | 'event'
 
 const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
-    ['$$client_ingestion_warning', 'client_ingestion_warning'],
     ['$$heatmap', 'heatmap'],
     ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
 ])
@@ -87,7 +79,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         (e) =>
             e.branching(classifyEvent, (branches) =>
                 branches
-                    .branch('client_ingestion_warning', (b) => createClientIngestionWarningSubpipeline(b))
                     .branch('heatmap', (b) =>
                         createHeatmapSubpipeline(b, {
                             options,
@@ -125,6 +116,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                         })
                     )
             ),
-        { tries: 3, sleepMs: 100 }
+        { tries: 5, sleepMs: 100, name: 'per_distinct_id' }
     )
 }

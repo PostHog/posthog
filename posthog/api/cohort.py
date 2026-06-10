@@ -11,6 +11,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
@@ -44,7 +45,7 @@ from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, Person, User
+from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -54,18 +55,9 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
-from posthog.models.cohort.util import (
-    cohort_filters_have_values,
-    get_all_cohort_dependencies,
-    get_friendly_error_message,
-)
-from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.person.util import validate_person_uuids_exist
+from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -76,6 +68,20 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import (
+    DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    REALTIME_COHORT_MAX_PERSON_COUNT,
+    Cohort,
+    CohortOrEmpty,
+    CohortType,
+)
+from products.cohorts.backend.models.util import (
+    cohort_filters_have_values,
+    get_all_cohort_dependencies,
+    get_friendly_error_message,
+)
+from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
@@ -1145,6 +1151,12 @@ class CohortSerializer(serializers.ModelSerializer):
     list=extend_schema(
         parameters=[
             OpenApiParameter(
+                name="hide_behavioral_cohorts",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
+            ),
+            OpenApiParameter(
                 name="basic",
                 type=bool,
                 location=OpenApiParameter.QUERY,
@@ -1468,15 +1480,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_id must be a valid UUID")
 
         # Check if person exists and belongs to this team
-        try:
-            person_uuid = (
-                # nosemgrep: no-direct-persons-db-orm
-                Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                .get(team_id=self.team_id, uuid=person_id)
-                .uuid  # nosemgrep: no-direct-persons-db-orm
-            )  # nosemgrep: no-direct-persons-db-orm
-        except Person.DoesNotExist:
+        person = get_person_by_uuid(team_id=self.team_id, uuid=person_id)
+        if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
+        person_uuid = person.uuid
 
         # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
         cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)

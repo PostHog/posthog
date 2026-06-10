@@ -13,11 +13,10 @@ from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthApplication
+from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY as _RSA_KEY
 
 from ee.api.agentic_provisioning.signature import compute_signature
 
@@ -26,24 +25,11 @@ WIZARD_CLIENT_ID = "test-wizard-client"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
 def _pkce_pair():
     """Generate a PKCE code_verifier and code_challenge pair."""
     verifier = secrets.token_urlsafe(32)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
     return verifier, challenge
-
-
-_RSA_KEY = _generate_rsa_key()
 
 
 @pytest.mark.requires_secrets
@@ -370,7 +356,7 @@ class TestProvisioningAuthentication(APIBaseTest):
 
     # --- PAT scopes ---
 
-    def test_provisioned_pat_created(self):
+    def test_default_off_app_mints_no_provisioned_pat(self):
         from posthog.models.personal_api_key import PersonalAPIKey
 
         verifier, challenge = _pkce_pair()
@@ -414,8 +400,9 @@ class TestProvisioningAuthentication(APIBaseTest):
         from posthog.models.user import User
 
         user = User.objects.get(email=email)
+        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
-        assert pat is not None
+        assert pat is None
 
     # --- is_active kill switch ---
 

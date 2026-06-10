@@ -1,7 +1,7 @@
 import { computeBarAtIndex } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
-import type { BarScaleSet, StackedBand } from '../../../core/scales'
-import type { Series } from '../../../core/types'
+import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
+import type { BandSlot, Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
 export type BarLayout = 'stacked' | 'grouped' | 'percent'
@@ -65,7 +65,7 @@ export interface BarAtCursor<S> {
 /** Yields the renderable `{ series, bar }` for every visible series at `(label, dataIndex)`.
  *  Single source of truth shared by drawHover, tooltip narrowing, and click routing —
  *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. */
-export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
     const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
@@ -108,7 +108,7 @@ export function resolveBarsAtCursor(
     const { cursor, isHorizontal } = args
     const hits = new Set<string>()
     let strictHit: string | null = null
-    for (const { series: s, bar } of iterBarsAtCursor(args)) {
+    for (const { series: s, bar } of barsAtCursor(args)) {
         if (barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
             hits.add(s.key)
         }
@@ -117,6 +117,29 @@ export function resolveBarsAtCursor(
         }
     }
     return { hits, strictHit }
+}
+
+/** Resolve the grouped bar nearest the cursor along the band axis, returning its `{ x, width }`
+ *  slot. `bandAxisCursor` is the cursor coordinate on the band axis (x for vertical charts).
+ *  Returns undefined for non-grouped layouts (no `group` scale) or an unknown label.
+ *  A `scaleBand` is uniform, so the nearest slot index is the cursor's offset from the first
+ *  slot center divided by the step — O(1), no scan over the domain. */
+export function groupedBandSlotAtCursor(
+    scales: BarScaleSet,
+    label: string,
+    bandAxisCursor: number
+): BandSlot | undefined {
+    const { band, group } = scales
+    const start = band(label)
+    const domain = group?.domain()
+    if (!group || start == null || !domain?.length) {
+        return undefined
+    }
+    const step = group.step()
+    const firstCenter = (group(domain[0]) ?? 0) + group.bandwidth() / 2
+    const rawIndex = Math.round((bandAxisCursor - start - firstCenter) / step)
+    const index = Math.max(0, Math.min(domain.length - 1, rawIndex))
+    return groupedBandSlot(scales, label, domain[index])
 }
 
 /** Pixel coordinate of a bar's baseline (value-0) edge — the side the bar grows from. */
@@ -147,7 +170,7 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
         if (labels[dataIndex] !== hoveredLabel) {
             continue
         }
-        for (const { series: s, bar } of iterBarsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
+        for (const { series: s, bar } of barsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
             const extent = isHorizontal ? bar.width : bar.height
             if (extent <= 0) {
                 continue

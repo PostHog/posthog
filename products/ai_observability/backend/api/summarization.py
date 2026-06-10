@@ -30,6 +30,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -304,25 +305,26 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             datetime.now(),
         )
 
-        result = execute_hogql_query(
-            query=parse_select(
-                """
-                SELECT uuid, event, timestamp, properties
-                FROM events
-                WHERE event = '$ai_generation'
-                  AND uuid = {generation_uuid}
-                  AND timestamp >= {date_from}
-                  AND timestamp <= {date_to}
-                LIMIT 1
-                """,
-            ),
-            placeholders={
-                "generation_uuid": ast.Constant(value=generation_id),
-                "date_from": ast.Constant(value=qdr.date_from().isoformat()),
-                "date_to": ast.Constant(value=qdr.date_to().isoformat()),
-            },
-            team=self.team,
-        )
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
+            result = execute_hogql_query(
+                query=parse_select(
+                    """
+                    SELECT uuid, event, timestamp, properties
+                    FROM events
+                    WHERE event = '$ai_generation'
+                      AND uuid = {generation_uuid}
+                      AND timestamp >= {date_from}
+                      AND timestamp <= {date_to}
+                    LIMIT 1
+                    """,
+                ),
+                placeholders={
+                    "generation_uuid": ast.Constant(value=generation_id),
+                    "date_from": ast.Constant(value=qdr.date_from().isoformat()),
+                    "date_to": ast.Constant(value=qdr.date_to().isoformat()),
+                },
+                team=self.team,
+            )
 
         if not result.results:
             raise exceptions.NotFound(f"Generation '{generation_id}' not found in the given date range.")

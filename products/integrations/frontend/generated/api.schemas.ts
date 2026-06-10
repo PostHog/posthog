@@ -19,13 +19,13 @@ export const OrganizationIntegrationKindEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -150,40 +150,41 @@ export interface RoleLookupResponseApi {
 
 /**
  * * `anthropic` - Anthropic
- * `apns` - Apple Push
- * `azure-blob` - Azure Blob
- * `bing-ads` - Bing Ads
- * `clickup` - Clickup
- * `customerio-app` - Customerio App
- * `customerio-track` - Customerio Track
- * `customerio-webhook` - Customerio Webhook
- * `databricks` - Databricks
- * `email` - Email
- * `firebase` - Firebase
- * `github` - Github
- * `gitlab` - Gitlab
- * `google-ads` - Google Ads
- * `google-cloud-service-account` - Google Cloud Service Account
- * `google-cloud-storage` - Google Cloud Storage
- * `google-pubsub` - Google Pubsub
- * `google-sheets` - Google Sheets
- * `hubspot` - Hubspot
- * `intercom` - Intercom
- * `jira` - Jira
- * `linear` - Linear
- * `linkedin-ads` - Linkedin Ads
- * `meta-ads` - Meta Ads
- * `pinterest-ads` - Pinterest Ads
- * `postgresql` - Postgresql
- * `reddit-ads` - Reddit Ads
- * `salesforce` - Salesforce
- * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `snapchat` - Snapchat
- * `stripe` - Stripe
- * `tiktok-ads` - Tiktok Ads
- * `twilio` - Twilio
- * `vercel` - Vercel
+ * * `apns` - Apple Push
+ * * `azure-blob` - Azure Blob
+ * * `bing-ads` - Bing Ads
+ * * `clickup` - Clickup
+ * * `customerio-app` - Customerio App
+ * * `customerio-track` - Customerio Track
+ * * `customerio-webhook` - Customerio Webhook
+ * * `databricks` - Databricks
+ * * `email` - Email
+ * * `firebase` - Firebase
+ * * `github` - Github
+ * * `gitlab` - Gitlab
+ * * `google-ads` - Google Ads
+ * * `google-cloud-service-account` - Google Cloud Service Account
+ * * `google-cloud-storage` - Google Cloud Storage
+ * * `google-pubsub` - Google Pubsub
+ * * `google-search-console` - Google Search Console
+ * * `google-sheets` - Google Sheets
+ * * `hubspot` - Hubspot
+ * * `intercom` - Intercom
+ * * `jira` - Jira
+ * * `linear` - Linear
+ * * `linkedin-ads` - Linkedin Ads
+ * * `meta-ads` - Meta Ads
+ * * `pinterest-ads` - Pinterest Ads
+ * * `postgresql` - Postgresql
+ * * `reddit-ads` - Reddit Ads
+ * * `salesforce` - Salesforce
+ * * `slack` - Slack
+ * * `slack-posthog-code` - Slack Posthog Code
+ * * `snapchat` - Snapchat
+ * * `stripe` - Stripe
+ * * `tiktok-ads` - Tiktok Ads
+ * * `twilio` - Twilio
+ * * `vercel` - Vercel
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
@@ -205,6 +206,7 @@ export const IntegrationKindEnumApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -369,40 +371,41 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
-     * `apns` - Apple Push
-     * `azure-blob` - Azure Blob
-     * `bing-ads` - Bing Ads
-     * `clickup` - Clickup
-     * `customerio-app` - Customerio App
-     * `customerio-track` - Customerio Track
-     * `customerio-webhook` - Customerio Webhook
-     * `databricks` - Databricks
-     * `email` - Email
-     * `firebase` - Firebase
-     * `github` - Github
-     * `gitlab` - Gitlab
-     * `google-ads` - Google Ads
-     * `google-cloud-service-account` - Google Cloud Service Account
-     * `google-cloud-storage` - Google Cloud Storage
-     * `google-pubsub` - Google Pubsub
-     * `google-sheets` - Google Sheets
-     * `hubspot` - Hubspot
-     * `intercom` - Intercom
-     * `jira` - Jira
-     * `linear` - Linear
-     * `linkedin-ads` - Linkedin Ads
-     * `meta-ads` - Meta Ads
-     * `pinterest-ads` - Pinterest Ads
-     * `postgresql` - Postgresql
-     * `reddit-ads` - Reddit Ads
-     * `salesforce` - Salesforce
-     * `slack` - Slack
-     * `slack-posthog-code` - Slack Posthog Code
-     * `snapchat` - Snapchat
-     * `stripe` - Stripe
-     * `tiktok-ads` - Tiktok Ads
-     * `twilio` - Twilio
-     * `vercel` - Vercel
+     * * `apns` - Apple Push
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel
      */
     kind?: IntegrationsListKind
     /**
@@ -435,6 +438,7 @@ export const IntegrationsListKind = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
