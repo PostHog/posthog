@@ -70,10 +70,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         blank=True,
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    # Provenance captured at creation time: creation_source (an EventSource value — web/api/mcp/
-    # wizard/terraform/posthog_code/…), creation_context (originating product), template_key,
-    # template_id, duplicated_from_dashboard_id. Free-form JSON so new provenance signals can be
-    # recorded without a migration. Server-populated; not client-writable.
     metadata = models.JSONField(default=dict, null=True, blank=True)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
@@ -167,5 +163,5 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "created_at": self.created_at,
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
-            "creation_source": (self.metadata or {}).get("creation_source"),
+            **(self.metadata or {}),
         }

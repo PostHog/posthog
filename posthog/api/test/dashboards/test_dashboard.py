@@ -81,29 +81,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    def test_creation_metadata_defaults_to_web_for_session_requests(self) -> None:
-        _, response = self.dashboard_api.create_dashboard({"name": "from the app"})
-        self.assertEqual(response["metadata"], {"creation_source": "web"})
-
-    def test_creation_metadata_uses_posthog_client_header(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "from mcp"},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        self.assertEqual(response.json()["metadata"]["creation_source"], "mcp")
-
-    def test_creation_metadata_records_template_and_duplication(self) -> None:
+    def test_creation_metadata_records_duplication_source(self) -> None:
         source_id, _ = self.dashboard_api.create_dashboard({"name": "original"})
         _, response = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": source_id})
-        self.assertEqual(response["metadata"]["creation_source"], "web")
         self.assertEqual(response["metadata"]["duplicated_from_dashboard_id"], source_id)
 
     def test_creation_metadata_is_not_client_writable(self) -> None:
+        # The metadata blob is server-assembled; a client-supplied value must be ignored.
         _, response = self.dashboard_api.create_dashboard(
             {"name": "spoofed", "metadata": {"creation_source": "totally-legit"}}
         )
-        self.assertEqual(response["metadata"], {"creation_source": "web"})
+        self.assertNotEqual(response["metadata"].get("creation_source"), "totally-legit")
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
@@ -2406,10 +2394,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"template": {**valid_template, "id": template_id}},
         )
         self.assertEqual(response.status_code, 200, response.content)
-        metadata = response.json()["metadata"]
-        self.assertEqual(metadata["creation_source"], "web")
-        self.assertEqual(metadata["template_key"], valid_template["template_name"])
-        self.assertEqual(metadata["template_id"], template_id)
+        self.assertEqual(response.json()["metadata"]["template_id"], template_id)
 
     @parameterized.expand(
         [

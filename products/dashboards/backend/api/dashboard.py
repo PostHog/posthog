@@ -154,7 +154,6 @@ DASHBOARD_SHARED_FIELDS = [
 def build_dashboard_creation_metadata(
     request: Request,
     *,
-    template_key: str | None = None,
     template_id: Any = None,
     duplicated_from_dashboard_id: int | None = None,
     creation_context: str | None = None,
@@ -162,15 +161,14 @@ def build_dashboard_creation_metadata(
     """Provenance recorded on `Dashboard.metadata` at creation time. Only meaningful keys are
     stored so the payload stays small and old NULL rows remain distinguishable from new ones.
 
-    `creation_source` reuses `get_event_source`, the canonical request->source resolver (the same
-    one used for analytics and in middleware), so we cover the full set of clients — web, api, mcp,
-    wizard, terraform, posthog_code, etc. — rather than a hand-maintained subset.
+    `creation_source` is server-derived via `get_event_source`, the canonical request->source
+    resolver (the same one used for analytics and in middleware), so we cover the full set of
+    clients — web, api, mcp, wizard, terraform, posthog_code, etc. `creation_context` is an
+    explicit, caller-provided origin hint (e.g. the onboarding flow), not a trusted value.
     """
     metadata: dict[str, Any] = {"creation_source": get_event_source(request).value}
     if creation_context:
         metadata["creation_context"] = creation_context
-    if template_key:
-        metadata["template_key"] = template_key
     if template_id:
         metadata["template_id"] = str(template_id)
     if duplicated_from_dashboard_id:
@@ -880,11 +878,6 @@ class DashboardCreationMetadataSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Originating product when the dashboard was created on behalf of another feature (e.g. 'feature_flags', 'experiments').",
     )
-    template_key = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Key/name of the template the dashboard was created from, if any.",
-    )
     template_id = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1193,7 +1186,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         validated_data["metadata"] = build_dashboard_creation_metadata(
             request,
-            template_key=use_template or None,
             duplicated_from_dashboard_id=use_dashboard or None,
             creation_context=request.data.get("creation_context"),
         )
@@ -2858,7 +2850,6 @@ class DashboardsViewSet(
             template_body = request.data["template"]
             dashboard.metadata = build_dashboard_creation_metadata(
                 request,
-                template_key=dashboard_template.template_name,
                 template_id=template_body.get("id"),
                 creation_context=creation_context,
             )
@@ -2939,7 +2930,7 @@ class DashboardsViewSet(
                 filters={**(template.dashboard_filters or {}), "__template_version": 1},
                 created_by=cast(User, request.user),
                 creation_mode="unlisted",
-                metadata=build_dashboard_creation_metadata(request, template_key=template.template_name),
+                metadata=build_dashboard_creation_metadata(request),
             )
 
             create_from_template(
