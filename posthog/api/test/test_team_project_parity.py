@@ -16,7 +16,8 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 # fails this test loudly so it gets fixed before it reaches clients.
 
 # Fields that legitimately exist only on the project surface (a genuine Project concept, not a Team field).
-PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description"}
+# is_pending_deletion was added project-side on master; a project-only field is fine for the redirect target.
+PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
 PROJECT_ONLY_ACTIONS = {"change_organization"}

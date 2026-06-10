@@ -19,9 +19,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # Project ↔ Team is 1:1 and share the same numeric id. This suite makes real HTTP calls to BOTH and asserts the
 # responses (and resulting DB state for writes) are identical. Any divergence fails — there is no "probably fine".
 #
-# The ONLY field a client legitimately sees on /api/projects/ but not /api/environments/ is product_description
-# (a genuine Project concept). Everything else must match exactly.
-PROJECT_ONLY_DETAIL_FIELDS = {"product_description"}
+# Fields a client legitimately sees on /api/projects/ but not /api/environments/ — both are project-only on
+# master (product_description is a Project concept; is_pending_deletion was added project-side). Extra fields on
+# the redirect target are safe. Everything else must match exactly.
+PROJECT_ONLY_DETAIL_FIELDS = {"product_description", "is_pending_deletion"}
 
 # Read-only fields whose VALUE legitimately differs but is semantically equivalent, so byte-equality is not
 # required (only presence + non-null). Currently just `created_at`: /api/environments/ returns Team.created_at
@@ -291,6 +292,7 @@ TEAM_SHAPED_VOLATILE_FIELDS = {
     "primary_dashboard",  # each twin auto-creates its own default primary dashboard (distinct row id)
     "product_intents",  # list of rows with per-row timestamps; compared structurally in the intent tests instead
     "product_description",  # project-only
+    "is_pending_deletion",  # project-only (added project-side on master)
 }
 
 
