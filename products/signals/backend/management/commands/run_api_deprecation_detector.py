@@ -1,8 +1,9 @@
-"""Detect in-code external-API version pins; optionally research them into a cited inbox report.
+"""Detect in-code third-party API usages; optionally research them into a cited inbox report.
 
-Default (read-only, no DB, no network): print the factual inventory of pins.
+Default (read-only, no DB, no network): print the factual inventory of external URL usages.
 ``--research --team-id N``: launch the ``ApiDeprecationAgent`` (shared custom-agent workflow) which
-reads each vendor's real changelog and files a cited ``SignalReport`` into the inbox.
+triages the genuine API call sites, researches them against each vendor's official documentation
+(version-level and endpoint-level), and files a cited ``SignalReport`` into the inbox.
 
     python manage.py run_api_deprecation_detector            # inventory, human-readable
     python manage.py run_api_deprecation_detector --json     # inventory as JSON
@@ -19,40 +20,38 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.signals.backend.api_deprecation.scanner import scan_repo
-from products.signals.backend.api_deprecation.schema import Pin
+from products.signals.backend.api_deprecation.schema import ApiUsage
 
 # products/signals/backend/management/commands/<this> → repo root is five parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
-def _inventory_run_id(pins: list[Pin]) -> str:
+def _inventory_run_id(usages: list[ApiUsage]) -> str:
     """Stable workflow run id for an inventory, so re-running while a research run for the same
-    set of pins is still in flight is a no-op instead of a duplicate report."""
-    digest = hashlib.sha256("\n".join(sorted(p.model_dump_json() for p in pins)).encode()).hexdigest()
+    set of usages is still in flight is a no-op instead of a duplicate report."""
+    digest = hashlib.sha256("\n".join(sorted(u.model_dump_json() for u in usages)).encode()).hexdigest()
     return digest[:16]
 
 
 class Command(BaseCommand):
-    help = "Detect external-API version pins; optionally research them into a cited inbox report."
+    help = "Detect third-party API usages; optionally research them into a cited inbox report."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--repo-root", default=str(_REPO_ROOT), help="Repo root to scan.")
         parser.add_argument("--json", action="store_true", help="Emit the inventory as JSON.")
-        parser.add_argument("--research", action="store_true", help="Launch the changelog-research agent.")
+        parser.add_argument("--research", action="store_true", help="Launch the triage + research agent.")
         parser.add_argument("--team-id", type=int, default=None, help="Team to research/emit for.")
         parser.add_argument("--repository", default="posthog/posthog", help="owner/repo the agent researches.")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        pins = scan_repo(options["repo_root"])
+        usages = scan_repo(options["repo_root"])
 
         if options["json"]:
-            self.stdout.write(json.dumps([p.model_dump(mode="json") for p in pins], indent=2))
+            self.stdout.write(json.dumps([u.model_dump(mode="json") for u in usages], indent=2))
         else:
-            self.stdout.write(f"Detected {len(pins)} external-API version pin(s):")
-            for p in pins:
-                self.stdout.write(
-                    f"  [{p.vendor}] {p.host} {p.pinned_version}  {p.file}:{p.line}  persisted={p.persisted_per_row}"
-                )
+            self.stdout.write(f"Detected {len(usages)} external URL usage(s):")
+            for u in usages:
+                self.stdout.write(f"  {u.host}{u.endpoint}  version={u.version or '-'}  {u.file}:{u.line}")
 
         if not options["research"]:
             return
@@ -75,9 +74,9 @@ class Command(BaseCommand):
             handle = run_agent(
                 ApiDeprecationAgent,
                 team=team,
-                initial_prompt=build_research_initial_prompt(pins),
+                initial_prompt=build_research_initial_prompt(usages),
                 repository=options["repository"],
-                id=_inventory_run_id(pins),
+                id=_inventory_run_id(usages),
             )
         except AIDataProcessingNotApprovedError as error:
             raise CommandError(str(error))
