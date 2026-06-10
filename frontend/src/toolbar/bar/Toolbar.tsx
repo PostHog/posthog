@@ -330,12 +330,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showSurveys = surveysFlag
 
     const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    // Dev/QA override: run `localStorage.setItem('ph-toolbar-annotations','1')` to force-show without the flag.
-    const showAnnotations =
-        inStorybook() ||
-        inStorybookTestRunner() ||
-        annotationsFlag ||
-        localStorage.getItem('ph-toolbar-annotations') === '1'
+    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -414,12 +409,7 @@ export function Toolbar(): JSX.Element | null {
     const showSurveys = surveysFlag
 
     const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    // Dev/QA override: run `localStorage.setItem('ph-toolbar-annotations','1')` to force-show without the flag.
-    const showAnnotations =
-        inStorybook() ||
-        inStorybookTestRunner() ||
-        annotationsFlag ||
-        localStorage.getItem('ph-toolbar-annotations') === '1'
+    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
     const { hasOpenedAnnotations } = useValues(annotationsLogic)
 
     useEffect(() => {

@@ -260,6 +260,14 @@ export interface PatchedToolbarAnnotationApi {
 
 export type ToolbarAnnotationsListParams = {
     /**
+     * Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    annotation_status?: ToolbarAnnotationsListAnnotationStatus
+    /**
+     * Filter to annotations made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -268,3 +276,13 @@ export type ToolbarAnnotationsListParams = {
      */
     offset?: number
 }
+
+export type ToolbarAnnotationsListAnnotationStatus =
+    (typeof ToolbarAnnotationsListAnnotationStatus)[keyof typeof ToolbarAnnotationsListAnnotationStatus]
+
+export const ToolbarAnnotationsListAnnotationStatus = {
+    Acknowledged: 'acknowledged',
+    Dismissed: 'dismissed',
+    Pending: 'pending',
+    Resolved: 'resolved',
+} as const

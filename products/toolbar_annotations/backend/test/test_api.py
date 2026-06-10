@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
@@ -77,12 +78,23 @@ class TestToolbarAnnotationsAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/toolbar_annotations/?annotation_status=Resolved")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_rejects_oversized_comment(self):
+    @parameterized.expand(
+        [
+            ("comment", 5000),
+            ("url", 2048),
+            ("host", 255),
+            ("pathname", 2048),
+            ("selector", 4096),
+            ("element_text", 2048),
+            ("element_chain", 20000),
+        ]
+    )
+    def test_create_rejects_oversized_field(self, field: str, limit: int):
         response = self.client.post(
             f"/api/projects/{self.team.id}/toolbar_annotations/",
-            data={**VALID_PAYLOAD, "comment": "x" * 5001},
+            data={**VALID_PAYLOAD, field: "x" * (limit + 1)},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_team_isolation(self):
         created = self._create()

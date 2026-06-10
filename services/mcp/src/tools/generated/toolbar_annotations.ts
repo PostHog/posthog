@@ -25,6 +25,8 @@ const toolbarAnnotationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/toolbar_annotations/`,
             query: {
+                annotation_status: params.annotation_status,
+                host: params.host,
                 limit: params.limit,
                 offset: params.offset,
             },

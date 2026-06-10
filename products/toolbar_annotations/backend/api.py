@@ -3,7 +3,7 @@ from typing import Any
 from django.db.models import QuerySet
 
 import structlog
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -120,6 +120,25 @@ class ToolbarAnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "annotation_status",
+                type=str,
+                enum=ToolbarAnnotation.Status.values,
+                required=False,
+                description="Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).",
+            ),
+            OpenApiParameter(
+                "host",
+                type=str,
+                required=False,
+                description="Filter to annotations made on this hostname (e.g. `app.example.com`).",
+            ),
+        ]
+    )
+)
 class ToolbarAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update, and resolve toolbar annotations — UI feedback a user
