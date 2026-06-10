@@ -242,6 +242,15 @@ export interface BuildClusterOpts {
      * Defaults to a real `HttpClient` with no proxy (direct fetch).
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Inject a tier-2 coding-sandbox pool for in-sandbox coding agents
+     * (`spec.sandbox.loop_location === 'in_sandbox'`). Tests pass a fake pool
+     * that scripts ACP frames, so the full claim → runSession →
+     * driveCodingSession path runs against real queue/bus/logs without Docker.
+     */
+    codingPool?: import('@posthog/agent-shared').CodingSandboxPool
+    /** Gateway config forwarded to the coding driver. */
+    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
 }
 
 let _pool: Pool | null = null
@@ -383,6 +392,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         revisions,
         bundle,
         sandboxes,
+        codingPool: opts.codingPool,
+        codingGateway: opts.codingGateway,
         sandboxInstances,
         broker,
         credentialBroker,
