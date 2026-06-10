@@ -788,13 +788,15 @@ def classify_message_is_agent_directed(
     thread_history: list[dict[str, str]],
 ) -> bool:
     """Classify whether a Slack thread reply is addressing the running PostHog
-    Slack App or side conversation between humans.
+    Slack App or pure side chatter between humans.
 
-    Default-deny: returns ``False`` for anything ambiguous. A false positive
-    here interrupts the Slack App's run on every "thanks"; a false negative
-    just means the user re-tags ``@PostHog`` — recoverable. The Haiku prompt
-    enumerates the narrow set of cases that count as agent-directed and
-    instructs it to return false on every other case, including uncertainty.
+    The prompt leans toward forwarding when the message could plausibly help
+    the agent or advance the task — a false positive is a single wasted turn
+    the human can correct; a false negative forces the human to re-tag
+    ``@PostHog`` to recover. Cheap pre-LLM heuristics still drop trivial
+    messages (one word, emoji-only, very short) before paying for Haiku, and
+    the function still returns ``False`` on a Haiku call error so a transient
+    LLM outage can't fan out spurious forwards.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
     by ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
@@ -820,35 +822,31 @@ def classify_message_is_agent_directed(
     history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
 
     prompt = (
-        "You are a strict router deciding whether to wake the PostHog Slack App, which "
-        "is currently running a task in this Slack thread. The Slack App will only see "
-        "messages you classify as agent_directed=true. False positives interrupt its "
-        "run on every side comment; false negatives are recoverable because the human "
-        "can re-tag @PostHog. Default to false. Only return true when the evidence is "
-        "strong.\n\n"
-        "Return true ONLY when the latest message clearly meets at least one of:\n"
-        "  1. It directly addresses the bot/agent/PostHog by name (e.g. '@PostHog', "
-        "     'PostHog can you…', 'agent, please…', 'bot, …').\n"
-        "  2. It gives a concrete instruction or correction tied to the task the agent "
-        "     is working on (e.g. 'also scope it to org admins', 'use the new helper "
-        "     instead', 'the bug is in file X line Y', 'add a regression test for Z').\n"
-        "  3. It asks a question only the agent could answer about its current task or "
-        "     its just-posted progress update (e.g. 'why did you skip the migration?', "
-        "     'can you also handle the empty-list case?').\n"
-        "  4. It provides task-relevant context the agent clearly needs and is missing "
-        "     (e.g. the actual error message, the URL of the failing request, the "
-        "     repository or file path, the customer/team ID being investigated).\n\n"
-        "Return false (the safe default) for every other case, including:\n"
-        "  - Acknowledgements, social chat, reactions: 'thanks', 'lgtm', 'nice', "
-        "    'great', 'awesome', 'cool', 'lol', 'haha', emojis, GIFs, '+1'.\n"
-        "  - Messages clearly directed at another human (mentions another user, "
-        "    answers their question, refers to people in third person).\n"
-        "  - Status updates between humans: 'I'll take a look later', 'in a meeting', "
-        "    'pinging @X', 'fyi'.\n"
-        "  - Tangential discussion that's interesting but does not instruct the agent.\n"
-        "  - Speculative thinking out loud without an explicit ask.\n"
-        "  - Anything you are not confident about. Uncertainty ⇒ false.\n\n"
-        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
+        "You are routing replies in a Slack thread where the PostHog Slack App is "
+        "currently working on a task. Decide whether the latest message is meant "
+        "for the Slack App to read — instructions, corrections, follow-up asks, "
+        "questions about the task, or context that helps it — versus pure side "
+        "chatter between humans.\n\n"
+        "Lean toward true when the message could plausibly help the Slack App or "
+        "advance the task. Examples of agent_directed=true:\n"
+        "  - Direct address ('@PostHog', 'agent, please…', 'bot, …').\n"
+        "  - Instructions, corrections, or scope changes ('also handle the empty "
+        "    case', 'use the new helper instead', 'actually skip the migration').\n"
+        "  - Questions about the task or the Slack App's last update ('why did "
+        "    you skip X?', 'what does this PR cover?', 'can you also do Y?').\n"
+        "  - Task-relevant context (an error message, a URL, a file path, an "
+        "    affected team/customer ID, a stack trace, a reproduction).\n"
+        "  - Replies that elaborate on the human's earlier ask in this thread.\n\n"
+        "Return agent_directed=false for clearly off-topic side chatter:\n"
+        "  - Pure acknowledgements with no new info ('thanks', 'lgtm', 'nice', "
+        "    'cool', emoji-only, '+1').\n"
+        "  - Conversation clearly directed at another human (mentions another "
+        "    user, answers their question, refers to people in third person).\n"
+        "  - Off-topic chat unrelated to the task ('lunch in 5?', 'gn').\n\n"
+        "When you're genuinely on the fence, prefer true — the human can correct "
+        "the agent if it misreads, but a missed follow-up means the human has to "
+        "re-tag @PostHog.\n\n"
+        f"Task the Slack App is working on: {task_title or '(unknown)'}\n\n"
         f"Thread so far (oldest first):\n{history_block}\n\n"
         f"Latest message (from a human in this thread): {event_text}\n\n"
         'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
