@@ -140,6 +140,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             AND uuid IN {uuids}
                             AND timestamp >= toDateTime({date_from})
                             AND timestamp <= toDateTime({date_to})
+                        LIMIT 1 BY uuid
                         LIMIT {event_limit}
                         """,
                         placeholders={

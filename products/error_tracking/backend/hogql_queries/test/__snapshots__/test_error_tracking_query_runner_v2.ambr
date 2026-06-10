@@ -273,6 +273,7 @@
          events.properties AS properties
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['00000000-0000-0000-0000-000000000000' /* ... */]), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  LIMIT 1 BY events.uuid
   LIMIT 3 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
