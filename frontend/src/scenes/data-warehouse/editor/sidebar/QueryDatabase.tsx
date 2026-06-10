@@ -312,9 +312,9 @@ export const QueryDatabase = ({
                     resource={accessControlModalProps.resource}
                     resource_id={accessControlModalProps.resourceId}
                     title={accessControlModalProps.name}
-                    description={`Control who can see and query this ${
+                    description={`Control who can query this ${
                         accessControlModalProps.resource === AccessControlResourceType.WarehouseTable ? 'table' : 'view'
-                    }. Users with "No access" won't see it in the SQL editor and any query referencing it will fail for them.`}
+                    }. Users without access won't see it and queries referencing it will fail for them.`}
                 />
             ) : null}
             <LemonTree

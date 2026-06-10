@@ -127,7 +127,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                     resource={AccessControlResourceType.WarehouseView}
                     resource_id={accessControlModalView.id}
                     title={accessControlModalView.name}
-                    description={`Control who can see and query this view. Users with "No access" won't see it in the SQL editor and any query referencing it will fail for them.`}
+                    description="Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
                 />
             ) : null}
             {(filteredViews.length > 0 || filteredMaterializedViews.length > 0 || searchTerm) && (
