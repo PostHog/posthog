@@ -38,6 +38,7 @@ export function DashboardItems(): JSX.Element {
         dashboard,
         tiles,
         layouts,
+        dashboardMode,
         layoutEditMode,
         placement,
         isRefreshingQueued,
