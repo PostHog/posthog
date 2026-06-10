@@ -174,14 +174,13 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
-        let uuid_str = event.uuid();
-        if uuid_str.is_empty() {
+        if event.uuid.is_empty() {
             return Err(Error::MissingEventUuid);
         }
-        let uuid =
-            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
+        let uuid = Uuid::parse_str(&event.uuid)
+            .map_err(|_| Error::InvalidEventUuid(event.uuid.clone()))?;
         if !seen.insert(uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
+            return Err(Error::DuplicateEventUuid(event.uuid.clone()));
         }
 
         let destination = destination_for_event_name(&event.event);
@@ -190,7 +189,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
-                let illegal = is_distinct_id_illegal(event.distinct_id());
+                let illegal = is_distinct_id_illegal(&event.distinct_id);
                 if illegal {
                     illegal_distinct_id_count += 1;
                 }
@@ -264,7 +263,8 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
     crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
 }
 
-/// Expects a pre-trimmed distinct_id (see `Event::distinct_id()`).
+/// Expects a pre-trimmed distinct_id (`Event.distinct_id` is trimmed at
+/// deserialization).
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
     ILLEGAL_DISTINCT_IDS
         .iter()
@@ -281,10 +281,10 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     if event.event.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
         return Err(Error::EventNameTooLong);
     }
-    if event.distinct_id().is_empty() {
+    if event.distinct_id.is_empty() {
         return Err(Error::MissingDistinctId);
     }
-    if event.distinct_id().len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+    if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
     }
 
@@ -404,10 +404,10 @@ async fn apply_restrictions(
         };
 
         let event_ctx = EventContext {
-            distinct_id: Some(event.event.distinct_id()),
+            distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
-            event_uuid: Some(event.event.uuid()),
+            event_uuid: Some(&event.event.uuid),
             now_ts,
         };
 
@@ -456,7 +456,7 @@ async fn apply_token_distinct_id_limits(
             continue;
         }
         let cache_key =
-            GlobalRateLimitKey::TokenDistinctId(&context.api_token, event.event.distinct_id())
+            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Warning;
@@ -471,7 +471,7 @@ async fn apply_token_distinct_id_limits(
             if event.destination == Destination::AnalyticsMain {
                 event.destination = Destination::Overflow;
             }
-            limited_distinct_ids.insert(event.event.distinct_id());
+            limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
         }
@@ -537,6 +537,18 @@ mod tests {
             capture_internal: None,
             batch: events,
         }
+    }
+
+    /// Build an Event through serde — the production entry point — so the
+    /// trim-at-deserialization invariant on uuid/distinct_id applies.
+    fn deserialized_event(uuid: &str, distinct_id: &str) -> Event {
+        let json = serde_json::json!({
+            "event": "$pageview",
+            "uuid": uuid,
+            "distinct_id": distinct_id,
+            "timestamp": "2026-03-19T14:29:58.123Z",
+        });
+        serde_json::from_str(&json.to_string()).unwrap()
     }
 
     // --- validate_batch ---
@@ -637,8 +649,8 @@ mod tests {
 
     #[test]
     fn event_whitespace_only_distinct_id_rejected() {
-        let mut event = valid_event();
-        event.distinct_id = "   ".to_string();
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "   ");
+        assert_eq!(event.distinct_id, "");
         assert!(matches!(
             validate_event(&event),
             Err(Error::MissingDistinctId)
@@ -647,19 +659,24 @@ mod tests {
 
     #[test]
     fn event_padded_distinct_id_ok() {
-        let mut event = valid_event();
-        event.distinct_id = "  user-42  ".to_string();
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  user-42  ");
+        assert_eq!(event.distinct_id, "user-42");
         assert!(validate_event(&event).is_ok());
-        assert_eq!(event.distinct_id(), "user-42");
     }
 
     #[test]
     fn event_distinct_id_length_checked_after_trim() {
-        let mut event = valid_event();
-        event.distinct_id = format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE));
+        let uuid = Uuid::new_v4().to_string();
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE)),
+        );
         assert!(validate_event(&event).is_ok());
 
-        event.distinct_id = format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1));
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1)),
+        );
         assert!(matches!(
             validate_event(&event),
             Err(Error::DistinctIdTooLarge)
@@ -687,8 +704,7 @@ mod tests {
             "not_authenticated",
         ];
         for id in illegal_ids {
-            let mut event = valid_event();
-            event.distinct_id = id.to_string();
+            let event = deserialized_event(&Uuid::new_v4().to_string(), id);
             assert!(
                 validate_event(&event).is_ok(),
                 "expected Ok for illegal distinct_id={id:?} (flagging happens in validate_events)"
@@ -764,9 +780,9 @@ mod tests {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = Uuid::parse_str(perf.uuid()).unwrap();
+        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
         let normal = valid_event();
-        let normal_uuid = Uuid::parse_str(normal.uuid()).unwrap();
+        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -831,8 +847,7 @@ mod tests {
     #[test]
     fn validate_events_padded_illegal_distinct_id_still_flagged() {
         let ctx = test_utils::test_context();
-        let mut event = valid_event();
-        event.distinct_id = "  NULL  ".to_string();
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
         let batch = valid_batch(vec![event]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
@@ -915,15 +930,9 @@ mod tests {
         let ctx = test_utils::test_context();
         let inner_uuid = Uuid::new_v4();
         let padded_uuid = format!("  {}  ", inner_uuid);
-        let batch = Batch {
-            created_at: "2026-03-19T14:30:00.000Z".to_string(),
-            historical_migration: false,
-            capture_internal: None,
-            batch: vec![Event {
-                uuid: padded_uuid,
-                ..valid_event()
-            }],
-        };
+        let event = deserialized_event(&padded_uuid, "user-42");
+        assert_eq!(event.uuid, inner_uuid.to_string());
+        let batch = valid_batch(vec![event]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
@@ -936,7 +945,7 @@ mod tests {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = Uuid::parse_str(bad_event.uuid()).unwrap();
+        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,

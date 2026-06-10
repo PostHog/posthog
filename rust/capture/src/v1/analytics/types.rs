@@ -30,6 +30,21 @@ fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
 }
 
+/// Trim client-submitted whitespace once, at the deserialization boundary.
+/// Only reallocates when padding is actually present.
+fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let trimmed = s.trim();
+    Ok(if trimmed.len() == s.len() {
+        s
+    } else {
+        trimmed.to_owned()
+    })
+}
+
 /// Per-event outcome in the batch response.
 /// Ok: captured successfully. Drop: rejected (billing/validation). Warning: accepted
 /// with person processing disabled (do not resubmit). Retry: not persisted, safe to resubmit.
@@ -68,7 +83,12 @@ pub struct Options {
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,
+    /// Trimmed at deserialization: callers may rely on this being free of
+    /// client-submitted leading/trailing whitespace.
+    #[serde(deserialize_with = "deserialize_trimmed_string")]
     pub uuid: String,
+    /// Trimmed at deserialization so padded IDs resolve to the same person.
+    #[serde(deserialize_with = "deserialize_trimmed_string")]
     pub distinct_id: String,
     pub timestamp: String,
     pub session_id: Option<String>,
@@ -77,20 +97,6 @@ pub struct Event {
     pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
-}
-
-impl Event {
-    /// Trimmed accessor for the raw UUID string. Prefer this over direct
-    /// field access so callers are insulated from client-submitted whitespace.
-    pub fn uuid(&self) -> &str {
-        self.uuid.trim()
-    }
-
-    /// Trimmed distinct_id. Prefer over direct field access so padded IDs
-    /// resolve to the same person.
-    pub fn distinct_id(&self) -> &str {
-        self.distinct_id.trim()
-    }
 }
 
 #[derive(Debug)]
@@ -162,13 +168,13 @@ impl SinkEvent for WrappedEvent {
 
         CapturedEventHeaders {
             token: Some(ctx.api_token.clone()),
-            distinct_id: Some(self.event.distinct_id().to_owned()),
+            distinct_id: Some(self.event.distinct_id.clone()),
             session_id: self.event.session_id.clone(),
             timestamp: self
                 .adjusted_timestamp
                 .map(|ts| ts.timestamp_millis().to_string()),
             event: Some(self.event.event.clone()),
-            uuid: Some(self.event.uuid().to_owned()),
+            uuid: Some(self.event.uuid.clone()),
             now: Some(
                 ctx.server_received_at
                     .to_rfc3339_opts(SecondsFormat::AutoSi, true),
@@ -196,7 +202,7 @@ impl SinkEvent for WrappedEvent {
                 let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
             }
             (false, _) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id());
+                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
             }
         }
     }
@@ -206,7 +212,7 @@ impl SinkEvent for WrappedEvent {
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
-            distinct_id: Some(self.event.distinct_id()),
+            distinct_id: Some(&self.event.distinct_id),
             uuid: Some(self.uuid),
             properties,
             timestamp: Some(&self.event.timestamp),
@@ -229,7 +235,7 @@ impl SinkEvent for WrappedEvent {
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
         let ie = IngestionEvent {
             uuid: self.uuid,
-            distinct_id: self.event.distinct_id(),
+            distinct_id: &self.event.distinct_id,
             ip: ip_ref,
             data: &data,
             now: &now,
@@ -433,6 +439,39 @@ mod tests {
         assert_eq!(event.distinct_id, "user-42");
         assert_eq!(event.timestamp, "2026-03-19T14:29:58.123Z");
         assert_eq!(event.properties.get(), "{}");
+    }
+
+    #[test]
+    fn parse_event_trims_uuid_and_distinct_id() {
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "event": "$pageview",
+                "uuid": "  a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d  ",
+                "distinct_id": "  user-42  ",
+                "timestamp": "2026-03-19T14:29:58.123Z"
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        let event = &batch.batch[0];
+        assert_eq!(event.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
+        assert_eq!(event.distinct_id, "user-42");
+    }
+
+    #[test]
+    fn parse_event_whitespace_only_distinct_id_collapses_to_empty() {
+        // Validation rejects the empty result with MissingDistinctId.
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "event": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "   ",
+                "timestamp": "2026-03-19T14:29:58.123Z"
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        assert_eq!(batch.batch[0].distinct_id, "");
     }
 
     #[test]
@@ -1148,8 +1187,15 @@ mod tests {
 
     #[test]
     fn serialize_padded_distinct_id_trimmed_everywhere() {
+        // Padding is stripped at the deserialization boundary; everything
+        // downstream (serialization, headers, partition key) sees it trimmed.
         let mut wrapped = pageview_event();
-        wrapped.event.distinct_id = "  user-42  ".to_string();
+        let json = format!(
+            r#"{{"event":"$pageview","uuid":"{}","distinct_id":"  user-42  ","timestamp":"2026-03-19T14:29:58.123Z"}}"#,
+            wrapped.uuid
+        );
+        wrapped.event = serde_json::from_str(&json).unwrap();
+        assert_eq!(wrapped.event.distinct_id, "user-42");
         let ctx = serialize_ctx();
 
         let (captured, data) = serialize_and_parse(&wrapped, &ctx);
