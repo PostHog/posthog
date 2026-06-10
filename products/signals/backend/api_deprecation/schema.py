@@ -94,11 +94,6 @@ class ResearchedDeprecation(BaseModel):
             )
         return self
 
-    @property
-    def dedup_key(self) -> str:
-        """Stable key so a re-run doesn't refile an already-open signal."""
-        return f"{self.pin.vendor}:{self.pin.host}:{self.pin.pinned_version}:{self.pin.file}"
-
 
 class ResearchedDeprecationList(BaseModel):
     """Batched research output — one assessment per detected pin."""
