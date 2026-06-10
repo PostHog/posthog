@@ -127,7 +127,7 @@ harmless over-estimate, documented):
 - [x] Step 2: model field + migration (warehouse_sources 0006) — makemigrations --check reports no drift
 - [x] Step 3: SourceInputs threading (typings.SourceInputs.row_filters + import_data_sync resolves & re-validates)
 - [x] Step 4: serializer + source validation (RowFiltersField + extend_schema_field; ExternalDataSchemaSerializer.update validates; bulk-update serializer field; source-creation loop validates + persists)
-- [ ] Step 5: 6 SQL sources
+- [x] Step 5: 6 SQL sources (MySQL, MSSQL, Snowflake, Redshift, Postgres incl. partitioned/windowed, BigQuery via query job + ScalarQueryParameter) — all import cleanly
 - [ ] Step 6: frontend
 - [ ] Step 7: tests
 - [ ] Step 8: open draft PR; delete this file when ready for review
