@@ -2531,7 +2531,8 @@ def agentic_login(request: Any) -> HttpResponseBase:
         try:
             EmailVerifier.create_token_and_send_email_verification(user)
         except Exception:
-            # EmailVerifier already calls capture_exception and re-raises - just log context here.
+            # Intentionally swallowed: the login must stay blocked regardless of email delivery.
+            # EmailVerifier captures the exception internally; the verify_email page has a resend button.
             logger.warning("agentic_login.verification_email_failed", user_id=user.id)
         _capture_deep_link_event("email_unverified", user_id=user_id)
         logger.warning("agentic_login.email_unverified", user_id=user_id)
