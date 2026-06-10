@@ -25689,6 +25689,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -32473,6 +32474,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
