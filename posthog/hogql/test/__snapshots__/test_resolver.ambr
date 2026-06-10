@@ -328,7 +328,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -367,7 +367,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -389,7 +389,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -428,7 +428,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -450,7 +450,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -489,7 +489,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -511,7 +511,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -550,7 +550,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -596,7 +596,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -635,7 +635,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -657,7 +657,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -696,7 +696,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -718,7 +718,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -757,7 +757,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -1544,7 +1544,7 @@
                                     "distinct_id"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
+                                  join_function: None,
                                   join_table: {
                                     fields: {
                                       distinct_id: {
@@ -1565,7 +1565,7 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
-                                  resolver: None,
+                                  resolver: "person_distinct_id_overrides",
                                   resolver_params: {},
                                   to_field: None
                                 }
@@ -1625,7 +1625,7 @@
                             "distinct_id"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               distinct_id: {
@@ -1646,7 +1646,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "person_distinct_id_overrides",
                           resolver_params: {},
                           to_field: None
                         }
@@ -1886,7 +1886,7 @@
                                     "fingerprint"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
+                                  join_function: None,
                                   join_table: {
                                     fields: {
                                       fingerprint: {
@@ -1904,7 +1904,7 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
-                                  resolver: None,
+                                  resolver: "error_tracking_issue_fingerprint_overrides",
                                   resolver_params: {},
                                   to_field: None
                                 }
@@ -1964,7 +1964,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               fingerprint: {
@@ -1982,7 +1982,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_issue_fingerprint_overrides",
                           resolver_params: {},
                           to_field: None
                         }
@@ -2652,7 +2652,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -2673,7 +2673,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "person_distinct_id_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -2736,7 +2736,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -2757,7 +2757,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "person_distinct_id_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -3092,7 +3092,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -3110,7 +3110,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "error_tracking_issue_fingerprint_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -3173,7 +3173,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -3191,7 +3191,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "error_tracking_issue_fingerprint_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -3308,7 +3308,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3347,7 +3347,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3388,7 +3388,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3427,7 +3427,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3468,7 +3468,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3507,7 +3507,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3548,7 +3548,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3587,7 +3587,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3628,7 +3628,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3667,7 +3667,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3708,7 +3708,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3747,7 +3747,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -3788,7 +3788,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3827,7 +3827,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -5300,7 +5300,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5339,7 +5339,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5361,7 +5361,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5400,7 +5400,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5422,7 +5422,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5461,7 +5461,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5483,7 +5483,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5522,7 +5522,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5568,7 +5568,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5607,7 +5607,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5629,7 +5629,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5668,7 +5668,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -5690,7 +5690,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
+                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5729,7 +5729,7 @@
                             top_level_settings: None,
                             workload: None
                           },
-                          resolver: None,
+                          resolver: "error_tracking_fingerprint_issue_state",
                           resolver_params: {},
                           to_field: None
                         }
@@ -6517,7 +6517,7 @@
                                       "distinct_id"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
+                                    join_function: None,
                                     join_table: {
                                       fields: {
                                         distinct_id: {
@@ -6538,7 +6538,7 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
-                                    resolver: None,
+                                    resolver: "person_distinct_id_overrides",
                                     resolver_params: {},
                                     to_field: None
                                   }
@@ -6598,7 +6598,7 @@
                               "distinct_id"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 distinct_id: {
@@ -6619,7 +6619,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "person_distinct_id_overrides",
                             resolver_params: {},
                             to_field: None
                           }
@@ -6859,7 +6859,7 @@
                                       "fingerprint"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
+                                    join_function: None,
                                     join_table: {
                                       fields: {
                                         fingerprint: {
@@ -6877,7 +6877,7 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
-                                    resolver: None,
+                                    resolver: "error_tracking_issue_fingerprint_overrides",
                                     resolver_params: {},
                                     to_field: None
                                   }
@@ -6937,7 +6937,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 fingerprint: {
@@ -6955,7 +6955,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_issue_fingerprint_overrides",
                             resolver_params: {},
                             to_field: None
                           }
@@ -7576,7 +7576,7 @@
                                           "distinct_id"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
+                                        join_function: None,
                                         join_table: {
                                           fields: {
                                             distinct_id: {
@@ -7597,7 +7597,7 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
-                                        resolver: None,
+                                        resolver: "person_distinct_id_overrides",
                                         resolver_params: {},
                                         to_field: None
                                       }
@@ -7660,7 +7660,7 @@
                                   "distinct_id"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
+                                join_function: None,
                                 join_table: {
                                   fields: {
                                     distinct_id: {
@@ -7681,7 +7681,7 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
-                                resolver: None,
+                                resolver: "person_distinct_id_overrides",
                                 resolver_params: {},
                                 to_field: None
                               }
@@ -8016,7 +8016,7 @@
                                           "fingerprint"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
+                                        join_function: None,
                                         join_table: {
                                           fields: {
                                             fingerprint: {
@@ -8034,7 +8034,7 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
-                                        resolver: None,
+                                        resolver: "error_tracking_issue_fingerprint_overrides",
                                         resolver_params: {},
                                         to_field: None
                                       }
@@ -8097,7 +8097,7 @@
                                   "fingerprint"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
+                                join_function: None,
                                 join_table: {
                                   fields: {
                                     fingerprint: {
@@ -8115,7 +8115,7 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
-                                resolver: None,
+                                resolver: "error_tracking_issue_fingerprint_overrides",
                                 resolver_params: {},
                                 to_field: None
                               }
@@ -8232,7 +8232,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8271,7 +8271,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8312,7 +8312,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8351,7 +8351,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8392,7 +8392,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8431,7 +8431,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8472,7 +8472,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8511,7 +8511,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8552,7 +8552,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8591,7 +8591,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8632,7 +8632,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8671,7 +8671,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -8712,7 +8712,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
+                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8751,7 +8751,7 @@
                               top_level_settings: None,
                               workload: None
                             },
-                            resolver: None,
+                            resolver: "error_tracking_fingerprint_issue_state",
                             resolver_params: {},
                             to_field: None
                           }
@@ -9502,7 +9502,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -9523,7 +9523,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "person_distinct_id_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -9586,7 +9586,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -9607,7 +9607,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "person_distinct_id_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -9942,7 +9942,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -9960,7 +9960,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "error_tracking_issue_fingerprint_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -10023,7 +10023,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -10041,7 +10041,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "error_tracking_issue_fingerprint_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -10158,7 +10158,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10197,7 +10197,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10238,7 +10238,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10277,7 +10277,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10318,7 +10318,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10357,7 +10357,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10398,7 +10398,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10437,7 +10437,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10478,7 +10478,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10517,7 +10517,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10558,7 +10558,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10597,7 +10597,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -10638,7 +10638,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10677,7 +10677,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -11147,7 +11147,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -11168,7 +11168,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "person_distinct_id_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -11231,7 +11231,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -11252,7 +11252,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "person_distinct_id_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -11587,7 +11587,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
+                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -11605,7 +11605,7 @@
                                 top_level_settings: None,
                                 workload: None
                               },
-                              resolver: None,
+                              resolver: "error_tracking_issue_fingerprint_overrides",
                               resolver_params: {},
                               to_field: None
                             }
@@ -11668,7 +11668,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
+                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -11686,7 +11686,7 @@
                         top_level_settings: None,
                         workload: None
                       },
-                      resolver: None,
+                      resolver: "error_tracking_issue_fingerprint_overrides",
                       resolver_params: {},
                       to_field: None
                     }
@@ -11803,7 +11803,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11842,7 +11842,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -11883,7 +11883,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11922,7 +11922,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -11963,7 +11963,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12002,7 +12002,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -12043,7 +12043,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12082,7 +12082,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -12123,7 +12123,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12162,7 +12162,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -12203,7 +12203,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12242,7 +12242,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -12283,7 +12283,7 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12322,7 +12322,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "error_tracking_fingerprint_issue_state",
                   resolver_params: {},
                   to_field: None
                 }
@@ -14631,9 +14631,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
+                join_function: None,
                 join_table: "persons",
-                resolver: None,
+                resolver: "persons",
                 resolver_params: {},
                 to_field: None
               }
@@ -14644,7 +14644,7 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14665,7 +14665,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "person_distinct_ids",
                   resolver_params: {},
                   to_field: None
                 }
@@ -14924,9 +14924,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
+                join_function: None,
                 join_table: "persons",
-                resolver: None,
+                resolver: "persons",
                 resolver_params: {},
                 to_field: None
               }
@@ -14937,7 +14937,7 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
+                  join_function: None,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14958,7 +14958,7 @@
                     top_level_settings: None,
                     workload: None
                   },
-                  resolver: None,
+                  resolver: "person_distinct_ids",
                   resolver_params: {},
                   to_field: None
                 }
@@ -15213,7 +15213,7 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
+                join_function: None,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15234,7 +15234,7 @@
                   top_level_settings: None,
                   workload: None
                 },
-                resolver: None,
+                resolver: "person_distinct_ids",
                 resolver_params: {},
                 to_field: None
               }
@@ -15491,7 +15491,7 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
+                join_function: None,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15512,7 +15512,7 @@
                   top_level_settings: None,
                   workload: None
                 },
-                resolver: None,
+                resolver: "person_distinct_ids",
                 resolver_params: {},
                 to_field: None
               }
@@ -15616,9 +15616,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
+                join_function: None,
                 join_table: "persons",
-                resolver: None,
+                resolver: "persons",
                 resolver_params: {},
                 to_field: None
               }
