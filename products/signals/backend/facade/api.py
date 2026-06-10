@@ -1,7 +1,9 @@
 import enum
+import json
 import dataclasses
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import get_args
+from typing import Any, get_args
 
 from django.conf import settings
 
@@ -409,3 +411,95 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+
+# ---------------------------------------------------------------------------
+# get_team_anomalies — read path for Pulse v2 cross-product consumption
+# ---------------------------------------------------------------------------
+
+ANOMALY_DETECTION_SKILL = "signals-scout-anomaly-detection"
+
+# The scout's emit contract puts the flagged insight's short_id in the evidence entry tagged with this
+# source_product. It is LLM-authored convention (not a SourceProduct enum member), so anchor it here as
+# the single consumer-side reference rather than scattering the literal.
+EVIDENCE_SOURCE_PRODUCT_QUERY_RUNS = "query_runs"
+
+
+@dataclass(frozen=True)
+class AnomalyFinding:
+    """A single anomaly the scout surfaced, flattened for cross-product (Pulse) consumption.
+
+    insight_short_id is best-effort: the scout puts it in the evidence entry whose source_product is
+    EVIDENCE_SOURCE_PRODUCT_QUERY_RUNS, but the field is LLM-authored and optional, so it can be None
+    (the consumer counts + skips those). The descriptive fields (hypothesis/severity/confidence/time_range)
+    aren't all consumed yet — they're forward-looking for narrative enrichment.
+    """
+
+    insight_short_id: str | None
+    weight: float
+    confidence: float
+    hypothesis: str | None
+    severity: str | None
+    description: str
+    time_range: tuple[str, str] | None
+    finding_id: str
+    scout_run_id: str
+
+
+def _short_id_from_evidence(evidence: list[Any]) -> str | None:
+    for entry in evidence:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("source_product") == EVIDENCE_SOURCE_PRODUCT_QUERY_RUNS and entry.get("entity_id"):
+            return str(entry["entity_id"])
+    return None
+
+
+async def get_team_anomalies(team: Team, period_start: str, period_end: str) -> list[AnomalyFinding]:
+    """The team's anomaly-detection scout findings in [period_start, period_end].
+
+    Reads raw signals from ClickHouse (NOT grouped reports), scopes to the anomaly-detection scout, and
+    flattens each into an AnomalyFinding. Returns [] when the org hasn't approved AI data processing
+    (mirrors emit_signal's gate).
+    """
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
+        # Distinguish a gated team from a genuinely quiet one — both return [], but only this logs why.
+        logger.info("get_team_anomalies_ai_gate_off", team_id=team.id)
+        return []
+
+    # Deferred import: signal_queries pulls in the temporal graph, which imports back from this
+    # facade (drop_telemetry → _telemetry_props_from_extra). A module-level import would cycle.
+    from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415 — breaks a circular import
+        fetch_team_anomaly_signal_rows,
+    )
+
+    rows = await fetch_team_anomaly_signal_rows(team, period_start, period_end)
+    out: list[AnomalyFinding] = []
+    for _document_id, content, metadata_json, _timestamp in rows:
+        # metadata + extra are LLM-authored; isolate per row so one malformed emit can't abort the batch.
+        try:
+            metadata = json.loads(metadata_json)
+            extra = metadata.get("extra") or {}
+            if extra.get("skill_name") != ANOMALY_DETECTION_SKILL:
+                continue
+            tr = extra.get("time_range")
+            time_range: tuple[str, str] | None = None
+            if isinstance(tr, dict) and tr.get("date_from") and tr.get("date_to"):
+                time_range = (str(tr["date_from"]), str(tr["date_to"]))
+            out.append(
+                AnomalyFinding(
+                    insight_short_id=_short_id_from_evidence(extra.get("evidence") or []),
+                    weight=float(metadata.get("weight") or 0.0),
+                    confidence=float(extra.get("confidence") or 0.0),
+                    hypothesis=extra.get("hypothesis"),
+                    severity=extra.get("severity"),
+                    description=content or "",
+                    time_range=time_range,
+                    finding_id=extra.get("finding_id") or "",
+                    scout_run_id=extra.get("scout_run_id") or "",
+                )
+            )
+        except Exception:
+            logger.warning("get_team_anomalies_skipped_malformed_row", team_id=team.id, exc_info=True)
+    return out

@@ -540,6 +540,49 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+async def fetch_team_anomaly_signal_rows(team: Team, date_from: str, date_to: str) -> list[tuple]:
+    """Raw scout signals for a team in [date_from, date_to], deduped, not deleted.
+
+    Scopes to source_product=signals_scout and source_type=cross_source_issue at the query level.
+    Skill-level narrowing (anomaly-detection only) is left to the caller via extra.skill_name.
+    Returns (document_id, content, metadata_json, timestamp) rows.
+    """
+    from products.signals.backend.models import (
+        SignalSourceConfig,  # noqa: PLC0415 — avoids circular import at module level
+    )
+
+    # Build the dedup subquery FIRST as a plain string so its placeholders stay single-brace
+    # ({team_id} etc.) — putting this call inside the outer f-string would double the braces.
+    deduped = _deduped_signals_subquery(
+        extra_where="team_id = {team_id} AND timestamp >= {date_from} AND timestamp <= {date_to}"
+    )
+    # Defensive bound matching the sibling reads in this file (the caller trims further by weight). Order
+    # newest-first so the rows kept under the cap are the most recent.
+    query = f"""
+        SELECT document_id, content, metadata, timestamp
+        FROM ({deduped})
+        WHERE JSONExtractString(metadata, 'source_product') = {{source_product}}
+          AND JSONExtractString(metadata, 'source_type') = {{source_type}}
+          AND NOT JSONExtractBool(metadata, 'deleted')
+        ORDER BY timestamp DESC
+        LIMIT 500
+    """
+    result = await execute_hogql_query_with_retry(
+        query_type="SignalsFetchTeamAnomalies",
+        query=query,
+        team=team,
+        placeholders={
+            "team_id": ast.Constant(value=team.id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "source_product": ast.Constant(value=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value),
+            "source_type": ast.Constant(value=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value),
+        },
+    )
+    return list(result.results or [])
+
+
 def fetch_report_ids_for_source_products(team: Team, source_products: list[str]) -> set[str]:
     """Return the set of report IDs that have at least one non-deleted signal from the given source products.
 
