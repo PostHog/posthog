@@ -1156,6 +1156,7 @@ class SignalReportArtefactViewSet(
         return SignalReportArtefactWriteResponseSerializer(
             {
                 "id": artefact.id,
+                "report_id": artefact.report_id,
                 "type": artefact.type,
                 "content": parsed_content,
                 "created_at": artefact.created_at,
@@ -1315,6 +1316,12 @@ class SignalReportArtefactViewSet(
                         "it may have been deleted, or the branch was never pushed."
                     },
                     status=status.HTTP_404_NOT_FOUND,
+                )
+            if result.get("status_code") == 400:
+                # Malformed repository / branch in the artefact content — surface our own message.
+                return Response(
+                    {"error": result.get("error", "Invalid repository or branch.")},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             logger.warning(
                 "signals pushed_branch diff fetch failed",

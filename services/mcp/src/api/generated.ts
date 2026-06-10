@@ -39693,6 +39693,8 @@ export namespace Schemas {
     export interface SignalReportArtefactWriteResponse {
       /** The artefact's unique id. */
       readonly id: string;
+      /** The id of the report this artefact belongs to. */
+      readonly report_id: string;
       /** The artefact type. */
       readonly type: string;
       /** The artefact payload, parsed from storage. */

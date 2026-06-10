@@ -577,7 +577,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             ("code_diff", {"file_path": "a.py", "diff": "@@ -1 +1 @@", "relevance_note": "x"}),
             ("line_reference", {"file_path": "a.py", "line": 3, "note": "here"}),
             ("pushed_branch", {"repository": "PostHog/posthog", "branch": "fix/foo", "base_branch": "master"}),
-            ("task_run", {"task_id": "abc", "relationship": "signals_research"}),
+            ("task_run", {"task_id": "abc", "product": "signals", "type": "research"}),
             ("note", {"note": "a free-form note"}),
         ]
     )

@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -84,6 +85,28 @@ oauth_refresh_counter = Counter(
 )
 
 GITHUB_API_VERSION = "2022-11-28"
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+
+
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
+    return (
+        bool(ref)
+        and ".." not in ref
+        and not ref.startswith("/")
+        and not ref.endswith("/")
+        and bool(_GITHUB_REF_RE.match(ref))
+    )
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.match(repo_path))
+
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -2585,9 +2608,18 @@ class GitHubIntegration(GitHubIntegrationBase):
         API with the ``diff`` media type, so the response body is raw unified-diff text.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        # repository / branch / base_branch reach this from artefact content and are interpolated
+        # into the GitHub API URL path; validate them so a crafted value can't redirect the
+        # authenticated request to a different endpoint (path traversal / query injection).
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": "Invalid repository.", "status_code": 400}
+        if not _is_safe_github_ref(branch):
+            return {"success": False, "error": "Invalid branch name.", "status_code": 400}
         access_token = self.integration.sensitive_config["access_token"]
         if not base_branch:
             base_branch = self.get_default_branch(repository)
+        elif not _is_safe_github_ref(base_branch):
+            return {"success": False, "error": "Invalid base branch name.", "status_code": 400}
 
         response = self._github_api_get(
             f"https://api.github.com/repos/{repo_path}/compare/{base_branch}...{branch}",

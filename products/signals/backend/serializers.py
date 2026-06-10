@@ -502,6 +502,7 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
 
     id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    report_id = serializers.UUIDField(read_only=True, help_text="The id of the report this artefact belongs to.")
     # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
     # generated OpenAPI schema; the value is simply echoed back.
     type = serializers.CharField(read_only=True, help_text="The artefact type.")

@@ -82,7 +82,7 @@ class TestSignalReportArtefactHelpers(BaseTest):
         ).order_by("created_at")
         assert rows.count() == 2
         # Current status is the latest row.
-        assert json.loads(rows.last().content)["priority"] == "P0"
+        assert json.loads(rows[1].content)["priority"] == "P0"
 
     def test_append_status_rejects_log_type(self):
         report = self._report()

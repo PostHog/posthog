@@ -1078,6 +1078,33 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    def test_get_branch_diff_rejects_unsafe_repo_and_refs(self):
+        # repository / branch / base_branch flow in from artefact content; a crafted value must not
+        # be able to escape the intended compare endpoint (path traversal / query injection).
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        cases = [
+            ("../../../../repos/o/r/contents/x", "main", "main"),
+            ("PostHog/posthog", "../../etc/passwd", "main"),
+            ("PostHog/posthog", "main", "../../../../repos/o/r/contents/x?ref=y#"),
+            ("PostHog/posthog", "feature?x=1", "main"),
+        ]
+        with patch.object(github, "_github_api_get") as mock_get:
+            for repository, branch, base_branch in cases:
+                result = github.get_branch_diff(repository, branch, base_branch)
+                assert result["success"] is False, (repository, branch, base_branch)
+                assert result["status_code"] == 400
+            mock_get.assert_not_called()
+
+    def test_get_branch_diff_allows_nested_branch_names(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_branch_diff("PostHog/posthog", "feature/nested-branch", "master")
+            assert result == {"success": True, "diff": "diff --git a b", "base_branch": "master"}
+            mock_get.assert_called_once()
+
     @parameterized.expand(
         [
             (
