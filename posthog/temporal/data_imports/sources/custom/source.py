@@ -215,6 +215,8 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     except (ValueError, NotImplementedError) as exc:
         raise ManifestValidationError(str(exc)) from exc
 
+    client = manifest.get("client")
+    base_url = client.get("base_url") if isinstance(client, dict) else None
     for name, resolved_param in resolved.items():
         if resolved_param is None:
             continue
@@ -225,27 +227,27 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
                 "a resource can only depend on a top-level resource (one level of nesting)"
             )
         # The parent placeholder is filled with uncontrolled upstream data at
-        # sync time. If it's the FIRST path segment, an absolute URL in the
-        # parent's field moves the authenticated request off base_url (the
-        # engine's `resolve_request_url` strips leading slashes before joining,
-        # so a leading-slash path is not a defense — `/{form_id}/...` with
-        # `form_id="https://attacker/x"` resolves to the attacker host). Neither
-        # the create-time host validator nor the update retarget guard can see
-        # this (they only ever see the literal placeholder). The check reads the
-        # engine-normalized path from `resource_map` — defaults merged, scalar
-        # params already bound — so it inspects the same string the request will
-        # be built from; only the resolve placeholder survives binding.
+        # sync time, then the engine resolves the path against base_url. A
+        # placeholder positioned where it can supply the URL's authority lets that
+        # parent value redirect the authenticated request — and its credential —
+        # off base_url: a leading placeholder (`{form_id}/...`) can be a full
+        # `https://attacker/...`, and a literal scheme prefix (`https:{form_id}`)
+        # lets `//attacker/...` take over the authority. Neither the create-time
+        # host validator nor the update retarget guard can see this — they only
+        # ever inspect the literal placeholder. The path comes from `resource_map`
+        # (defaults merged, scalar params already bound), so only the resolve
+        # placeholder survives in the same string the request is built from.
         endpoint = resource_map[name].get("endpoint")
         path = endpoint.get("path", "") if isinstance(endpoint, dict) else ""
-        # Strip leading whitespace and slashes so every leading-placeholder form
-        # is caught; mid-path placeholders (`/forms/{form_id}/responses`) pass.
-        if isinstance(path, str) and path.lstrip().lstrip("/").lstrip().startswith(
-            "{" + resolved_param.param_name + "}"
+        if (
+            isinstance(path, str)
+            and isinstance(base_url, str)
+            and _placeholder_escapes_base(path, resolved_param.param_name, base_url)
         ):
             raise ManifestValidationError(
-                f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must not be the first "
-                "path segment — put a literal prefix before it (e.g. /forms/{form_id}/responses) so the bound parent "
-                "value can't redirect the request off the manifest's base URL"
+                f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must sit within the path "
+                "of the base URL (e.g. /forms/{form_id}/responses) — it must not start the path or follow a scheme "
+                "like 'https:', so the bound parent value can't redirect the request off the manifest's base URL"
             )
     return resolved
 
@@ -391,6 +393,43 @@ def _url_hostname(url: str) -> str | None:
     """
     normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
     return urlparse(normalized).hostname
+
+
+# Probe values substituted for a fan-out child's resolve placeholder to test
+# whether uncontrolled parent data bound there could move the request — and the
+# credential — off base_url's host. Each models a different escape technique: a
+# full absolute URL (placeholder is the first/only path segment), an
+# authority-only value (a literal ``scheme:`` prefix lets ``//host`` take over),
+# and a bare host (placeholder sits in the authority of a ``scheme://`` prefix).
+# The ``.invalid`` TLD never resolves and this is a pure string check — no I/O.
+_PLACEHOLDER_ESCAPE_SENTINELS = ("https://sentinel.invalid/x", "//sentinel.invalid/x", "sentinel.invalid")
+
+
+def _placeholder_escapes_base(path: str, param_name: str, base_url: str) -> bool:
+    """True if binding the resolve placeholder ``{param_name}`` in ``path`` could
+    move the request to a host other than ``base_url``'s.
+
+    The placeholder is filled with uncontrolled upstream data at sync time, then
+    the engine resolves the path against ``base_url`` exactly as
+    :func:`resolve_request_url` does. We substitute attacker-shaped sentinels for
+    the placeholder and check whether any resolves to a different host — catching
+    not just a leading placeholder (``{form_id}/responses``) but a literal
+    ``scheme:`` prefix that lets the bound value supply the authority
+    (``https:{form_id}/responses`` with ``form_id="//attacker/x"`` resolves to the
+    attacker host). A position that keeps the placeholder strictly inside the path
+    (``/forms/{form_id}/responses``) leaves the host unchanged and passes.
+    """
+    base_host = _url_hostname(base_url)
+    if not base_host:
+        # A base_url with no host is rejected separately by validate_manifest_urls;
+        # don't raise a confusing placeholder error for it here.
+        return False
+    placeholder = "{" + param_name + "}"
+    for sentinel in _PLACEHOLDER_ESCAPE_SENTINELS:
+        probed = path.replace(placeholder, sentinel)
+        if _url_hostname(resolve_request_url(base_url, probed)) != base_host:
+            return True
+    return False
 
 
 @SourceRegistry.register

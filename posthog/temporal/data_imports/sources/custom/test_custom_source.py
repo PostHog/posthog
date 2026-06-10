@@ -910,6 +910,14 @@ def _break_leading_slash_placeholder(m: dict) -> None:
     m["resources"][1]["endpoint"]["path"] = "/{form_id}/responses"
 
 
+def _break_scheme_prefixed_placeholder(m: dict) -> None:
+    # A literal scheme prefix lets the placeholder supply the URL's authority:
+    # `https:{form_id}/...` with `form_id="//attacker/x"` formats to
+    # `https://attacker/x/...`, an absolute URL off base_url. The placeholder is
+    # not the first path segment, so a position-only guard misses it.
+    m["resources"][1]["endpoint"]["path"] = "https:{form_id}/responses"
+
+
 def _add_nested_child(m: dict) -> None:
     # Grandchild: nesting is capped at one level — a parent must be top-level.
     m["resources"].append(
@@ -940,6 +948,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("nested_child", _add_nested_child),
             ("path_starting_with_placeholder", _break_path_starting_with_placeholder),
             ("leading_slash_placeholder", _break_leading_slash_placeholder),
+            ("scheme_prefixed_placeholder", _break_scheme_prefixed_placeholder),
         ]
     )
     def test_rejects_invalid_fanout(self, _name, break_manifest):
@@ -957,6 +966,9 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("cycle", _break_cycle, ["dependency cycle"]),
             # The nesting cap must name the offending resources.
             ("nested_child", _add_nested_child, ["'answers'", "'responses'", "one level of nesting"]),
+            # The placeholder-authority guard must name the resource and point at
+            # the scheme-prefix escape, not just the leading-segment case.
+            ("scheme_prefixed_placeholder", _break_scheme_prefixed_placeholder, ["'responses'", "scheme", "redirect"]),
         ]
     )
     def test_rejection_message_is_readable(self, _name, break_manifest, expected_fragments):
