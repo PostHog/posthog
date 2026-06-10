@@ -1455,6 +1455,11 @@ function generateDefinitionsJson(
     for (const { config: category, enabledTools, enabledWrappers, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
+            // Per-tool feature_flag wins; otherwise inherit the category-level
+            // gate (lets one line gate a whole not-yet-GA product).
+            const featureFlag = toolConfig.feature_flag ?? category.feature_flag
+            const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
+            const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
             definitions[name] = {
                 description: resolveDescription(toolConfig, yamlDir, opDescription),
                 category: category.category,
@@ -1469,11 +1474,9 @@ function generateDefinitionsJson(
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                ...(toolConfig.feature_flag_behavior
-                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                    : {}),
-                ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                 ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }

@@ -75,6 +75,7 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -516,6 +517,7 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
@@ -849,3 +851,28 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Agent janitor service — Django proxies session list/detail/cancel requests to this URL.
+AGENT_JANITOR_BASE_URL = get_from_env("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
+
+# Public base URL where agent-ingress is reachable from the outside world
+# (Slack's events callback, third-party webhooks, etc). In prod this is the
+# subdomain wired in `public-subdomain-routing.md` (e.g. `https://agents.us.posthog.com`).
+# In local dev set this to the tunnel URL from `bin/agent-tunnel` so the
+# `slack_events_url` Django returns on agent retrievals is the actual URL the
+# user pastes into their Slack app dashboard. Empty default → the field is
+# omitted from the serializer response, signalling "not externally reachable".
+AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
+
+# Shared HMAC signing key for trusted-service JWTs across the agent platform.
+# Django mints aud-scoped tokens for the ingress (draft previews) and janitor
+# (authoring RPC); each receiving service verifies signature + aud against
+# this same key. See posthog/jwt.py:AgentInternalAudience and
+# services/agent-shared/src/runtime/internal-jwt.ts.
+#
+# Default is empty so missing config fails safe: janitor_client._headers()
+# skips the JWT mint when the key is unset, the janitor 401s on the missing
+# header, and the misconfiguration surfaces fast — far better than minting
+# tokens signed by a baked-in dev string that ends up dispatched to a real
+# upstream service.
+AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")

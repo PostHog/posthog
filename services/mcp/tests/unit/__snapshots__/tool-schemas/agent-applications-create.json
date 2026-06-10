@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "default": false,
+            "type": "boolean"
+        },
+        "description": {
+            "type": "string"
+        },
+        "name": {
+            "maxLength": 255,
+            "type": "string"
+        },
+        "slug": {
+            "maxLength": 63,
+            "pattern": "^[-a-zA-Z0-9_]+$",
+            "type": "string"
+        }
+    },
+    "required": ["name", "slug"],
+    "type": "object"
+}
