@@ -632,6 +632,26 @@ class TestApproveRun:
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
 
+    @pytest.mark.parametrize("add_images", [True, False])
+    def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
+        # The PR comment is always dispatched on finalize; add_images_to_comment_on_pr only
+        # controls whether the snapshot images are embedded — forwarded to the task.
+        run = self._completed_two_change_run(repo, mocker)
+        mocker.patch.object(logic, "_post_commit_status")
+        mocker.patch.object(logic.transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
+        delay = mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
+
+        logic.finalize_run(
+            run_id=run.id,
+            user_id=user.id,
+            approve_all=True,
+            commit_to_github=True,
+            add_images_to_comment_on_pr=add_images,
+        )
+
+        assert delay.called is True
+        assert delay.call_args.args[2] is add_images
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveSnapshots:
@@ -2562,7 +2582,7 @@ class TestApprovalComment:
     def test_build_approval_comment_body_includes_before_after_tables(self, repo, run_with_artifacts, mocker):
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
 
-        body = logic._build_approval_comment_body(run_with_artifacts, repo, None)
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
         # Changed table: baseline (thumbnail) before, current after
         assert "**Changed**" in body
@@ -2578,6 +2598,15 @@ class TestApprovalComment:
         assert "_(none)_" in body
         # Long-lived URL so GitHub's image proxy can still fetch it later
         assert f"exp={logic._COMMENT_IMAGE_URL_EXPIRATION}" in body
+
+    def test_build_approval_comment_body_deep_links_each_snapshot(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        # Each snapshot name links straight to its deep link on the run page
+        changed = run_with_artifacts.snapshots.get(identifier="Login/Form")
+        assert f"[`Login/Form`]({logic._run_url(run_with_artifacts, repo)}?snapshot={changed.id})" in body
 
     def test_build_approval_comment_body_caps_at_eight_and_links_out(self, repo, mocker):
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
@@ -2600,7 +2629,7 @@ class TestApprovalComment:
                 current_artifact=self._mk_artifact(repo, f"curr_{i}"),
             )
 
-        body = logic._build_approval_comment_body(run, repo, None)
+        body = logic._build_approval_comment_body(run, repo, None, add_images=True)
 
         # 8 of 11 rows rendered, the rest linked out
         assert body.count("<img") == 8 * 2  # before + after per shown row
@@ -2608,21 +2637,43 @@ class TestApprovalComment:
         assert f"/visual_review/runs/{run.id})" in body
 
     def test_build_approval_comment_body_falls_back_to_text_without_storage(self, repo, run_with_artifacts, mocker):
+        # Images requested, but storage yields no URL — fall back to the text summary.
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage(returns_url=False))
 
-        body = logic._build_approval_comment_body(run_with_artifacts, repo, None)
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
         assert "<img" not in body
         assert "**Changed**" not in body
         # Still carries the textual summary
         assert "1 changed, 1 new, 1 removed." in body
 
-    def test_image_cell_escapes_alt_text(self):
-        cell = logic._image_cell("https://cdn.example/x", 'a"b')
-        assert 'alt="a&quot;b"' in cell
+    def test_build_approval_comment_body_omits_images_unless_opted_in(self, repo, run_with_artifacts, mocker):
+        # add_images defaults false: the comment is always posted but stays a text summary.
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
 
-    def test_snapshot_name_cell_escapes_pipes(self):
-        assert logic._snapshot_name_cell("a|b") == "`a\\|b`"
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None)
+
+        assert "<img" not in body
+        assert "**Changed**" not in body
+        # The comment still summarizes what changed and links to the run
+        assert "1 changed, 1 new, 1 removed." in body
+        assert f"/visual_review/runs/{run_with_artifacts.id}" in body
+
+    def test_image_cell_escapes_alt_and_src(self):
+        # Both attributes are escaped so a quote in either can't break out of the tag
+        cell = logic._image_cell('https://cdn.example/x?a="b', 'a"b')
+        assert 'alt="a&quot;b"' in cell
+        assert 'src="https://cdn.example/x?a=&quot;b"' in cell
+
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+        ],
+    )
+    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+        assert logic._snapshot_name_cell(identifier) == expected
 
     def test_snapshot_name_cell_collapses_control_characters(self):
         # Newlines/tabs/carriage returns would otherwise break out of the table row

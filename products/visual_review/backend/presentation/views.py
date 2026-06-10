@@ -622,6 +622,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 approve_all=body.approve_all,
                 commit_to_github=body.commit_to_github,
+                add_images_to_comment_on_pr=body.add_images_to_comment_on_pr,
             )
             return Response(FinalizeResultSerializer(instance=result).data)
         except api.RunNotFoundError:

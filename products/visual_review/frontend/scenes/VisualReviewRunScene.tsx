@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
@@ -229,6 +229,7 @@ export function VisualReviewRunScene(): JSX.Element {
         isRunProcessing,
         failedThumbnails,
         thumbnailBasePath,
+        addImagesToComment,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -240,6 +241,7 @@ export function VisualReviewRunScene(): JSX.Element {
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
+        setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
@@ -386,14 +388,24 @@ export function VisualReviewRunScene(): JSX.Element {
                 resourceType={{ type: 'visual_review' }}
                 actions={
                     !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={finalizeRun}
-                            loading={isFinalizing}
-                            data-attr="visual-review-finalize-run"
-                        >
-                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            <LemonCheckbox
+                                checked={addImagesToComment}
+                                onChange={setAddImagesToComment}
+                                disabledReason={isFinalizing ? 'Finalizing…' : undefined}
+                                label="Add snapshots to the PR comment"
+                                info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
+                                data-attr="visual-review-add-images-to-comment"
+                            />
+                            <LemonButton
+                                type="primary"
+                                onClick={finalizeRun}
+                                loading={isFinalizing}
+                                data-attr="visual-review-finalize-run"
+                            >
+                                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                            </LemonButton>
+                        </div>
                     ) : undefined
                 }
             />
