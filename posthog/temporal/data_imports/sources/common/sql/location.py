@@ -15,6 +15,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 class ResolvedSourceLocation(NamedTuple):
     """Where a single warehouse-import row reads from + the Delta subdir it writes to."""
 
+    # `catalog.schema.table` — catalog is the database/project (constant per connection; `None` for
+    # Postgres/Redshift); schema is the namespace within it (`public`, `dbo`, …) that multi-schema varies.
     catalog: Optional[str]
     schema: Optional[str]
     table_name: str
