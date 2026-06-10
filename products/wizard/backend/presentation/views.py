@@ -187,6 +187,17 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(WizardSessionSerializer(dto).data)
 
+    def _killswitch_active(self, request: Request) -> bool:
+        # Shared by `latest` and `stream` so flipping the incident flag quiets both the
+        # SSE stream and the 60s REST poll — otherwise the fleet keeps hitting `latest`.
+        user = getattr(request, "user", None)
+        distinct_id = (
+            str(user.distinct_id)
+            if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
+            else f"team:{self.team_id}"
+        )
+        return _wizard_sync_killswitch_enabled(distinct_id)
+
     @extend_schema(
         description=(
             "Return the single most-recent wizard session for a workflow (and "
@@ -219,6 +230,11 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="latest")
     def latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Killswitch parity with `stream`: a 204 makes the client treat this as "no run"
+        # and wind the detector down, so flipping the flag in an incident also stops the
+        # 60s poll (and skips the DB read entirely), not just the SSE stream.
+        if self._killswitch_active(request):
+            return Response(status=status.HTTP_204_NO_CONTENT)
         workflow_id = request.query_params.get("workflow_id")
         if not workflow_id:
             raise ValidationError({"detail": "workflow_id is required."})
@@ -299,13 +315,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         # Killswitch first, before any other work: a 204 tells EventSource to stop
         # reconnecting, severing the self-reconnect loop for already-open tabs.
-        user = getattr(request, "user", None)
-        distinct_id = (
-            str(user.distinct_id)
-            if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
-            else f"team:{self.team_id}"
-        )
-        if _wizard_sync_killswitch_enabled(distinct_id):
+        if self._killswitch_active(request):
             return HttpResponse(status=204)
 
         workflow_id = request.query_params.get("workflow_id")

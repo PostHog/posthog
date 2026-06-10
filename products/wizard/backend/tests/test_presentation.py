@@ -316,6 +316,16 @@ class TestWizardSessionViewSet(APIBaseTest):
         response = self.client.get(f"{self._url()}stream/?workflow_id=onboarding")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    @patch("products.wizard.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True)
+    def test_latest_killswitch_returns_204_even_with_a_live_session(self, _mock_feature_enabled):
+        # Parity with stream: with the killswitch on, `latest` short-circuits to a 204
+        # even though a real session exists, so the detector's 60s poll winds down too
+        # (the client treats 204 as "no run") rather than only the SSE stream closing.
+        self.client.post(self._url(), self._payload(), format="json")
+
+        response = self.client.get(self._url("latest/") + "?workflow_id=onboarding")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
     @parameterized.expand([("on", True, True), ("off", False, False), ("unresolved", None, False)])
     def test_wizard_sync_killswitch_helper(self, _label, flag_value, expected):
         with patch(

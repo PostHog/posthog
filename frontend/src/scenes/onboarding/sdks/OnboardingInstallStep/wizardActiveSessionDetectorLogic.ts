@@ -229,8 +229,15 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
     subscriptions(({ actions, cache }) => ({
         // Project switching mid-session: drop any stale "active" state from the
         // previous project and force a fresh poll against the new project id.
-        currentProjectId: (projectId: number | null, prev: number | null) => {
+        currentProjectId: (projectId: number | null, prev: number | null | undefined) => {
             if (projectId === prev) {
+                return
+            }
+            // kea-subscriptions fires this once on mount with `prev === undefined`. Skip
+            // that initial call so the jittered afterMount poll owns the first check —
+            // otherwise every client polls immediately on a deploy reload, the exact
+            // synchronized REST spike the jitter exists to spread out (INC-886).
+            if (prev === undefined) {
                 return
             }
             cache.disposables.dispose('mark-inactive-grace')
@@ -255,7 +262,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             cache.lastResumeAt = now
             const initialDelay =
                 sinceLastResume < VISIBILITY_RESUME_THROTTLE_MS
-                    ? VISIBILITY_RESUME_THROTTLE_MS
+                    ? VISIBILITY_RESUME_THROTTLE_MS - sinceLastResume
                     : Math.random() * INITIAL_POLL_JITTER_MS
             const initialId = window.setTimeout(() => actions.check(), initialDelay)
             const intervalId = window.setInterval(() => actions.check(), REPOLL_INTERVAL_MS)

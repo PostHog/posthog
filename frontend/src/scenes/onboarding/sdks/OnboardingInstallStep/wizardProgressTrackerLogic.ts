@@ -83,7 +83,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['connect', 'disconnect'],
             wizardActiveSessionDetectorLogic,
-            ['markActive', 'scheduleMarkInactive', 'cancelScheduledMarkInactive'],
+            ['markActive', 'scheduleMarkInactive'],
         ],
     })),
     actions({
