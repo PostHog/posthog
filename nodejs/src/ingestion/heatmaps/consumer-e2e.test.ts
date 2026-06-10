@@ -181,31 +181,44 @@ describe('Heatmaps consumer E2E', () => {
         }
     )
 
-    testWithTeamIngester(
-        'does not process non-$$heatmap events (allow list)',
-        {},
-        async ({ ingester, team, token }) => {
-            // A $pageview carrying heatmap-shaped data would extract heatmaps if it reached the
-            // extraction step, so this exercises that the allow-list DLQs it before any processing.
-            const event = new EventBuilder(team)
-                .withEvent('$pageview')
-                .withProperties({
-                    $session_id: 'session-3',
-                    $viewport_width: 1024,
-                    $viewport_height: 768,
-                    $current_url: 'http://localhost:3000/',
-                    $heatmap_data: {
-                        'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
-                    },
-                })
-                .build()
+    // Each of these carries heatmap-shaped data that would extract heatmaps if it reached the
+    // extraction step, so this exercises that the allow-list DLQs everything but $$heatmap before
+    // any processing. Covers analytics, autocapture, person, custom, and sibling dedicated-pipeline
+    // event types.
+    const nonHeatmapEvents = [
+        '$pageview',
+        '$autocapture',
+        '$identify',
+        '$exception',
+        '$$client_ingestion_warning',
+        'custom_event',
+    ]
 
-            const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages([event], token))
-            await backgroundTask
+    nonHeatmapEvents.forEach((eventName) => {
+        testWithTeamIngester(
+            `does not process ${eventName} events (allow list)`,
+            {},
+            async ({ ingester, team, token }) => {
+                const event = new EventBuilder(team)
+                    .withEvent(eventName)
+                    .withProperties({
+                        $session_id: 'session-3',
+                        $viewport_width: 1024,
+                        $viewport_height: 768,
+                        $current_url: 'http://localhost:3000/',
+                        $heatmap_data: {
+                            'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
+                        },
+                    })
+                    .build()
 
-            await waitForClickHouseKafkaConsumer(clickhouse)
-            const heatmaps = await fetchHeatmaps(clickhouse, team.id)
-            expect(heatmaps.length).toBe(0)
-        }
-    )
+                const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages([event], token))
+                await backgroundTask
+
+                await waitForClickHouseKafkaConsumer(clickhouse)
+                const heatmaps = await fetchHeatmaps(clickhouse, team.id)
+                expect(heatmaps.length).toBe(0)
+            }
+        )
+    })
 })
