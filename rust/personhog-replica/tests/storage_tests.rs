@@ -1636,9 +1636,9 @@ async fn test_get_persons_by_distinct_ids_in_team_handles_duplicates() {
     ctx.insert_person("dup_did_a", None).await.unwrap();
     ctx.insert_person("dup_did_b", None).await.unwrap();
 
-    // The same distinct_id repeated, plus a non-existent one repeated. UNNEST
-    // is deduplicated for the query, but the response mirrors the input list:
-    // one entry per occurrence, repeats included.
+    // A repeated distinct_id, plus a repeated non-existent one. The query
+    // deduplicates these, while the response mirrors the input list: each id
+    // resolves on its first occurrence and is None on any repeat.
     let distinct_ids = vec![
         "dup_did_a".to_string(),
         "dup_did_a".to_string(),
@@ -1661,11 +1661,7 @@ async fn test_get_persons_by_distinct_ids_in_team_handles_duplicates() {
         distinct_ids
     );
     assert!(result[0].1.is_some());
-    assert!(result[1].1.is_some());
-    assert_eq!(
-        result[0].1.as_ref().unwrap().uuid,
-        result[1].1.as_ref().unwrap().uuid
-    );
+    assert!(result[1].1.is_none());
     assert!(result[2].1.is_some());
     assert!(result[3].1.is_none());
     assert!(result[4].1.is_none());

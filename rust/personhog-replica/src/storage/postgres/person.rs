@@ -314,14 +314,14 @@ impl PersonLookup for PostgresStorage {
         // UNNEST emits one row per distinct ID; the response below still
         // mirrors the caller's original list, repeats included.
         let mut seen: HashSet<&str> = HashSet::with_capacity(distinct_ids.len());
-        let unique_ids: Vec<String> = distinct_ids
+        let unique_ids: Vec<&str> = distinct_ids
             .iter()
-            .filter(|d| seen.insert(d.as_str()))
-            .cloned()
+            .map(|d| d.as_str())
+            .filter(|&d| seen.insert(d))
             .collect();
         let chunks: Vec<Vec<String>> = unique_ids
             .chunks(self.bulk_chunk_size)
-            .map(|c| c.to_vec())
+            .map(|c| c.iter().map(|&s| s.to_string()).collect())
             .collect();
         common_metrics::histogram(
             DB_BULK_CHUNKS,
@@ -385,7 +385,7 @@ impl PersonLookup for PostgresStorage {
             .try_collect()
             .await?;
 
-        let found: HashMap<String, Person> = chunk_results.into_iter().flatten().collect();
+        let mut found: HashMap<String, Person> = chunk_results.into_iter().flatten().collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -400,12 +400,9 @@ impl PersonLookup for PostgresStorage {
             found.len() as f64,
         );
 
-        // `get().cloned()` rather than `remove()` so a distinct_id repeated in
-        // the input resolves to its person on every occurrence, not just the
-        // first.
         Ok(distinct_ids
             .iter()
-            .map(|did| (did.clone(), found.get(did).cloned()))
+            .map(|did| (did.clone(), found.remove(did)))
             .collect())
     }
 
