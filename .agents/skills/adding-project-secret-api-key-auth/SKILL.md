@@ -60,9 +60,11 @@ Subclass them to set product-specific `scope`/`rate`; remember each throttle kee
 - Skip per-object access-control checks for it (PSAK scopes are project-wide by design):
 
   ```python
-  if isinstance(request.user, ProjectSecretAPIKeyUser):
+  if is_authenticated_via_project_secret_api_key(request):
       return  # PSAK bypasses object-level RBAC deliberately
   ```
+
+  Use `isinstance(user, ProjectSecretAPIKeyUser)` only where no request is in scope.
 
 - `report_user_action` **drops** synthetic users — if you need analytics for PSAK-authenticated calls, capture explicitly with `posthoganalytics.capture(distinct_id=user.distinct_id, ...)` and include an `auth_method` property so both paths emit the same event shape.
 - HogQL system tables: `Database.create_for` hides RBAC-scoped system tables the key's scopes don't cover (via `readable_system_table_access_scopes()`).
