@@ -36,6 +36,8 @@ class HogQLTeamContext:
     modifiers: Optional[dict] = None
     # Raw ``team.test_account_filters`` JSON (list of property-filter dicts).
     test_account_filters: list[Any] = field(default_factory=list)
+    # Raw ``team.path_cleaning_filters`` JSON (list of regex/alias dicts).
+    path_cleaning_filters: list[Any] = field(default_factory=list)
 
     @property
     def timezone_info(self) -> ZoneInfo:
@@ -58,4 +60,5 @@ class HogQLTeamContext:
             base_currency=team.base_currency,
             modifiers=team.modifiers,
             test_account_filters=team.test_account_filters or [],
+            path_cleaning_filters=team.path_cleaning_filters or [],
         )

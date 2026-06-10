@@ -10,6 +10,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
+    from posthog.hogql.data_provider import DataProvider
     from posthog.hogql.database.database import Database
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
@@ -36,6 +37,11 @@ class HogQLContext:
 
     # User making the queries - used for access control on system tables
     user: Optional["User"] = None
+
+    # The engine's data port — answers mid-compile data questions (property types,
+    # cohorts, catalogs). Defaults to the ORM-backed provider built from team/team_id;
+    # inject a fake to compile without a database.
+    data_provider: Optional["DataProvider"] = None
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
@@ -147,3 +153,13 @@ class HogQLContext:
             raise ValueError("Either team or team_id must be set to determine project_id")
         team = self.team or Team.objects.only("project_id").get(id=self.team_id)
         return team.project_id
+
+    @property
+    def data(self) -> "DataProvider":
+        if self.data_provider is None:
+            # Deferred so the engine's import path stays free of the Django provider;
+            # mirrors the lazy Team fetch in project_id above.
+            from posthog.hogql.django_provider import DjangoDataProvider  # noqa: PLC0415
+
+            self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id)
+        return self.data_provider
