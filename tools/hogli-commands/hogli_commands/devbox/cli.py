@@ -23,7 +23,6 @@ from hogli.manifest import get_manifest
 
 from . import mutagen
 from .coder import (
-    AUTO_START_APP_PARAMETER,
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
     DEFAULT_REGION,
@@ -35,6 +34,7 @@ from .coder import (
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
+    _start_app_param,
     coder_authenticated,
     coder_installed,
     coder_reachable,
@@ -331,13 +331,6 @@ def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -
 
     if params:
         update_workspace_parameters(name, params)
-
-
-def _start_app_param(start_app: bool | None) -> dict[str, str]:
-    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is)."""
-    if start_app is None:
-        return {}
-    return {AUTO_START_APP_PARAMETER: "true" if start_app else "false"}
 
 
 def _start_existing_workspace(
@@ -1347,7 +1340,7 @@ def devbox_start(
         region=effective_region,
         template=template,
         preset=preset,
-        start_app=start_app is True,
+        start_app=start_app,
         verbose=verbose,
     )
     click.echo("Created.")

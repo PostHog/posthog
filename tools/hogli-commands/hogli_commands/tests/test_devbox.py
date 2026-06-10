@@ -855,7 +855,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
-        start_app: bool = False,
+        start_app: bool | None = None,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -993,15 +993,25 @@ class TestWorkspaceCreation:
         assert "claude_oauth_token" not in params
         assert params == expected_params
 
-    def test_create_workspace_forwards_start_app_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_create_workspace_forwards_start_app_parameter(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
         captured: dict[str, object] = {}
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
 
-        coder.create_workspace("devbox-test-user", 100, start_app=True)
+        coder.create_workspace("devbox-test-user", 100, start_app=start_app)
 
         params = _parse_parameter_flags(captured["args"])
-        assert params[coder.AUTO_START_APP_PARAMETER] == "true"
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in params
+        else:
+            assert params[coder.AUTO_START_APP_PARAMETER] == expected
 
     @pytest.mark.parametrize(
         "outputs, dropped, raises",
@@ -1515,7 +1525,7 @@ class TestDevboxCommands:
             "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
-            "start_app": "False",
+            "start_app": "None",
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
