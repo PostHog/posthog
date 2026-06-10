@@ -60,6 +60,11 @@ def merge_columns(
             "clickhouse": db_column_type,
             "hogql": hogql_type,
         }
+        # Carry the stamped position over so column order stays stable across syncs — without
+        # this, a transient partial introspection would restamp the present columns after the
+        # preserved (still-positioned) ones and scramble the order until the next full refresh.
+        if isinstance(existing_column, dict) and isinstance(existing_column.get("position"), int):
+            columns[column_name]["position"] = existing_column["position"]
 
     # Preserve columns from prior syncs that are missing from the current introspection.
     # This prevents column loss when get_columns() returns partial results mid-sync.
