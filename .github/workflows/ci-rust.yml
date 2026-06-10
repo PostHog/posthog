@@ -256,7 +256,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Set sccache cache key prefix
-              run: echo "SCCACHE_CACHE_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -345,7 +345,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Set sccache cache key prefix
-              run: echo "SCCACHE_CACHE_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -459,7 +459,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Set sccache cache key prefix
-              run: echo "SCCACHE_CACHE_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-$(sha256sum Cargo.lock | cut -c1-16)" >> "$GITHUB_ENV"
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
