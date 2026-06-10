@@ -69,48 +69,6 @@ const conversationsTicketsList = (): ToolBase<
     },
 })
 
-const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true })
-
-const conversationsTicketsRetrieve = (): ToolBase<
-    typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
-> => ({
-    name: 'conversations-tickets-retrieve',
-    schema: ConversationsTicketsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Ticket>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = pickResponseFields(result, [
-            'id',
-            'ticket_number',
-            'status',
-            'priority',
-            'channel_source',
-            'channel_detail',
-            'assignee',
-            'last_message_text',
-            'message_count',
-            'unread_team_count',
-            'tags',
-            'sla_due_at',
-            'anonymous_traits',
-            'session_context',
-            'session_id',
-            'person',
-            'email_from',
-            'email_to',
-            'email_subject',
-            'distinct_id',
-            'created_at',
-            'updated_at',
-        ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
-    },
-})
-
 const ConversationsTicketsMessagesRetrieveSchema = ConversationsTicketsMessagesListParams.omit({
     project_id: true,
 }).extend(ConversationsTicketsMessagesListQueryParams.shape)
@@ -166,6 +124,48 @@ const conversationsTicketsReplyCreate = (): ToolBase<
     },
 })
 
+const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true })
+
+const conversationsTicketsRetrieve = (): ToolBase<
+    typeof ConversationsTicketsRetrieveSchema,
+    WithPostHogUrl<Schemas.Ticket>
+> => ({
+    name: 'conversations-tickets-retrieve',
+    schema: ConversationsTicketsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Ticket>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'ticket_number',
+            'status',
+            'priority',
+            'channel_source',
+            'channel_detail',
+            'assignee',
+            'last_message_text',
+            'message_count',
+            'unread_team_count',
+            'tags',
+            'sla_due_at',
+            'anonymous_traits',
+            'session_context',
+            'session_id',
+            'person',
+            'email_from',
+            'email_to',
+            'email_subject',
+            'distinct_id',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
+    },
+})
+
 const ConversationsTicketsUpdateSchema = ConversationsTicketsPartialUpdateParams.omit({ project_id: true }).extend(
     ConversationsTicketsPartialUpdateBody.shape
 )
@@ -205,8 +205,8 @@ const conversationsTicketsUpdate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
-    'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
+    'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,
 }
