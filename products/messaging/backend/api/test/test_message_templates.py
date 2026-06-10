@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -7,6 +8,13 @@ from posthog.models import Organization, Team
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
+
+MINIMAL_DESIGN = {
+    "counters": {"u_row": 1},
+    "schemaVersion": 16,
+    "body": {"id": "b", "rows": [{"id": "r", "cells": [1], "columns": [], "values": {}}], "values": {}},
+}
 
 
 class TestMessageTemplatesAPI(APIBaseTest):
@@ -134,6 +142,82 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["content"]["templating"] == "liquid"
+
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_create_with_design_only_renders_html_server_side(self, mock_render):
+        mock_render.return_value = "<html><body>Rendered</body></html>"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Design-first template",
+                "content": {"email": {"subject": "Hi", "design": MINIMAL_DESIGN}},
+                "type": "email",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mock_render.assert_called_once_with(MINIMAL_DESIGN)
+        email = response.json()["content"]["email"]
+        assert email["html"] == "<html><body>Rendered</body></html>"
+        assert email["design"] == MINIMAL_DESIGN
+
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_create_with_design_and_html_keeps_submitted_html(self, mock_render):
+        """The visual editor exports html from the design client-side and submits both —
+        a present html is trusted, not re-rendered."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Editor-saved template",
+                "content": {"email": {"subject": "Hi", "html": "<p>Editor export</p>", "design": MINIMAL_DESIGN}},
+                "type": "email",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mock_render.assert_not_called()
+        assert response.json()["content"]["email"]["html"] == "<p>Editor export</p>"
+
+    @parameterized.expand(
+        [
+            ("render_failure", UnlayerRenderError("Unlayer returned 500"), "Rendering the design"),
+            ("not_configured", UnlayerNotConfiguredError(), "not configured"),
+        ]
+    )
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_create_with_design_render_error_returns_400(self, _name, side_effect, expected_message, mock_render):
+        mock_render.side_effect = side_effect
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Design-first template",
+                "content": {"email": {"subject": "Hi", "design": MINIMAL_DESIGN}},
+                "type": "email",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_message in str(response.json())
+
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_update_with_design_only_renders_html_server_side(self, mock_render):
+        mock_render.return_value = "<html><body>Re-rendered</body></html>"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={"content": {"email": {"subject": "Updated", "design": MINIMAL_DESIGN}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_render.assert_called_once_with(MINIMAL_DESIGN)
+        self.message_template.refresh_from_db()
+        assert self.message_template.content["email"]["html"] == "<html><body>Re-rendered</body></html>"
 
     def test_cannot_bind_template_to_other_teams_message_category_via_patch(self):
         """Regression: PATCH must not accept a MessageCategory pk owned by a different team."""

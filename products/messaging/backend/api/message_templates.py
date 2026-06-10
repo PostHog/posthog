@@ -12,6 +12,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -32,11 +33,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     html = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Full HTML document sent verbatim as the email body. Supports Liquid templating.",
+        help_text="Full HTML document sent verbatim as the email body. Supports Liquid templating. "
+        "When design is provided without html, the server renders html from the design.",
     )
     design = UnlayerDesignField(
         required=False,
-        help_text="Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.",
+        help_text="Unlayer design JSON — the source of truth for the visual editor. "
+        "Sent without html, the server renders the email HTML from it.",
     )
 
 
@@ -95,6 +98,26 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
+        # Design-only saves get their html rendered server-side (the send path uses html
+        # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
+        if email and email.get("design") and not email.get("html"):
+            try:
+                email["html"] = render_design_html(email["design"])
+            except UnlayerNotConfiguredError:
+                raise serializers.ValidationError(
+                    {
+                        "content": {
+                            "email": {
+                                "design": "Server-side design rendering is not configured on this instance. "
+                                "Include content.email.html rendered from the design."
+                            }
+                        }
+                    }
+                )
+            except UnlayerRenderError as e:
+                raise serializers.ValidationError(
+                    {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
+                )
         return data
 
     def create(self, validated_data: Any) -> Any:
