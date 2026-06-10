@@ -155,6 +155,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    user=self.user,
                 )
             events = {str(row[0]): row for row in event_result.results}
 
