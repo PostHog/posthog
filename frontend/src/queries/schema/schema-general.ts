@@ -3056,6 +3056,9 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/** Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`). */
+export type TraceOrderColumn = 'timestamp' | 'duration'
+
 /**
  * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
  * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
@@ -3195,7 +3198,10 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: LogsOrderBy
+    /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+    orderBy?: TraceOrderColumn
+    /** Order direction. Defaults to DESC. */
+    orderDirection?: 'ASC' | 'DESC'
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]

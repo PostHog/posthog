@@ -9,11 +9,9 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -24,7 +22,6 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -2858,12 +2855,6 @@ class TestUserTwoFactor(APIBaseTest):
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
         oauth_app = OAuthApplication.objects.create(
             name="Test OAuth App",

@@ -77,6 +77,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         allTools: tools as any,
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
         ...overrides,
     }
 }
@@ -163,10 +164,20 @@ describe('ToolExecutor metrics', () => {
 
     describe('single-exec mode', () => {
         function execState(): ResolvedState {
-            return makeState(
-                catalog.getPreBuiltEntries().map((e) => ({ name: e.name })),
-                { useSingleExec: true }
-            )
+            // Mirror getFilteredTools: full tool objects with real schemas and
+            // handlers, so exec's inner dispatch (schema validation, handler
+            // call) behaves as in production.
+            const tools = catalog.getPreBuiltEntries().map((entry) => {
+                const preBuilt = catalog.getToolByName(entry.name)!
+                return {
+                    ...preBuilt.base,
+                    title: entry.title,
+                    description: entry.description ?? '',
+                    annotations: entry.annotations,
+                    scopes: [],
+                }
+            })
+            return makeState(tools as any, { useSingleExec: true })
         }
 
         it('emits no exec-labelled counter or timer on success', async () => {
@@ -204,6 +215,26 @@ describe('ToolExecutor metrics', () => {
             expect(innerClassifications.length).toBeGreaterThan(0)
             expect(innerClassifications[0].error_type).toBeTruthy()
             expect(execClassifications).toHaveLength(0)
+        })
+
+        it('records inner validation_error without a duration observation', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call docs-search {}' } }, execState())
+
+            expect(callsFor(mockToolCallsInc, 'docs-search')).toEqual([
+                { tool: 'docs-search', status: 'validation_error' },
+            ])
+            const innerDurations = mockToolDurationObserve.mock.calls.filter((c: any[]) => c[0]?.tool === 'docs-search')
+            expect(innerDurations).toHaveLength(0)
+            expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
+        })
+
+        it('classifies inner validation failures as validation, not internal', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call docs-search {}' } }, execState())
+
+            expect(callsFor(mockToolErrorsInc, 'docs-search')).toEqual([
+                { tool: 'docs-search', error_type: 'validation' },
+            ])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
         })
 
         it('emits exec-level error for framework failures before inner dispatch', async () => {

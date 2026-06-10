@@ -81,7 +81,7 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
-def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
+def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
