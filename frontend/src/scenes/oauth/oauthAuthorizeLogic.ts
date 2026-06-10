@@ -163,7 +163,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     scoped_teams: values.oauthAuthorization.scoped_teams,
                     access_type: values.oauthAuthorization.access_type,
                     allow: false,
-                    scopes: values.scopes,
+                    scopes: values.effectiveScopes,
                 })
                 if (result) {
                     location.href = result.redirectTo
