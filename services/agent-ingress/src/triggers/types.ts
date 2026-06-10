@@ -32,7 +32,7 @@ import type {
 } from '@posthog/agent-shared'
 
 import type { AuthProvider } from '../enqueue/auth'
-import type { RevisionResolver } from '../routing/resolver'
+import type { RevisionResolver, RoutingMode } from '../routing/resolver'
 
 /** Superset of every dep any trigger router needs. Triggers pick what they use. */
 export interface TriggerDeps {
@@ -57,6 +57,10 @@ export interface TriggerDeps {
      * prod alongside every other fetch.
      */
     http?: HttpFetcher
+    /** Routing mode + URL inputs the MCP connect-info endpoint advertises. */
+    routingMode?: RoutingMode
+    domainSuffix?: string
+    publicBaseUrl?: string
 }
 
 /** Pulled from the `Trigger` discriminator in `@posthog/agent-shared` so this

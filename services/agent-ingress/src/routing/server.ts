@@ -73,6 +73,9 @@ export interface BuildAppOpts {
     routingMode: RoutingMode
     domainSuffix?: string
     pathPrefix?: string
+    /** Path-mode public base URL the MCP connect-info endpoint advertises
+     *  (`<publicBaseUrl>/agents/<slug>/mcp`). Ignored in domain mode. */
+    publicBaseUrl?: string
     /**
      * Resolves the Slack signing secret named by `slack.config.signing_secret_ref`
      * on the agent's spec. In production: pulls the entry from the agent's
@@ -171,6 +174,9 @@ export function buildApp(opts: BuildAppOpts): Express {
         posthogDb: opts.posthogDb ?? null,
         broker: opts.credentialBroker,
         http: opts.http,
+        routingMode: opts.routingMode,
+        domainSuffix: opts.domainSuffix,
+        publicBaseUrl: opts.publicBaseUrl,
     } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

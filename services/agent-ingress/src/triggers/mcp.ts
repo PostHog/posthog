@@ -57,7 +57,7 @@ import { buildElevationResponse, principalDisplay, recordElevationRequest, requi
 import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
-import { RevisionResolver } from '../routing/resolver'
+import { RevisionResolver, RoutingMode } from '../routing/resolver'
 import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
 import { resolveAgent } from './resolve'
 import type { TriggerModule } from './types'
@@ -69,12 +69,17 @@ export interface McpTriggerDeps {
     teamId: number
     authProvider?: AuthProvider
     /**
-     * Public base URL the connect-info endpoint advertises. Defaults to
-     * reconstructing from the inbound request (`req.protocol://req.get('host')`),
-     * which is correct in dev but unreliable behind proxies. Set this in prod
-     * to whatever DNS the agent's MCP endpoint is reachable at.
+     * Public base URL the connect-info endpoint advertises in PATH mode (slug
+     * goes in the path: `<publicBaseUrl>/agents/<slug>/mcp`). Defaults to
+     * reconstructing from the inbound request, which is correct in dev but
+     * unreliable behind proxies. Ignored in domain mode.
      */
     publicBaseUrl?: string
+    /** Routing mode — decides the connect URL shape. Defaults to `path`. */
+    routingMode?: RoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.posthog.com`); the agent's
+     *  MCP endpoint is then `https://<slug><domainSuffix>/mcp`. */
+    domainSuffix?: string
 }
 
 interface McpRequest {
@@ -427,8 +432,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                 res.status(404).json({ error: 'no_mcp_trigger' })
                 return
             }
-            const base = deps.publicBaseUrl ?? `${req.protocol}://${req.get('host')}`
-            const url = `${base.replace(/\/$/, '')}/agents/${resolved.application.slug}/mcp`
+            const url = agentMcpUrl(deps, req, resolved.application.slug)
             // Multi-mode auth specs collapse to a single connect snippet —
             // pick the most specific accepted mode (non-public preferred).
             // Clients that want to see all accepted modes can introspect
@@ -450,6 +454,26 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
     )
 
     return r
+}
+
+/**
+ * Absolute URL of the agent's MCP endpoint, matching what the ingress actually
+ * serves in each routing mode (mirrors Django's `agent_ingress_route_url`):
+ *
+ *   domain → `https://<slug><domainSuffix>/mcp`  (slug in host, routes at root)
+ *   path   → `<publicBaseUrl>/agents/<slug>/mcp` (slug in path)
+ *
+ * In domain mode without a configured suffix the inbound request already
+ * arrived at the agent's own host, so reconstruct from it.
+ */
+function agentMcpUrl(deps: McpTriggerDeps, req: Request, slug: string): string {
+    if ((deps.routingMode ?? 'path') === 'domain') {
+        const suffix = deps.domainSuffix?.trim()
+        const base = suffix ? `https://${slug}${suffix}` : `${req.protocol}://${req.get('host')}`
+        return `${base.replace(/\/$/, '')}/mcp`
+    }
+    const base = deps.publicBaseUrl ?? `${req.protocol}://${req.get('host')}`
+    return `${base.replace(/\/$/, '')}/agents/${slug}/mcp`
 }
 
 interface ConnectAuth {

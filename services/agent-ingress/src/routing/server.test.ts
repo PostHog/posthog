@@ -86,7 +86,7 @@ describe('ingress HTTP server (path mode)', () => {
         await pool.end()
     })
 
-    function mk(): {
+    function mk(routing?: { routingMode: 'domain' | 'path'; domainSuffix?: string }): {
         revisions: PgRevisionStore
         queue: PgSessionQueue
         bus: RedisSessionEventBus
@@ -103,7 +103,8 @@ describe('ingress HTTP server (path mode)', () => {
             bus,
             credentialBroker,
             teamId: 1,
-            routingMode: 'path',
+            routingMode: routing?.routingMode ?? 'path',
+            domainSuffix: routing?.domainSuffix,
             pathPrefix: '/agents',
             // Returns the test secret for every `(secretRef, application)`
             // lookup. Models the "PostHog runs one Slack app for everything"
@@ -550,6 +551,17 @@ describe('ingress HTTP server (path mode)', () => {
         // No --header flags when no auth is required.
         expect(res.body.snippets.claude_code_command).not.toContain('--header')
         expect(res.body.snippets.mcp_json.mcpServers['public-agent'].headers).toBeUndefined()
+    })
+
+    it('GET /mcp/connect-info uses the domain-mode URL (slug in host, no /agents prefix)', async () => {
+        // Domain mode: the agent is reachable at <slug><suffix>, routes at root.
+        // The connect URL must mirror that, not the path-mode /agents/<slug>/mcp.
+        const { revisions, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        await seedApp(revisions, 'dom-agent')
+        const res = await request(app).get('/mcp/connect-info').set('Host', 'dom-agent.agents.test')
+        expect(res.status).toBe(200)
+        expect(res.body.url).toBe('https://dom-agent.agents.test/mcp')
+        expect(res.body.snippets.mcp_json.mcpServers['dom-agent'].url).toBe('https://dom-agent.agents.test/mcp')
     })
 
     it('GET /mcp/connect-info renders Bearer placeholder for a PAT-gated agent', async () => {

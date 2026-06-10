@@ -122,6 +122,7 @@ async function main(): Promise<void> {
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,
+        publicBaseUrl: config.publicUrl,
         slackSigningSecretResolver: secretResolver,
         internalSigningKey: config.internalSigningKey,
         integrations,
