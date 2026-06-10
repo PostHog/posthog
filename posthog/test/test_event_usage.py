@@ -171,19 +171,28 @@ class TestReportUserAction(BaseTest):
         captured_props = mock_capture.call_args[1]["properties"]
         assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
 
+    @parameterized.expand(
+        [
+            ("plain", "claude-code/1.2.3", "claude-code/1.2.3"),
+            ("control_chars_stripped", "claude-code/1.2.3\r\nX-Evil: 1", "claude-code/1.2.3X-Evil: 1"),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_user_agent_header_reaches_capture(self, mock_capture):
+    def test_user_agent_header_reaches_capture(self, _name, header_value, expected, mock_capture):
         factory = APIRequestFactory()
-        request = factory.get("/fake", headers={"User-Agent": "claude-code/1.2.3"})
+        request = factory.get("/fake", headers={"User-Agent": header_value})
 
         report_user_action(self.user, "test event", request=request)
 
-        assert mock_capture.call_args[1]["properties"]["user_agent"] == "claude-code/1.2.3"
+        assert mock_capture.call_args[1]["properties"]["user_agent"] == expected
 
     @parameterized.expand(
         [
             ("personal_api_key", AccessMethod.PERSONAL_API_KEY, "personal_api_key"),
             ("oauth", AccessMethod.OAUTH, "oauth"),
+            ("id_jag", AccessMethod.ID_JAG, "id_jag"),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, "project_secret_api_key"),
+            ("team_secret_token", AccessMethod.TEAM_SECRET_TOKEN, "team_secret_token"),
         ]
     )
     @patch("posthog.event_usage.posthoganalytics.capture")
