@@ -69,6 +69,7 @@ import {
     getSelectedCodeRanges,
     getSelectedComponentNodeIds,
     getSelectedInlineEditableElementOfType,
+    getSelectedListItemRanges,
     getSelectedNotebookMarkdown,
     getSelectedTextRanges,
     getSelectionClientRect,
@@ -88,6 +89,7 @@ import {
     FLOATING_TOOLBAR_ESTIMATED_HEIGHT,
     FLOATING_TOOLBAR_GAP,
     FLOATING_TOOLBAR_REVEAL_DELAY_MS,
+    FloatingToolbarListItemRange,
     FloatingToolbarPointerAnchor,
     FloatingToolbarPosition,
     FloatingToolbarState,
@@ -99,15 +101,16 @@ import {
     MAX_UNDO_HISTORY_ENTRIES,
     NOTEBOOK_TITLE_PLACEHOLDER,
     RestoreSelectionRequest,
+    RestoreTextRange,
     TableCellPosition,
     TextBlockStyle,
     TextSelectionPointerStartEvent,
     TextSelectionPointerState,
 } from './editorTypes'
-import { FormattingToolbar, getSelectedBlockStyle } from './FormattingToolbar'
+import { FormattingToolbar, getFloatingToolbarLinkHref, getSelectedBlockStyle } from './FormattingToolbar'
 import {
-    areSelectedTextRangesFullyMarked,
-    getSelectedLinkHref,
+    InlineMarkSelection,
+    areInlineSelectionsFullyMarked,
     plainTextToInlineNodes,
     setInlineLinkMark,
     setInlineMark,
@@ -371,7 +374,7 @@ export function MarkdownNotebook({
         if (request) {
             restoreSelectionRef.current = null
             if ('textRanges' in request) {
-                restoreTextSelectionRanges(request.textRanges, blockRefs.current)
+                restoreTextSelectionRanges(request.textRanges, blockRefs.current, listItemRefs.current)
                 return
             }
 
@@ -1849,7 +1852,8 @@ export function MarkdownNotebook({
             : null
         const textRanges = getSelectedTextRanges(selection, documentRef.current.nodes, blockRefs.current)
         const codeRanges = getSelectedCodeRanges(selection, documentRef.current.nodes, blockRefs.current)
-        if ((!textRanges.length && !codeRanges.length) || !selectedMarkdown) {
+        const listItemRanges = getSelectedListItemRanges(selection, documentRef.current.nodes, listItemRefs.current)
+        if ((!textRanges.length && !codeRanges.length && !listItemRanges.length) || !selectedMarkdown) {
             if (isFormattingToolbarFocused()) {
                 return
             }
@@ -1867,7 +1871,7 @@ export function MarkdownNotebook({
             return
         }
 
-        const firstSelectedNodeId = textRanges[0]?.node.id ?? codeRanges[0]?.node.id
+        const firstSelectedNodeId = textRanges[0]?.node.id ?? codeRanges[0]?.node.id ?? listItemRanges[0]?.node.id
         const firstSelectedElement = firstSelectedNodeId ? blockRefs.current[firstSelectedNodeId] : null
         const lineHeight = firstSelectedElement ? getElementLineHeight(firstSelectedElement) : 24
         const shouldPlaceBelow = pointerAnchor
@@ -1894,6 +1898,7 @@ export function MarkdownNotebook({
         setFloatingToolbar({
             textRanges,
             codeRanges,
+            listItemRanges,
             selectedMarkdown,
             placement: lockedPosition?.placement ?? (shouldPlaceBelow ? 'below' : 'above'),
             top: lockedPosition?.top ?? toolbarTop,
@@ -2312,62 +2317,103 @@ export function MarkdownNotebook({
         onChange?.(serialized)
     }
 
-    const getCurrentSelectionTextRanges = (): FloatingToolbarTextRange[] => {
+    const getCurrentSelectionInlineRanges = (): {
+        textRanges: FloatingToolbarTextRange[]
+        listItemRanges: FloatingToolbarListItemRange[]
+    } => {
         const notebookElement = notebookRef.current
         const selection = window.getSelection()
         if (!notebookElement || !selection || selection.rangeCount === 0) {
-            return []
+            return { textRanges: [], listItemRanges: [] }
         }
 
         const range = selection.getRangeAt(0)
         if (!rangeIntersectsNode(range, notebookElement)) {
-            return []
+            return { textRanges: [], listItemRanges: [] }
         }
 
         const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
-        return getSelectedTextRanges(selection, nodes, blockRefs.current)
+        return {
+            textRanges: getSelectedTextRanges(selection, nodes, blockRefs.current),
+            listItemRanges: getSelectedListItemRanges(selection, nodes, listItemRefs.current),
+        }
     }
 
-    const updateTextRanges = (
+    const updateInlineSelections = (
         activeTextRanges: FloatingToolbarTextRange[] | null | undefined,
+        activeListItemRanges: FloatingToolbarListItemRange[] | null | undefined,
         updater: (children: NotebookInlineNode[], range: NotebookTextSelectionRange) => NotebookInlineNode[]
     ): boolean => {
-        if (!activeTextRanges?.length) {
+        if (!activeTextRanges?.length && !activeListItemRanges?.length) {
             return false
         }
 
-        const rangesByNodeId = new Map(activeTextRanges.map(({ range }) => [range.nodeId, range]))
+        const rangesByNodeId = new Map(activeTextRanges?.map(({ range }) => [range.nodeId, range]) ?? [])
+        const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
+        activeListItemRanges?.forEach((listItemRange) => {
+            listItemRangesByNodeId.set(listItemRange.node.id, [
+                ...(listItemRangesByNodeId.get(listItemRange.node.id) ?? []),
+                listItemRange,
+            ])
+        })
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
-        restoreSelectionRef.current = { textRanges: activeTextRanges.map(({ range }) => range) }
+        // Restore targets must be in document order: the first and last entries bound the selection.
+        restoreSelectionRef.current = {
+            textRanges: nodes.flatMap((node): RestoreTextRange[] => {
+                const textRange = rangesByNodeId.get(node.id)
+                if (textRange) {
+                    return [textRange]
+                }
+                return (listItemRangesByNodeId.get(node.id) ?? []).map(({ range, itemIndex }) => ({
+                    ...range,
+                    listItemIndex: itemIndex,
+                }))
+            }),
+        }
         commitDocument({
             ...currentDocument,
             nodes: nodes.map((node) => {
                 const range = rangesByNodeId.get(node.id)
-                if (!range || !isTextBlockNode(node)) {
-                    return node
+                if (range && isTextBlockNode(node)) {
+                    return {
+                        ...node,
+                        children: updater(node.children, range),
+                    }
                 }
-                return {
-                    ...node,
-                    children: updater(node.children, range),
+
+                const listItemRanges = listItemRangesByNodeId.get(node.id)
+                if (listItemRanges?.length && node.type === 'list') {
+                    const rangesByItemIndex = new Map(listItemRanges.map((entry) => [entry.itemIndex, entry.range]))
+                    return {
+                        ...node,
+                        items: node.items.map((item, itemIndex) => {
+                            const itemRange = rangesByItemIndex.get(itemIndex)
+                            if (!itemRange) {
+                                return item
+                            }
+                            return { ...item, children: updater(item.children, itemRange) }
+                        }),
+                    }
                 }
+
+                return node
             }),
         })
         return true
     }
 
-    const updateSelectedTextRanges = (
-        updater: (children: NotebookInlineNode[], range: NotebookTextSelectionRange) => NotebookInlineNode[]
-    ): boolean => {
-        return updateTextRanges(floatingToolbar?.textRanges, updater)
-    }
-
     const applyInlineMark = (
         markType: NotebookInlineMark['type'],
-        activeTextRanges: FloatingToolbarTextRange[] | null | undefined = floatingToolbar?.textRanges
+        activeRanges: {
+            textRanges: FloatingToolbarTextRange[] | null | undefined
+            listItemRanges: FloatingToolbarListItemRange[] | null | undefined
+        } = { textRanges: floatingToolbar?.textRanges, listItemRanges: floatingToolbar?.listItemRanges }
     ): boolean => {
-        if (!activeTextRanges?.length) {
+        const activeTextRanges = activeRanges.textRanges ?? []
+        const activeListItemRanges = activeRanges.listItemRanges ?? []
+        if (!activeTextRanges.length && !activeListItemRanges.length) {
             return false
         }
 
@@ -2379,25 +2425,40 @@ export function MarkdownNotebook({
             }
         }
 
-        const currentNodesById = new Map(
-            (documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current])
-                .filter(isTextBlockNode)
-                .map((node) => [node.id, node])
-        )
-        const currentTextRanges =
-            activeTextRanges?.map(({ node, range }) => ({
-                node: currentNodesById.get(node.id) ?? node,
+        const currentNodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]))
+        const currentTextRanges = activeTextRanges.map(({ node, range }) => {
+            const currentNode = currentNodesById.get(node.id)
+            return {
+                node: currentNode && isTextBlockNode(currentNode) ? currentNode : node,
                 range,
-            })) ?? []
-        const shouldApplyMark = !areSelectedTextRangesFullyMarked(currentTextRanges, markType)
+            }
+        })
+        const currentListItemRanges = activeListItemRanges.map((listItemRange) => {
+            const currentNode = currentNodesById.get(listItemRange.node.id)
+            return {
+                ...listItemRange,
+                node: currentNode?.type === 'list' ? currentNode : listItemRange.node,
+            }
+        })
+        const markSelections: InlineMarkSelection[] = [
+            ...currentTextRanges.map(({ node, range }) => ({ children: node.children, range })),
+            ...currentListItemRanges.map(({ node, itemIndex, range }) => ({
+                children: node.items[itemIndex]?.children ?? [],
+                range,
+            })),
+        ]
+        const shouldApplyMark = !areInlineSelectionsFullyMarked(markSelections, markType)
 
-        return updateTextRanges(currentTextRanges, (children, range) =>
+        return updateInlineSelections(currentTextRanges, currentListItemRanges, (children, range) =>
             setInlineMark(children, range, markType, shouldApplyMark)
         )
     }
 
     const applyInlineLink = (href: string | null): void => {
-        updateSelectedTextRanges((children, range) => setInlineLinkMark(children, range, href))
+        updateInlineSelections(floatingToolbar?.textRanges, floatingToolbar?.listItemRanges, (children, range) =>
+            setInlineLinkMark(children, range, href)
+        )
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
     }
@@ -2458,17 +2519,27 @@ export function MarkdownNotebook({
         }
 
         const selectedMarkdown = floatingToolbar.selectedMarkdown
-        const targetNodeId = floatingToolbar.textRanges.at(-1)?.node.id
-        if (!targetNodeId || !selectedMarkdown.trim()) {
+        if (!selectedMarkdown.trim()) {
             return
         }
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
-        const targetNodeIndex = nodes.findIndex((node) => node.id === targetNodeId)
+        // Insert the prompt after the last selected block in document order.
+        const selectedNodeIds = new Set(
+            [
+                ...floatingToolbar.textRanges.map(({ node }) => node.id),
+                ...floatingToolbar.listItemRanges.map(({ node }) => node.id),
+            ].filter(Boolean)
+        )
+        const targetNodeIndex = nodes.reduce(
+            (lastIndex, node, index) => (selectedNodeIds.has(node.id) ? index : lastIndex),
+            -1
+        )
         if (targetNodeIndex < 0) {
             return
         }
+        const targetNodeId = nodes[targetNodeIndex].id
 
         const promptNode: NotebookComponentBlockNode = {
             id: makeEmptyParagraph(`ai-selection-${targetNodeId}`).id,
@@ -3185,7 +3256,7 @@ export function MarkdownNotebook({
                 return
             }
 
-            if (applyInlineMark(inlineMarkType, getCurrentSelectionTextRanges())) {
+            if (applyInlineMark(inlineMarkType, getCurrentSelectionInlineRanges())) {
                 event.preventDefault()
                 event.stopPropagation()
             }
@@ -4037,18 +4108,12 @@ export function MarkdownNotebook({
                             top={floatingToolbar.top}
                             left={floatingToolbar.left}
                             showInlineActions={
-                                floatingToolbar.textRanges.length > 0 && floatingToolbar.codeRanges.length === 0
+                                (floatingToolbar.textRanges.length > 0 || floatingToolbar.listItemRanges.length > 0) &&
+                                floatingToolbar.codeRanges.length === 0
                             }
                             applyInlineMark={applyInlineMark}
                             applyInlineLink={applyInlineLink}
-                            currentLinkHref={
-                                floatingToolbar.textRanges.length === 1 && floatingToolbar.codeRanges.length === 0
-                                    ? getSelectedLinkHref(
-                                          floatingToolbar.textRanges[0].node.children,
-                                          floatingToolbar.textRanges[0].range
-                                      )
-                                    : null
-                            }
+                            currentLinkHref={getFloatingToolbarLinkHref(floatingToolbar)}
                             initialLinkEditorOpen={floatingToolbar.isLinkEditorOpen ?? false}
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}

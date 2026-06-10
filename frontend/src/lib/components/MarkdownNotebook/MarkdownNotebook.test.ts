@@ -3252,6 +3252,84 @@ aXbc
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
     })
 
+    it('shows the formatting toolbar when selecting text inside a list item', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- First item\n- Second item') })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[0]), 'First'.length, true)
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('button[aria-label="Bold"]')).toBeInstanceOf(HTMLButtonElement)
+    })
+
+    it('applies bold to a list item selection through the formatting toolbar', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- First item\n- Second item'),
+                onChange,
+            })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[0]), 'First'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- **First** item
+- Second item`)
+    })
+
+    it('applies bold across a paragraph and list items in one selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n- First item\n- Second item'),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container)
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(paragraph),
+            0,
+            getFirstTextNode(listItems[1]),
+            'Second item'.length,
+            true
+        )
+        fireEvent.click(container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+**Intro paragraph**
+
+- **First item**
+- **Second item**`)
+    })
+
+    it('applies bold to a list item selection through the keyboard shortcut', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- First item\n- Second item'),
+                onChange,
+            })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[1]), 0, getFirstTextNode(listItems[1]), 'Second'.length, true)
+        fireEvent.keyDown(listItems[1], { key: 'b', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First item
+- **Second** item`)
+    })
+
     it('shows the shared block style for same-style text row selections', () => {
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle('First paragraph\n\nSecond paragraph') })

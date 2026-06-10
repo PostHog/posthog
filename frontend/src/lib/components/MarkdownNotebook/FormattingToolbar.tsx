@@ -6,7 +6,8 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
-import { FloatingToolbarCodeRange, FloatingToolbarTextRange, TextBlockStyle } from './editorTypes'
+import { FloatingToolbarCodeRange, FloatingToolbarState, FloatingToolbarTextRange, TextBlockStyle } from './editorTypes'
+import { getSelectedLinkHref } from './inlineContent'
 import { sanitizeNotebookLinkHref } from './markdown'
 import { NotebookInlineMark, NotebookTextBlockNode } from './types'
 
@@ -252,4 +253,22 @@ export function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]
 
     const firstStyle = getTextBlockStyle(firstTextRange.node)
     return textRanges.every(({ node }) => getTextBlockStyle(node) === firstStyle) ? firstStyle : null
+}
+
+/** The href shown in the link editor — only when exactly one inline range is selected. */
+export function getFloatingToolbarLinkHref(toolbar: FloatingToolbarState): string | null {
+    if (toolbar.codeRanges.length) {
+        return null
+    }
+
+    if (toolbar.textRanges.length === 1 && toolbar.listItemRanges.length === 0) {
+        return getSelectedLinkHref(toolbar.textRanges[0].node.children, toolbar.textRanges[0].range)
+    }
+
+    if (toolbar.listItemRanges.length === 1 && toolbar.textRanges.length === 0) {
+        const { node, itemIndex, range } = toolbar.listItemRanges[0]
+        return getSelectedLinkHref(node.items[itemIndex]?.children ?? [], range)
+    }
+
+    return null
 }

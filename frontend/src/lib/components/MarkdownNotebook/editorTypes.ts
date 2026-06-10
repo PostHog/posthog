@@ -5,7 +5,13 @@ import {
     TouchEvent as ReactTouchEvent,
 } from 'react'
 
-import { NotebookCodeBlockNode, NotebookInlineNode, NotebookTextBlockNode, NotebookTextSelectionRange } from './types'
+import {
+    NotebookCodeBlockNode,
+    NotebookInlineNode,
+    NotebookListBlockNode,
+    NotebookTextBlockNode,
+    NotebookTextSelectionRange,
+} from './types'
 
 export type RestoreInlineSelectionRequest = {
     nodeId: string
@@ -16,8 +22,12 @@ export type RestoreInlineSelectionRequest = {
     tableCell?: TableCellPosition
 }
 
+export type RestoreTextRange = NotebookTextSelectionRange & {
+    listItemIndex?: number
+}
+
 export type RestoreTextSelectionRequest = {
-    textRanges: NotebookTextSelectionRange[]
+    textRanges: RestoreTextRange[]
 }
 
 export type RestoreSelectionRequest = RestoreInlineSelectionRequest | RestoreTextSelectionRequest
@@ -64,9 +74,16 @@ export type FloatingToolbarCodeRange = {
     range: NotebookTextSelectionRange
 }
 
+export type FloatingToolbarListItemRange = {
+    node: NotebookListBlockNode
+    itemIndex: number
+    range: NotebookTextSelectionRange
+}
+
 export type FloatingToolbarState = {
     textRanges: FloatingToolbarTextRange[]
     codeRanges: FloatingToolbarCodeRange[]
+    listItemRanges: FloatingToolbarListItemRange[]
     selectedMarkdown: string
     placement: 'above' | 'below'
     top: number

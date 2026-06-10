@@ -1,10 +1,12 @@
 import { isTextBlockNode, serializeNotebookNodes } from './documentModel'
 import {
     FloatingToolbarCodeRange,
+    FloatingToolbarListItemRange,
     FloatingToolbarTextRange,
     InlineLinkPasteResult,
     NOTEBOOK_EDITABLE_BLOCK_SELECTOR,
     RestoreSelectionRequest,
+    RestoreTextRange,
 } from './editorTypes'
 import { applyLinkMarkToInlineNodes, splitInlineNodesAt } from './inlineContent'
 import { getListItemRefKey } from './listModel'
@@ -158,8 +160,9 @@ export function setNotebookSelectionEnd(range: Range, node: NotebookBlockNode, e
 }
 
 export function restoreTextSelectionRanges(
-    ranges: NotebookTextSelectionRange[],
-    blockRefs: Record<string, HTMLElement | null>
+    ranges: RestoreTextRange[],
+    blockRefs: Record<string, HTMLElement | null>,
+    listItemRefs: Record<string, HTMLElement | null> = {}
 ): void {
     const firstRange = ranges[0]
     const lastRange = ranges[ranges.length - 1]
@@ -167,8 +170,12 @@ export function restoreTextSelectionRanges(
         return
     }
 
-    const firstElement = blockRefs[firstRange.nodeId]
-    const lastElement = blockRefs[lastRange.nodeId]
+    const resolveElement = (range: RestoreTextRange): HTMLElement | null =>
+        range.listItemIndex === undefined
+            ? (blockRefs[range.nodeId] ?? null)
+            : (listItemRefs[getListItemRefKey(range.nodeId, range.listItemIndex)] ?? null)
+    const firstElement = resolveElement(firstRange)
+    const lastElement = resolveElement(lastRange)
     const selection = window.getSelection()
     if (!firstElement || !lastElement || !selection) {
         return
@@ -344,6 +351,32 @@ export function getSelectedTextRanges(
         }
 
         return [{ node, range }]
+    })
+}
+
+export function getSelectedListItemRanges(
+    selection: Selection | null,
+    nodes: NotebookBlockNode[],
+    listItemRefs: Record<string, HTMLElement | null>
+): FloatingToolbarListItemRange[] {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return []
+    }
+
+    return nodes.flatMap((node) => {
+        if (node.type !== 'list') {
+            return []
+        }
+
+        return node.items.flatMap((_, itemIndex) => {
+            const element = listItemRefs[getListItemRefKey(node.id, itemIndex)]
+            const range = element ? getSelectionRange(element, node.id) : null
+            if (!range || range.start === range.end) {
+                return []
+            }
+
+            return [{ node, itemIndex, range }]
+        })
     })
 }
 

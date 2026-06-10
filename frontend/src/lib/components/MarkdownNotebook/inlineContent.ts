@@ -103,25 +103,40 @@ export function setInlineMark(
     return normalizeInlineNodes(output)
 }
 
-export function areSelectedTextRangesFullyMarked(
-    textRanges: FloatingToolbarTextRange[],
+export type InlineMarkSelection = {
+    children: NotebookInlineNode[]
+    range: NotebookTextSelectionRange
+}
+
+export function areInlineSelectionsFullyMarked(
+    selections: InlineMarkSelection[],
     markType: NotebookInlineMark['type']
 ): boolean {
     let hasSelectedText = false
 
-    for (const { node, range } of textRanges) {
-        const rangeHasText = doesInlineRangeContainText(node.children, range)
+    for (const { children, range } of selections) {
+        const rangeHasText = doesInlineRangeContainText(children, range)
         if (!rangeHasText) {
             continue
         }
 
         hasSelectedText = true
-        if (!isInlineRangeFullyMarked(node.children, range, markType)) {
+        if (!isInlineRangeFullyMarked(children, range, markType)) {
             return false
         }
     }
 
     return hasSelectedText
+}
+
+export function areSelectedTextRangesFullyMarked(
+    textRanges: FloatingToolbarTextRange[],
+    markType: NotebookInlineMark['type']
+): boolean {
+    return areInlineSelectionsFullyMarked(
+        textRanges.map(({ node, range }) => ({ children: node.children, range })),
+        markType
+    )
 }
 
 export function doesInlineRangeContainText(nodes: NotebookInlineNode[], range: NotebookTextSelectionRange): boolean {
