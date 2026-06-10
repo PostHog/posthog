@@ -2,9 +2,15 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { buildIntegerMatcher } from '../../config/config'
 import { Person, Team } from '../../types'
 import { normalizeProcessPerson } from '../../utils/event'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
+import {
+    hasInsertedPersonlessDistinctId,
+    markPersonlessDistinctIdInserted,
+    personlessDistinctIdCacheOperationsCounter,
+} from '../../worker/ingestion/persons/personless-distinct-id-cache'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -25,12 +31,23 @@ export type ProcessPersonlessOutput = {
 const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 /**
+ * Group-keyed experiment exposure queries read the $group_N columns from the exposure
+ * event, and createEvent strips those for personless events. Events carrying group keys
+ * must stay personful or their exposures disappear from group-aggregated experiments.
+ * The $groups property is still raw here; it expands to $group_N in the later groups step.
+ */
+function eventHasGroups(properties: PluginEvent['properties']): boolean {
+    const groups = properties?.$groups
+    return typeof groups === 'object' && groups !== null && !Array.isArray(groups) && Object.keys(groups).length > 0
+}
+
+/**
  * Pipeline step that handles personless event processing checks.
  *
  * Runs when processPerson=false, and also for $feature_flag_called events that did not
  * explicitly set $process_person_profile=true — so server-side flag evaluation does not
  * create orphan person profiles (see #60581). Flag-called events that find an existing
- * person stay personful; the rest are defaulted to personless.
+ * person, or that carry group keys, stay personful; the rest are defaulted to personless.
  *
  * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
@@ -39,14 +56,20 @@ const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    personsStore: PersonsStore
+    personsStore: PersonsStore,
+    flagCalledPersonlessDefaultTeams: string = '*'
 ): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
+    const flagCalledDefaultEnabledForTeam = buildIntegerMatcher(flagCalledPersonlessDefaultTeams, true)
+
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
         if (input.processPerson) {
             const mayDefaultFlagCalledToPersonless =
-                input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT && !input.processPersonExplicitlyTrue
+                input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT &&
+                !input.processPersonExplicitlyTrue &&
+                !eventHasGroups(input.normalizedEvent.properties) &&
+                flagCalledDefaultEnabledForTeam(input.team.id)
 
             if (!mayDefaultFlagCalledToPersonless) {
                 return ok(input)
@@ -121,11 +144,20 @@ async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPer
         let personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
 
         if (personIsMerged === undefined) {
-            // The batch step (processPersonlessDistinctIdsBatchStep) only inserts rows for
-            // events with explicit $process_person_profile=false, so record this distinct ID
-            // here. Without the row, a later identify/merge would never re-point these
-            // events at the merged person.
-            personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
+            if (hasInsertedPersonlessDistinctId(team.id, distinctId)) {
+                // The LRU keeps repeat distinct IDs from re-inserting on every event; a stale
+                // hit just means the event goes personless, the same trade-off the batch step
+                // accepts.
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit' })
+            } else {
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss' })
+                // The batch step (processPersonlessDistinctIdsBatchStep) only inserts rows for
+                // events with explicit $process_person_profile=false, so record this distinct ID
+                // here. Without the row, a later identify/merge would never re-point these
+                // events at the merged person.
+                personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
+                markPersonlessDistinctIdInserted(team.id, distinctId)
+            }
         }
 
         if (personIsMerged) {

@@ -93,7 +93,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(personsStore))
+        .pipe(createProcessPersonlessStep(personsStore, options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
         .pipe(
             topHog(createProcessPersonsStep(options, outputs, personsStore), [
                 timer('process_persons_time', (input) => ({

@@ -157,6 +157,63 @@ describe('createProcessPersonlessStep', () => {
             }
         })
 
+        it('keeps the event personful when it carries group keys', async () => {
+            const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
+
+            const step = createProcessPersonlessStep(personsStore)
+            const result = await step(
+                createInput({
+                    processPerson: true,
+                    normalizedEvent: flagCalledEvent({ $groups: { organization: 'org-1' } }),
+                })
+            )
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(true)
+                expect(result.value.personlessPerson).toBeUndefined()
+            }
+            expect(fetchForCheckingSpy).not.toHaveBeenCalled()
+        })
+
+        it('still defaults to personless when $groups is empty', async () => {
+            const step = createProcessPersonlessStep(personsStore)
+            const result = await step(
+                createInput({ processPerson: true, normalizedEvent: flagCalledEvent({ $groups: {} }) })
+            )
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+        })
+
+        it('keeps the event personful when the default is disabled via config', async () => {
+            const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
+
+            const step = createProcessPersonlessStep(personsStore, '')
+            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(true)
+                expect(result.value.personlessPerson).toBeUndefined()
+            }
+            expect(fetchForCheckingSpy).not.toHaveBeenCalled()
+        })
+
+        it('applies the default when the team is in the configured team list', async () => {
+            const step = createProcessPersonlessStep(personsStore, `${teamId}`)
+            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+        })
+
         it('keeps the event personful when $process_person_profile was explicitly true', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
 
@@ -235,6 +292,38 @@ describe('createProcessPersonlessStep', () => {
             expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
         })
 
+        it('defaults to personless when the merged person cannot be fetched from the leader', async () => {
+            jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValue(null)
+            jest.spyOn(personsStore, 'addPersonlessDistinctId').mockResolvedValue(true)
+            jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(null)
+
+            const step = createProcessPersonlessStep(personsStore)
+            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+        })
+
+        it('skips the defaulting branch when person processing is force-disabled', async () => {
+            const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
+            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+
+            const step = createProcessPersonlessStep(personsStore)
+            const result = await step(
+                createInput({ normalizedEvent: flagCalledEvent(), forceDisablePersonProcessing: true })
+            )
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+            expect(fetchForCheckingSpy).not.toHaveBeenCalled()
+            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+        })
+
         // Pipes an event through the same normalization steps that precede the personless
         // step in the real subpipeline, so these tests cover the boundary where
         // normalizeProcessPerson strips the explicit $process_person_profile property.
@@ -286,6 +375,23 @@ describe('createProcessPersonlessStep', () => {
                 expect(result.value.personlessPerson).toBeDefined()
                 expect(result.value.normalizedEvent.properties?.$process_person_profile).toBe(false)
             }
+        })
+
+        it('skips the defaulting branch for explicit $process_person_profile=false events', async () => {
+            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+
+            const personlessStep = createProcessPersonlessStep(personsStore)
+            const normalized = await runThroughNormalization(flagCalledEvent({ $process_person_profile: false }))
+
+            const result = await personlessStep(normalized)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+            // The plain personless path leaves the insert to the batch step.
+            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
         })
     })
 

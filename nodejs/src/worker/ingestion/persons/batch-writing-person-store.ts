@@ -986,7 +986,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId', distinctId)
-        return await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        const isMerged = await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        // Cache the result so later events for this distinct ID in the same batch skip the insert.
+        this.personlessBatchResults.set(this.getPersonlessBatchKey(teamId, distinctId), isMerged)
+        return isMerged
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -998,7 +1001,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
         // Update the batch results cache so processPersonlessStep knows this was merged
         if (isMerged) {
-            this.personlessBatchResults.set(`${teamId}|${distinctId}`, true)
+            this.personlessBatchResults.set(this.getPersonlessBatchKey(teamId, distinctId), true)
         }
         return isMerged
     }
@@ -1017,8 +1020,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
+    // Returns undefined when no insert was attempted this batch, false when one was
+    // attempted and the row wasn't merged, true when the distinct ID was merged.
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personlessBatchResults.get(`${teamId}|${distinctId}`)
+        return this.personlessBatchResults.get(this.getPersonlessBatchKey(teamId, distinctId))
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
@@ -1080,6 +1085,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     private getDistinctCacheKey(teamId: number, distinctId: string): string {
         return `${teamId}:${distinctId}`
+    }
+
+    // Must match the `|` key format of the map returned by addPersonlessDistinctIdsBatch,
+    // whose keys are stored verbatim in processPersonlessDistinctIdsBatch.
+    private getPersonlessBatchKey(teamId: number, distinctId: string): string {
+        return `${teamId}|${distinctId}`
     }
 
     private getPersonIdCacheKey(teamId: number, personId: string): string {

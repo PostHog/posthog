@@ -1,27 +1,14 @@
-import { LRUCache } from 'lru-cache'
-import { Counter } from 'prom-client'
-
 import { PipelineResult, ok } from '~/ingestion/pipelines/results'
 import { PipelineEvent, Team } from '~/types'
 
-import { ONE_HOUR } from '../../../config/constants'
+import {
+    hasInsertedPersonlessDistinctId,
+    markPersonlessDistinctIdInserted,
+    personlessDistinctIdCacheOperationsCounter,
+} from '../persons/personless-distinct-id-cache'
 import { PersonsStore } from '../persons/persons-store'
 
 type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team }
-
-export const personlessDistinctIdCacheOperationsCounter = new Counter({
-    name: 'personless_distinct_id_cache_operations_total',
-    help: 'Number of cache hits and misses for the personless distinct ID inserted cache',
-    labelNames: ['operation'],
-})
-
-// Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
-// (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
-const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
-    max: 100_000,
-    ttl: ONE_HOUR * 4,
-    updateAgeOnGet: true,
-})
 
 /**
  * Batch step that inserts personless distinct IDs for events where processPerson=false
@@ -54,7 +41,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
                 }
                 seenInBatch.add(cacheKey)
 
-                if (PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(cacheKey)) {
+                if (hasInsertedPersonlessDistinctId(e.team.id, e.event.distinct_id)) {
                     cacheHits++
                 } else {
                     personlessEntries.push({
@@ -75,7 +62,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
 
                 // Update LRU cache for all entries we just inserted
                 for (const entry of personlessEntries) {
-                    PERSONLESS_DISTINCT_ID_INSERTED_CACHE.set(`${entry.teamId}|${entry.distinctId}`, true)
+                    markPersonlessDistinctIdInserted(entry.teamId, entry.distinctId)
                 }
             }
         }

@@ -152,6 +152,8 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                // The explicit-true capture happens before the header override.
+                expect(result.value.processPersonExplicitlyTrue).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(true)
             }
         })
@@ -218,43 +220,27 @@ describe('normalizeProcessPersonFlagStep', () => {
             }
         })
 
-        it('keeps processPerson=true when $process_person_profile=true explicitly', async () => {
-            const input: PerDistinctIdPipelineInput = {
-                ...baseInput,
-                event: {
-                    ...baseEvent,
-                    properties: { $process_person_profile: true },
-                },
+        it.each(['$pageview', '$feature_flag_called'])(
+            'keeps %s personful when $process_person_profile=true explicitly',
+            async (eventName) => {
+                const input: PerDistinctIdPipelineInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: eventName,
+                        properties: { $process_person_profile: true },
+                    },
+                }
+
+                const result = await normalizeStep(input)
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                if (result.type === PipelineResultType.OK) {
+                    expect(result.value.processPerson).toBe(true)
+                    expect(result.value.processPersonExplicitlyTrue).toBe(true)
+                    expect(result.value.forceDisablePersonProcessing).toBe(false)
+                }
             }
-
-            const result = await normalizeStep(input)
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.processPerson).toBe(true)
-                expect(result.value.processPersonExplicitlyTrue).toBe(true)
-                expect(result.value.forceDisablePersonProcessing).toBe(false)
-            }
-        })
-
-        it('keeps $feature_flag_called personful when $process_person_profile=true explicitly', async () => {
-            const input: PerDistinctIdPipelineInput = {
-                ...baseInput,
-                event: {
-                    ...baseEvent,
-                    event: '$feature_flag_called',
-                    properties: { $process_person_profile: true },
-                },
-            }
-
-            const result = await normalizeStep(input)
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.processPerson).toBe(true)
-                expect(result.value.processPersonExplicitlyTrue).toBe(true)
-                expect(result.value.forceDisablePersonProcessing).toBe(false)
-            }
-        })
+        )
     })
 })
