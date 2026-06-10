@@ -42,7 +42,7 @@ export function MCPSessionDetail(): JSX.Element {
     const loading = toolCallsLoading
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col h-full min-h-0">
             <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
                 <div className="flex items-center gap-2 min-w-0">
                     {loading ? (
@@ -119,7 +119,7 @@ export function MCPSessionDetail(): JSX.Element {
                 </div>
             </header>
 
-            <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
+            <section className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
                 {loading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton repeat={3} className="h-16 w-full" />
