@@ -2,7 +2,13 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import {
+    asNetworkError,
+    ErrorCode,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -104,7 +110,17 @@ export interface ApiConfig {
     oauthClientName?: string | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
+    /**
+     * Per-request timeout (ms) applied in `fetchJson` so a slow or hung
+     * server-side operation surfaces as a clear "request timed out" error
+     * instead of leaving the connection open until the gateway drops it with an
+     * opaque `fetch failed`. Defaults to `DEFAULT_REQUEST_TIMEOUT_MS`.
+     */
+    requestTimeoutMs?: number | undefined
 }
+
+/** Default per-request timeout for `fetchJson` (ms). */
+const DEFAULT_REQUEST_TIMEOUT_MS = 110_000
 
 type Endpoint = Record<string, any>
 
@@ -326,13 +342,24 @@ export class ApiClient {
         const maxRetries = 3
         const baseBackoffMs = 2000
         const method = options?.method ?? 'GET'
+        const timeoutMs = this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 // Apply rate limiting before making the request
                 await globalRateLimiter.throttle()
 
-                const response = await this.fetch(url, options)
+                // Abort the request if no response headers arrive within the
+                // timeout. Cleared as soon as the Response resolves so streaming
+                // the body afterwards isn't cut off.
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+                let response: Response
+                try {
+                    response = await this.fetch(url, { ...options, signal: controller.signal })
+                } finally {
+                    clearTimeout(timeoutId)
+                }
 
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
@@ -442,6 +469,16 @@ export class ApiClient {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {
                     continue
+                }
+                // A bare `fetch` rejection (dropped connection or our timeout)
+                // carries no HTTP status — wrap it so the failure is attributable
+                // and a timeout reads differently from a connection drop, instead
+                // of the opaque `TypeError: fetch failed`. Typed API errors thrown
+                // above are not TypeErrors/AbortErrors, so they pass through.
+                const networkError = asNetworkError(error, { url, method, timeoutMs })
+                if (networkError) {
+                    console.error(`[API] Network failure on ${method} ${url}: ${networkError.message}`)
+                    return { success: false, error: networkError }
                 }
                 return { success: false, error: error as Error }
             }

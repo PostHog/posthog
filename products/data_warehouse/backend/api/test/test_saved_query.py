@@ -282,6 +282,97 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    def test_create_via_mcp_infers_columns_async(self):
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.infer_data_warehouse_saved_query_columns"
+            ) as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                },
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 201, response.content
+        saved_query_id = response.json()["id"]
+        mock_get_columns.assert_not_called()
+        mock_task.delay.assert_called_once_with(self.team.id, saved_query_id)
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.status == DataWarehouseSavedQuery.Status.MODIFIED
+
+    def test_update_via_mcp_infers_columns_async(self):
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert create_response.status_code == 201, create_response.content
+        saved_query_id = create_response.json()["id"]
+        edited_history_id = create_response.json()["latest_history_id"]
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.infer_data_warehouse_saved_query_columns"
+            ) as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event, timestamp as timestamp from events LIMIT 100",
+                    },
+                    "edited_history_id": edited_history_id,
+                },
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 200, response.content
+        mock_get_columns.assert_not_called()
+        mock_task.delay.assert_called_once_with(self.team.id, saved_query_id)
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.status == DataWarehouseSavedQuery.Status.MODIFIED
+
+    def test_create_without_mcp_header_infers_columns_synchronously(self):
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", return_value={}) as mock_get_columns,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.infer_data_warehouse_saved_query_columns"
+            ) as mock_task,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                },
+            )
+
+        assert response.status_code == 201, response.content
+        mock_get_columns.assert_called_once()
+        mock_task.delay.assert_not_called()
+
     def test_create_name_overlap_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

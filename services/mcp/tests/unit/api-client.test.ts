@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError, PostHogNetworkError } from '@/lib/errors'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -304,6 +305,69 @@ describe('ApiClient', () => {
             expect(url).toContain('short_id=abc12345')
             expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
             expect(url).not.toContain('filters_override')
+
+            vi.unstubAllGlobals()
+        })
+    })
+
+    describe('network-level failures', () => {
+        function setupClient(config: Record<string, unknown> = {}): {
+            client: ApiClient
+            mockFetch: ReturnType<typeof vi.fn>
+        } {
+            const mockFetch = vi.fn()
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com', ...config })
+            return { client, mockFetch }
+        }
+
+        it('wraps a dropped connection (TypeError: fetch failed) in a PostHogNetworkError', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'))
+
+            const error = (await client
+                .request({ method: 'POST', path: '/api/projects/1/warehouse_saved_queries/', body: { name: 'x' } })
+                .catch((e) => e)) as PostHogNetworkError
+
+            expect(error).toBeInstanceOf(PostHogNetworkError)
+            expect(error.timedOut).toBe(false)
+            expect(error.message).toContain('Network request failed')
+            expect(error.message).toContain('POST https://example.com/api/projects/1/warehouse_saved_queries/')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('reports a timeout when the request exceeds requestTimeoutMs', async () => {
+            const { client, mockFetch } = setupClient({ requestTimeoutMs: 10 })
+            mockFetch.mockImplementationOnce((_url: string, options?: RequestInit) => {
+                return new Promise((_resolve, reject) => {
+                    const signal = options?.signal
+                    signal?.addEventListener('abort', () => {
+                        const err = new Error('The operation was aborted')
+                        err.name = 'AbortError'
+                        reject(err)
+                    })
+                })
+            })
+
+            const error = (await client
+                .request({ method: 'PATCH', path: '/api/projects/1/warehouse_saved_queries/abc/', body: { name: 'y' } })
+                .catch((e) => e)) as PostHogNetworkError
+
+            expect(error).toBeInstanceOf(PostHogNetworkError)
+            expect(error.timedOut).toBe(true)
+            expect(error.message).toContain('Request timed out')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('passes typed API errors through without wrapping them as network errors', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'boom' }), { status: 500 }))
+
+            const error = await client.request({ method: 'GET', path: '/api/projects/1/x/' }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(PostHogApiError)
 
             vi.unstubAllGlobals()
         })

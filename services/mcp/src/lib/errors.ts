@@ -163,6 +163,99 @@ function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
+export interface PostHogNetworkErrorOptions {
+    url: string
+    method: string
+    timedOut: boolean
+    timeoutMs?: number | undefined
+    cause?: unknown
+}
+
+/**
+ * Thrown when a request to the PostHog API fails at the network level — no HTTP
+ * response was ever received. `fetch` rejects with a bare `TypeError: fetch
+ * failed` when a connection drops (e.g. a gateway closing a slow connection),
+ * or with an `AbortError` when our client-side timeout fires. Either way the
+ * raw message tells an agent nothing actionable, so we wrap it with the
+ * url/method and distinguish a timeout from a dropped connection. Surfaced
+ * mainly on long-running operations like data warehouse view column inference,
+ * which runs against ClickHouse inside the request.
+ */
+export class PostHogNetworkError extends Error {
+    public readonly url: string
+    public readonly method: string
+    public readonly timedOut: boolean
+    public readonly timeoutMs: number | undefined
+
+    constructor(options: PostHogNetworkErrorOptions) {
+        super(buildNetworkErrorMessage(options))
+        this.name = 'PostHogNetworkError'
+        this.url = options.url
+        this.method = options.method
+        this.timedOut = options.timedOut
+        this.timeoutMs = options.timeoutMs
+        if (options.cause !== undefined) {
+            ;(this as Error & { cause?: unknown }).cause = options.cause
+        }
+    }
+}
+
+function buildNetworkErrorMessage(options: PostHogNetworkErrorOptions): string {
+    if (options.timedOut) {
+        const seconds = options.timeoutMs ? Math.round(options.timeoutMs / 1000) : undefined
+        return (
+            `Request timed out${seconds ? ` after ${seconds}s` : ''}:\n` +
+            `URL: ${options.method} ${options.url}\n` +
+            'The PostHog API did not respond in time. This usually means the operation is running too long server-side — ' +
+            'for a data warehouse view this is most often column inference against ClickHouse on a large query. ' +
+            'The edit may still complete in the background, so retrieve the view to check its status before retrying.'
+        )
+    }
+
+    const underlying = options.cause instanceof Error ? `\nUnderlying error: ${options.cause.message}` : ''
+    return (
+        'Network request failed:\n' +
+        `URL: ${options.method} ${options.url}\n` +
+        'The connection to the PostHog API dropped before a response was received. This is a network-level failure, ' +
+        'not a rejection of your input — the gateway may have closed a slow connection, or the service may be ' +
+        `temporarily unreachable. Retry; if it persists, the operation may be timing out server-side.${underlying}`
+    )
+}
+
+/**
+ * Classify a thrown value as a network-level failure (timeout or dropped
+ * connection) and wrap it in a PostHogNetworkError. Returns undefined for
+ * anything that isn't a bare fetch rejection — typed API errors thrown earlier
+ * in the request flow must pass through untouched.
+ */
+export function asNetworkError(
+    error: unknown,
+    context: { url: string; method: string; timeoutMs?: number | undefined }
+): PostHogNetworkError | undefined {
+    if (error === null || typeof error !== 'object') {
+        return undefined
+    }
+
+    // Duck-type rather than `instanceof Error`: an aborted fetch can reject with
+    // a DOMException, which is not an Error instance in every runtime.
+    const name = 'name' in error ? String((error as { name?: unknown }).name) : ''
+    const message = 'message' in error ? String((error as { message?: unknown }).message) : ''
+
+    // Our timeout fires an AbortController; `AbortSignal.timeout` would surface
+    // as a TimeoutError. Both mean the request ran past the deadline.
+    if (name === 'AbortError' || name === 'TimeoutError') {
+        return new PostHogNetworkError({ ...context, timedOut: true, cause: error })
+    }
+
+    // undici / browser / Workers all surface a connection-level failure as a
+    // TypeError whose message is some variant of "fetch failed" / "network".
+    if (name === 'TypeError' && /fetch failed|network|terminated|socket|econn/i.test(message)) {
+        return new PostHogNetworkError({ ...context, timedOut: false, cause: error })
+    }
+
+    return undefined
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined

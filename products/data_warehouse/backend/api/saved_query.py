@@ -44,6 +44,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.warehouse import infer_data_warehouse_saved_query_columns
 from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -65,6 +66,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_mcp_request(request: Any) -> bool:
+    return getattr(request, "META", {}).get("HTTP_X_POSTHOG_CLIENT") == "mcp"
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
@@ -312,7 +317,16 @@ class DataWarehouseSavedQuerySerializer(
         dag_id = validated_data.pop("dag_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
-        if not soft_update:
+        # MCP clients can't pass `types` or `soft_update`, so synchronous column
+        # inference against ClickHouse runs inline and can exceed the gateway
+        # timeout on heavy queries. For the MCP path, accept the query and infer
+        # columns in the background instead so a slow/unreachable cluster no
+        # longer fails the whole edit.
+        infer_columns_async = _is_mcp_request(self.context["request"]) and not self.context["request"].data.get("types")
+
+        if infer_columns_async:
+            view.status = DataWarehouseSavedQuery.Status.MODIFIED
+        elif not soft_update:
             try:
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
@@ -335,6 +349,10 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             view.save()
+            if infer_columns_async:
+                transaction.on_commit(
+                    lambda: infer_data_warehouse_saved_query_columns.delay(view.team_id, str(view.id))
+                )
             try:
                 view.setup_model_paths()
             except Exception:
@@ -444,30 +462,45 @@ class DataWarehouseSavedQuerySerializer(
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.columns = view.get_columns()
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                "clickhouse": item[1],
-                                "valid": True,
+                # MCP clients can't pass `types`, so inline ClickHouse inference
+                # can exceed the gateway timeout on heavy queries. For the MCP
+                # path, mark the view modified and re-infer columns in the
+                # background instead of failing the edit.
+                infer_columns_async = _is_mcp_request(self.context["request"]) and not self.context["request"].data.get(
+                    "types"
+                )
+
+                if infer_columns_async:
+                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
+                    view.save(update_fields=["status"])
+                    transaction.on_commit(
+                        lambda: infer_data_warehouse_saved_query_columns.delay(view.team_id, str(view.id))
+                    )
+                else:
+                    try:
+                        # The columns will be inferred from the query
+                        client_types = self.context["request"].data.get("types", [])
+                        if len(client_types) == 0:
+                            view.columns = view.get_columns()
+                        else:
+                            columns = {
+                                str(item[0]): {
+                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                    "clickhouse": item[1],
+                                    "valid": True,
+                                }
+                                for item in client_types
                             }
-                            for item in client_types
-                        }
-                        view.columns = columns
+                            view.columns = columns
 
-                    view.external_tables = view.s3_tables
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception:
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                        view.external_tables = view.s3_tables
+                    except RecursionError:
+                        raise serializers.ValidationError("Model contains a cycle")
+                    except Exception:
+                        raise serializers.ValidationError("Failed to retrieve types for view")
 
-                view.status = DataWarehouseSavedQuery.Status.MODIFIED
-                view.save()
+                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
+                    view.save()
 
             try:
                 view.setup_model_paths()
