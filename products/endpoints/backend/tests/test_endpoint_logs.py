@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_log_entries import create_log_entry
+from posthog.models import Team
 
 from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -147,3 +148,33 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["level"], "ERROR")
+
+    def test_logs_action_isolated_across_teams(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_endpoint = create_endpoint_with_version(
+            name="other_team_endpoint",
+            team=other_team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        # The other team's endpoint has logs, but they must be unreachable from our team's context.
+        create_log_entry(
+            team_id=other_team.pk,
+            log_source=ENDPOINTS_LOG_SOURCE,
+            log_source_id=str(other_endpoint.id),
+            instance_id="exec-1",
+            message="Endpoint executed · path=inline",
+            level="info",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{other_endpoint.name}/logs/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_logs_action_rejects_invalid_limit(self):
+        endpoint = self._create_hogql_endpoint("logs_bad_limit", "SELECT 1")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/logs/", {"limit": 999})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
