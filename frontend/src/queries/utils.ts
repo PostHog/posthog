@@ -51,6 +51,7 @@ import {
     PathsQuery,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
+    PromptQuery,
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
@@ -210,6 +211,10 @@ export function isSavedInsightNode(node?: Record<string, any> | null): node is S
 
 export function isInsightVizNode(node?: Record<string, any> | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
+}
+
+export function isPromptQuery(node?: Record<string, any> | null): node is PromptQuery {
+    return node?.kind === NodeKind.PromptQuery
 }
 
 export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {

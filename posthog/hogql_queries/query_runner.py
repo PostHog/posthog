@@ -45,6 +45,7 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     NodeKind,
     PathsQuery,
+    PromptQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -304,6 +305,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    PromptQuery,
 ]
 
 
@@ -324,6 +326,34 @@ def get_query_runner(
         source = get_from_dict_or_attr(query, "source")
         return get_query_runner(
             query=source,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+
+    if kind == "PromptQuery":
+        # A prompt insight with a generated viz snapshot runs (and caches) as that inner query.
+        # Without a snapshot it falls back to the empty PromptQueryRunner — never an LLM call here.
+        try:
+            generated_query = get_from_dict_or_attr(query, "generatedQuery")
+        except AttributeError:
+            generated_query = None
+        if generated_query:
+            source = get_from_dict_or_attr(generated_query, "source")
+            return get_query_runner(
+                query=source,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+        from products.product_analytics.backend.hogql_queries.prompt.prompt_query_runner import PromptQueryRunner
+
+        return PromptQueryRunner(
+            query=cast(PromptQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

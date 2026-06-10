@@ -60,6 +60,7 @@ import {
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPromptQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -434,7 +435,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         activeView: [
             (s) => [s.query],
             (query) => {
-                if (isDataTableNode(query)) {
+                if (isPromptQuery(query)) {
+                    return InsightType.PROMPT
+                } else if (isDataTableNode(query)) {
                     return InsightType.JSON
                 } else if (containsHogQLQuery(query)) {
                     return InsightType.SQL
@@ -491,6 +494,16 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: <>Hog 🦔</>,
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
+                    })
+                }
+
+                if (activeView === InsightType.PROMPT) {
+                    // Prompt insights aren't part of the type-switching flow; this single tab just
+                    // reflects the active type so the nav doesn't highlight an unrelated one.
+                    tabs.push({
+                        label: 'Prompt',
+                        type: InsightType.PROMPT,
+                        dataAttr: 'insight-prompt-tab',
                     })
                 }
 

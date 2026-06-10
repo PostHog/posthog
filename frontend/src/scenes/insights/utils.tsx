@@ -484,6 +484,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.RETENTION]: urls.insightNew({ type: InsightType.RETENTION }),
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.PROMPT]: urls.insightNew({ type: InsightType.PROMPT }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),

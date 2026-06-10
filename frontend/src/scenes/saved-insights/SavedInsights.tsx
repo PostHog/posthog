@@ -154,6 +154,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCorrelationAnalysis,
         inMenu: false,
     },
+    [NodeKind.PromptQuery]: {
+        name: 'Prompt',
+        description: 'Describe an insight in natural language and refine it with PostHog AI.',
+        icon: IconSparkles,
+        inMenu: false,
+    },
     [NodeKind.EventsNode]: {
         name: 'Events',
         description: 'List and explore events.',
@@ -651,6 +657,10 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: IconLineGraph,
         inMenu: false,
     },
+    [InsightType.PROMPT]: {
+        ...QUERY_TYPES_METADATA[NodeKind.PromptQuery],
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
@@ -693,7 +703,9 @@ export function NewInsightButton(): JSX.Element {
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
-            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
+            insightType !== InsightType.JSON &&
+            (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
+            (featureFlags[FEATURE_FLAGS.PROMPT_INSIGHT] || insightType !== InsightType.PROMPT)
     )
     const menuItems: LemonMenuItems = [
         {

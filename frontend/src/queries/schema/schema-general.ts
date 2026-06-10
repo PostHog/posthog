@@ -115,6 +115,8 @@ export enum NodeKind {
     DataVisualizationNode = 'DataVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
+    /** AI-prompt insight: a free-text prompt that renders a snapshot of the last AI-generated viz. */
+    PromptQuery = 'PromptQuery',
 
     TrendsQuery = 'TrendsQuery',
     CalendarHeatmapQuery = 'CalendarHeatmapQuery',
@@ -310,6 +312,7 @@ export type QuerySchema =
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
+    | PromptQuery
 
     // Classic insights
     | TrendsQuery
@@ -396,6 +399,7 @@ export type AnyResponseType =
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
+    | PromptQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1336,6 +1340,28 @@ export interface VizSpecificOptions {
 export interface InsightVizNode<T = InsightQueryNode> extends Node<never>, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: T
+}
+
+// Prompt insight node — a free-text prompt that renders a snapshot of the last AI-generated viz,
+// plus an embedded chat to refine it. Deliberately NOT part of InsightQueryNode: it has no series,
+// filters, or editor tabs, and is rendered through its own component (see PromptInsight.tsx).
+
+export interface PromptQueryResponse extends AnalyticsQueryResponseBase {
+    /** Passthrough of the generated viz's data (empty when no query has been generated yet). */
+    results: any
+}
+
+export type CachedPromptQueryResponse = CachedQueryResponse<PromptQueryResponse>
+
+export interface PromptQuery extends Node<PromptQueryResponse> {
+    kind: NodeKind.PromptQuery
+    /** Free-text natural-language prompt the user typed. */
+    prompt: string
+    /** Snapshot of the most recently AI-generated viz, so a chart renders without re-running the LLM. */
+    generatedQuery?: InsightVizNode | DataVisualizationNode | null
+    /** Pointer to the Max conversation backing the embedded chat, so it can resume. */
+    conversationId?: string | null
+    response?: PromptQueryResponse
 }
 
 interface InsightVizNodeViewProps {

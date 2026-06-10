@@ -2872,6 +2872,7 @@ export enum InsightType {
     SQL = 'SQL',
     HOG = 'HOG',
     WEB_ANALYTICS = 'WEB_ANALYTICS',
+    PROMPT = 'PROMPT',
 }
 
 export enum PathType {

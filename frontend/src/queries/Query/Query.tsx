@@ -20,6 +20,7 @@ import {
     HogQLVariable,
     InsightVizNode,
     Node,
+    PromptQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -33,6 +34,7 @@ import {
 } from 'products/revenue_analytics/frontend/nodes'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
+import { PromptInsight } from '../nodes/Prompt/PromptInsight'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
     isDataTableNode,
@@ -42,6 +44,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
+    isPromptQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
@@ -299,6 +302,16 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 setQuery={setQuery as (query: any) => void}
                 queryKey={String(uniqueKey)}
+            />
+        )
+    } else if (isPromptQuery(query)) {
+        component = (
+            <PromptInsight
+                query={query}
+                setQuery={setQuery as unknown as (query: PromptQuery) => void}
+                context={queryContext}
+                readOnly={readOnly}
+                embedded={embedded}
             />
         )
     } else {

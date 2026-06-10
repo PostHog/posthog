@@ -12,6 +12,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    PromptQuery,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -128,11 +129,15 @@ export const queryFromKind = (
 export const getDefaultQuery = (
     insightType: InsightType,
     filterTestAccountsDefault: boolean
-): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode | PromptQuery => {
     // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
     // This is a fallback that should rarely be used
     if (insightType === InsightType.WEB_ANALYTICS) {
         throw new Error('Web Analytics insights must be created from Web Analytics tiles')
+    }
+
+    if (insightType === InsightType.PROMPT) {
+        return { kind: NodeKind.PromptQuery, prompt: '' }
     }
 
     if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {

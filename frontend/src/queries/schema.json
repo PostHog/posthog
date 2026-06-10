@@ -1132,6 +1132,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/PromptQueryResponse"
                 }
             ]
         },
@@ -8070,6 +8073,89 @@
                         "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedPromptQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "Passthrough of the generated viz's data (empty when no query has been generated yet)."
                 },
                 "timezone": {
                     "type": "string"
@@ -28354,6 +28440,7 @@
                 "DataVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
+                "PromptQuery",
                 "TrendsQuery",
                 "CalendarHeatmapQuery",
                 "FunnelsQuery",
@@ -29595,6 +29682,95 @@
                 }
             },
             "required": ["products", "games", "metadata"],
+            "type": "object"
+        },
+        "PromptQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "conversationId": {
+                    "description": "Pointer to the Max conversation backing the embedded chat, so it can resume.",
+                    "type": ["string", "null"]
+                },
+                "generatedQuery": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightVizNode"
+                        },
+                        {
+                            "$ref": "#/definitions/DataVisualizationNode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Snapshot of the most recently AI-generated viz, so a chart renders without re-running the LLM."
+                },
+                "kind": {
+                    "const": "PromptQuery",
+                    "description": "AI-prompt insight: a free-text prompt that renders a snapshot of the last AI-generated viz.",
+                    "type": "string"
+                },
+                "prompt": {
+                    "description": "Free-text natural-language prompt the user typed.",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/PromptQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "prompt"],
+            "type": "object"
+        },
+        "PromptQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "Passthrough of the generated viz's data (empty when no query has been generated yet)."
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "PropertyFilterBaseValue": {
@@ -34215,6 +34391,54 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "description": "Passthrough of the generated viz's data (empty when no query has been generated yet)."
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "boxplot_data": {
                             "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
@@ -35927,6 +36151,9 @@
                 },
                 {
                     "$ref": "#/definitions/InsightVizNode"
+                },
+                {
+                    "$ref": "#/definitions/PromptQuery"
                 },
                 {
                     "$ref": "#/definitions/TrendsQuery"

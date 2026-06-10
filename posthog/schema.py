@@ -3713,6 +3713,7 @@ class NodeKind(StrEnum):
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
     INSIGHT_VIZ_NODE = "InsightVizNode"
+    PROMPT_QUERY = "PromptQuery"
     TRENDS_QUERY = "TrendsQuery"
     CALENDAR_HEATMAP_QUERY = "CalendarHeatmapQuery"
     FUNNELS_QUERY = "FunnelsQuery"
@@ -4196,7 +4197,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8282,7 +8283,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12932,6 +12933,61 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[PathsLink]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedPromptQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any = Field(
+        ...,
+        description=("Passthrough of the generated viz's data (empty when no query has been generated yet)."),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -18430,6 +18486,50 @@ class PlanningMessage(BaseModel):
     type: Literal["ai/planning"] = "ai/planning"
 
 
+class PromptQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any = Field(
+        ...,
+        description=("Passthrough of the generated viz's data (empty when no query has been generated yet)."),
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
 class PropertyGroupFilterValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20785,6 +20885,50 @@ class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any = Field(
+        ...,
+        description=("Passthrough of the generated viz's data (empty when no query has been generated yet)."),
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative68(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
@@ -20807,47 +20951,6 @@ class QueryResponseAlternative67(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
-class QueryResponseAlternative68(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: Any
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20888,7 +20991,7 @@ class QueryResponseAlternative69(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[RetentionResult]
+    results: Any
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20929,7 +21032,7 @@ class QueryResponseAlternative70(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[PathsLink]
+    results: list[RetentionResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20970,6 +21073,47 @@ class QueryResponseAlternative71(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
+    results: list[PathsLink]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative72(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -20988,7 +21132,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21034,7 +21178,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21080,7 +21224,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21126,7 +21270,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21168,7 +21312,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21209,7 +21353,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21254,7 +21398,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21299,7 +21443,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21344,7 +21488,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21388,7 +21532,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21432,7 +21576,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21473,7 +21617,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21518,7 +21662,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21559,7 +21703,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21600,7 +21744,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21651,7 +21795,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21692,7 +21836,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21738,7 +21882,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21779,7 +21923,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23073,6 +23217,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | PromptQueryResponse
     ]
 ):
     root: (
@@ -23091,6 +23236,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | PromptQueryResponse
     )
 
 
@@ -26098,7 +26244,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26499,7 +26645,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
-        | QueryResponseAlternative73
+        | QueryResponseAlternative72
         | QueryResponseAlternative74
         | QueryResponseAlternative75
         | QueryResponseAlternative76
@@ -26513,7 +26659,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -26521,6 +26667,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     ]
 ):
     root: (
@@ -26593,7 +26740,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
-        | QueryResponseAlternative73
+        | QueryResponseAlternative72
         | QueryResponseAlternative74
         | QueryResponseAlternative75
         | QueryResponseAlternative76
@@ -26607,7 +26754,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -26615,6 +26762,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     )
 
 
@@ -26965,6 +27113,27 @@ class NotebookArtifactContent(BaseModel):
         description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
     )
     title: str | None = Field(default=None, description="Title for the notebook")
+
+
+class PromptQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversationId: str | None = Field(
+        default=None,
+        description=("Pointer to the Max conversation backing the embedded chat, so it can resume."),
+    )
+    generatedQuery: InsightVizNode | DataVisualizationNode | None = Field(
+        default=None,
+        description=("Snapshot of the most recently AI-generated viz, so a chart renders without re-running the LLM."),
+    )
+    kind: Literal["PromptQuery"] = Field(
+        default="PromptQuery",
+        description=("AI-prompt insight: a free-text prompt that renders a snapshot of the last AI-generated viz."),
+    )
+    prompt: str = Field(..., description="Free-text natural-language prompt the user typed.")
+    response: PromptQueryResponse | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsQuery(BaseModel):
@@ -27841,6 +28010,7 @@ class MaxInsightContext(BaseModel):
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -27961,6 +28131,7 @@ class QueryRequest(BaseModel):
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -28073,6 +28244,7 @@ class QuerySchemaRoot(
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -28155,6 +28327,7 @@ class QuerySchemaRoot(
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -28242,6 +28415,7 @@ class QueryUpgradeRequest(BaseModel):
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -28329,6 +28503,7 @@ class QueryUpgradeResponse(BaseModel):
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
@@ -28576,6 +28751,7 @@ class VisualizationArtifactContent(BaseModel):
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
+        | PromptQuery
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
