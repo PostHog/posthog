@@ -186,11 +186,7 @@ def data_warehouse_resolver_params(
     override_source_table_key: str | None = None,
     override_join_type: str | None = None,
 ) -> dict[str, Any]:
-    """Build the serializable params for a data-warehouse lazy join.
-
-    Mirrors the arguments the old ``DataWarehouseJoin.join_function`` closure captured, as
-    plain data the registry resolvers read back at resolution time.
-    """
+    """Build the serializable params the data-warehouse registry resolvers read back at resolution time."""
     return {
         "source_table_key": override_source_table_key or source_table_key,
         "joining_table_key": joining_table_key,

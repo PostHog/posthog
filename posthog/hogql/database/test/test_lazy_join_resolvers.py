@@ -4,19 +4,19 @@ from collections.abc import Iterator
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.lazy_join_registry import RESOLVERS, get_lazy_join_resolver
-from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, FOREIGN_KEY
+from posthog.hogql.database.lazy_join_registry import RESOLVERS
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin, Table, TableNode
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import ResolutionError
 
 
 class TestLazyJoinResolvers(BaseTest):
-    def test_data_warehouse_join_carries_no_closure(self):
+    def test_data_warehouse_join_params_round_trip_json(self):
         lazy_join = LazyJoin(
             from_field=["id"],
             to_field=["account_id"],
@@ -29,18 +29,10 @@ class TestLazyJoinResolvers(BaseTest):
             ),
         )
 
-        assert lazy_join.join_function is None
-        assert lazy_join.resolver == DATA_WAREHOUSE
         # The whole point: the join is described by plain JSON-able data, not a Python closure,
         # so the Database that holds it can be serialized and cached.
         encoded = json.dumps(lazy_join.resolver_params)
         assert "stripe.accounts" in encoded
-
-    def test_foreign_key_join_carries_no_closure(self):
-        lazy_join = LazyJoin(from_field=["account_id"], to_field=["id"], join_table="accounts", resolver=FOREIGN_KEY)
-
-        assert lazy_join.join_function is None
-        assert lazy_join.resolver == FOREIGN_KEY
 
     def test_resolver_params_applies_overrides(self):
         params = data_warehouse_resolver_params(
@@ -60,10 +52,9 @@ class TestLazyJoinResolvers(BaseTest):
         with self.assertRaises(ValueError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
 
-    def test_lazy_join_without_resolver_or_function_raises(self):
-        lazy_join = LazyJoin(from_field=["id"], join_table="x")
-        with self.assertRaises(ResolutionError):
-            lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
+    def test_resolver_is_required(self):
+        with self.assertRaises(ValidationError):
+            LazyJoin(from_field=["id"], join_table="x")
 
 
 def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:
@@ -92,8 +83,8 @@ def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:
 
 
 class TestBuiltDatabaseSerializable(BaseTest):
-    """The serializability gate: a built Database must describe every lazy join as plain data
-    (a tag listed in the resolver manifest + JSON-able params), never as a Python closure."""
+    """The serializability gate: a built Database must describe every lazy join as plain data —
+    a tag listed in the resolver manifest plus JSON-able params."""
 
     @parameterized.expand(
         [
@@ -105,16 +96,14 @@ class TestBuiltDatabaseSerializable(BaseTest):
             ),
         ]
     )
-    def test_built_database_lazy_joins_carry_no_closures(self, _name: str, modifiers: HogQLQueryModifiers) -> None:
+    def test_built_database_lazy_joins_are_serializable(self, _name: str, modifiers: HogQLQueryModifiers) -> None:
         database = Database.create_for(team=self.team, modifiers=modifiers)
 
         lazy_joins = list(_walk_lazy_joins(database))
         assert len(lazy_joins) > 15  # sanity: the walker actually reached the schema's joins
 
         for path, lazy_join in lazy_joins:
-            assert lazy_join.join_function is None, f"{path} still holds a join_function closure"
-            assert lazy_join.resolver is not None, f"{path} has no resolver tag"
-            get_lazy_join_resolver(lazy_join.resolver)  # the tag must resolve through the manifest
+            assert lazy_join.resolver in RESOLVERS, f"{path} resolver {lazy_join.resolver!r} is not in the manifest"
             json.dumps(lazy_join.resolver_params)  # params must round-trip through JSON
 
 

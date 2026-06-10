@@ -685,7 +685,7 @@ class LazyTableResolver(TraversingVisitor):
                 else:
                     node.select_from = join_to_add
 
-            # Collect any fields or properties that may have been added from the join_function with the LazyJoinType
+            # Collect any fields or properties that may have been added by the join resolver with the LazyJoinType
             join_field_collector: list[ast.FieldType | ast.PropertyType] = []
             self.field_collectors.append(join_field_collector)
             super().visit(join_to_add)
