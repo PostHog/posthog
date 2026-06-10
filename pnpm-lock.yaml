@@ -721,6 +721,9 @@ importers:
       '@posthog/products-session-summaries':
         specifier: workspace:*
         version: link:../products/session_summaries
+      '@posthog/products-skills':
+        specifier: workspace:*
+        version: link:../products/skills
       '@posthog/products-subscriptions':
         specifier: workspace:*
         version: link:../products/subscriptions
