@@ -53,7 +53,7 @@ const SLACK_META = { type: 'slack', workspace_id: 'W1', channel: 'C1', ts: '111.
 
 describe('SlackFailureNotifier', () => {
     it('posts a sanitized message to chat.postMessage on the originating thread', async () => {
-        const fetch = vi.fn(async () => makeOkResponse())
+        const fetch = vi.fn(async (_url: string, _init?: RequestInit) => makeOkResponse())
         const http: HttpFetcher = { fetch: fetch as unknown as HttpFetcher['fetch'] }
         const n = new SlackFailureNotifier({ http, resolver: tokenResolver('xoxb-token') })
 

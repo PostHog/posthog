@@ -48,7 +48,7 @@ export interface FailureNotifier {
  * explicitly wires a real notifier.
  */
 export class NoopFailureNotifier implements FailureNotifier {
-    async notify(): Promise<void> {
+    async notify(_input: FailureNotifierInput): Promise<void> {
         // intentional no-op
     }
 }

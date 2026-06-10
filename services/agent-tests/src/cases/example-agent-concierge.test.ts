@@ -24,7 +24,7 @@ const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-concierge')
 
 interface ConciergeSpec {
     model: string
-    triggers: Array<{ type: string }>
+    triggers: Array<{ type: string; auth?: { modes?: Array<{ type: string }> } }>
     tools: Array<{
         kind: string
         id?: string
@@ -130,15 +130,15 @@ describe('example: agent-concierge bundle', () => {
         }
     })
 
-    it('accepts oauth + pat + posthog_internal on the same revision', async () => {
+    it('accepts posthog + posthog_internal auth on its chat and mcp triggers', async () => {
         const { spec } = await loadBundle()
-        // Shared deployment serves console (posthog_internal), MCP clients
-        // (oauth), and scripted access (pat). Each mode is a discriminated
-        // variant in the new `auth.modes[]` shape.
-        const modeTypes = (spec.auth.modes ?? []).map((m) => m.type)
-        expect(modeTypes).toEqual(expect.arrayContaining(['oauth', 'pat', 'posthog_internal']))
-        const oauthMode = (spec.auth.modes ?? []).find((m) => m.type === 'oauth')
-        expect(oauthMode?.issuer).toBe('posthog')
+        // Auth is per-trigger now. The chat + mcp triggers each serve a human /
+        // MCP client via a PostHog credential (`posthog`) and scripted /
+        // server-to-server access (`posthog_internal`).
+        const modesFor = (type: string): string[] =>
+            spec.triggers.find((t) => t.type === type)?.auth?.modes?.map((m) => m.type) ?? []
+        expect(modesFor('chat')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
+        expect(modesFor('mcp')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
     })
 
     it('enables resume so multi-step flows can span days', async () => {
