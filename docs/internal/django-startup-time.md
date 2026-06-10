@@ -63,8 +63,10 @@ Keep `ready()` light — it runs in every process, so it must not import a heavy
 
 **Adding a signal receiver.**
 Put it where it connects at setup: the owning `AppConfig.ready()`.
-If the module holding the receiver also imports something heavy at module scope, do not import that module from `ready()` directly — either defer the heavy import inside the function that uses it, or move the receiver into a light module (`signals.py`) and import _that_ from `ready()`.
+If the module holding the receiver also imports something heavy at module scope, do not import that module from `ready()` directly — either defer the heavy import inside the function that uses it, or move the receiver into a light module (`signals.py`, `activity_logging.py`) and import _that_ from `ready()`.
 The test is simple: importing the module you wire at `ready()` should pull only light dependencies.
+Prefer the dedicated light module even when the owning module looks light _today_ — API/viewset modules accumulate module-scope imports, and `ready()` silently inherits whatever they gain.
+The batch-exports `ready()` wired its receiver through the API module on a "the module is light" justification; the module later picked up imports reaching every destination's vendor SDK, and `django.setup()` quietly grew ~1.6s.
 
 **Adding a heavy dependency** (a vendor SDK, a Temporal/AI/ClickHouse path, anything pulling pandas/pyarrow/scipy).
 If it is used on one code path, import it function-locally at that path with `# noqa: PLC0415`, not at module scope.
@@ -138,6 +140,19 @@ With the pre-import gone, Django's system checks (`check_custom_error_handlers` 
 Two things make this nasty: it surfaces far from the change (a migration-defaults step in one CI job, not the lazy-router files), and the buggy code is not yours — so it is tempting to blame master.
 Do not assume: the decisive test is `django.setup()` then `import_module("posthog.urls")` in a clean subprocess, run on a detached `origin/master` worktree _and_ the branch.
 If only the branch fails, you unmasked it and you own the fix — break the cycle by deferring the back-reference to its call sites.
+
+**A package `__init__` that aggregates its submodules taxes every submodule import.**
+A worker-facing aggregator (`temporal/__init__.py` importing all destinations to build `WORKFLOWS` / `ACTIVITIES`) makes _any_ `import <pkg>.<submodule>` execute the whole aggregation — Python runs parent package `__init__`s first.
+Importing one constants table from one destination loaded thirteen vendor SDKs.
+Fix: move the aggregator to a submodule (`workflows.py`) and make the `__init__` a PEP 562 `__getattr__` shim.
+Two gotchas in that shim, both found the hard way:
+`from <pkg> import workflows` _inside_ the package's own `__getattr__` recurses forever (`_handle_fromlist` re-enters `__getattr__`) — use `importlib.import_module`.
+And a catch-all `__getattr__` is wrong: `from <pkg> import <anything>` probes the package attribute first, so a catch-all eagerly loads the aggregator on every such probe — including for submodule names, which deadlocks if any aggregated module imports a sibling through the package root (`record_batch_model` importing `sql` did exactly this, masked for years by the eager init's import order).
+Whitelist the public names (`if name in __all__`) and raise `AttributeError` otherwise, so submodule imports fall back to normal resolution.
+
+**DRF serializer field kwargs are evaluated at import.**
+`choices=sorted(SUPPORTED_THINGS)` in a serializer field runs at class definition, i.e. when the module imports — you cannot function-locally defer the import it depends on.
+If the constant lives in a heavy module (a Temporal destination, an SDK wrapper), move the constant to an import-light module and have both sides import it from there; re-export under the old name to keep existing importers working.
 
 **Regenerating a shared snapshot on top of a bad merge.**
 Query-count snapshot files (`.ambr`) are generated.
