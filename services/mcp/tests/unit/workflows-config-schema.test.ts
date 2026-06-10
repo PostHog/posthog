@@ -43,8 +43,10 @@ describe('workflows create schema — action config', () => {
         })
 
         expect(result.success).toBe(true)
-        const actions = (result as { data: { actions: { config: unknown }[] } }).data.actions
-        expect(actions[1].config).toEqual(waitConfig)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        expect(result.data.actions[1]?.config).toEqual(waitConfig)
     })
 
     it('preserves other action type configs verbatim', () => {
@@ -58,8 +60,10 @@ describe('workflows create schema — action config', () => {
         })
 
         expect(result.success).toBe(true)
-        const actions = (result as { data: { actions: { config: unknown }[] } }).data.actions
-        expect(actions[0].config).toEqual(triggerAction.config)
-        expect(actions[1].config).toEqual(functionConfig)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        expect(result.data.actions[0]?.config).toEqual(triggerAction.config)
+        expect(result.data.actions[1]?.config).toEqual(functionConfig)
     })
 })
