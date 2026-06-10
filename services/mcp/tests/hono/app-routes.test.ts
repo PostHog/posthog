@@ -397,4 +397,18 @@ describe('Hono App Routes', () => {
             expect(res2.status).toBe(200)
         })
     })
+
+    describe('confirmed-action runtime', () => {
+        it('installs the runtime so generated -prepare/-execute handlers can resolve it', async () => {
+            // createApp wires setConfirmedActionRuntime at boot. Without
+            // that wiring, getConfirmedActionRuntime() throws — so the
+            // mere fact that we can resolve a non-undefined runtime after
+            // createApp ran proves the boot path is in place.
+            createApp(mockRedis)
+            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
+            const runtime = getConfirmedActionRuntime()
+            expect(runtime.codec).toBeInstanceOf(Object)
+            expect(runtime.ledger).toBeInstanceOf(Object)
+        })
+    })
 })

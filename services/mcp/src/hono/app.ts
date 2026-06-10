@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
 
+import { loadSigningKeysFromEnv, NonceLedger, SignedStateCodec } from '@/lib/signed-state'
+import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+
 import { httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { StreamableMcpHandler } from './streamable-handler'
@@ -23,6 +26,15 @@ const sseRedirect = (c: HonoCtx): Response => {
 export function createApp(redis: RedisWithPing): App {
     const app = new Hono()
     const lifecycle: Lifecycle = { shuttingDown: false }
+
+    // Install the typed-confirm runtime exactly once per process. Generated
+    // -prepare/-execute handlers call getConfirmedActionRuntime() at request
+    // time and throw if it's missing, so do this before any tool dispatch.
+    const keys = loadSigningKeysFromEnv()
+    setConfirmedActionRuntime({
+        codec: new SignedStateCodec(keys.primary, keys.secondary),
+        ledger: new NonceLedger(redis),
+    })
 
     app.use('*', securityHeaders)
     app.use('*', httpMetrics)
