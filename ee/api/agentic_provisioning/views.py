@@ -46,7 +46,7 @@ from posthog.models.utils import (
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
-from posthog.tasks.email import send_provisioning_welcome
+from posthog.tasks.email import send_provisioning_email_code, send_provisioning_welcome
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
@@ -60,6 +60,12 @@ logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
+# Email codes get a longer window than browser auth codes: the user has to switch to
+# their inbox (or an agent has to poll it) before the code comes back for exchange.
+EMAIL_CODE_TTL_SECONDS = 600
+EMAIL_CODE_RATE_LIMIT_PREFIX = "provisioning_email_code_rate:"
+EMAIL_CODE_RATE_LIMIT_MAX_SENDS = 3
+EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS = 3600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
 DEEP_LINK_MAX_PATH_LENGTH = 2000
@@ -407,6 +413,17 @@ def account_requests(request: Request) -> Response:
             status=400,
         )
 
+    link_method = data.get("link_method", "")
+    if link_method not in ("", "browser", "email_code"):
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "link_method must be one of: browser, email_code"},
+            },
+            status=400,
+        )
+
     region = (configuration.get("region") or "US").upper()
 
     requested_team_id = configuration.get("team_id")
@@ -438,6 +455,7 @@ def account_requests(request: Request) -> Response:
             code_challenge,
             code_challenge_method,
             authenticated_user,
+            link_method,
         )
 
     return _handle_new_user(
@@ -504,6 +522,7 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
     authenticated_user: User | None = None,
+    link_method: str = "",
 ) -> Response:
     # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
     # skip_existing_user_consent=True can only mint silently when the caller proved a prior
@@ -545,6 +564,20 @@ def _handle_existing_user(
                     },
                 },
                 status=400,
+            )
+        # Partners without the flag fall back to browser consent rather than erroring:
+        # every client must handle requires_auth anyway, so the flow still completes.
+        if link_method == "email_code" and partner.provisioning_can_link_via_email_code:
+            return _require_email_code(
+                request_id,
+                user,
+                scopes,
+                partner_account_id,
+                region,
+                partner,
+                code_challenge,
+                code_challenge_method,
+                team_id,
             )
         return _require_user_consent(
             request_id,
@@ -639,6 +672,125 @@ def _require_user_consent(
             "requires_auth": {"url": auth_url},
         }
     )
+
+
+def _require_email_code(
+    request_id: str,
+    user: User,
+    scopes: list[str],
+    partner_account_id: str,
+    region: str,
+    partner: OAuthApplication,
+    code_challenge: str,
+    code_challenge_method: str,
+    team_id: int | None,
+) -> Response:
+    """Existing-account linking without the browser hop: email the account owner a
+    one-time code that doubles as the authorization code.
+
+    The email is the consent surface (partner + exact scopes), and reading it proves
+    control of the account's email — the same bar as a password reset. Redemption at
+    the token endpoint additionally requires the PKCE verifier held by the session
+    that initiated the request, so the code alone (e.g. an intercepted email) is not
+    enough to mint a token.
+    """
+    # The token exchange substitutes Stripe's default scopes when none are stored, which
+    # would mint more than the email disclosed. Empty scopes are rejected so the email
+    # always names exactly what gets granted.
+    if not scopes:
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "scopes are required when link_method is email_code"},
+            },
+            status=400,
+        )
+
+    if error := _enforce_email_code_rate_limit(user.email):
+        return error
+
+    team = _resolve_team_for_existing_user(user, team_id)
+    if team is None:
+        _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "team_resolution_failed", "message": "Could not resolve a project for this user"},
+            },
+            status=400,
+        )
+
+    # Dedup: a retry invalidates the previously emailed code so at most one live code
+    # exists per partner+email.
+    dedup_key = f"email_code_state:{partner.id}:{user.email}"
+    old_code = cache.get(dedup_key)
+    if old_code:
+        cache.delete(f"{AUTH_CODE_CACHE_PREFIX}{old_code}")
+
+    code = secrets.token_urlsafe(32)
+    cache.set(dedup_key, code, timeout=EMAIL_CODE_TTL_SECONDS)
+    cache.set(
+        f"{AUTH_CODE_CACHE_PREFIX}{code}",
+        {
+            "issued_at": timezone.now().isoformat(),
+            "user_id": user.id,
+            "org_id": str(team.organization_id),
+            "team_id": team.id,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id),
+            "scopes": scopes,
+            "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+        timeout=EMAIL_CODE_TTL_SECONDS,
+    )
+
+    send_provisioning_email_code.delay(user.id, code, partner.name, scopes, EMAIL_CODE_TTL_SECONDS // 60)
+
+    _capture_provisioning_event("account_request", "requires_otp", partner=partner, region=region)
+
+    return Response(
+        {
+            "id": request_id,
+            "type": "requires_otp",
+            "requires_otp": {"expires_in": EMAIL_CODE_TTL_SECONDS},
+        }
+    )
+
+
+def _enforce_email_code_rate_limit(email: str) -> Response | None:
+    """Cap codes sent per recipient address so the endpoint can't be used to bomb an inbox.
+
+    Fixed-window counter like _enforce_partner_rate_limit; the same 2x burst caveat
+    across a window boundary applies.
+    """
+    window_index = int(time.time()) // EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS
+    cache_key = f"{EMAIL_CODE_RATE_LIMIT_PREFIX}{email.lower()}:{window_index}"
+
+    try:
+        cache.add(cache_key, 0, timeout=EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(cache_key)
+    except (ValueError, ConnectionError, TimeoutError) as e:
+        logger.warning("email_code_rate_limit_cache_error", error=str(e))
+        cache.add(cache_key, 1, timeout=EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
+        count = 1
+
+    if count > EMAIL_CODE_RATE_LIMIT_MAX_SENDS:
+        _capture_provisioning_event("account_request", "email_code_rate_limited", limit=EMAIL_CODE_RATE_LIMIT_MAX_SENDS)
+        retry_after = EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
+        response = Response(
+            {
+                "type": "error",
+                "error": {"code": "rate_limited", "message": "Too many codes sent to this email. Try again later."},
+            },
+            status=429,
+        )
+        response["Retry-After"] = str(retry_after)
+        return response
+    return None
 
 
 def _resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:

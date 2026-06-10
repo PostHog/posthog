@@ -402,6 +402,30 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_provisioning_email_code(
+    user_id: int, code: str, partner_name: str, scopes: list[str], expires_minutes: int
+) -> None:
+    user = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"provisioning-email-code-{user.uuid}-{timezone.now().timestamp()}",
+        subject=f"Your PostHog one-time code for connecting {partner_name}",
+        template_name="provisioning_email_code",
+        template_context={
+            "preheader": f"Use this code to connect {partner_name} to your PostHog account.",
+            "code": code,
+            "partner_name": partner_name,
+            "scopes": scopes,
+            "expires_minutes": expires_minutes,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(

@@ -36,6 +36,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_provisioning_email_code,
     send_provisioning_welcome,
     should_send_pipeline_error_notification,
 )
@@ -374,6 +375,21 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "via" not in mocked_email_messages[0].html_body
+
+    def test_send_provisioning_email_code(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+
+        send_provisioning_email_code(user.id, "test_code_abc123", "Expo", ["query:read", "insight:read"], 10)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        html = mocked_email_messages[0].html_body
+        assert "test_code_abc123" in html
+        assert "Expo" in html
+        assert "query:read" in html
+        assert "insight:read" in html
+        assert "10 minutes" in html
 
     @patch("posthoganalytics.capture")
     def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:

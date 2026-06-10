@@ -1,0 +1,19 @@
+{% extends "email/base.html" %} {% load posthog_assets %}{% block section %}
+<p>
+    <strong>{{ partner_name }}</strong> is requesting access to your existing PostHog account. Entering this code in {{ partner_name }} authorizes that access:
+</p>
+<div class="mb mt text-center">
+    <code>{{ code }}</code>
+</div>
+<p>This grants {{ partner_name }} the following permissions:</p>
+<ul>
+    {% for scope in scopes %}
+    <li><code>{{ scope }}</code></li>
+    {% endfor %}
+</ul>
+<div class="mt muted">
+    <p>
+        The code expires in {{ expires_minutes }} minutes. If you didn't request this, you can ignore this email — no access is granted without the code.
+    </p>
+</div>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Connect {{ partner_name }} to PostHog{% endblock %}

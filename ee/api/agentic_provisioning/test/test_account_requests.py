@@ -1,7 +1,10 @@
 import json
 import time
+import base64
+import hashlib
+import secrets
 from datetime import datetime, timedelta
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from unittest.mock import patch
 
@@ -767,3 +770,182 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
             assert "partner_type" not in props
         else:
             assert props["partner_type"] == expected_partner_type
+
+
+class TestEmailCodeLinking(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.partner = OAuthApplication.objects.create(
+            client_id="email-code-partner",
+            name="Email Code Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_can_link_via_email_code=True,
+        )
+        self.existing_user = User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        self.code_verifier = secrets.token_urlsafe(32)
+        self.code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(self.code_verifier.encode("ascii")).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+
+    def _post(self, data: dict):
+        return self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data=json.dumps(data).encode(),
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "id": "acctreq_email_code",
+            "email": "existing@example.com",
+            "scopes": ["query:read"],
+            "client_id": "email-code-partner",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "link_method": "email_code",
+            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+            "orchestrator": {"type": "test", "account": "acct_123"},
+        }
+        payload.update(overrides)
+        return payload
+
+    def _request_code(self) -> tuple[Response, str]:
+        with patch("ee.api.agentic_provisioning.views.send_provisioning_email_code") as mock_send:
+            res = self._post(self._payload())
+        code = mock_send.delay.call_args[0][1] if mock_send.delay.called else ""
+        return res, code
+
+    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
+    def test_returns_requires_otp_and_sends_email(self, mock_send):
+        res = self._post(self._payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_otp"
+        assert data["requires_otp"] == {"expires_in": 600}
+
+        assert mock_send.delay.call_count == 1
+        user_id, code, partner_name, scopes, expires_minutes = mock_send.delay.call_args[0]
+        assert user_id == self.existing_user.id
+        assert partner_name == "Email Code Partner"
+        assert scopes == ["query:read"]
+        assert expires_minutes == 10
+        assert len(code) >= 40
+        # The code must never leak into the API response - only the email carries it
+        assert code not in json.dumps(data)
+
+    def test_emailed_code_is_pkce_bound_auth_code(self):
+        _, code = self._request_code()
+        cached = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert cached is not None
+        assert cached["user_id"] == self.existing_user.id
+        assert cached["scopes"] == ["query:read"]
+        assert cached["code_challenge"] == self.code_challenge
+        assert cached["partner_id"] == str(self.partner.id)
+        assert cached["issued_at"]
+
+    def test_emailed_code_redeems_at_token_endpoint(self):
+        _, code = self._request_code()
+        body = urlencode(
+            {"grant_type": "authorization_code", "code": code, "code_verifier": self.code_verifier}
+        ).encode()
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+        assert res.json()["access_token"].startswith("pha_")
+
+        # Single-use: a second exchange with the same code fails
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 400
+
+    def test_emailed_code_rejected_with_wrong_verifier(self):
+        _, code = self._request_code()
+        body = urlencode(
+            {"grant_type": "authorization_code", "code": code, "code_verifier": secrets.token_urlsafe(32)}
+        ).encode()
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+
+    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
+    def test_flag_off_falls_back_to_requires_auth(self, mock_send):
+        self.partner.provisioning_can_link_via_email_code = False
+        self.partner.save()
+        res = self._post(self._payload())
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_auth"
+        assert not mock_send.delay.called
+
+    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
+    def test_browser_link_method_returns_requires_auth(self, mock_send):
+        res = self._post(self._payload(link_method="browser"))
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_auth"
+        assert not mock_send.delay.called
+
+    def test_invalid_link_method_returns_400(self):
+        res = self._post(self._payload(link_method="carrier_pigeon"))
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"
+
+    def test_empty_scopes_rejected(self):
+        res = self._post(self._payload(scopes=[]))
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"
+        assert "scopes" in res.json()["error"]["message"]
+
+    def test_scopes_outside_ceiling_rejected(self):
+        self.partner.scopes = ["query:read"]
+        self.partner.save()
+        res = self._post(self._payload(scopes=["query:read", "insight:write"]))
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_scope"
+
+    def test_retry_invalidates_previous_code(self):
+        _, first_code = self._request_code()
+        _, second_code = self._request_code()
+        assert first_code != second_code
+        assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{first_code}") is None
+        assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{second_code}") is not None
+
+    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
+    def test_per_email_rate_limit(self, mock_send):
+        for _ in range(3):
+            res = self._post(self._payload())
+            assert res.status_code == 200
+            assert res.json()["type"] == "requires_otp"
+
+        res = self._post(self._payload())
+        assert res.status_code == 429
+        assert res.json()["error"]["code"] == "rate_limited"
+        assert res["Retry-After"]
+        assert mock_send.delay.call_count == 3
