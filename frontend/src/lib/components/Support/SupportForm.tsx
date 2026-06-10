@@ -23,7 +23,13 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, SUPPORT_TICKET_TEMPLATES, SupportTicketKind, supportLogic } from './supportLogic'
+import {
+    SEVERITY_LEVEL_TO_NAME,
+    SUPPORT_TICKET_TEMPLATES,
+    SupportTicketKind,
+    TARGET_AREA_OPTIONS,
+    supportLogic,
+} from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -50,7 +56,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 export function SupportForm(): JSX.Element | null {
-    const { sendSupportRequest, targetAreaOptions } = useValues(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
@@ -150,7 +156,7 @@ export function SupportForm(): JSX.Element | null {
                                     disabled={!user}
                                     placeholder="Search for a topic"
                                     data-attr="support-form-target-area"
-                                    options={targetAreaOptions}
+                                    options={TARGET_AREA_OPTIONS}
                                     value={value ? [value] : []}
                                     onChange={([newValue]) => onChange(newValue ?? null)}
                                 />

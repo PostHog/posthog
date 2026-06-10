@@ -6,9 +6,7 @@ import posthog from 'posthog-js'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -330,11 +328,6 @@ export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[
     (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
 )
 
-// Target areas only shown when their feature flag is enabled.
-const TARGET_AREA_FLAG_GATES: Record<string, (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]> = {
-    ai_gateway: FEATURE_FLAGS.AI_GATEWAY,
-}
-
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
     high: 'Feature is not working at all',
@@ -455,8 +448,6 @@ export const supportLogic = kea<supportLogicType>([
             ['isCurrentOrganizationNew'],
             sidePanelStateLogic,
             ['sidePanelAvailable'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -532,14 +523,6 @@ export const supportLogic = kea<supportLogicType>([
         targetArea: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
-        ],
-        targetAreaOptions: [
-            (s) => [s.featureFlags],
-            (featureFlags): typeof TARGET_AREA_OPTIONS =>
-                TARGET_AREA_OPTIONS.filter(
-                    (option) =>
-                        !TARGET_AREA_FLAG_GATES[option.value] || featureFlags[TARGET_AREA_FLAG_GATES[option.value]]
-                ),
         ],
     }),
     listeners(({ actions, props, values }) => ({
