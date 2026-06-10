@@ -31,6 +31,7 @@ export const s3Definition: DestinationDefinition = {
                 configurationChanged={configurationChanged}
                 regionOptions={S3_REGION_OPTIONS}
                 awsBranded
+                allowCustomRegion
                 showEncryption
                 showEndpointUrl
                 showVirtualStyleAddressing

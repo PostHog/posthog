@@ -31,6 +31,7 @@ export const s3CompatibleDefinition: DestinationDefinition = {
                 configurationChanged={configurationChanged}
                 regionOptions={S3_REGION_OPTIONS}
                 awsBranded={false}
+                allowCustomRegion
                 showEncryption={false}
                 showEndpointUrl
                 endpointUrlRequired
