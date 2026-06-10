@@ -37,7 +37,6 @@ export type SubscriptionSceneLogicProps = {
 export type DeliveryFeedback = 'positive' | 'negative'
 export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
 
-// How long the per-row "Thanks!" flash shows before settling into the recorded option.
 export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
