@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
@@ -603,7 +604,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         return await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
                     } catch (error) {
-                        posthog.captureException(error, { feature: 'cohort-used-in' })
+                        // A 404 just means the endpoint isn't deployed yet (deploy skew) or the
+                        // cohort is gone; neither is worth reporting.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            posthog.captureException(error, { feature: 'cohort-used-in' })
+                        }
                         return null
                     }
                 },
