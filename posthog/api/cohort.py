@@ -390,6 +390,9 @@ class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
 
 
+COHORT_USED_IN_PAGE_SIZE = 100
+
+
 class CohortUsedInFlagSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Feature flag database ID")
     key = serializers.CharField(help_text="Feature flag key (URL slug)")
@@ -411,7 +414,7 @@ class CohortUsedInCohortSerializer(serializers.Serializer):
 
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
-        many=True, help_text="Feature flags referencing this cohort, capped at 100 results"
+        many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
     total = serializers.IntegerField(
         help_text="Total number of feature flags referencing this cohort, before truncation"
@@ -421,7 +424,7 @@ class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
 
 class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
     results = CohortUsedInInsightSerializer(
-        many=True, help_text="Insights referencing this cohort, capped at 100 results"
+        many=True, help_text=f"Insights referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
     total = serializers.IntegerField(help_text="Total number of insights referencing this cohort, before truncation")
     has_more = serializers.BooleanField(help_text="True when more insights exist beyond the truncation cap")
@@ -429,7 +432,8 @@ class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
 
 class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
     results = CohortUsedInCohortSerializer(
-        many=True, help_text="Cohorts that include this cohort as a criterion, capped at 100 results"
+        many=True,
+        help_text=f"Cohorts that include this cohort as a criterion, capped at {COHORT_USED_IN_PAGE_SIZE} results",
     )
     total = serializers.IntegerField(help_text="Total number of cohorts referencing this cohort, before truncation")
     has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
@@ -1176,9 +1180,6 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-COHORT_USED_IN_PAGE_SIZE = 100
-
-
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
     """Return up to COHORT_USED_IN_PAGE_SIZE rows plus the total count.
 
@@ -1197,8 +1198,11 @@ def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
 
     Used by deletion protection — only live flags should block cohort deletion.
     """
-    active_flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True, deleted=False)
-    return [flag for flag in active_flags if cohort.id in flag.get_cohort_ids()]
+    active_flags = FeatureFlag.objects.filter(
+        team__project_id=cohort.team.project_id, active=True, deleted=False
+    ).select_related("team")
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
+    return [flag for flag in active_flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
 
 
 def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
@@ -1208,23 +1212,28 @@ def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
     are aware before flipping one back on. Excludes soft-deleted flags for consistency
     with ``get_insights_using_cohort`` and ``get_cohorts_using_cohort``.
     """
-    flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
-    return [flag for flag in flags if cohort.id in flag.get_cohort_ids()]
+    flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False).select_related("team")
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
+    return [flag for flag in flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
 
 
 def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
     """Return insights that reference this cohort in their query filters or breakdown."""
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    return Insight.objects.filter(
-        team_id=cohort.team_id,
-        deleted=False,
-    ).extra(
-        where=[
-            """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+    return (
+        Insight.objects.filter(
+            team_id=cohort.team_id,
+            deleted=False,
+        )
+        .extra(
+            where=[
+                """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
             OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
                 AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
-        ],
-        params=[cohort.id, cohort.id, cohort.id],
+            ],
+            params=[cohort.id, cohort.id, cohort.id],
+        )
+        .order_by("id")
     )
 
 
@@ -1243,6 +1252,7 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
             ],
             params=[cohort.id, cohort.id],
         )
+        .order_by("id")
     )
 
 
@@ -1660,12 +1670,19 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def used_in(self, request: request.Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
+        # Hide references the caller has been denied at the object level, matching the
+        # access-level filtering on the flag/insight list endpoints.
+        uac = self.user_access_control
 
-        flags_with_cohort = get_flags_using_cohort(cohort)
-        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_with_cohort]
+        flag_ids = [flag.id for flag in get_flags_using_cohort(cohort)]
+        flags_qs = uac.filter_queryset_by_access_level(
+            FeatureFlag.objects.filter(id__in=flag_ids), include_all_if_admin=True
+        ).order_by("id")
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_qs]
 
+        insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
         insights_page, insights_total = _truncate_used_in_queryset(
-            get_insights_using_cohort(cohort).values("id", "short_id", "name", "derived_name")
+            insights_qs.values("id", "short_id", "name", "derived_name")
         )
         insights_data = [
             {
@@ -1676,7 +1693,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             for insight in insights_page
         ]
 
-        cohorts_page, cohorts_total = _truncate_used_in_queryset(get_cohorts_using_cohort(cohort).values("id", "name"))
+        cohorts_qs = uac.filter_queryset_by_access_level(get_cohorts_using_cohort(cohort))
+        cohorts_page, cohorts_total = _truncate_used_in_queryset(cohorts_qs.values("id", "name"))
         cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
         return Response(

@@ -177,7 +177,13 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions([
+                'setCohort',
+                'submitCohort',
+                'submitCohortSuccess',
+                'saveCohortSuccess',
+                'loadUsedIn',
+            ])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 

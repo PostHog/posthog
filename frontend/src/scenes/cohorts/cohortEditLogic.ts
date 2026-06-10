@@ -656,7 +656,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
         },
-        submitCohortSuccess: () => {
+        // Refresh once the save request actually resolves; submitCohortSuccess fires as soon
+        // as the synchronous submit handler dispatches saveCohort.
+        saveCohortSuccess: () => {
             actions.loadUsedIn()
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
