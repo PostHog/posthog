@@ -1,6 +1,6 @@
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { CyclotronJobInputsValidation } from './CyclotronJobInputsValidation'
+import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
 
 describe('CyclotronJobInputsValidation', () => {
     describe('validate', () => {
@@ -10,6 +10,7 @@ describe('CyclotronJobInputsValidation', () => {
             expect(result).toEqual({
                 valid: true,
                 errors: {},
+                warnings: {},
             })
         })
 
@@ -20,6 +21,7 @@ describe('CyclotronJobInputsValidation', () => {
             expect(result).toEqual({
                 valid: true,
                 errors: {},
+                warnings: {},
             })
         })
 
@@ -346,6 +348,148 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors.invalidNumber).toBe('Value must be a number')
                 expect(result.errors.validString).toBeUndefined()
                 expect(result.errors.validObject).toBeUndefined()
+            })
+        })
+
+        describe('templating mismatch warnings', () => {
+            const stringSchema = (templating?: 'hog' | 'liquid'): CyclotronJobInputSchemaType[] => [
+                { key: 'identifier_value', type: 'string', label: 'Identifier value', templating: templating as any },
+            ]
+
+            it('warns when a hog field uses a bare global path with no braces', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email' } },
+                    stringSchema()
+                )
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+                expect(result.warnings.identifier_value).toBe(
+                    TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInHogField('person.properties.email')
+                )
+            })
+
+            it('warns when a liquid field uses a bare global path, suggesting double braces', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBe(
+                    TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInLiquidField('person.properties.email')
+                )
+            })
+
+            it('does not warn when a hog field correctly wraps the expression in braces', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{person.properties.email}' } },
+                    stringSchema('hog')
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('warns when a hog field uses liquid double-brace syntax', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{{ person.properties.email }}', templating: 'hog' } },
+                    stringSchema('hog')
+                )
+
+                expect(result.warnings.identifier_value).toBe(TEMPLATING_MISMATCH_WARNINGS.liquidSyntaxInHogField)
+            })
+
+            it('warns when a liquid field uses hog single-brace syntax referencing a global', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{person.properties.email}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBe(TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField)
+            })
+
+            it('does not warn on valid liquid double braces', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{{ person.properties.email }}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('does not warn on literal text or static values', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'example@posthog.com' } },
+                    stringSchema()
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('does not warn on braces that are not a global reference', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{"key": "value"}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('does not warn on liquid JSON with a key named after a global', () => {
+                // The key "event" is not a property access, so it must not be mistaken for hog syntax.
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{"event": "pageview", "person": "abc"}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('still warns on a real hog reference inside a liquid JSON-like value', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: '{"id": {person.properties.email}}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBe(TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField)
+            })
+
+            it('does not warn on a valid hog template embedded in literal text', () => {
+                // `email: {person.properties.email}` is correct hog — literal prefix + interpolation.
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'email: {person.properties.email}', templating: 'hog' } },
+                    stringSchema('hog')
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('warns when that same embedded hog template is in a liquid field', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'email: {person.properties.email}', templating: 'liquid' } },
+                    stringSchema('liquid')
+                )
+
+                expect(result.warnings.identifier_value).toBe(TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField)
+            })
+
+            it('skips secret inputs', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email', secret: true } },
+                    stringSchema()
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('detects mismatches inside dictionary values', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { attributes: { value: { email: 'person.properties.email' } } },
+                    [{ key: 'attributes', type: 'dictionary', label: 'Attributes' }]
+                )
+
+                expect(result.warnings.attributes).toBe(
+                    TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInHogField('person.properties.email')
+                )
             })
         })
     })
