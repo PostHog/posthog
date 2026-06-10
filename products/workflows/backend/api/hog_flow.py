@@ -11,7 +11,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -398,6 +398,60 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
+@extend_schema_field(HogFunctionFiltersSerializer)
+class HogFlowConversionEventFiltersField(serializers.JSONField):
+    # Schema-typed as HogFunctionFilters for codegen, but runtime-lenient: drafts may hold invalid
+    # filters, and HogFlowSerializer.validate compiles/validates these with draft leniency.
+    pass
+
+
+class HogFlowConversionEventSerializer(serializers.Serializer):
+    filters = HogFlowConversionEventFiltersField(
+        help_text=(
+            "Event/action filters for this conversion event, same shape as trigger filters: "
+            "{events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], "
+            "properties?: [<cond>]}. bytecode is compiled server-side."
+        )
+    )
+
+
+class HogFlowConversionSerializer(serializers.Serializer):
+    filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text=(
+            "Property-based conversion conditions, as an ARRAY of property filters: "
+            "[{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — "
+            "put them in 'events'. Empty array = any event within the window converts."
+        ),
+    )
+    events = serializers.ListField(
+        child=HogFlowConversionEventSerializer(),
+        required=False,
+        help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
+    )
+    window_minutes = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
+    )
+    bytecode = serializers.JSONField(read_only=True, help_text="Compiled server-side from 'filters'. Do not set.")
+
+    def to_internal_value(self, data):
+        # Legacy shape guard: some clients sent an event-based goal as an object in 'filters'
+        # (e.g. {"events": [...], "source": "events"}). That belongs in 'events' — relocate it before
+        # field validation so the old shape is still accepted and compiled (filters only takes an
+        # array of property conditions) instead of returning a 400.
+        if isinstance(data, dict) and isinstance(data.get("filters"), dict) and data["filters"].get("events"):
+            data = {**data, "events": [*(data.get("events") or []), {"filters": data["filters"]}], "filters": []}
+        return super().to_internal_value(data)
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched — rows written before the 'events' slot existed may hold
+        # legacy shapes (object in 'filters') that field-level coercion would mangle on read.
+        return value
+
+
 class HogFlowScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = HogFlowSchedule
@@ -513,13 +567,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "Server compiles bytecode from hash. Omit to disable."
         ),
     )
-    conversion = serializers.JSONField(
+    conversion = HogFlowConversionSerializer(
         required=False,
         allow_null=True,
         help_text=(
-            "Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, "
-            "type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / "
-            "exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+            "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; "
+            "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
+            "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
+            "bytecode compiled server-side."
         ),
     )
     exit_condition = serializers.ChoiceField(

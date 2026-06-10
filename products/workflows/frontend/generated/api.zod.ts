@@ -362,6 +362,7 @@ export const hogFlowsCreateBodyDescriptionDefault = ``
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
+export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
@@ -398,10 +399,56 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
             'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
-        .unknown()
+        .union([
+            zod.object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe(
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                    ),
+                events: zod
+                    .array(
+                        zod.object({
+                            filters: zod
+                                .object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                })
+                                .describe(
+                                    "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
+                    ),
+                window_minutes: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                    ),
+                bytecode: zod.unknown().describe("Compiled server-side from 'filters'. Do not set."),
+            }),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([
@@ -518,6 +565,7 @@ export const hogFlowsUpdateBodyDescriptionDefault = ``
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
+export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsUpdateBodyActionsItemDescriptionDefault = ``
@@ -554,10 +602,56 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
             'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
-        .unknown()
+        .union([
+            zod.object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe(
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                    ),
+                events: zod
+                    .array(
+                        zod.object({
+                            filters: zod
+                                .object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                })
+                                .describe(
+                                    "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
+                    ),
+                window_minutes: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                    ),
+                bytecode: zod.unknown().describe("Compiled server-side from 'filters'. Do not set."),
+            }),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([
@@ -674,6 +768,7 @@ export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
+export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
@@ -710,10 +805,58 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
-        .unknown()
+        .union([
+            zod.object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe(
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                    ),
+                events: zod
+                    .array(
+                        zod.object({
+                            filters: zod
+                                .object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(
+                                            hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault
+                                        ),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                })
+                                .describe(
+                                    "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
+                    ),
+                window_minutes: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                    ),
+                bytecode: zod.unknown().describe("Compiled server-side from 'filters'. Do not set."),
+            }),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([
@@ -857,6 +1000,7 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax =
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin = 60
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
+export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault = ``
@@ -953,10 +1097,60 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
                 ),
             conversion: zod
-                .unknown()
+                .union([
+                    zod.object({
+                        filters: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                            ),
+                        events: zod
+                            .array(
+                                zod.object({
+                                    filters: zod
+                                        .object({
+                                            source: zod
+                                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                                .describe(
+                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                                )
+                                                .default(
+                                                    hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault
+                                                ),
+                                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                            data_warehouse: zod
+                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                .optional(),
+                                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                            bytecode: zod.unknown().optional(),
+                                            transpiled: zod.unknown().optional(),
+                                            filter_test_accounts: zod.boolean().optional(),
+                                            bytecode_error: zod.string().optional(),
+                                        })
+                                        .describe(
+                                            "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
+                                        ),
+                                })
+                            )
+                            .optional()
+                            .describe(
+                                "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
+                            ),
+                        window_minutes: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            ),
+                        bytecode: zod.unknown().describe("Compiled server-side from 'filters'. Do not set."),
+                    }),
+                    zod.null(),
+                ])
                 .optional()
                 .describe(
-                    'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                    'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
                 ),
             exit_condition: zod
                 .enum([
@@ -1173,6 +1367,7 @@ export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
+export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsBulkDeleteCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault = ``
@@ -1209,10 +1404,58 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
             'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
-        .unknown()
+        .union([
+            zod.object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe(
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                    ),
+                events: zod
+                    .array(
+                        zod.object({
+                            filters: zod
+                                .object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(
+                                            hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault
+                                        ),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                })
+                                .describe(
+                                    "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
+                                ),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
+                    ),
+                window_minutes: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                    ),
+                bytecode: zod.unknown().describe("Compiled server-side from 'filters'. Do not set."),
+            }),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([

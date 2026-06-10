@@ -323,6 +323,27 @@ export interface PaginatedHogFlowMinimalListApi {
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
+export interface HogFlowConversionEventApi {
+    /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
+    filters: HogFunctionFiltersApi
+}
+
+export type HogFlowConversionApiFiltersItem = { [key: string]: unknown }
+
+export interface HogFlowConversionApi {
+    /** Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. */
+    filters?: HogFlowConversionApiFiltersItem[]
+    /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
+    events?: HogFlowConversionEventApi[]
+    /**
+     * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+     * @nullable
+     */
+    window_minutes?: number | null
+    /** Compiled server-side from 'filters'. Do not set. */
+    readonly bytecode: unknown
+}
+
 /**
  * * `continue` - continue
  * * `branch` - branch
@@ -447,8 +468,8 @@ export interface HogFlowApi {
     readonly trigger: unknown
     /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-    conversion?: unknown
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
      * * `exit_on_conversion` - Conversion
@@ -497,8 +518,8 @@ export interface PatchedHogFlowApi {
     readonly trigger?: unknown
     /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-    conversion?: unknown
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
      * * `exit_on_conversion` - Conversion
