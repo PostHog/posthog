@@ -2623,3 +2623,40 @@ class TestApprovalComment:
 
     def test_snapshot_name_cell_escapes_pipes(self):
         assert logic._snapshot_name_cell("a|b") == "`a\\|b`"
+
+    def test_snapshot_name_cell_collapses_control_characters(self):
+        # Newlines/tabs/carriage returns would otherwise break out of the table row
+        cell = logic._snapshot_name_cell("a\nb\tc\rd")
+        assert "\n" not in cell
+        assert "\r" not in cell
+        assert "\t" not in cell
+        assert cell == "`a b c d`"
+
+    def test_snapshot_name_cell_newline_cannot_inject_table_rows(self):
+        # A pipe-laden payload across a newline stays a single escaped cell
+        cell = logic._snapshot_name_cell("x\n| --- |")
+        assert "\n" not in cell
+        assert cell == "`x \\| --- \\|`"
+
+    def test_comment_image_url_requests_seven_day_expiry(self, repo, mocker):
+        # The 7-day expiry is load-bearing: GitHub's image proxy may fetch the URL
+        # long after the comment is posted, so lock the behaviour with a test.
+        captured = {}
+
+        class _RecordingStorage:
+            def __init__(self, repo_id):
+                pass
+
+            def get_presigned_download_url(self, content_hash, expiration=3600):
+                captured["content_hash"] = content_hash
+                captured["expiration"] = expiration
+                return "https://cdn.example/x"
+
+        mocker.patch.object(logic, "ArtifactStorage", _RecordingStorage)
+
+        artifact = self._mk_artifact(repo, "h1")
+        url = logic._comment_image_url(repo, artifact)
+
+        assert url == "https://cdn.example/x"
+        assert captured["content_hash"] == "h1"
+        assert captured["expiration"] == 60 * 60 * 24 * 7 == 604800

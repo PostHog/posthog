@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+import re
 import html
 from collections import Counter
 from collections.abc import Iterable
@@ -1750,9 +1751,19 @@ def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
     return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
 
 
+_TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
-    """Render a snapshot identifier as a table cell (code span, pipe-safe)."""
-    safe = identifier.replace("`", "").replace("|", "\\|")
+    """Render a snapshot identifier as a single-line table cell (code span, pipe-safe).
+
+    Identifiers come from the run manifest without newline validation, so collapse
+    control characters (newlines, tabs, etc.) to spaces first — otherwise a
+    malformed or user-controlled story name could break out of the table row and
+    inject markdown/HTML into the comment. Then strip backticks and escape pipes so
+    it stays inside the code span and the cell.
+    """
+    safe = _TABLE_BREAKING_CHARS_RE.sub(" ", identifier).replace("`", "").replace("|", "\\|")
     return f"`{safe}`{suffix}"
 
 
