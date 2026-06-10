@@ -2044,39 +2044,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
-    # The next two pin the auth-dependent decryption of encrypted remote config payloads:
-    # project-secret keys get the redacted marker, personal API keys get plaintext. This is
-    # the parity oracle for the Rust port of this endpoint, which must replicate both.
-    def test_remote_config_encrypted_payload_redacted_with_project_secret_key(self):
+    # Encrypted remote config payloads are decrypted only for personal API keys; project
+    # secret keys get the redacted marker. This is the parity oracle for the Rust port,
+    # which must replicate both.
+    @parameterized.expand(
+        [
+            ("project_secret_key", False),
+            ("personal_api_key", True),
+        ]
+    )
+    def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
         plaintext = '{"secret": "value"}'
         token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
         self._create_encrypted_flag(stored_payload=token)
 
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        else:
+            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            auth_token = self.team.secret_api_token
+
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {auth_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), REDACTED_PAYLOAD_VALUE)
-
-    def test_remote_config_encrypted_payload_decrypted_with_personal_api_key(self):
-        plaintext = '{"secret": "value"}'
-        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
-        self._create_encrypted_flag(stored_payload=token)
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-        self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), plaintext)
+        self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys

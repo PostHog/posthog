@@ -184,10 +184,19 @@ async fn load_remote_config_flag(
             FlagError::DatabaseUnavailable
         })?;
 
-    let is_numeric = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit());
+    // Treat the segment as a flag id only if it is all digits AND fits in i64. An
+    // oversized all-digits segment can't match any real flag id, so it's a 404 — and
+    // parsing it must not panic on user-controlled input.
+    let parsed_id: Option<i64> = if !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) {
+        match key.parse::<i64>() {
+            Ok(id) => Some(id),
+            Err(_) => return Ok(None),
+        }
+    } else {
+        None
+    };
 
-    let result = if is_numeric {
-        let id: i64 = key.parse().expect("all-ascii-digit string parses as i64");
+    let result = if let Some(id) = parsed_id {
         sqlx::query_as::<_, (Value, Option<bool>, Option<bool>)>(
             "SELECT f.filters, f.is_remote_configuration, f.has_encrypted_payloads \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
