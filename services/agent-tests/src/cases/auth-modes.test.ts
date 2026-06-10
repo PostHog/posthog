@@ -9,7 +9,7 @@
  *      gets a `posthog_api` credential, a native tool resolves through
  *      the broker and makes a real fetch to the user's project.
  *   2. OAuth rejected — invalid bearer → 401, no session, no broker row.
- *   3. PAT happy path — same as OAuth but `kind: 'pat_bearer'`.
+ *   3. PAT happy path — same as OAuth but `kind: 'posthog_bearer'`.
  *   4. JWT happy path — JWT signed with agent secret produces `jwt`
  *      principal + `self` credential; principal carries decoded claims.
  *   5. JWT rejected — bad signature → 401.
@@ -27,8 +27,7 @@ import request from 'supertest'
 import {
     AuthProvider,
     jwtVerifier,
-    oauthVerifier,
-    patVerifier,
+    posthogVerifier,
     type PosthogIdentityIntrospector,
     publicVerifier,
 } from '@posthog/agent-ingress'
@@ -87,8 +86,7 @@ function buildProvider(introspector: PosthogIdentityIntrospector): AuthProvider 
     return {
         verifiers: [
             publicVerifier,
-            oauthVerifier(introspector),
-            patVerifier(introspector),
+            posthogVerifier(introspector),
             jwtVerifier({
                 async resolve(ref) {
                     return ref === JWT_SECRET_REF ? JWT_SECRET_VALUE : null
@@ -124,7 +122,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
     it('case 1: oauth happy — bearer → posthog principal → broker stores credential', async () => {
         await c.deployAgent({
             slug: 'oauth-bot',
-            spec: { auth: { modes: [{ type: 'oauth', issuer: 'posthog', scopes: [] }] } },
+            spec: { auth: { modes: [{ type: 'posthog', scopes: [] }] } },
         })
         const res = await request(c.ingress)
             .post('/agents/oauth-bot/run')
@@ -132,19 +130,18 @@ describe('multi-mode auth + credential broker: real e2e', () => {
             .send({ message: 'hi' })
         expect(res.status).toBe(200)
         expect(res.body.principal.kind).toBe('posthog')
-        expect(res.body.principal.source).toBe('oauth')
         expect(res.body.principal.user_id).toBe(POSTHOG_USER_UUID)
         // Broker has the credential, encrypted at rest. We round-trip
         // through the broker's own decrypt path to verify.
         const cred = await c.credentialBroker.resolve(res.body.session_id, 'posthog_api')
-        expect(cred).toEqual({ kind: 'oauth_bearer', token: 'oauth-bearer-abc' })
+        expect(cred).toEqual({ kind: 'posthog_bearer', token: 'oauth-bearer-abc' })
         expect(calls).toContain('oauth-bearer-abc')
     })
 
     it('case 2: oauth rejected — invalid bearer → 401, no session, no broker row', async () => {
         await c.deployAgent({
             slug: 'oauth-bot-2',
-            spec: { auth: { modes: [{ type: 'oauth', issuer: 'posthog', scopes: [] }] } },
+            spec: { auth: { modes: [{ type: 'posthog', scopes: [] }] } },
         })
         const res = await request(c.ingress)
             .post('/agents/oauth-bot-2/run')
@@ -161,16 +158,16 @@ describe('multi-mode auth + credential broker: real e2e', () => {
     it('case 3: pat happy — bearer → posthog/pat principal → broker stores pat_bearer credential', async () => {
         await c.deployAgent({
             slug: 'pat-bot',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         const res = await request(c.ingress)
             .post('/agents/pat-bot/run')
             .set('authorization', 'Bearer phx_test_pat')
             .send({ message: 'hi' })
         expect(res.status).toBe(200)
-        expect(res.body.principal.source).toBe('pat')
+        expect(res.body.principal.kind).toBe('posthog')
         const cred = await c.credentialBroker.resolve(res.body.session_id, 'posthog_api')
-        expect(cred).toEqual({ kind: 'pat_bearer', token: 'phx_test_pat' })
+        expect(cred).toEqual({ kind: 'posthog_bearer', token: 'phx_test_pat' })
     })
 
     it('case 4: jwt happy — signed JWT → jwt principal carries decoded claims; broker stores self credential', async () => {
@@ -220,7 +217,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
             spec: {
                 auth: {
                     modes: [
-                        { type: 'oauth', issuer: 'posthog', scopes: [] },
+                        { type: 'posthog', scopes: [] },
                         { type: 'jwt', issuer_secret_ref: JWT_SECRET_REF },
                     ],
                 },
@@ -253,7 +250,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
     it('case 7: broker isolation — two concurrent sessions get distinct credentials, no cross-read', async () => {
         await c.deployAgent({
             slug: 'iso-bot',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         // Open two sessions with different bearers. The introspector returns
         // the same user (same `user_id`) but the bearer (= credential) is
@@ -292,8 +289,8 @@ describe('multi-mode auth + credential broker: real e2e', () => {
 
         const credA = await c.credentialBroker.resolve(a.body.session_id, 'posthog_api')
         const credB = await c.credentialBroker.resolve(b.body.session_id, 'posthog_api')
-        expect(credA?.kind).toBe('pat_bearer')
-        expect(credB?.kind).toBe('pat_bearer')
+        expect(credA?.kind).toBe('posthog_bearer')
+        expect(credB?.kind).toBe('posthog_bearer')
 
         // Cross-read: asking for session A's creds with B's id returns null
         // for an unbound target, and asking for an unknown session id is
@@ -305,7 +302,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
     it('case 8: encryption at rest — raw row holds ciphertext, not the token', async () => {
         await c.deployAgent({
             slug: 'enc-bot',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         const res = await request(c.ingress)
             .post('/agents/enc-bot/run')
@@ -358,7 +355,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
         await c.deployAgent({
             slug: 'lister',
             spec: {
-                auth: { modes: [{ type: 'pat' }] },
+                auth: { modes: [{ type: 'posthog' }] },
                 tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
             },
         })

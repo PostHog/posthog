@@ -58,7 +58,7 @@ export * from './runtime/failure-notifier'
 export * from './runtime/http-client'
 export * from './runtime/internal-jwt'
 export * from './runtime/slack-failure-notifier'
-export * from './runtime/slack-secret-resolver'
+export * from './runtime/secret-resolver'
 
 export * from './config/platform'
 

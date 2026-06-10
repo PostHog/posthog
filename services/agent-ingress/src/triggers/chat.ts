@@ -7,7 +7,13 @@
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, CredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
+import {
+    buildClientToolResultMarker,
+    CredentialBroker,
+    SessionEventBus,
+    SessionQueue,
+    triggerAuthConfig,
+} from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
@@ -21,7 +27,7 @@ import {
     ChatRunBodySchema,
     ChatSendBodySchema,
 } from './chat.schemas'
-import { hasTrigger, resolveAgent } from './resolve'
+import { resolveAgent } from './resolve'
 import type { TriggerModule } from './types'
 
 /**
@@ -62,7 +68,9 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 }
                 return
             }
-            if (!hasTrigger(resolved, 'chat')) {
+            const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+            const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
+            if (!authConfig) {
                 res.status(404).json({ error: 'no_chat_trigger' })
                 return
             }
@@ -75,7 +83,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             const auth = await authorize(
                 req,
                 resolved.application,
-                resolved.revision.spec,
+                authConfig,
                 deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
             )
             if (!auth.ok) {
@@ -141,10 +149,16 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 }
                 return
             }
+            const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+            const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
+            if (!authConfig) {
+                res.status(404).json({ error: 'no_chat_trigger' })
+                return
+            }
             const auth = await authorize(
                 req,
                 resolved.application,
-                resolved.revision.spec,
+                authConfig,
                 deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
             )
             if (!auth.ok) {
@@ -185,7 +199,6 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 return
             }
             if (existing.state === 'closed') {
-                const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
                 const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
                 if (!allowRestart) {
                     res.status(410).json({ error: 'session_terminal', state: 'closed' })

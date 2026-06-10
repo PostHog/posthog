@@ -23,8 +23,9 @@
         },
         {
             "type": "chat",
-            "config": {
-                "require_auth": true
+            "config": {},
+            "auth": {
+                "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
             }
         }
     ],
@@ -61,6 +62,5 @@
         "max_turns": 40,
         "max_tool_calls": 80,
         "max_wall_seconds": 600
-    },
-    "auth": { "modes": [{ "type": "posthog_internal" }, { "type": "pat" }] }
+    }
 }

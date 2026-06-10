@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { AgentApplication, AgentSession } from '../spec/spec'
 import { HttpFetcher } from './http-client'
+import { SecretResolver } from './secret-resolver'
 import { SlackFailureNotifier } from './slack-failure-notifier'
-import { SlackSigningSecretResolver } from './slack-secret-resolver'
 
 const APP: AgentApplication = {
     id: 'app-1',
@@ -45,7 +45,7 @@ function makeOkResponse(): Response {
     })
 }
 
-function tokenResolver(returns: string | null): SlackSigningSecretResolver {
+function tokenResolver(returns: string | null): SecretResolver {
     return { resolve: vi.fn(async () => returns) }
 }
 
@@ -174,7 +174,7 @@ describe('SlackFailureNotifier', () => {
         const fetch = vi.fn()
         const http: HttpFetcher = { fetch: fetch as unknown as HttpFetcher['fetch'] }
         const logger = { warn: vi.fn(), info: vi.fn() }
-        const throwingResolver: SlackSigningSecretResolver = {
+        const throwingResolver: SecretResolver = {
             resolve: vi.fn(async () => {
                 throw new Error('decrypt failed')
             }),

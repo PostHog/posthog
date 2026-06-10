@@ -14,10 +14,10 @@
  * Verifiers per mode:
  *
  *   - `public`             — always succeeds, anonymous principal, no creds
- *   - `oauth` / `pat`      — Authorization: Bearer <token>; verified via
- *                            an `IdentityIntrospector` (PostHog: hit
- *                            `/api/users/@me/`); produces `posthog`
- *                            principal + `posthog_api` credential
+ *   - `posthog`            — Authorization: Bearer <token> (PAT today, OAuth
+ *                            later); verified via an `IdentityIntrospector`
+ *                            (PostHog: hit `/api/users/@me/`); produces
+ *                            `posthog` principal + `posthog_api` credential
  *   - `jwt`                — Authorization: Bearer <jwt>; signature
  *                            verified with the agent's encrypted-env
  *                            secret referenced by `issuer_secret_ref`;
@@ -34,7 +34,7 @@ import { Request } from 'express'
 
 import {
     AgentApplication,
-    AgentSpec,
+    AuthConfig,
     AuthMode,
     AuthModeType,
     CredentialMap,
@@ -84,13 +84,20 @@ export interface AuthProvider {
 }
 
 /**
- * Public verifier — always succeeds with the anonymous principal.
- * Order matters: when `public` is listed, every request matches it,
- * so other modes only get a chance if they're listed first.
+ * Public verifier — succeeds with the anonymous principal, but ONLY for an
+ * explicitly `public`-typed mode (which the schema forces to carry
+ * `acknowledge_public_exposure: true`). The mode-type guard means anonymous
+ * pass-through can never happen by accident — a mis-wired or malformed mode
+ * falls through to the next, and an agent with no `public` mode fails closed.
+ * Order matters: when `public` is listed, every request matches it, so other
+ * modes only get a chance if they're listed first.
  */
 export const publicVerifier: AuthVerifier = {
     modeType: 'public',
-    async verify() {
+    async verify(_req, mode) {
+        if (mode.type !== 'public') {
+            return { ok: false, status: 0, reason: 'skip' }
+        }
         return { ok: true, principal: { kind: 'anonymous' }, credentials: {} }
     },
 }
@@ -133,10 +140,10 @@ export function readBearer(req: Request): string | null {
 export async function authorize(
     req: Request,
     application: AgentApplication,
-    spec: AgentSpec,
+    authConfig: AuthConfig,
     provider: AuthProvider
 ): Promise<VerifyResult> {
-    const modes = spec.auth.modes
+    const modes = authConfig.modes
     if (modes.length === 0) {
         return { ok: false, status: 401, reason: 'no_modes_configured' }
     }

@@ -20,7 +20,7 @@ const provider: AuthProvider = {
     verifiers: [
         publicVerifier,
         {
-            modeType: 'pat',
+            modeType: 'posthog',
             async verify(req, _mode, application) {
                 const bearer = readBearer(req)
                 if (!bearer) {
@@ -34,11 +34,10 @@ const provider: AuthProvider = {
                     ok: true,
                     principal: {
                         kind: 'posthog',
-                        source: 'pat',
                         user_id: userId,
                         team_id: application.team_id,
                     },
-                    credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                    credentials: { posthog_api: { kind: 'posthog_bearer', token: bearer } },
                 }
             },
         },
@@ -62,7 +61,7 @@ describe('strict principal match on /send: real e2e', () => {
 
     it('pat agent: /send with the same PAT as /run → 200', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p1', spec: { auth: { modes: [{ type: 'pat' }] } } })
+        await c.deployAgent({ slug: 'p1', spec: { auth: { modes: [{ type: 'posthog' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p1/run')
             .set('authorization', `Bearer ${PAT_A}`)
@@ -85,7 +84,7 @@ describe('strict principal match on /send: real e2e', () => {
         // as a PendingElevationRequest for replay-on-grant, the session is
         // not advanced, and the response carries an elevation_request_id.
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p2', spec: { auth: { modes: [{ type: 'pat' }] } } })
+        await c.deployAgent({ slug: 'p2', spec: { auth: { modes: [{ type: 'posthog' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p2/run')
             .set('authorization', `Bearer ${PAT_A}`)
@@ -112,7 +111,7 @@ describe('strict principal match on /send: real e2e', () => {
 
     it('pat agent: /send with no auth → 401 (auth fails before strict-match)', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p3', spec: { auth: { modes: [{ type: 'pat' }] } } })
+        await c.deployAgent({ slug: 'p3', spec: { auth: { modes: [{ type: 'posthog' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p3/run')
             .set('authorization', `Bearer ${PAT_A}`)

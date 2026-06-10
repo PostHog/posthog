@@ -39,7 +39,6 @@ import {
     PuzzleIcon,
     ScrollTextIcon,
     ServerIcon,
-    ShieldIcon,
     SparklesIcon,
     TimerIcon,
     UserIcon,
@@ -78,6 +77,10 @@ interface SkillRef {
 interface Trigger {
     type: string
     config?: Record<string, unknown>
+    /** Per-trigger auth modes. Present on declarative triggers (webhook / chat /
+     *  mcp); absent on intrinsic ones (slack / cron), which gate via their own
+     *  protocol. A `public` mode means the trigger accepts anonymous callers. */
+    auth?: { modes?: Array<{ type?: string }> }
 }
 interface McpToolEntry {
     name: string
@@ -235,6 +238,44 @@ function customPill(): ReactNode {
         </span>
     )
 }
+/** Whether a trigger accepts anonymous callers. Declarative triggers
+ *  (webhook / chat / mcp) are public iff their auth modes include `public`;
+ *  intrinsic triggers (slack / cron) are never anonymous. */
+function isTriggerPublic(t: Trigger): boolean {
+    const modes = Array.isArray(t.auth?.modes) ? t.auth.modes : []
+    return modes.some((m) => m?.type === 'public')
+}
+
+/** Reachability pill for a trigger row — loud `public` when it accepts
+ *  anonymous callers, quiet `private` otherwise, with a tooltip that names the
+ *  gate. The trigger analogue of `customPill` / `lockBadge` on tools. */
+function reachabilityPill(t: Trigger): ReactNode {
+    if (isTriggerPublic(t)) {
+        return (
+            <span
+                title="Publicly accessible — accepts anonymous, unauthenticated callers. Anyone who can reach the endpoint can start a session."
+                className="rounded bg-amber-500/15 px-1 py-px text-[0.5625rem] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300"
+            >
+                public
+            </span>
+        )
+    }
+    const title =
+        t.type === 'slack'
+            ? 'Private — gated by the Slack request signature.'
+            : t.type === 'cron'
+              ? 'Private — fires from the internal scheduler; not externally reachable.'
+              : 'Private — callers must authenticate (PostHog token / bearer).'
+    return (
+        <span
+            title={title}
+            className="rounded bg-emerald-500/15 px-1 py-px text-[0.5625rem] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+        >
+            private
+        </span>
+    )
+}
+
 /** Combine 0+ trailing badges into one inline group (undefined when empty). */
 function trailingBadges(nodes: ReactNode[]): ReactNode | undefined {
     const items = nodes.filter(Boolean)
@@ -304,7 +345,10 @@ function buildTree(spec: Record<string, unknown>, isMissing: (k: string) => bool
                     name: t.type,
                     path: `${CFG}trigger/${i}`,
                     icon: <TriggerIcon type={t.type} />,
-                    trailing: missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : undefined,
+                    trailing: trailingBadges([
+                        reachabilityPill(t),
+                        missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : null,
+                    ]),
                 }
             }),
         })
@@ -407,7 +451,6 @@ function buildTree(spec: Record<string, unknown>, isMissing: (k: string) => bool
     }
 
     children.push({ type: 'file', name: 'limits', path: `${CFG}limits`, icon: <TimerIcon className={LEAF} /> })
-    children.push({ type: 'file', name: 'auth', path: `${CFG}auth`, icon: <ShieldIcon className={LEAF} /> })
 
     return { type: 'folder', name: '', children }
 }
@@ -503,6 +546,7 @@ function DetailPane({
                     isMissing={isMissing}
                     onEditSecret={onEditSecret}
                     slackSetup={t?.type === 'slack' ? slackSetup : undefined}
+                    agentSlug={agentSlug}
                 />,
                 `Help me configure the ${t?.type ?? ''} trigger for \`${slug}\`.`
             )
@@ -600,13 +644,6 @@ function DetailPane({
                 <LimitsBody spec={spec} />,
                 `Help me adjust the limits for \`${slug}\`.`
             )
-        case 'auth':
-            return card(
-                <ShieldIcon className={HEAD} />,
-                'Auth',
-                <AuthBody spec={spec} />,
-                `Help me configure auth for \`${slug}\`.`
-            )
         default: {
             const file = fileFor(selected)
             return file ? <BundleFileBody file={file} /> : <Empty>Pick a configuration item.</Empty>
@@ -623,7 +660,7 @@ const SECTION_INFO: Record<string, string> = {
     instructions:
         'The system prompt (agent.md), prepended to every turn. Keep it short and let skills carry the depth.',
     triggers:
-        "What can start a session: cron schedules, chat messages, webhooks, Slack mentions, or MCP transport. A ⚠ flags a trigger whose required secret isn't set.",
+        "What can start a session: cron schedules, chat messages, webhooks, Slack mentions, or MCP transport. A `public` tag marks a trigger that accepts anonymous callers; `private` means it's authed or intrinsically gated. A ⚠ flags a trigger whose required secret isn't set.",
     tools: 'Callable functions the agent has. Native = built-in runner tools (no setup); custom = authored in this bundle and run in a sandbox; client = fulfilled by the host UI. A 🔒 marks calls that need approval first.',
     skills: 'Markdown playbooks loaded on demand via @posthog/load-skill. Only the index (id + description) sits in the prompt; a body costs tokens only when the model loads it — so the description is the signal for when to load.',
     mcps: 'Remote MCP servers the agent connects to at session start. Each exposes a curated tool list; some of those tools are approval-gated.',
@@ -632,7 +669,6 @@ const SECTION_INFO: Record<string, string> = {
     secrets:
         "Encrypted env values the agent reads (referenced as ${KEY} in tool args); values are never shown. A ⚠ means a required key isn't set yet.",
     limits: 'Per-session safety caps the runner enforces. When one is hit the session ends with `max_*_reached` and the last partial output is kept.',
-    auth: 'How inbound triggers authenticate. oauth + pat are end-user identities; posthog_internal is service-to-service; shared_secret verifies webhook callers.',
 }
 SECTION_INFO.trigger = SECTION_INFO.triggers
 SECTION_INFO.tool = SECTION_INFO.tools
@@ -774,7 +810,11 @@ function TriggersOverview({ spec }: { spec: Record<string, unknown> }): React.Re
     return (
         <Pad>
             <p className="text-sm text-foreground/90">What can start a session — {triggers(spec).length} configured.</p>
-            <Muted>Open a trigger to see its config. A ⚠ flags a trigger whose required secret isn't set.</Muted>
+            <Muted>
+                Open a trigger to see its config. A <strong>public</strong> tag marks a trigger that accepts anonymous
+                callers; <strong>private</strong> means it's authed or intrinsically gated. A ⚠ flags a trigger whose
+                required secret isn't set.
+            </Muted>
         </Pad>
     )
 }
@@ -927,12 +967,146 @@ function ModelBody({ spec }: { spec: Record<string, unknown> }): React.ReactElem
     )
 }
 
+/** One-line "how this trigger works" copy, shown at the top of its detail. */
+const TRIGGER_EXPLAINER: Record<string, string> = {
+    webhook:
+        'A POST to this agent’s webhook endpoint starts a session — the raw JSON body becomes the first message. Callers must satisfy one of the auth modes below.',
+    chat: 'Interactive sessions over /run + /send (the in-app chat scene or any HTTP client). Every caller is authenticated per the auth modes below.',
+    mcp: 'Exposes the agent as an MCP server; clients connect over the streamable-HTTP transport and authenticate per the auth modes below.',
+    slack: 'Responds to Slack mentions and thread replies for trusted workspaces. Auth is intrinsic — every request is verified by Slack request signature, so there are no auth modes to configure.',
+    cron: 'Fires on a schedule from the platform scheduler. There is no external caller, so no inbound auth applies.',
+}
+
+/** What each auth mode means, surfaced next to the mode chip. */
+const AUTH_MODE_BLURB: Record<string, string> = {
+    public: 'Anonymous — anyone can call. Explicitly acknowledged as public exposure.',
+    posthog: 'A PostHog credential (personal API key, or OAuth in future) — end-user identity.',
+    jwt: 'Signed JWT verified with a per-agent secret.',
+    shared_secret: 'A shared secret sent in a named header (webhook-style).',
+    posthog_internal: 'PostHog server-to-server internal token.',
+}
+
+/** Declarative triggers carry author-configurable auth modes; intrinsic ones don't. */
+const DECLARATIVE_TRIGGERS = new Set(['webhook', 'chat', 'mcp'])
+
+const USAGE_HOST = 'https://<ingress-host>'
+
+/** An example auth header line for the trigger's most demonstrable mode, or ''
+ *  (public / none). Mirrors the headers `enqueue/auth.ts` actually accepts. */
+function authHeaderExample(modes: string[], trigger: Trigger): string {
+    if (modes.includes('public') && modes.length === 1) {
+        return ''
+    }
+    if (modes.includes('shared_secret')) {
+        const auth = (trigger as { auth?: { modes?: Array<{ type: string; header?: string }> } }).auth
+        const header = auth?.modes?.find((m) => m.type === 'shared_secret')?.header ?? 'X-Webhook-Secret'
+        return `  -H '${header}: <your-secret>' \\\n`
+    }
+    if (modes.includes('posthog')) {
+        return `  -H 'Authorization: Bearer <POSTHOG_API_KEY>' \\\n`
+    }
+    if (modes.includes('jwt')) {
+        return `  -H 'Authorization: Bearer <SIGNED_JWT>' \\\n`
+    }
+    if (modes.includes('posthog_internal')) {
+        return `  -H 'x-posthog-internal: <INTERNAL_SECRET>' \\\n`
+    }
+    return ''
+}
+
+/** Copy-pasteable "how to call this trigger" examples for webhook / chat / mcp. */
+function triggerUsage(trigger: Trigger, slug: string): { title: string; code: string }[] | null {
+    const base = `${USAGE_HOST}/agents/${slug}`
+    const modes = ((trigger as { auth?: { modes?: Array<{ type: string }> } }).auth?.modes ?? []).map((m) => m.type)
+    const authHeader = authHeaderExample(modes, trigger)
+    if (trigger.type === 'webhook') {
+        return [
+            {
+                title: 'POST the webhook — the JSON body becomes the agent’s first message',
+                code: `curl -X POST ${base}/webhook \\\n  -H 'Content-Type: application/json' \\\n${authHeader}  -d '{"event": "deploy.finished", "status": "ok"}'`,
+            },
+        ]
+    }
+    if (trigger.type === 'chat') {
+        return [
+            {
+                title: 'Start a session',
+                code: `curl -X POST ${base}/run \\\n  -H 'Content-Type: application/json' \\\n${authHeader}  -d '{"message": "Hello"}'\n# → { "session_id": "…", "state": "queued" }`,
+            },
+            {
+                title: 'Send a follow-up, then stream events (SSE)',
+                code: `curl -X POST ${base}/send \\\n  -H 'Content-Type: application/json' \\\n${authHeader}  -d '{"session_id": "<id>", "message": "more"}'\n\ncurl -N '${base}/listen?session_id=<id>'`,
+            },
+        ]
+    }
+    if (trigger.type === 'mcp') {
+        const flag = authHeader ? ` \\\n  --header '${authHeader.trim().replace(/^-H '|' \\$/g, '')}'` : ''
+        return [
+            {
+                title: 'Add as an MCP server (Claude Code)',
+                code: `claude mcp add --transport http ${slug} ${base}/mcp${flag}`,
+            },
+            {
+                title: 'Or in .mcp.json',
+                code: `{\n  "mcpServers": {\n    "${slug}": { "transport": "http", "url": "${base}/mcp" }\n  }\n}`,
+            },
+        ]
+    }
+    return null
+}
+
+function CopyableCode({ code }: { code: string }): React.ReactElement {
+    const [copied, setCopied] = useState(false)
+    const copy = async (): Promise<void> => {
+        try {
+            await navigator.clipboard.writeText(code)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+        } catch {
+            // Clipboard may be blocked (insecure context) — the code stays selectable.
+        }
+    }
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                onClick={copy}
+                className="absolute right-1.5 top-1.5 rounded border border-border bg-card px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+                {copied ? 'Copied' : 'Copy'}
+            </button>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-2.5 pr-14 text-[0.6875rem] leading-relaxed">
+                {code}
+            </pre>
+        </div>
+    )
+}
+
+function TriggerUsage({ trigger, slug }: { trigger: Trigger; slug: string }): React.ReactElement | null {
+    const examples = triggerUsage(trigger, slug)
+    if (!examples) {
+        return null
+    }
+    return (
+        <div className="space-y-3 border-t border-border p-4">
+            <p className="text-[0.75rem] font-medium text-foreground">How to use</p>
+            {examples.map((ex) => (
+                <div key={ex.title} className="space-y-1.5">
+                    <p className="text-[0.7rem] text-muted-foreground">{ex.title}</p>
+                    <CopyableCode code={ex.code} />
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function TriggerBody({
     trigger,
     requiredKeys,
     isMissing,
     onEditSecret,
     slackSetup,
+    agentSlug,
 }: {
     trigger?: Trigger
     requiredKeys: string[]
@@ -940,6 +1114,7 @@ function TriggerBody({
     onEditSecret?: (key: string) => void
     /** Slack app-manifest setup, rendered for a slack trigger. */
     slackSetup?: ReactNode
+    agentSlug?: string
 }): React.ReactElement {
     if (!trigger) {
         return (
@@ -950,9 +1125,16 @@ function TriggerBody({
     }
     const cfg = trigger.config ?? {}
     const missing = requiredKeys.filter(isMissing)
+    const explainer = TRIGGER_EXPLAINER[trigger.type]
+    const isDeclarative = DECLARATIVE_TRIGGERS.has(trigger.type)
+    const modes = ((trigger as { auth?: { modes?: Array<{ type: string }> } }).auth?.modes ?? []).map((m) => m.type)
+    const isPublic = modes.includes('public')
     return (
         <div className="flex h-full flex-col">
             <Pad>
+                {explainer ? (
+                    <p className="mb-3 text-[0.75rem] leading-relaxed text-muted-foreground">{explainer}</p>
+                ) : null}
                 <Row label="type">
                     <Chip>{trigger.type}</Chip>
                 </Row>
@@ -961,6 +1143,35 @@ function TriggerBody({
                         <code className="text-[0.75rem] text-foreground">{JSON.stringify(cfg[k])}</code>
                     </Row>
                 ))}
+                {isDeclarative ? (
+                    <Row label="auth">
+                        {modes.length ? (
+                            <div className="flex flex-col gap-1.5">
+                                {modes.map((m) => (
+                                    <span key={m} className="flex items-center gap-2">
+                                        <Chip>{m}</Chip>
+                                        <span className="text-[0.7rem] text-muted-foreground">
+                                            {AUTH_MODE_BLURB[m]}
+                                        </span>
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <Muted>none — locked, no caller can reach this trigger</Muted>
+                        )}
+                    </Row>
+                ) : (
+                    <Row label="auth">
+                        <span className="text-[0.7rem] text-muted-foreground">
+                            Intrinsic — verified by the trigger’s own protocol, not configurable.
+                        </span>
+                    </Row>
+                )}
+                {isPublic ? (
+                    <Attention>
+                        This trigger is <strong>public</strong> — it accepts anonymous, unauthenticated callers.
+                    </Attention>
+                ) : null}
                 {missing.length ? (
                     <Attention>
                         Requires secret(s) not yet set: {missing.join(', ')}.
@@ -972,6 +1183,7 @@ function TriggerBody({
                     </Attention>
                 ) : null}
             </Pad>
+            <TriggerUsage trigger={trigger} slug={agentSlug ?? '<slug>'} />
             {slackSetup ? <div className="border-t border-border">{slackSetup}</div> : null}
         </div>
     )
@@ -1175,29 +1387,6 @@ function LimitsBody({ spec }: { spec: Record<string, unknown> }): React.ReactEle
             <Row label="max turns">{stat(limits.max_turns)}</Row>
             <Row label="max tool calls">{stat(limits.max_tool_calls)}</Row>
             <Row label="max wall seconds">{stat(limits.max_wall_seconds)}</Row>
-        </Pad>
-    )
-}
-
-function AuthBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
-    const auth = (spec.auth && typeof spec.auth === 'object' ? spec.auth : {}) as {
-        modes?: Array<{ type: string }>
-        mode?: string
-    }
-    const modes = auth.modes?.map((m) => m.type) ?? (auth.mode ? [auth.mode] : [])
-    return (
-        <Pad>
-            <Row label="modes">
-                {modes.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                        {modes.map((m) => (
-                            <Chip key={m}>{m}</Chip>
-                        ))}
-                    </div>
-                ) : (
-                    <Muted>none</Muted>
-                )}
-            </Row>
         </Pad>
     )
 }

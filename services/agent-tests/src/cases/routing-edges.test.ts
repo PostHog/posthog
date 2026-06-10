@@ -36,7 +36,15 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'chat-only',
-            spec: { triggers: [{ type: 'chat', config: { require_auth: false } }] },
+            spec: {
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
+            },
         })
         const res = await request(c.ingress)
             .post('/agents/chat-only/slack/events')
@@ -52,7 +60,15 @@ describe('routing edges: real e2e', () => {
         c = await buildCluster()
         await c.deployAgent({
             slug: 'no-webhook',
-            spec: { triggers: [{ type: 'chat', config: { require_auth: false } }] },
+            spec: {
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
+            },
         })
         const res = await request(c.ingress).post('/agents/no-webhook/webhook').send({})
         expect(res.status).toBe(404)

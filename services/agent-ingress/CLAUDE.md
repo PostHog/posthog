@@ -38,7 +38,7 @@ for the wider dev flow before non-trivial changes.
    conventional `SLACK_SIGNING_SECRET_KEY` (from
    `@posthog/agent-shared`'s `TRIGGER_REQUIRED_SECRETS` registry) in the
    agent's `AgentApplication.encrypted_env` via
-   `SlackSigningSecretResolver`, which decrypts on every request using
+   `SecretResolver`, which decrypts on every request using
    the same `EncryptedFields` helper as everywhere else. Django's
    promote action gates on the entry being present so production
    requests always find a value. BYO Slack apps work day-1. To add

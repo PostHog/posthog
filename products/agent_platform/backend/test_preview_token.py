@@ -7,8 +7,8 @@ Verifies:
   * `endpoints` contains the right routes for each declared trigger and
     omits routes for triggers the spec doesn't list (so the caller
     doesn't see URLs that 404 at ingress).
-  * `auth.spec_modes` mirrors `spec.auth.modes[].type` in order so the
-    caller knows which credential to attach alongside the preview-token.
+  * `auth.trigger_modes` mirrors each trigger's `auth.modes[].type` in order so
+    the caller knows which credential to attach alongside the preview-token.
   * `preview_proxy` advertises the Django-side proxy URL + its allowed
     paths so callers can pick between direct ingress and the
     auth-stripping proxy.
@@ -33,9 +33,16 @@ from .models import AgentApplication, AgentRevision
 
 
 def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | None = None) -> dict[str, Any]:
+    # Auth is per-trigger now — `modes` is distributed onto each declarative
+    # trigger (webhook/chat/mcp) that doesn't already carry its own.
+    auth = {"modes": [{"type": m, "scopes": []} if m == "posthog" else {"type": m} for m in (modes or ["posthog"])]}
+    trigs = triggers if triggers is not None else [{"type": "chat", "config": {}}]
+    trigs = [
+        {**t, "auth": auth} if t.get("type") in ("webhook", "chat", "mcp") and "auth" not in t else t for t in trigs
+    ]
     return {
         "model": "anthropic/claude-sonnet-4-6",
-        "triggers": triggers if triggers is not None else [{"type": "chat", "config": {"require_auth": True}}],
+        "triggers": trigs,
         "tools": [],
         "mcps": [],
         "skills": [],
@@ -43,12 +50,6 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
         "secrets": [],
         "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
         "entrypoint": "agent.md",
-        "auth": {
-            "modes": [
-                {"type": m, "issuer": "posthog", "scopes": []} if m == "oauth" else {"type": m}
-                for m in (modes or ["pat"])
-            ],
-        },
     }
 
 
@@ -85,7 +86,7 @@ class TestPreviewTokenResponse(APIBaseTest):
         app = self._app()
         spec = _base_spec(
             triggers=[
-                {"type": "chat", "config": {"require_auth": True}},
+                {"type": "chat", "config": {}},
                 {
                     "type": "slack",
                     "config": {"mention_only": True, "trusted_workspaces": ["T01ABC"]},
@@ -115,27 +116,24 @@ class TestPreviewTokenResponse(APIBaseTest):
         assert "mcp" not in endpoints
         assert "webhook" not in endpoints
 
-    def test_auth_block_mirrors_spec_modes_in_order(self) -> None:
+    def test_auth_block_mirrors_per_trigger_modes_in_order(self) -> None:
         app = self._app()
-        rev = self._revision(app, _base_spec(modes=["oauth", "pat", "posthog_internal"]))
+        rev = self._revision(app, _base_spec(modes=["posthog", "posthog_internal"]))
 
         res = self.client.get(self._url(app, rev))
         assert res.status_code == 200, res.content
         auth = res.json()["auth"]
 
-        # Mode order matters — the caller picks the first one its
-        # credential satisfies; mirroring spec order keeps the contract
-        # stable across edits.
-        assert auth["spec_modes"] == ["oauth", "pat", "posthog_internal"]
+        # Auth is per-trigger now — the chat trigger's modes are reported under
+        # its type. Order matters: the caller picks the first mode its
+        # credential satisfies, so mirroring spec order keeps the contract stable.
+        assert auth["trigger_modes"] == {"chat": ["posthog", "posthog_internal"]}
         # Header / query names match what ingress's resolver reads.
-        # Changing either side without the other would silently break
-        # preview invocations — locking them down here.
         assert auth["preview_token_header"] == "x-agent-preview-token"
         assert auth["preview_token_query"] == "preview_token"
-        # Notes must mention that preview-token alone isn't enough —
-        # the caller still has to satisfy spec.auth.modes. This is the
-        # gotcha that motivated the field's existence.
-        assert "spec.auth.modes" in auth["notes"]
+        # Notes must mention that preview-token alone isn't enough — the caller
+        # still has to satisfy the trigger's auth modes.
+        assert "trigger_modes" in auth["notes"]
 
     def test_preview_proxy_block_advertises_django_url(self) -> None:
         app = self._app("proxy-bot")
@@ -227,7 +225,7 @@ class TestPreviewTokenDomainMode(APIBaseTest):
         app = self._app()
         spec = _base_spec(
             triggers=[
-                {"type": "chat", "config": {"require_auth": True}},
+                {"type": "chat", "config": {}},
                 {"type": "slack", "config": {"mention_only": True, "trusted_workspaces": ["T01ABC"]}},
             ]
         )

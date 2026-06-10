@@ -298,6 +298,109 @@ savings.
 
 ---
 
+## Kudos bot — peer-recognition collector + weekly digest
+
+**Status:** infant version built — see
+[`services/agent-tests/src/examples/kudos-bot/`](../../../services/agent-tests/src/examples/kudos-bot/).
+Regression test at
+[`example-kudos-bot.test.ts`](../../../services/agent-tests/src/cases/example-kudos-bot.test.ts).
+
+**Description.** A Slack-resident appreciation collector. Capture is
+mention- / chat-driven by design — people `@mention` it, DM it, or
+chat from the console with "kudos to @jane for unblocking the
+migration"; it extracts the recipient handle, the praise, and any
+themes, and records each kudos as a row. When a
+message is too thin — no recipient, or no actual praise — it asks a
+single clarifying question in-thread and `auto_resume_threads` keeps
+the back-and-forth in one session. Identity is deliberately shallow:
+it stores the **literal Slack handle** for both giver and recipient,
+no email lookup or person resolution. Every Monday a `cron` firing
+queries the past week's rows, groups them by recipient, and posts a
+celebratory digest to a shared kudos channel (a short nudge instead on
+a quiet week). The tabular `kudos` table is the complete record; a
+per-recipient `people/<handle>.md` prose-memory profile accretes a
+highlight reel for "what has @jane been recognised for?" lookups.
+
+**Spec sketch.**
+
+```yaml
+triggers:
+    - type: slack # @mention / DM to give a kudos
+      config: { mention_only: true, auto_resume_threads: true, ack_reaction: raised_hands }
+    - type: cron # weekly digest
+      config: { name: weekly-kudos-summary, schedule: '0 9 * * 1', timezone: America/Los_Angeles }
+    - type: chat # give / query from the console
+tools:
+    - kind: native, id: '@posthog/slack-post-message'
+    - kind: native, id: '@posthog/slack-read-thread'
+    - kind: native, id: '@posthog/slack-react'
+    - kind: native, id: '@posthog/table-append' # one row per kudos
+    - kind: native, id: '@posthog/table-query' # weekly digest + lookups
+    - kind: native, id: '@posthog/table-count'
+    - kind: native, id: '@posthog/memory-write' # per-recipient profile (un-gated)
+    - kind: native, id: '@posthog/memory-update'
+    - kind: native, id: '@posthog/memory-search'
+    - kind: native, id: '@posthog/memory-read'
+secrets: [SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET]
+skills:
+    - capturing-kudos
+    - kudos-storage
+    - weekly-summary
+resume: { enabled: true, max_completed_age_ms: 604800000 } # keep capture threads open
+reasoning: medium
+```
+
+**Platform prerequisites.**
+
+- [x] ✅ Slack trigger (mention + thread resume) — `mention_only` +
+      `auto_resume_threads` carry the capture + one-question-clarify loop.
+- [x] ✅ Cron trigger — the Monday digest; `{fired_at:week}` placeholder + `external_key` dedupe one digest per week.
+- [x] ✅ Chat trigger — console capture + "what did @jane get?" queries.
+- [x] ✅ Native Slack tools (`slack-post-message` / `-read-thread` /
+      `-react`) via a bring-your-own `SLACK_BOT_TOKEN`.
+- [x] ✅ Tabular store (`@posthog/table-*`) — the deterministic `kudos`
+      record, deduped on a stable `kudos_id` so Slack retries / thread
+      resumes don't double-count.
+- [x] ✅ Prose memory (`@posthog/memory-*`) — per-recipient highlight
+      profile; writes left **un-gated** (low-stakes, high-volume — the
+      opposite call from the SRE bot's runbook corpus).
+- [x] ✅ Long-running sessions (`resume.enabled`) — a capture thread
+      stays open past the 24h default so "oh, also for the docs"
+      resumes cleanly.
+- [ ] ⚠️ **`reaction_added` trigger variant.** The most natural kudos
+      UX is reacting to a message with `:clap:` / `:trophy:`. Slack
+      delivers `reaction_added` events but the `slack` trigger only
+      routes `message` / `app_mention` today. A reaction trigger (with
+      an emoji allowlist) would make one-click kudos work. Enhancement,
+      not a blocker.
+- [ ] ⚠️ **Content-filtered Slack trigger (optional passive capture).**
+      `mention_only: true` is the right default — the bot acts only when
+      addressed. A team wanting passive capture (kudos said in a channel
+      without naming the bot) would need `mention_only: false` +
+      `message.channels`, which spins up a **session per message**. An
+      ingress-level pre-filter (`match` / `keywords` on the `slack`
+      trigger config, evaluated before a session is created) would make
+      that affordable. Not needed for this bundle.
+- [x] ⚠️ **Stable identity / people directory.** Storing raw handles
+      works but is brittle (display-name changes split a person's
+      history; no cross-workspace identity). Same shortfall as the
+      cross-cutting **per-principal memory scope** gap, viewed from the
+      storage side. v0 accepts the handle as the key. **Partial.**
+- [ ] ⚠️ **Agent-config surface for the digest channel.** The target
+      channel is baked into the prompt today — same "user-maintained
+      config" nice-to-have flagged on the wake-me-up bundle. **Gap
+      (nice-to-have).**
+
+**Feasibility today.** **Shipped on this branch** as a mention- /
+chat-driven capture + weekly-digest bot — same e2e regression shape as
+the SRE / wake-me-up bundles (load bundle, fire a signed Slack mention +
+a `cronTick`, drain, assert the row + profile landed in real S3 and
+the digest posted). `mention_only: true` is the intended design, so
+nothing blocks the bundle; the listed items (reaction trigger, optional
+passive capture, stable identity) are enhancements.
+
+---
+
 ## AI documentation agent — Slack + website + chat
 
 **Description.** Inkeep-style assistant grounded against PostHog's

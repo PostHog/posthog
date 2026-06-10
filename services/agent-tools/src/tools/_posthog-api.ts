@@ -39,7 +39,7 @@ export async function callPosthogApi<T = unknown>(ctx: ToolContext, opts: CallPo
         throw new Error('posthog_credentials_unavailable: credential broker not wired in this session')
     }
     const cred = await ctx.credentials.resolve('posthog_api')
-    if (!cred || (cred.kind !== 'oauth_bearer' && cred.kind !== 'pat_bearer')) {
+    if (!cred || cred.kind !== 'posthog_bearer') {
         throw new Error('posthog_credentials_unavailable: no posthog_api credential for this session')
     }
     const qs = opts.query

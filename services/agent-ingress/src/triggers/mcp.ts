@@ -50,6 +50,7 @@ import {
     SessionEventBus,
     SessionPrincipal,
     SessionQueue,
+    triggerAuthConfig,
 } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
@@ -58,7 +59,7 @@ import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
 import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
-import { hasTrigger, resolveAgent } from './resolve'
+import { resolveAgent } from './resolve'
 import type { TriggerModule } from './types'
 
 export interface McpTriggerDeps {
@@ -122,7 +123,9 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                 }
                 return
             }
-            if (!hasTrigger(resolved, 'mcp')) {
+            const mcpTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'mcp')
+            const authConfig = mcpTrigger ? triggerAuthConfig(mcpTrigger) : null
+            if (!authConfig) {
                 res.status(404).json({ error: 'no_mcp_trigger' })
                 return
             }
@@ -143,7 +146,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                 const auth = await authorize(
                     req,
                     resolved.application,
-                    resolved.revision.spec,
+                    authConfig,
                     deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
                 )
                 if (!auth.ok) {
@@ -418,7 +421,9 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                 }
                 return
             }
-            if (!hasTrigger(resolved, 'mcp')) {
+            const mcpTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'mcp')
+            const authConfig = mcpTrigger ? triggerAuthConfig(mcpTrigger) : null
+            if (!authConfig) {
                 res.status(404).json({ error: 'no_mcp_trigger' })
                 return
             }
@@ -428,7 +433,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
             // pick the most specific accepted mode (non-public preferred).
             // Clients that want to see all accepted modes can introspect
             // via /schemas; the snippet is a one-shot copy-paste affordance.
-            const modes = resolved.revision.spec.auth.modes
+            const modes = authConfig.modes
             // Defensive fallback when modes[] is somehow empty (legacy data
             // bypassing the schema default). Use `posthog_internal` rather
             // than `public` so an unconfigured agent never renders an
@@ -448,7 +453,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
 }
 
 interface ConnectAuth {
-    mode: 'public' | 'pat' | 'shared_secret' | 'posthog_internal' | string
+    mode: 'public' | 'posthog' | 'shared_secret' | 'posthog_internal' | string
     header: string | null
     scheme: string | null
     instructions: string
@@ -469,13 +474,13 @@ function buildConnectAuth(specAuth: { mode: string; header?: string }): ConnectA
             instructions: 'No authentication required — connect anonymously.',
         }
     }
-    if (specAuth.mode === 'pat') {
+    if (specAuth.mode === 'posthog') {
         return {
-            mode: 'pat',
+            mode: 'posthog',
             header: 'Authorization',
             scheme: 'Bearer',
             instructions:
-                'Set Authorization: Bearer <YOUR_POSTHOG_PAT>. Create a PAT at /me/settings#personal-api-keys; scope it `agents:read`.',
+                'Set Authorization: Bearer <YOUR_POSTHOG_API_KEY>. Create a personal API key at /me/settings#personal-api-keys; scope it `agents:read`.',
         }
     }
     if (specAuth.mode === 'posthog_internal') {
@@ -515,8 +520,8 @@ function buildConnectSnippets(
     auth: ConnectAuth
 ): { claude_code_command: string; mcp_json: Record<string, unknown> } {
     const headers: Record<string, string> = {}
-    if (auth.mode === 'pat') {
-        headers.Authorization = 'Bearer <YOUR_POSTHOG_PAT>'
+    if (auth.mode === 'posthog') {
+        headers.Authorization = 'Bearer <YOUR_POSTHOG_API_KEY>'
     } else if (auth.mode === 'posthog_internal') {
         headers['x-posthog-internal'] = '<INTERNAL_SECRET>'
     } else if (auth.mode === 'shared_secret' && auth.header) {

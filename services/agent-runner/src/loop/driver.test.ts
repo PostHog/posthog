@@ -425,7 +425,6 @@ describe('driver runSession', () => {
 
         const principalAlice: SessionPrincipal = {
             kind: 'posthog',
-            source: 'oauth',
             user_id: 'alice',
             team_id: 1,
         }

@@ -22,7 +22,7 @@ import {
     SessionQueue,
     SLACK_BOT_TOKEN_KEY,
     SLACK_SIGNING_SECRET_KEY,
-    SlackSigningSecretResolver,
+    SecretResolver,
 } from '@posthog/agent-shared'
 
 const log = createLogger('slack-trigger')
@@ -40,7 +40,7 @@ export interface SlackTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
     teamId: number
-    signingSecretResolver: SlackSigningSecretResolver
+    signingSecretResolver: SecretResolver
     /** Optional identity store — when present, slack events resolve to a stable AgentUser. */
     identities?: IdentityStore
     /**

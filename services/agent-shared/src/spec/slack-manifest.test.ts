@@ -34,9 +34,17 @@ function build(overrides: Partial<BuildSlackManifestInput> = {}): ReturnType<typ
 
 describe('buildSlackManifest', () => {
     it('throws when the spec has no slack trigger', () => {
-        expect(() => build({ triggers: [{ type: 'chat', config: { require_auth: false } } as Trigger] })).toThrow(
-            'no_slack_trigger'
-        )
+        expect(() =>
+            build({
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    } as Trigger,
+                ],
+            })
+        ).toThrow('no_slack_trigger')
     })
 
     it('mention_only=true + auto_resume_threads=false → only app_mention, no message scopes', () => {

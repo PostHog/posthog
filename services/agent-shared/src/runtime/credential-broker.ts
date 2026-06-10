@@ -31,12 +31,10 @@
 
 export type Credential =
     /**
-     * Bearer token usable as `Authorization: Bearer <token>`. `kind`
-     * distinguishes oauth (refreshable, short-lived) from pat
-     * (long-lived). Both shapes carry the token in `token`.
+     * PostHog credential bearer (PAT today, OAuth later), usable as
+     * `Authorization: Bearer <token>`. Available to tools under `posthog_api`.
      */
-    | { kind: 'oauth_bearer'; token: string; scopes?: string[]; expires_at?: number }
-    | { kind: 'pat_bearer'; token: string; scopes?: string[] }
+    | { kind: 'posthog_bearer'; token: string; scopes?: string[]; expires_at?: number }
     /**
      * Raw JWT + its decoded claims. The platform doesn't know how the
      * agent author intends to use this — tools either re-send the JWT

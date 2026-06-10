@@ -16,8 +16,8 @@ import {
 import type { CredentialMap, SessionPrincipal } from '@posthog/agent-shared'
 
 export interface FakeTokens {
-    /** Bearer that resolves to a posthog user (oauth + pat modes). */
-    pat?: string
+    /** Bearer that resolves to a posthog user (the `posthog` auth mode). */
+    posthog?: string
     /** x-posthog-internal value. */
     internal?: string
     /** Shared-secret value (in the header named per spec). */
@@ -26,39 +26,35 @@ export interface FakeTokens {
 
 /**
  * Build the standard fixture auth provider — accepts whichever tokens
- * the caller specifies. Returns a posthog user principal for PAT/OAuth,
- * internal/shared_secret principals for the others.
+ * the caller specifies. Returns a posthog user principal for the `posthog`
+ * mode, internal/shared_secret principals for the others.
  */
 export function fakeAuthProvider(opts: FakeTokens & { teamId?: number; userId?: string } = {}): AuthProvider {
     const teamId = opts.teamId ?? 1
     const userId = opts.userId ?? 'user-1'
 
-    const okPosthog = (source: 'oauth' | 'pat'): VerifyResult => ({
+    const okPosthog = (): VerifyResult => ({
         ok: true,
-        principal: { kind: 'posthog', source, user_id: userId, team_id: teamId, email: `${userId}@test` },
-        credentials: { posthog_api: { kind: `${source}_bearer`, token: opts.pat ?? '' } } as CredentialMap,
+        principal: { kind: 'posthog', user_id: userId, team_id: teamId, email: `${userId}@test` },
+        credentials: { posthog_api: { kind: 'posthog_bearer', token: opts.posthog ?? '' } } as CredentialMap,
     })
 
     const verifiers: AuthVerifier[] = [publicVerifier]
 
-    if (opts.pat) {
-        // Both oauth + pat verifiers route through the same fake — the
-        // discriminator is which mode the spec lists. Tests can mark a
-        // spec as oauth or pat; either resolves the same token.
-        const verifier = (modeType: 'oauth' | 'pat'): AuthVerifier => ({
-            modeType,
+    if (opts.posthog) {
+        verifiers.push({
+            modeType: 'posthog',
             async verify(req) {
                 const bearer = readBearer(req)
                 if (!bearer) {
                     return { ok: false, status: 0, reason: 'skip' }
                 }
-                if (bearer !== opts.pat) {
+                if (bearer !== opts.posthog) {
                     return { ok: false, status: 401, reason: 'invalid_token' }
                 }
-                return okPosthog(modeType)
+                return okPosthog()
             },
         })
-        verifiers.push(verifier('oauth'), verifier('pat'))
     }
 
     if (opts.internal) {

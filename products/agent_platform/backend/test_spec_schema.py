@@ -20,15 +20,24 @@ from rest_framework.exceptions import ValidationError
 from .serializers import AgentRevisionSerializer
 from .spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
 
-# `auth` lost its top-level default (see spec_schema.py), so it's required on
-# every spec. These fixtures focus on other fields, so inject a minimal public
-# auth rather than repeat it in each case. Public exposure carries the explicit
-# ack field per AuthModeSchema in services/agent-shared/src/spec/spec.ts.
-_AUTH = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
+# Auth is per-trigger now (no top-level spec.auth). These fixtures focus on
+# other fields, so give every declarative trigger a minimal public auth block
+# rather than repeat it in each case. Public exposure carries the explicit ack
+# field per AuthModeSchema in services/agent-shared/src/spec/spec.ts.
+_PUBLIC_AUTH = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
 
 
 def _with_auth(spec: dict) -> dict:
-    return {"auth": _AUTH, **spec}
+    triggers = spec.get("triggers")
+    if not isinstance(triggers, list):
+        return spec
+    patched = [
+        {**t, "auth": _PUBLIC_AUTH}
+        if isinstance(t, dict) and t.get("type") in ("webhook", "chat", "mcp") and "auth" not in t
+        else t
+        for t in triggers
+    ]
+    return {**spec, "triggers": patched}
 
 
 @pytest.mark.parametrize(
@@ -39,7 +48,7 @@ def _with_auth(spec: dict) -> dict:
             "with_chat_trigger",
             {
                 "model": "x",
-                "triggers": [{"type": "chat", "config": {"require_auth": False}}],
+                "triggers": [{"type": "chat", "config": {}}],
             },
         ),
         (
@@ -47,7 +56,7 @@ def _with_auth(spec: dict) -> dict:
             {
                 "model": "x",
                 "triggers": [
-                    {"type": "chat", "config": {"require_auth": True}},
+                    {"type": "chat", "config": {}},
                     {"type": "webhook", "config": {"path": "/hook"}},
                 ],
                 "tools": [{"kind": "native", "id": "@posthog/query"}],
@@ -281,5 +290,5 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 
 
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
-    spec = {"model": "x", "triggers": [{"type": "chat", "config": {"require_auth": False}}]}
+    spec = {"model": "x", "triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []

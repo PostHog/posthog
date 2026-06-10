@@ -507,7 +507,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
         verifiers: [
             publicVerifier,
             {
-                modeType: 'pat',
+                modeType: 'posthog',
                 async verify(req, _mode, application) {
                     const bearer = readBearer(req)
                     if (!bearer) {
@@ -522,11 +522,10 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
                         ok: true,
                         principal: {
                             kind: 'posthog',
-                            source: 'pat',
                             user_id: userId,
                             team_id: application.team_id,
                         },
-                        credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                        credentials: { posthog_api: { kind: 'posthog_bearer', token: bearer } },
                     }
                 },
             },
@@ -585,7 +584,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
         const { application } = await c.deployAgent({
             slug: 'shortcut-noadmin',
             spec: {
-                auth: { modes: [{ type: 'pat' }] },
+                auth: { modes: [{ type: 'posthog' }] },
                 tools: [
                     {
                         kind: 'native',
@@ -612,7 +611,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
         const { application } = await c.deployAgent({
             slug: 'shortcut-admin',
             spec: {
-                auth: { modes: [{ type: 'pat' }] },
+                auth: { modes: [{ type: 'posthog' }] },
                 tools: [
                     {
                         kind: 'native',

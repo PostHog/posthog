@@ -121,7 +121,16 @@ describe('per-agent spec.model resolution: real e2e', () => {
             ['agent-b', 'faux/model-B'],
         ] as const) {
             const app = await revisions.createApplication({ team_id: 1, slug, name: slug, description: '' })
-            const spec = AgentSpecSchema.parse({ model, triggers: [{ type: 'chat', config: { require_auth: false } }] })
+            const spec = AgentSpecSchema.parse({
+                model,
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
+            })
             const rev = await revisions.createRevision({
                 application_id: app.id,
                 parent_revision_id: null,

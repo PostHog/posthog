@@ -41,7 +41,9 @@ export default {
 function defaultSpec(): Record<string, unknown> {
     return {
         model: 'faux/faux',
-        triggers: [{ type: 'chat', config: { require_auth: false } }],
+        triggers: [
+            { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
+        ],
         auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
     }
 }
@@ -127,7 +129,13 @@ describe('typed bundle authoring API: real e2e', () => {
                 ],
                 spec: {
                     model: 'faux/faux',
-                    triggers: [{ type: 'chat', config: { require_auth: false } }],
+                    triggers: [
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
+                    ],
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 },
             }
@@ -492,7 +500,13 @@ describe('typed bundle authoring API: real e2e', () => {
                 .send({
                     spec: {
                         ...defaultSpec(),
-                        triggers: [{ type: 'chat', config: { require_auth: false } }],
+                        triggers: [
+                            {
+                                type: 'chat',
+                                config: {},
+                                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                            },
+                        ],
                     },
                 })
             // Set spec.tools[] explicitly via the legacy AgentSpec shape on

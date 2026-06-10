@@ -749,7 +749,11 @@ describe('slack trigger: real e2e', () => {
                 slug: 'open-channel',
                 spec: {
                     triggers: [
-                        { type: 'chat', config: { require_auth: false } },
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
                         trigger({ mention_only: false, auto_resume_threads: false }),
                     ],
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
@@ -771,7 +775,11 @@ describe('slack trigger: real e2e', () => {
                 slug: 'gated-mention',
                 spec: {
                     triggers: [
-                        { type: 'chat', config: { require_auth: false } },
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
                         trigger({ mention_only: true, auto_resume_threads: false }),
                     ],
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
@@ -810,7 +818,11 @@ describe('slack trigger: real e2e', () => {
                 slug: 'thread-resume',
                 spec: {
                     triggers: [
-                        { type: 'chat', config: { require_auth: false } },
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
                         trigger({ mention_only: true, auto_resume_threads: true }),
                     ],
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
@@ -863,7 +875,11 @@ describe('slack trigger: real e2e', () => {
                 slug: 'thread-resume-strict',
                 spec: {
                     triggers: [
-                        { type: 'chat', config: { require_auth: false } },
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
                         trigger({ mention_only: true, auto_resume_threads: true }),
                     ],
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
@@ -945,7 +961,11 @@ describe('slack trigger: real e2e', () => {
                     slug: 'acker',
                     spec: {
                         triggers: [
-                            { type: 'chat', config: { require_auth: false } },
+                            {
+                                type: 'chat',
+                                config: {},
+                                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                            },
                             {
                                 type: 'slack',
                                 config: {
@@ -990,7 +1010,11 @@ describe('slack trigger: real e2e', () => {
                     slug: 'silent',
                     spec: {
                         triggers: [
-                            { type: 'chat', config: { require_auth: false } },
+                            {
+                                type: 'chat',
+                                config: {},
+                                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                            },
                             {
                                 type: 'slack',
                                 config: {
@@ -1026,7 +1050,11 @@ describe('slack trigger: real e2e', () => {
                     slug: 'resilient',
                     spec: {
                         triggers: [
-                            { type: 'chat', config: { require_auth: false } },
+                            {
+                                type: 'chat',
+                                config: {},
+                                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                            },
                             {
                                 type: 'slack',
                                 config: {
@@ -1065,7 +1093,11 @@ describe('slack trigger: real e2e', () => {
                     slug: 'tokenless',
                     spec: {
                         triggers: [
-                            { type: 'chat', config: { require_auth: false } },
+                            {
+                                type: 'chat',
+                                config: {},
+                                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                            },
                             {
                                 type: 'slack',
                                 config: {

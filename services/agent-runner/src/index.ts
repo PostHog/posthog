@@ -27,7 +27,7 @@ import {
     createAgentPool,
     createLogger,
     DirectHttpClient,
-    EncryptedEnvSlackSecretResolver,
+    EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
     HttpGatewayClient,
@@ -269,7 +269,7 @@ async function main(): Promise<void> {
     // post one itself; every other trigger type falls through to a no-op.
     // Uses the same encrypted_env resolver ingress uses for the signing
     // secret, so the bot token decrypts the same way at request time.
-    const slackSecretResolver = new EncryptedEnvSlackSecretResolver(encryption)
+    const slackSecretResolver = new EncryptedEnvSecretResolver(encryption)
     const slackFailureNotifier = new SlackFailureNotifier({
         http,
         resolver: slackSecretResolver,

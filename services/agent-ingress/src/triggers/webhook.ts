@@ -10,14 +10,14 @@ import { Request, Response, Router } from 'express'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-import { SessionQueue } from '@posthog/agent-shared'
+import { SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
 
 import { principalDisplay } from '../enqueue/acl'
 import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
-import { hasTrigger, resolveAgent } from './resolve'
+import { resolveAgent } from './resolve'
 import type { TriggerModule } from './types'
 import { WebhookBodySchema } from './webhook.schemas'
 
@@ -40,7 +40,9 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
                 }
                 return
             }
-            if (!hasTrigger(resolved, 'webhook')) {
+            const trigger = resolved.revision.spec.triggers.find((t) => t.type === 'webhook')
+            const authConfig = trigger ? triggerAuthConfig(trigger) : null
+            if (!authConfig) {
                 res.status(404).json({ error: 'no_webhook_trigger' })
                 return
             }
@@ -52,7 +54,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             const auth = await authorize(
                 req,
                 resolved.application,
-                resolved.revision.spec,
+                authConfig,
                 deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
             )
             if (!auth.ok) {

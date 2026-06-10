@@ -48,6 +48,33 @@ export interface DerivedTriggerSecret extends TriggerSecretRequirement {
     trigger: string
 }
 
+/** Secret an auth mode references in encrypted_env, or null. Mirrors
+ *  `_auth_mode_secret_requirement` in the Django spec_schema. */
+function authModeSecret(mode: unknown): TriggerSecretRequirement | null {
+    if (typeof mode !== 'object' || mode === null) {
+        return null
+    }
+    const m = mode as { type?: unknown; secret_ref?: unknown; issuer_secret_ref?: unknown; header?: unknown }
+    if (m.type === 'shared_secret' && typeof m.secret_ref === 'string' && m.secret_ref) {
+        const header = typeof m.header === 'string' ? m.header : ''
+        return {
+            key: m.secret_ref,
+            label: 'Webhook shared secret',
+            description: `Expected value for the \`${header}\` header. Callers must send this exact secret.`,
+            required: true,
+        }
+    }
+    if (m.type === 'jwt' && typeof m.issuer_secret_ref === 'string' && m.issuer_secret_ref) {
+        return {
+            key: m.issuer_secret_ref,
+            label: 'JWT signing secret',
+            description: 'HMAC secret used to verify inbound JWT signatures for this trigger.',
+            required: true,
+        }
+    }
+    return null
+}
+
 /**
  * Walk `spec.triggers` and return the per-trigger required secrets, deduped
  * by key (first trigger to require a key wins for the `trigger` annotation).
@@ -77,6 +104,16 @@ export function getTriggerRequiredSecrets(spec: Record<string, unknown>): Derive
             }
             seen.add(req.key)
             out.push({ ...req, trigger: type })
+        }
+        const modes = (trigger as { auth?: { modes?: unknown } }).auth?.modes
+        if (Array.isArray(modes)) {
+            for (const mode of modes) {
+                const req = authModeSecret(mode)
+                if (req && !seen.has(req.key)) {
+                    seen.add(req.key)
+                    out.push({ ...req, trigger: type })
+                }
+            }
         }
     }
     return out

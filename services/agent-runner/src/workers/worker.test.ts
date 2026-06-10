@@ -756,4 +756,68 @@ describe('Worker', () => {
         await expect(worker.loop({ iterations: 5, claimTimeoutMs: 5 })).resolves.toBeUndefined()
         expect(claimCalls).toBeGreaterThanOrEqual(2)
     })
+
+    it('backs off exponentially on consecutive claim() failures and resets after a success', async () => {
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
+
+        const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
+            resolveIntegrations: async () => ({}),
+            resolveSecrets: async () => ({}),
+            resolveModel: () => fauxModel([]),
+        })
+
+        // Record the backoff delays without actually waiting. The private
+        // `sleep` is the single choke point the loop awaits between retries.
+        const delays: number[] = []
+        ;(worker as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
+            delays.push(ms)
+        }
+
+        // Four straight failures, then a clean (null) claim that should reset
+        // the counter, then one more failure that must start from the base
+        // window again — proving the reset.
+        let claimCalls = 0
+        queue.claim = async () => {
+            claimCalls++
+            if (claimCalls <= 4) {
+                throw new Error('transient PG error')
+            }
+            if (claimCalls === 5) {
+                return null // success path — resets consecutiveClaimFailures
+            }
+            await worker.stop()
+            throw new Error('one more transient PG error after the reset')
+        }
+
+        // base/max kept well apart so the first failures never hit the cap and
+        // the equal-jitter floor stays strictly growing across them.
+        await expect(
+            worker.loop({ iterations: 50, claimTimeoutMs: 5, claimBackoffBaseMs: 100, claimBackoffMaxMs: 100_000 })
+        ).resolves.toBeUndefined()
+
+        // 4 failures + 1 post-reset failure = 5 backoff sleeps.
+        expect(delays.length).toBe(5)
+        // Equal jitter → delay_n ∈ [base·2^(n-1)/2, base·2^(n-1)]; consecutive
+        // windows abut, so the first four are non-decreasing.
+        const firstFour = delays.slice(0, 4)
+        for (let i = 1; i < firstFour.length; i++) {
+            expect(firstFour[i]).toBeGreaterThanOrEqual(firstFour[i - 1])
+        }
+        // Fourth failure window is [400, 800]; the fifth sleep is the
+        // post-reset failure, back in the base window [50, 100] — strictly
+        // smaller, which is only possible if the success reset the counter.
+        expect(delays[4]).toBeLessThan(delays[3])
+        expect(delays[4]).toBeLessThanOrEqual(100)
+    })
 })

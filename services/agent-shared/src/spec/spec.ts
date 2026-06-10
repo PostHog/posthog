@@ -9,6 +9,68 @@ import { z } from 'zod'
 
 export const ModelIdSchema = z.string().min(1)
 
+/**
+ * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
+ * triggers (webhook / chat / mcp) carry their own `auth` block; intrinsic ones
+ * (slack / cron) do not. The ingress verifier tries each mode in order; first
+ * match wins. Identity (the `SessionPrincipal`) is kept separate from
+ * credentials (tokens, held in the `CredentialBroker`).
+ */
+export const AuthModeSchema = z.discriminatedUnion('type', [
+    /**
+     * Anonymous — no auth required. **Every** request resolves to an
+     * anonymous principal. Genuinely-public agents are rare (a docs
+     * site embed, a marketing chatbot). To opt in, the author MUST
+     * set `acknowledge_public_exposure: true` — the field exists to
+     * make the choice deliberate at spec-authoring time and to give
+     * the UI a single flag to render a loud warning against. Skill
+     * authoring tools (concierge) treat this as a hard-pause decision
+     * point: confirm with the user before adding it to a spec.
+     */
+    z.object({
+        type: z.literal('public'),
+        acknowledge_public_exposure: z.literal(true, {
+            message:
+                'public auth must set acknowledge_public_exposure: true. Public agents accept anonymous requests — confirm this is intentional. If you only need PostHog console / MCP access, use posthog_internal or posthog instead.',
+        }),
+    }),
+    /** A PostHog credential bearer — a Personal API key today, OAuth in future.
+     *  Both validate against `/api/users/@me/`; produces a `posthog` principal
+     *  + `posthog_api` credential for tools. `scopes` is reserved for future
+     *  OAuth scope-gating. */
+    z.object({
+        type: z.literal('posthog'),
+        scopes: z.array(z.string()).default([]),
+    }),
+    /** JWT signed with the named encrypted-env secret. Lets a B2B
+     *  embedder mint identity tokens for their users without going
+     *  through OAuth. Credential available to tools as `self` (the JWT
+     *  itself + decoded claims). */
+    z.object({
+        type: z.literal('jwt'),
+        issuer_secret_ref: z.string().min(1),
+    }),
+    /** Shared secret in a named header. Expected value lives in `encrypted_env`
+     *  under `secret_ref`; the spec never carries the secret itself. */
+    z.object({
+        type: z.literal('shared_secret'),
+        header: z.string().min(1),
+        secret_ref: z.string().min(1),
+    }),
+    /** PostHog-internal server-to-server token (for Django ↔ ingress). */
+    z.object({ type: z.literal('posthog_internal') }),
+])
+
+export const AuthConfigSchema = z.object({
+    /**
+     * Accepted auth modes. First successful match per request wins. Default is
+     * the closed `posthog_internal` mode (server-to-server platform tokens
+     * only). Public exposure is opt-in and requires
+     * `acknowledge_public_exposure: true` — see `AuthModeSchema`.
+     */
+    modes: z.array(AuthModeSchema).default([{ type: 'posthog_internal' }]),
+})
+
 export const TriggerSchema = z.discriminatedUnion('type', [
     /**
      * Slack trigger. These spec flags only control what the INGRESS does with
@@ -113,8 +175,8 @@ export const TriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('webhook'),
         config: z.object({
             path: z.string(),
-            secret: z.string().optional(),
         }),
+        auth: AuthConfigSchema,
     }),
     z.object({
         type: z.literal('cron'),
@@ -172,17 +234,19 @@ export const TriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('chat'),
-        config: z.object({
-            require_auth: z.boolean().default(true),
-            /**
-             * When true, `/send` to a `closed` session reopens it (state
-             * → queued, message appended to pending_inputs) instead of
-             * returning 410. Default false — `meta-end-session` is
-             * normally a hard close. Has no effect on `failed` sessions
-             * (those stay terminal). See the session-restart redesign.
-             */
-            allow_restart: z.boolean().default(false),
-        }),
+        config: z
+            .object({
+                /**
+                 * When true, `/send` to a `closed` session reopens it (state
+                 * → queued, message appended to pending_inputs) instead of
+                 * returning 410. Default false — `meta-end-session` is
+                 * normally a hard close. Has no effect on `failed` sessions
+                 * (those stay terminal). See the session-restart redesign.
+                 */
+                allow_restart: z.boolean().default(false),
+            })
+            .default({ allow_restart: false }),
+        auth: AuthConfigSchema,
     }),
     z.object({
         type: z.literal('mcp'),
@@ -192,6 +256,7 @@ export const TriggerSchema = z.discriminatedUnion('type', [
                 allow_restart: z.boolean().default(false),
             })
             .default({ allow_restart: false }),
+        auth: AuthConfigSchema,
     }),
 ])
 
@@ -476,75 +541,9 @@ export const SpecLimitsSchema = z.object({
     max_output_tokens: z.number().int().positive().max(200_000).optional(),
 })
 
-/**
- * Auth modes — each entry is a discriminated variant. A spec can accept
- * multiple modes simultaneously; the ingress verifier tries each in order
- * and the first that matches the incoming request wins.
- *
- * The principle running through the design: **identity (who) is separate
- * from credentials (what tokens)**. Verifier produces a `SessionPrincipal`
- * (stored on the session row, identity-only) plus a `credentials` map
- * (stashed in the `CredentialBroker` for tool runtime to query at call
- * time — never persisted, never on the principal).
- */
-export const AuthModeSchema = z.discriminatedUnion('type', [
-    /**
-     * Anonymous — no auth required. **Every** request resolves to an
-     * anonymous principal. Genuinely-public agents are rare (a docs
-     * site embed, a marketing chatbot). To opt in, the author MUST
-     * set `acknowledge_public_exposure: true` — the field exists to
-     * make the choice deliberate at spec-authoring time and to give
-     * the UI a single flag to render a loud warning against. Skill
-     * authoring tools (concierge) treat this as a hard-pause decision
-     * point: confirm with the user before adding it to a spec.
-     */
-    z.object({
-        type: z.literal('public'),
-        acknowledge_public_exposure: z.literal(true, {
-            message:
-                'public auth must set acknowledge_public_exposure: true. Public agents accept anonymous requests — confirm this is intentional. If you only need PostHog console / MCP access, use posthog_internal or pat instead.',
-        }),
-    }),
-    /** PostHog OAuth bearer. Validated against `issuer`'s introspection
-     *  endpoint (for `issuer: 'posthog'`, that's `/api/users/@me/`).
-     *  Credential available to tools as target `posthog_api`. */
-    z.object({
-        type: z.literal('oauth'),
-        issuer: z.string().min(1),
-        scopes: z.array(z.string()).default([]),
-    }),
-    /** PostHog Personal API Key bearer. Same validation endpoint as oauth
-     *  for PostHog (PostHog accepts both). Credential as `posthog_api`. */
-    z.object({ type: z.literal('pat') }),
-    /** JWT signed with the named encrypted-env secret. Lets a B2B
-     *  embedder mint identity tokens for their users without going
-     *  through OAuth. Credential available to tools as `self` (the JWT
-     *  itself + decoded claims). */
-    z.object({
-        type: z.literal('jwt'),
-        issuer_secret_ref: z.string().min(1),
-    }),
-    /** A shared secret in a named header. Mostly for webhook triggers. */
-    z.object({
-        type: z.literal('shared_secret'),
-        header: z.string().min(1),
-    }),
-    /** PostHog-internal server-to-server token (for Django ↔ ingress). */
-    z.object({ type: z.literal('posthog_internal') }),
-])
-
-export const AuthConfigSchema = z.object({
-    /** Accepted auth modes. First successful match per request wins. */
-    /**
-     * Default is the closed `posthog_internal` mode (server-to-server
-     * platform tokens only). Public exposure is opt-in and requires
-     * `acknowledge_public_exposure: true` — see `AuthModeSchema`.
-     */
-    modes: z.array(AuthModeSchema).default([{ type: 'posthog_internal' }]),
-})
-
 export type AuthMode = z.infer<typeof AuthModeSchema>
 export type AuthModeType = AuthMode['type']
+export type AuthConfig = z.infer<typeof AuthConfigSchema>
 
 /**
  * Normalized reasoning-effort knob. Matches pi-ai's `ThinkingLevel` exactly,
@@ -635,7 +634,6 @@ export const AgentSpecSchema = z.object({
         max_cpu_cores: 0.25,
     }),
     entrypoint: z.string().default('agent.md'),
-    auth: AuthConfigSchema.default({ modes: [{ type: 'posthog_internal' }] }),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
@@ -644,6 +642,15 @@ export const AgentSpecSchema = z.object({
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type Trigger = z.infer<typeof TriggerSchema>
 export type TriggerType = Trigger['type']
+
+/** Auth config for a trigger, or null for intrinsic-auth triggers (slack/cron)
+ *  which authenticate via their own protocol rather than `AuthMode`s. */
+export function triggerAuthConfig(trigger: Trigger): AuthConfig | null {
+    if (trigger.type === 'webhook' || trigger.type === 'chat' || trigger.type === 'mcp') {
+        return trigger.auth
+    }
+    return null
+}
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type ApproverScope = z.infer<typeof ApproverScopeSchema>
@@ -740,10 +747,9 @@ export interface AgentRevision {
  */
 export type SessionPrincipal =
     | { kind: 'anonymous' }
-    /** PostHog OAuth or PAT — both resolve through `/api/users/@me/`. */
+    /** PostHog credential (PAT today, OAuth later) — resolves through `/api/users/@me/`. */
     | {
           kind: 'posthog'
-          source: 'oauth' | 'pat'
           user_id: string
           user_uuid?: string
           team_id: number

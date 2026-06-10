@@ -51,12 +51,12 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
-    EncryptedEnvSlackSecretResolver,
+    EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
     S3MemoryStore,
     SecretBroker,
-    SlackSigningSecretResolver,
+    SecretResolver,
     TEST_S3_BUCKET,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
@@ -101,7 +101,7 @@ export interface BuildAgentInput {
     files?: Record<string, string>
     /**
      * Plaintext env map. The harness Fernet-encrypts it with the same key the
-     * harness's `SlackSigningSecretResolver` uses to decrypt, so production's
+     * harness's `SecretResolver` uses to decrypt, so production's
      * "decrypt at request time, look up key" path is exercised end-to-end.
      * Required for slack triggers (handler resolves `SLACK_SIGNING_SECRET_KEY`
      * here). Other triggers don't read env so this can stay undefined.
@@ -168,7 +168,7 @@ export interface BuildClusterOpts {
      * lookup, which is the right default for tests that just want a Slack
      * trigger to "work end-to-end" without populating an encrypted env.
      */
-    slackSigningSecretResolver?: SlackSigningSecretResolver
+    slackSigningSecretResolver?: SecretResolver
     /** Override the per-session secret resolver (defaults to empty). */
     resolveSecrets?: (sessionId: string) => Promise<Record<string, string>>
     /** Override the per-session integrations resolver (defaults to empty). */
@@ -368,8 +368,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // plucks the requested key. Tests populate `encrypted_env` on
     // `deployAgent` to wire a secret per agent — same path production uses.
     const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
-    const slackSigningSecretResolver: SlackSigningSecretResolver =
-        opts.slackSigningSecretResolver ?? new EncryptedEnvSlackSecretResolver(encryption)
+    const slackSigningSecretResolver: SecretResolver =
+        opts.slackSigningSecretResolver ?? new EncryptedEnvSecretResolver(encryption)
 
     const ingress = buildApp({
         revisions,
@@ -442,7 +442,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         async deployAgent(input) {
             const tid = input.teamId ?? teamId
             // Fernet-encrypt the env map the same way Django would, so the
-            // ingress's `SlackSigningSecretResolver` exercises real decrypt
+            // ingress's `SecretResolver` exercises real decrypt
             // → look-up at request time. Tests that don't pass `encrypted_env`
             // get null (matches an agent whose author never set any env).
             const encrypted_env = input.encrypted_env ? encryption.encrypt(JSON.stringify(input.encrypted_env)) : null
@@ -453,30 +453,37 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
                 encrypted_env,
             })
-            const spec = AgentSpecSchema.parse({
+            const rawSpec: Record<string, unknown> = {
                 // Default model is "faux/<name>"; tests can override via spec.model.
                 model: 'faux/faux',
                 triggers: [
-                    { type: 'chat', config: { require_auth: false } },
+                    { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override
                     // with explicit trusted_workspaces to exercise the gate.
                     { type: 'slack', config: { trusted_workspaces: '*' } },
                     { type: 'webhook', config: { path: '/webhook' } },
                     { type: 'mcp', config: {} },
                 ],
-                // Test-side default: opt into public exposure so cases that
-                // don't care about auth still get a working request flow
-                // through the default PUBLIC_ONLY_AUTH_PROVIDER. The
-                // runtime default (in AgentSpecSchema) is `posthog_internal`
-                // — production specs that omit `auth` are closed by
-                // default. We diverge here because the harness's
-                // `PUBLIC_ONLY_AUTH_PROVIDER` can't verify anything else
-                // without an explicit `fakeAuthProvider({...})` wired in.
-                // Tests exercising real auth modes pass their own
-                // `spec.auth` and override this.
+                // Harness-only ergonomic: a top-level `auth` is distributed onto
+                // every declarative trigger that doesn't set its own (below).
+                // Production has NO spec-level auth — but letting tests say
+                // `spec: { auth: { modes: [...] } }` keeps the common case a
+                // one-liner. Default is public so auth-agnostic cases work
+                // through `PUBLIC_ONLY_AUTH_PROVIDER`; cases exercising real
+                // modes pass their own `auth` (and wire `fakeAuthProvider`).
                 auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 ...input.spec,
-            })
+            }
+            const topAuth = rawSpec.auth
+            delete rawSpec.auth
+            if (topAuth && Array.isArray(rawSpec.triggers)) {
+                for (const t of rawSpec.triggers as Array<Record<string, unknown>>) {
+                    if ((t.type === 'webhook' || t.type === 'chat' || t.type === 'mcp') && t.auth === undefined) {
+                        t.auth = topAuth
+                    }
+                }
+            }
+            const spec = AgentSpecSchema.parse(rawSpec)
             const rev = await revisions.createRevision({
                 application_id: app.id,
                 parent_revision_id: null,

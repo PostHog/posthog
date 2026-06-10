@@ -1,4 +1,4 @@
-import { AgentSpec, AgentSpecSchema } from './spec'
+import { AgentSpec, AgentSpecSchema, AuthConfigSchema } from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
@@ -15,7 +15,7 @@ describe('AgentSpecSchema', () => {
             model: 'claude-opus-4-7',
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
-                { type: 'webhook', config: { path: '/hook' } },
+                { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
             ],
             tools: [
                 { kind: 'native', id: '@posthog/query' },
@@ -564,58 +564,55 @@ describe('AgentSpecSchema', () => {
         })
     })
 
-    describe('auth', () => {
-        it('defaults to posthog_internal — closed by default, public is opt-in', () => {
-            // The legacy default was `[{ type: 'public' }]`. Tightened so a
-            // freshly-authored spec without an explicit auth field never
-            // accidentally accepts anonymous requests on its chat endpoints.
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
-            expect(parsed.auth.modes).toEqual([{ type: 'posthog_internal' }])
+    describe('auth (per-trigger)', () => {
+        it('AuthConfig defaults to closed posthog_internal — public is opt-in', () => {
+            expect(AuthConfigSchema.parse({})).toEqual({ modes: [{ type: 'posthog_internal' }] })
+        })
+
+        it('declarative triggers require an auth block', () => {
+            // webhook/chat/mcp must declare who can call them — no implicit default.
+            expect(() =>
+                AgentSpecSchema.parse({ model: 'x', triggers: [{ type: 'webhook', config: { path: '/h' } }] })
+            ).toThrow()
+        })
+
+        it('per-trigger auth lands on the trigger', () => {
+            const parsed = AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'chat', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
+            })
+            const chat = parsed.triggers[0]
+            expect(chat.type === 'chat' && chat.auth.modes).toEqual([{ type: 'posthog', scopes: [] }])
         })
 
         it('rejects bare public — acknowledge_public_exposure: true is required', () => {
-            // The ack field is the schema-level loud-flag for "this exposes
-            // the agent to anonymous callers." If an authoring tool
-            // (concierge, an AI script, a hand-written spec) sets `public`
-            // by accident, parsing should fail rather than silently flip
-            // the agent open.
-            expect(() => AgentSpecSchema.parse({ model: 'x', auth: { modes: [{ type: 'public' }] } })).toThrow(
-                /acknowledge_public_exposure/
-            )
+            expect(() => AuthConfigSchema.parse({ modes: [{ type: 'public' }] })).toThrow(/acknowledge_public_exposure/)
         })
 
         it('rejects public with acknowledge_public_exposure: false', () => {
-            // `false` is not equivalent to "not set" — the field must be
-            // literally `true`. Anything else fails (e.g. someone trying to
-            // bypass the gate by setting the field to a falsy value).
             expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: false }] },
-                })
+                AuthConfigSchema.parse({ modes: [{ type: 'public', acknowledge_public_exposure: false }] })
             ).toThrow()
         })
 
         it('accepts public when the ack field is true', () => {
-            const parsed = AgentSpecSchema.parse({
-                model: 'x',
-                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
-            })
-            expect(parsed.auth.modes).toEqual([{ type: 'public', acknowledge_public_exposure: true }])
+            expect(
+                AuthConfigSchema.parse({ modes: [{ type: 'public', acknowledge_public_exposure: true }] }).modes
+            ).toEqual([{ type: 'public', acknowledge_public_exposure: true }])
         })
 
-        it('non-public modes are unchanged — pat / posthog_internal / shared_secret all parse', () => {
-            const parsed = AgentSpecSchema.parse({
-                model: 'x',
-                auth: {
-                    modes: [
-                        { type: 'shared_secret', header: 'X-Hook-Secret' },
-                        { type: 'pat' },
-                        { type: 'posthog_internal' },
-                    ],
-                },
+        it('shared_secret requires a secret_ref', () => {
+            expect(() => AuthConfigSchema.parse({ modes: [{ type: 'shared_secret', header: 'X' }] })).toThrow()
+            expect(
+                AuthConfigSchema.parse({ modes: [{ type: 'shared_secret', header: 'X', secret_ref: 'K' }] }).modes
+            ).toHaveLength(1)
+        })
+
+        it('posthog / posthog_internal / jwt parse', () => {
+            const parsed = AuthConfigSchema.parse({
+                modes: [{ type: 'posthog' }, { type: 'posthog_internal' }, { type: 'jwt', issuer_secret_ref: 'S' }],
             })
-            expect(parsed.auth.modes).toHaveLength(3)
+            expect(parsed.modes).toHaveLength(3)
         })
     })
 })

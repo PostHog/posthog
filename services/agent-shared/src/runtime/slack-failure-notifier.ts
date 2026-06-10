@@ -4,7 +4,7 @@
  *
  * Reads channel + thread coordinates off `session.trigger_metadata` (stamped
  * by the slack trigger at enqueue) and resolves the bot token from the
- * application's `encrypted_env` via the shared `SlackSigningSecretResolver`.
+ * application's `encrypted_env` via the shared `SecretResolver`.
  *
  * Failure modes are all silent (logged at warn, returned without throwing) —
  * the dispatcher already does an outer catch but the notifier's own contract
@@ -16,7 +16,7 @@ import { AgentApplication } from '../spec/spec'
 import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
-import { SlackSigningSecretResolver } from './slack-secret-resolver'
+import { SecretResolver } from './secret-resolver'
 
 export interface SlackTriggerMetadata {
     type: 'slack'
@@ -42,7 +42,7 @@ function isSlackTriggerMetadata(meta: unknown): meta is SlackTriggerMetadata {
 
 export interface SlackFailureNotifierDeps {
     http: HttpFetcher
-    resolver: SlackSigningSecretResolver
+    resolver: SecretResolver
     logger?: {
         warn: (meta: Record<string, unknown>, msg: string) => void
         info?: (meta: Record<string, unknown>, msg: string) => void

@@ -5,6 +5,9 @@
             "type": "webhook",
             "config": {
                 "path": "/webhook"
+            },
+            "auth": {
+                "modes": [{ "type": "shared_secret", "header": "X-Webhook-Secret", "secret_ref": "WEBHOOK_SECRET" }]
             }
         },
         {
@@ -16,8 +19,9 @@
         },
         {
             "type": "chat",
-            "config": {
-                "require_auth": true
+            "config": {},
+            "auth": {
+                "modes": [{ "type": "posthog" }]
             }
         }
     ],
@@ -54,7 +58,7 @@
             }
         }
     ],
-    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN"],
+    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN", "WEBHOOK_SECRET"],
     "skills": [
         {
             "id": "triage-playbook",
@@ -82,13 +86,6 @@
         "max_turns": 30,
         "max_tool_calls": 100,
         "max_wall_seconds": 600
-    },
-    "auth": {
-        "modes": [
-            { "type": "shared_secret", "header": "X-Webhook-Secret" },
-            { "type": "pat" },
-            { "type": "posthog_internal" }
-        ]
     },
     "reasoning": "high"
 }

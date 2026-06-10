@@ -16,7 +16,7 @@ import {
     createAgentPool,
     createLogger,
     DirectHttpClient,
-    EncryptedEnvSlackSecretResolver,
+    EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
     installProcessHandlers,
@@ -63,6 +63,14 @@ async function main(): Promise<void> {
             'HTTPS_PROXY must be set — outbound fetches must route through smokescreen in prod. Wire `httpProxy.enabled: true` in the chart.'
         )
     }
+    // The internal signing key backs both the preview-token gate and the
+    // `posthog_internal` auth verifier — required in prod, fail-fast rather than
+    // booting with that mode silently disabled.
+    if (!config.internalSigningKey && !isDev()) {
+        throw new Error(
+            'AGENT_INTERNAL_SIGNING_KEY must be set — it backs the preview-token gate and the posthog_internal auth mode.'
+        )
+    }
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
 
     // Slack → PostHog user bridge needs the integration store to fetch the
@@ -85,8 +93,17 @@ async function main(): Promise<void> {
         baseUrl: config.posthogApiBaseUrl,
         http: new DirectHttpClient(),
     })
+    // Per-agent secret resolver. Decrypts the agent's `encrypted_env` and plucks
+    // a named entry — backs the Slack signing-secret/bot-token lookups and the
+    // shared_secret auth verifier (which reads `mode.secret_ref`).
+    const secretResolver = new EncryptedEnvSecretResolver(encryption)
     const authProvider = {
-        verifiers: buildDefaultVerifiers({ introspector }),
+        verifiers: buildDefaultVerifiers({
+            introspector,
+            jwtSecretResolver: secretResolver,
+            sharedSecretResolver: secretResolver,
+            internalSecret: config.internalSigningKey ?? '',
+        }),
     }
     // Encrypted-at-rest credential broker (separate row per session,
     // Fernet-encrypted by the same EncryptedFields helper as
@@ -95,12 +112,6 @@ async function main(): Promise<void> {
     const credentialBroker = new PgCredentialBroker(agentDb, {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
-
-    // Per-agent Slack secret resolver. Each agent's `encrypted_env` holds the
-    // Slack app's signing key + bot token; we decrypt per request and pluck
-    // the named entry. Shared impl in `@posthog/agent-shared` — runner's
-    // failure notifier uses the same class against the same encrypted env.
-    const slackSigningSecretResolver = new EncryptedEnvSlackSecretResolver(encryption)
 
     const app = buildApp({
         revisions: new PgRevisionStore(agentDb),
@@ -111,7 +122,7 @@ async function main(): Promise<void> {
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,
-        slackSigningSecretResolver,
+        slackSigningSecretResolver: secretResolver,
         internalSigningKey: config.internalSigningKey,
         integrations,
         posthogDb,

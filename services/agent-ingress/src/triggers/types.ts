@@ -25,6 +25,7 @@ import type {
     CredentialBroker,
     HttpFetcher,
     IdentityStore,
+    SecretResolver,
     SessionEventBus,
     SessionQueue,
     Trigger,
@@ -32,7 +33,6 @@ import type {
 
 import type { AuthProvider } from '../enqueue/auth'
 import type { RevisionResolver } from '../routing/resolver'
-import type { SlackSigningSecretResolver } from './slack'
 
 /** Superset of every dep any trigger router needs. Triggers pick what they use. */
 export interface TriggerDeps {
@@ -42,7 +42,7 @@ export interface TriggerDeps {
     teamId: number
     authProvider?: AuthProvider
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
-    signingSecretResolver: SlackSigningSecretResolver
+    signingSecretResolver: SecretResolver
     identities?: IdentityStore
     /**
      * Per-session credential broker. Chat trigger consumes it on /run + /send;

@@ -33,8 +33,10 @@ Args:
     --list       Print discovered bundles and exit (no PAT needed).
 
 Env vars:
-    PAT            PostHog personal API key with agents:write scope (required
-                   unless --list)
+    PAT            PostHog personal API key with agents:write scope. Optional in
+                   local dev — when unset, the seed mints the deterministic dev
+                   key via `manage.py setup_local_api_key` (same as
+                   `hogli dev:api-key`). Required when not in a flox env.
     POSTHOG_API    Base API URL (default http://localhost:8010)
     PROJECT_ID     Target project id (default 1)
     DRY_RUN        '1' -> print the plan without mutating
@@ -57,6 +59,7 @@ import os
 import sys
 import json
 import hashlib
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -86,9 +89,9 @@ METADATA: dict[str, dict[str, str]] = {
 # strip anything not listed here before writing. Keep aligned with
 # `products/agent_platform/backend/spec_schema.py`, not just `spec.ts`.
 ALLOWED_TRIGGER_CONFIG: dict[str, set[str]] = {
-    "chat": {"require_auth"},
-    "mcp": set(),
-    "webhook": {"path", "secret"},
+    "chat": {"allow_restart"},
+    "mcp": {"allow_restart"},
+    "webhook": {"path"},
     "slack": {
         "channel_id",
         "mention_only",
@@ -99,6 +102,11 @@ ALLOWED_TRIGGER_CONFIG: dict[str, set[str]] = {
     },
     "cron": {"name", "schedule", "timezone", "prompt", "external_key", "catch_up", "max_catch_up_age_seconds"},
 }
+
+# Triggers that carry their own per-trigger `auth` block. Intrinsic triggers
+# (slack / cron) are gated differently (signing secret / internal) and carry no
+# auth modes. Mirrors the declarative/intrinsic split in `spec.ts`.
+DECLARATIVE_TRIGGERS: set[str] = {"webhook", "chat", "mcp"}
 
 # Secret keys each trigger type requires before promote — mirrors
 # TRIGGER_REQUIRED_SECRETS in products/agent_platform/backend/spec_schema.py.
@@ -213,23 +221,22 @@ def load_v0_spec(spec_file: Path) -> dict:
 
     spec["tools"] = [t for t in spec.get("tools", []) if t.get("kind") in ("native", "custom", "client")]
 
-    # spec.auth is `{ modes: [...] }` — accepted directly. AUTH_MODE overrides
-    # the bundle's modes for local testability (`public` to skip auth, `pat` to
-    # require a bearer, etc.). Production leaves the bundle's modes in place.
+    # Auth is per-trigger now; there is no spec-level auth. AUTH_MODE overrides
+    # each declarative trigger's modes for local testability (`public` to skip
+    # auth, `posthog` to require a bearer, etc.). Production leaves the bundle's
+    # per-trigger auth in place.
+    spec.pop("auth", None)
+    auth_override: dict | None = None
     auth_mode_override = os.environ.get("AUTH_MODE")
     if auth_mode_override:
         if auth_mode_override == "shared_secret":
-            die("AUTH_MODE=shared_secret requires a header — use the bundle's modes instead")
+            die("AUTH_MODE=shared_secret requires a header/secret_ref — use the bundle's modes instead")
         if auth_mode_override == "public":
             # Opt-in public exposure must carry the explicit ack field; see
             # AuthModeSchema in services/agent-shared/src/spec/spec.ts.
-            spec["auth"] = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
+            auth_override = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
         else:
-            spec["auth"] = {"modes": [{"type": auth_mode_override}]}
-    elif "modes" not in spec.get("auth", {}):
-        # Backstop for older bundles still using the single-mode shape. Default
-        # to closed `posthog_internal` — public exposure is opt-in.
-        spec["auth"] = {"modes": [{"type": "posthog_internal"}]}
+            auth_override = {"modes": [{"type": auth_mode_override}]}
 
     spec.pop("resume", None)
 
@@ -239,8 +246,14 @@ def load_v0_spec(spec_file: Path) -> dict:
         for k in list(cfg.keys()):
             if k not in allowed:
                 cfg.pop(k)
-        if t.get("type") == "chat":
-            cfg.setdefault("require_auth", False)
+        if t.get("type") in DECLARATIVE_TRIGGERS:
+            if auth_override is not None:
+                t["auth"] = json.loads(json.dumps(auth_override))
+            elif "auth" not in t:
+                t["auth"] = {"modes": [{"type": "posthog_internal"}]}
+        else:
+            # Intrinsic-auth triggers (slack / cron) carry no auth modes.
+            t.pop("auth", None)
 
     # MCP URL overrides — let a local seed point at localhost:8787/mcp without
     # editing the canonical bundle. `MCP_URL` rewrites every entry; per-id
@@ -515,7 +528,48 @@ def parse_args(argv: list[str]) -> tuple[bool, list[str]]:
     return list_only, selectors
 
 
+def mint_dev_pat() -> str | None:
+    """Mint (idempotently) the deterministic local-dev personal API key via the
+    same helper `hogli dev:api-key` uses — `manage.py setup_local_api_key` — and
+    return its value, adding the agents scopes the seed needs. Dev-only; returns
+    None if it can't (no flox, command failed, no users). Lets `seed.py` run
+    without the caller hunting down a PAT."""
+    repo_root = EXAMPLES_ROOT.parents[3]
+    try:
+        out = subprocess.run(
+            [
+                "flox",
+                "activate",
+                "--",
+                "python",
+                "manage.py",
+                "setup_local_api_key",
+                "--add-scopes",
+                "agents:read",
+                "agents:write",
+                "project:read",
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        log("pat", f"auto-mint failed to run setup_local_api_key: {e}")
+        return None
+    if out.returncode != 0:
+        log("pat", f"setup_local_api_key exited {out.returncode}: {out.stderr.strip().splitlines()[-1:] or ''}")
+        return None
+    # The command prints `Key: <value>` as its last meaningful line.
+    for line in reversed(out.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("Key:"):
+            return line.split("Key:", 1)[1].strip()
+    return None
+
+
 def main() -> None:
+    global PAT
     list_only, selectors = parse_args(sys.argv[1:])
     bundles = discover_bundles()
     if not bundles:
@@ -531,7 +585,14 @@ def main() -> None:
         return
 
     if not PAT:
-        print("[seed] FATAL: PAT env var required", file=sys.stderr)  # noqa: T201
+        print("[seed] no PAT set — minting the local dev key via setup_local_api_key…")  # noqa: T201
+        PAT = mint_dev_pat()
+    if not PAT:
+        print(  # noqa: T201
+            "[seed] FATAL: no PAT. Set PAT=phx_… or run in a flox env where "
+            "`manage.py setup_local_api_key` can mint the local dev key.",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     print(  # noqa: T201

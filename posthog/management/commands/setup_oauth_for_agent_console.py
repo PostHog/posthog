@@ -76,7 +76,10 @@ class Command(BaseCommand):
         if existing:
             existing.client_secret = new_secret
             existing.redirect_uris = redirect_uri
-            existing.save(update_fields=["client_secret", "redirect_uris"])
+            # First-party so the console skips the OAuth consent screen — it's a
+            # native PostHog app, not a third-party integration.
+            existing.is_first_party = True
+            existing.save(update_fields=["client_secret", "redirect_uris", "is_first_party"])
             status = "rotated"
         else:
             OAuthApplication.objects.create(
@@ -87,6 +90,8 @@ class Command(BaseCommand):
                 authorization_grant_type="authorization-code",
                 redirect_uris=redirect_uri,
                 algorithm="RS256",
+                # Native first-party app — skips the OAuth consent screen.
+                is_first_party=True,
             )
             status = "created"
 

@@ -14,9 +14,28 @@ const spec: Record<string, unknown> = {
     model: 'anthropic/claude-sonnet-4-6',
     reasoning: 'high',
     triggers: [
-        { type: 'webhook', config: { path: '/webhook' } },
+        {
+            type: 'webhook',
+            config: { path: '/webhook' },
+            auth: {
+                modes: [
+                    { type: 'shared_secret', header: 'X-Webhook-Secret', secret_ref: 'WEBHOOK_SECRET' },
+                    { type: 'posthog' },
+                ],
+            },
+        },
         { type: 'slack', config: { mention_only: true, trusted_workspaces: ['T0XXXXXXX'] } },
-        { type: 'chat', config: { require_auth: true } },
+        {
+            type: 'chat',
+            config: { allow_restart: false },
+            auth: { modes: [{ type: 'posthog', scopes: [] }] },
+        },
+        {
+            type: 'mcp',
+            config: {},
+            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+        },
+        { type: 'cron', config: { name: 'daily-digest', schedule: '0 9 * * *', prompt: 'Post the daily digest.' } },
     ],
     tools: [
         { kind: 'native', id: '@posthog/query' },
@@ -58,7 +77,6 @@ const spec: Record<string, unknown> = {
     integrations: ['slack', 'github'],
     secrets: ['INCIDENT_IO_TOKEN'],
     limits: { max_turns: 30, max_tool_calls: 100, max_wall_seconds: 600 },
-    auth: { modes: [{ type: 'shared_secret' }, { type: 'pat' }, { type: 'posthog_internal' }] },
 }
 
 const files: BundleFile[] = [
@@ -152,7 +170,14 @@ export const ATriggerSecret: Story = { args: { ...base, selectedPath: 'cfg:secre
 export const AnMcpMissingSecret: Story = { args: { ...base, selectedPath: 'cfg:mcp/incident-io' } }
 export const IntegrationsSection: Story = { args: { ...base, selectedPath: 'cfg:integrations' } }
 export const AnIntegration: Story = { args: { ...base, selectedPath: 'cfg:integration/slack' } }
+export const TriggersSection: Story = { args: { ...base, selectedPath: 'cfg:triggers' } }
+// One story per trigger type so all auth + "how to use" variants are visible.
+export const TheWebhookTrigger: Story = { args: { ...base, selectedPath: 'cfg:trigger/0' } }
 export const TheSlackTrigger: Story = { args: { ...base, selectedPath: 'cfg:trigger/1' } }
+export const TheChatTrigger: Story = { args: { ...base, selectedPath: 'cfg:trigger/2' } }
+export const TheMcpTrigger: Story = { args: { ...base, selectedPath: 'cfg:trigger/3' } }
+export const TheCronTrigger: Story = { args: { ...base, selectedPath: 'cfg:trigger/4' } }
+export const TheWebhookSecret: Story = { args: { ...base, selectedPath: 'cfg:secret/WEBHOOK_SECRET' } }
 
 /* ── Shell stories — how it composes in the real host ───────────────
  *

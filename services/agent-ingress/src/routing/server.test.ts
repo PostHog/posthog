@@ -43,17 +43,20 @@ async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: Age
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
             model: 'x',
+            // These tests exercise the routing surface, not auth — keep the
+            // "open agent" behaviour so request flows succeed without a verifier.
+            // Public exposure is opt-in (see AuthModeSchema) so each declarative
+            // trigger sets it explicitly; slack is intrinsic (no modes).
             triggers: [
-                { type: 'chat', config: { require_auth: false } },
+                { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
                 { type: 'slack', config: { trusted_workspaces: '*' } },
-                { type: 'webhook', config: { path: '/webhook' } },
-                { type: 'mcp', config: {} },
+                {
+                    type: 'webhook',
+                    config: { path: '/webhook' },
+                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                },
+                { type: 'mcp', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
             ],
-            // These tests exercise the routing surface, not auth — keep
-            // the legacy "open agent" behaviour so request flows still
-            // succeed without a verifier. Public exposure is now opt-in
-            // (see AuthModeSchema) so we set it explicitly.
-            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
         }),
     })
     await store.setRevisionState(rev.id, 'live')
@@ -519,8 +522,7 @@ describe('ingress HTTP server (path mode)', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'x',
-                triggers: [{ type: 'mcp', config: {} }],
-                auth: { modes: [{ type: 'pat' }] },
+                triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
         await store.setRevisionState(rev.id, 'live')
@@ -566,20 +568,19 @@ describe('ingress HTTP server (path mode)', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'x',
-                triggers: [{ type: 'mcp', config: {} }],
-                auth: { modes: [{ type: 'pat' }] },
+                triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(agentApp.id, rev.id)
         const res = await request(app).get('/agents/pat-gated/mcp/connect-info')
-        expect(res.body.auth.mode).toBe('pat')
+        expect(res.body.auth.mode).toBe('posthog')
         expect(res.body.auth.header).toBe('Authorization')
         // Placeholder only — never a real secret.
         expect(res.body.snippets.mcp_json.mcpServers['pat-gated'].headers.Authorization).toBe(
-            'Bearer <YOUR_POSTHOG_PAT>'
+            'Bearer <YOUR_POSTHOG_API_KEY>'
         )
-        expect(res.body.snippets.claude_code_command).toContain('Authorization=Bearer <YOUR_POSTHOG_PAT>')
+        expect(res.body.snippets.claude_code_command).toContain('Authorization=Bearer <YOUR_POSTHOG_API_KEY>')
     })
 
     it('GET /mcp/connect-info 404s when the agent has no mcp trigger', async () => {
@@ -598,7 +599,13 @@ describe('ingress HTTP server (path mode)', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'x',
-                triggers: [{ type: 'chat', config: { require_auth: false } }],
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
             }),
         })
         await store.setRevisionState(rev.id, 'live')

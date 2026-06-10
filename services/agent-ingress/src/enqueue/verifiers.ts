@@ -1,18 +1,12 @@
 /**
- * Built-in auth verifier impls. The orchestrator in `auth.ts` picks one
- * per request based on `spec.auth.modes`. Verifiers are stateless;
- * external dependencies (HTTP introspect, secret lookup) come in via
- * factory args so tests can inject fakes.
+ * Built-in auth verifier impls. The orchestrator in `auth.ts` picks one per
+ * request based on the trigger's `auth.modes`. Verifiers are stateless;
+ * external dependencies (HTTP introspect, secret lookup) come in via factory
+ * args so tests can inject fakes.
  *
- * Two verifiers cover the PostHog identity path:
- *
- *   - `oauthVerifier` — accepts OAuth bearer tokens
- *   - `patVerifier`   — accepts PostHog Personal API keys
- *
- * Both call the same `PosthogIdentityIntrospector` (default:
- * `/api/users/@me/` against a configurable base URL); PostHog accepts
- * either token type there. The verifier just labels the produced
- * principal + credential differently so audit logs distinguish.
+ * `posthogVerifier` covers the PostHog identity path — it accepts a bearer
+ * (Personal API key today, OAuth later) and validates it against
+ * `/api/users/@me/` via the `PosthogIdentityIntrospector`.
  */
 
 import { Request } from 'express'
@@ -24,6 +18,7 @@ import {
     CredentialMap,
     DirectHttpClient,
     HttpFetcher,
+    SecretResolver,
     SessionPrincipal,
 } from '@posthog/agent-shared'
 
@@ -84,10 +79,9 @@ export function defaultPosthogIntrospector(opts: DefaultIntrospectorOpts = {}): 
     }
 }
 
-function posthogPrincipalFrom(me: PosthogMeResponse, source: 'oauth' | 'pat'): SessionPrincipal {
+function posthogPrincipalFrom(me: PosthogMeResponse): SessionPrincipal {
     return {
         kind: 'posthog',
-        source,
         user_id: me.uuid,
         user_uuid: me.uuid,
         team_id: me.team?.id ?? 0,
@@ -95,39 +89,29 @@ function posthogPrincipalFrom(me: PosthogMeResponse, source: 'oauth' | 'pat'): S
     }
 }
 
-function makePosthogBearerVerifier(opts: {
-    type: 'oauth' | 'pat'
-    introspector: PosthogIdentityIntrospector
-}): AuthVerifier {
+/**
+ * PostHog credential verifier. Accepts a bearer (Personal API key today, OAuth
+ * later) and validates it against `/api/users/@me/`. Produces a `posthog`
+ * principal + a `posthog_api` credential for tools.
+ */
+export function posthogVerifier(introspector: PosthogIdentityIntrospector): AuthVerifier {
     return {
-        modeType: opts.type,
+        modeType: 'posthog',
         async verify(req: Request, _mode: AuthMode, _app: AgentApplication): Promise<VerifyResult> {
             const bearer = readBearer(req)
             if (!bearer) {
                 return { ok: false, status: 0, reason: 'skip' }
             }
-            const me = await opts.introspector.introspect(bearer)
+            const me = await introspector.introspect(bearer)
             if (!me) {
                 return { ok: false, status: 401, reason: 'invalid_token' }
             }
-            const principal = posthogPrincipalFrom(me, opts.type)
             const credentials: CredentialMap = {
-                posthog_api:
-                    opts.type === 'oauth'
-                        ? { kind: 'oauth_bearer', token: bearer }
-                        : { kind: 'pat_bearer', token: bearer },
+                posthog_api: { kind: 'posthog_bearer', token: bearer },
             }
-            return { ok: true, principal, credentials }
+            return { ok: true, principal: posthogPrincipalFrom(me), credentials }
         },
     }
-}
-
-export function oauthVerifier(introspector: PosthogIdentityIntrospector): AuthVerifier {
-    return makePosthogBearerVerifier({ type: 'oauth', introspector })
-}
-
-export function patVerifier(introspector: PosthogIdentityIntrospector): AuthVerifier {
-    return makePosthogBearerVerifier({ type: 'pat', introspector })
 }
 
 /**
@@ -212,17 +196,86 @@ export function jwtVerifier(resolver: JwtSecretResolver): AuthVerifier {
     }
 }
 
+/** Constant-time string compare that tolerates length mismatch. */
+function secretsMatch(provided: string, expected: string): boolean {
+    const a = Buffer.from(provided)
+    const b = Buffer.from(expected)
+    return a.length === b.length && timingSafeEqual(a, b)
+}
+
 /**
- * Built-in verifier set with PostHog defaults — what a dev or test
- * harness wires unless it needs to swap something out.
+ * Shared-secret verifier. The header named by the mode carries a secret whose
+ * expected value lives in the agent's `encrypted_env` under `mode.secret_ref`.
+ * No header → skip; secret unresolvable → fail closed; mismatch → 401.
+ */
+export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
+    return {
+        modeType: 'shared_secret',
+        async verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+            if (mode.type !== 'shared_secret') {
+                return { ok: false, status: 0, reason: 'skip' }
+            }
+            const provided = req.headers[mode.header.toLowerCase()]
+            if (typeof provided !== 'string') {
+                return { ok: false, status: 0, reason: 'skip' }
+            }
+            const expected = await resolver.resolve(mode.secret_ref, application)
+            if (!expected) {
+                return { ok: false, status: 500, reason: 'shared_secret_not_set' }
+            }
+            if (!secretsMatch(provided, expected)) {
+                return { ok: false, status: 401, reason: 'invalid_secret' }
+            }
+            const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id }
+            return { ok: true, principal, credentials: {} }
+        },
+    }
+}
+
+/**
+ * PostHog-internal server-to-server verifier. Matches the `x-posthog-internal`
+ * header against the platform's shared internal secret (`AGENT_INTERNAL_SIGNING_KEY`,
+ * also held by Django + janitor). No header → skip; mismatch → 403.
+ */
+export function posthogInternalVerifier(internalSecret: string): AuthVerifier {
+    return {
+        modeType: 'posthog_internal',
+        async verify(req: Request, _mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+            const provided = req.headers['x-posthog-internal']
+            if (typeof provided !== 'string') {
+                return { ok: false, status: 0, reason: 'skip' }
+            }
+            if (!internalSecret) {
+                return { ok: false, status: 500, reason: 'internal_secret_not_set' }
+            }
+            if (!secretsMatch(provided, internalSecret)) {
+                return { ok: false, status: 403, reason: 'invalid_internal_header' }
+            }
+            const principal: SessionPrincipal = { kind: 'posthog_internal', team_id: application.team_id }
+            return { ok: true, principal, credentials: {} }
+        },
+    }
+}
+
+/**
+ * The complete built-in verifier set — one verifier per `AuthMode` variant.
+ * Every dependency is REQUIRED: you cannot build the set without wiring every
+ * mode, so a declared auth mode can never silently go unenforced (the bug this
+ * whole design closes). A missing secret/resolver fails closed at request time,
+ * never opens the gate. `internalSecret` may be empty in dev — the
+ * posthog_internal verifier then fails closed.
  */
 export function buildDefaultVerifiers(opts: {
     introspector: PosthogIdentityIntrospector
-    jwtSecretResolver?: JwtSecretResolver
+    jwtSecretResolver: JwtSecretResolver
+    sharedSecretResolver: SecretResolver
+    internalSecret: string
 }): AuthVerifier[] {
-    const verifiers: AuthVerifier[] = [publicVerifier, oauthVerifier(opts.introspector), patVerifier(opts.introspector)]
-    if (opts.jwtSecretResolver) {
-        verifiers.push(jwtVerifier(opts.jwtSecretResolver))
-    }
-    return verifiers
+    return [
+        publicVerifier,
+        posthogVerifier(opts.introspector),
+        jwtVerifier(opts.jwtSecretResolver),
+        sharedSecretVerifier(opts.sharedSecretResolver),
+        posthogInternalVerifier(opts.internalSecret),
+    ]
 }

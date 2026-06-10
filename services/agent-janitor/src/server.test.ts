@@ -595,7 +595,13 @@ describe('janitor HTTP', () => {
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
                 model: 'x',
-                triggers: [{ type: 'chat', config: { require_auth: false } }],
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
             }),
         })
         const app = buildJanitorApp({
@@ -859,7 +865,13 @@ describe('janitor HTTP', () => {
                 bundle_uri: 'mem://b',
                 spec: AgentSpecSchema.parse({
                     model: 'x',
-                    triggers: [{ type: 'chat', config: { require_auth: false } }],
+                    triggers: [
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
+                    ],
                 }),
             })
             const instrumented = instrument(bundleStore)

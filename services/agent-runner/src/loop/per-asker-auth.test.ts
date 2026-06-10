@@ -239,13 +239,11 @@ describe('makePerAskerAuth', () => {
     describe('session_principal scope (PR 7 — concierge fast-path)', () => {
         const alice: SessionPrincipal = {
             kind: 'posthog',
-            source: 'oauth',
             user_id: 'alice',
             team_id: 7,
         }
         const bob: SessionPrincipal = {
             kind: 'posthog',
-            source: 'oauth',
             user_id: 'bob',
             team_id: 7,
         }

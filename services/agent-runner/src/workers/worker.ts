@@ -244,15 +244,46 @@ export class Worker {
         return this.shutdownController.signal
     }
 
+    /** setTimeout that resolves early if shutdown is signalled, so a backoff can't stall drain. */
+    private async sleep(ms: number): Promise<void> {
+        if (ms <= 0 || this.shutdownController.signal.aborted) {
+            return
+        }
+        await new Promise<void>((resolve) => {
+            const signal = this.shutdownController.signal
+            const onAbort = (): void => {
+                clearTimeout(timer)
+                resolve()
+            }
+            const timer = setTimeout(() => {
+                signal.removeEventListener('abort', onAbort)
+                resolve()
+            }, ms)
+            signal.addEventListener('abort', onAbort, { once: true })
+        })
+    }
+
     /**
      * Main loop. Keeps up to `maxConcurrency` sessions in flight. Returns when
      * (a) `iterations` claimed sessions have been processed, (b) the shutdown
      * signal fires, or (c) `stop()` is called.
      */
-    async loop(opts?: { iterations?: number; claimTimeoutMs?: number }): Promise<void> {
+    async loop(opts?: {
+        iterations?: number
+        claimTimeoutMs?: number
+        claimBackoffBaseMs?: number
+        claimBackoffMaxMs?: number
+    }): Promise<void> {
         this.running = true
         const targetClaims = opts?.iterations ?? Infinity
         const claimMs = opts?.claimTimeoutMs ?? 1_000
+        // Exponential backoff for consecutive claim failures. A bad DB state
+        // (pool unreachable, malformed row) makes `claim()` throw immediately,
+        // so without this the loop spins hot — re-querying with no delay,
+        // saturating PG and flooding logs. Resets the instant a claim succeeds.
+        const backoffBaseMs = opts?.claimBackoffBaseMs ?? 500
+        const backoffMaxMs = opts?.claimBackoffMaxMs ?? 30_000
+        let consecutiveClaimFailures = 0
         let claimed = 0
 
         while (this.running && claimed < targetClaims && !this.shutdownController.signal.aborted) {
@@ -272,11 +303,26 @@ export class Worker {
             let session: AgentSession | null
             try {
                 session = await this.deps.queue.claim(claimMs)
+                consecutiveClaimFailures = 0
             } catch (err) {
-                // Transient PG error / malformed row mapping. Log and keep
-                // spinning — the next claim attempt will likely succeed.
-                // Without this guard a single bad row crashes the worker.
-                log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'claim.failed')
+                // Transient PG error / malformed row mapping. Log and back off
+                // before retrying — without this guard a single bad row crashes
+                // the worker, and without the backoff a persistent DB fault
+                // spins the loop hot. Equal jitter keeps the floor growing while
+                // de-syncing retries across pods recovering together.
+                consecutiveClaimFailures++
+                const window = Math.min(backoffMaxMs, backoffBaseMs * 2 ** (consecutiveClaimFailures - 1))
+                const delayMs = Math.round(window / 2 + Math.random() * (window / 2))
+                log.error(
+                    {
+                        err: (err as Error).message,
+                        stack: (err as Error).stack,
+                        consecutiveClaimFailures,
+                        backoffMs: delayMs,
+                    },
+                    'claim.failed'
+                )
+                await this.sleep(delayMs)
                 continue
             }
             if (!session) {

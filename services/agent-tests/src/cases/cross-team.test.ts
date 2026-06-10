@@ -20,7 +20,7 @@ const provider: AuthProvider = {
     verifiers: [
         publicVerifier,
         {
-            modeType: 'pat',
+            modeType: 'posthog',
             async verify(req, _mode, application) {
                 const bearer = readBearer(req)
                 if (!bearer) {
@@ -34,11 +34,10 @@ const provider: AuthProvider = {
                     ok: true,
                     principal: {
                         kind: 'posthog',
-                        source: 'pat',
                         user_id: bearer,
                         team_id: teamForToken,
                     },
-                    credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                    credentials: { posthog_api: { kind: 'posthog_bearer', token: bearer } },
                 }
             },
         },
@@ -63,7 +62,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team A PAT against a team A agent → 200', async () => {
         await cA.deployAgent({
             slug: 'team-a-bot',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-bot/run')
@@ -76,7 +75,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team B PAT against a team A agent → 401 (team-scoping closes)', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured/run')
@@ -88,7 +87,7 @@ describe('cross-team isolation: real e2e', () => {
     it('totally unknown PAT → 401', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured2',
-            spec: { auth: { modes: [{ type: 'pat' }] } },
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured2/run')

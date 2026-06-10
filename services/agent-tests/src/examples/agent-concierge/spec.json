@@ -5,14 +5,22 @@
         {
             "type": "chat",
             "config": {
-                "require_auth": true,
                 "allow_restart": true
+            },
+            "auth": {
+                "modes": [
+                    { "type": "posthog", "scopes": ["agents:read", "agents:write", "agent_session:read"] },
+                    { "type": "posthog_internal" }
+                ]
             }
         },
         {
             "type": "mcp",
             "config": {
                 "allow_restart": true
+            },
+            "auth": {
+                "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
             }
         }
     ],
@@ -365,21 +373,6 @@
         "max_turns": 80,
         "max_tool_calls": 300,
         "max_wall_seconds": 1800
-    },
-    "auth": {
-        "modes": [
-            {
-                "type": "oauth",
-                "issuer": "posthog",
-                "scopes": ["agents:read", "agents:write", "agent_session:read"]
-            },
-            {
-                "type": "pat"
-            },
-            {
-                "type": "posthog_internal"
-            }
-        ]
     },
     "resume": {
         "enabled": true,

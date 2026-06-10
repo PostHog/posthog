@@ -106,7 +106,15 @@ describe('session restart + new state machine: real e2e', () => {
         c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'done' }), fauxText('back from the dead')])
         await c.deployAgent({
             slug: 'closer-2',
-            spec: { triggers: [{ type: 'chat', config: { require_auth: false, allow_restart: true } }] },
+            spec: {
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: { allow_restart: true },
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
+            },
         })
 
         const run = await request(c.ingress).post('/agents/closer-2/run').send({ message: 'first' })
@@ -138,7 +146,13 @@ describe('session restart + new state machine: real e2e', () => {
         await c.deployAgent({
             slug: 'crasher',
             spec: {
-                triggers: [{ type: 'chat', config: { require_auth: false, allow_restart: true } }],
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: { allow_restart: true },
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
                 limits: { max_turns: 1, max_tool_calls: 10, max_wall_seconds: 60 },
             },
         })
@@ -148,7 +162,13 @@ describe('session restart + new state machine: real e2e', () => {
         await c.deployAgent({
             slug: 'crasher-2',
             spec: {
-                triggers: [{ type: 'chat', config: { require_auth: false, allow_restart: true } }],
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: { allow_restart: true },
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
                 tools: [{ kind: 'native', id: '@posthog/query' }],
                 limits: { max_turns: 1, max_tool_calls: 10, max_wall_seconds: 60 },
             },
