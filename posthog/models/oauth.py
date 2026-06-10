@@ -214,6 +214,14 @@ class OAuthApplication(AbstractApplication):
         default=False,
         help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
     )
+    provisioning_can_link_via_email_code: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Allow linking existing accounts via a PostHog-emailed one-time code instead of the "
+            "browser consent flow. The email carries the scope disclosure; the code is PKCE-bound."
+        ),
+    )
 
     @property
     def is_provisioning_partner(self) -> bool:
