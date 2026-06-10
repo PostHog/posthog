@@ -265,6 +265,30 @@ async fn test_remote_config_non_remote_config_flag_returns_404() {
 }
 
 #[tokio::test]
+async fn test_remote_config_rate_limited_returns_429() {
+    let mut config = Config::default_test_config();
+    config.remote_config_default_rate_per_minute = 1; // burst of 1, so the 2nd call is limited
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-rl", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let get = || {
+        client
+            .get(url(&server.addr, team.id, "rc-rl"))
+            .header("Authorization", format!("Bearer {secret_token}"))
+            .send()
+    };
+
+    assert_eq!(get().await.unwrap().status(), 200);
+    assert_eq!(get().await.unwrap().status(), 429);
+}
+
+#[tokio::test]
 async fn test_remote_config_oversized_numeric_id_returns_404() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;

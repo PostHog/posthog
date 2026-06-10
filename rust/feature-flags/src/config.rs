@@ -650,6 +650,16 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Per-team rate limit for the remote_config endpoint (requests per minute).
+    // Matches Django's RemoteConfigThrottle default of 600/minute.
+    #[envconfig(from = "REMOTE_CONFIG_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub remote_config_default_rate_per_minute: u32,
+
+    // Per-team rate limit overrides for the remote_config endpoint (shared with Django's
+    // REMOTE_CONFIG_RATE_LIMITS). JSON format: {"team_id": "rate_string", ...}
+    #[envconfig(from = "REMOTE_CONFIG_RATE_LIMITS", default = "")]
+    pub remote_config_rate_limits: FlagDefinitionsRateLimits,
+
     // Teams that bypass rate limiting entirely (comma-separated team IDs)
     // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
@@ -1050,6 +1060,8 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            remote_config_default_rate_per_minute: 600,
+            remote_config_rate_limits: FlagDefinitionsRateLimits::default(),
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
             flags_log_bodies_request_max_bytes: 65_536,

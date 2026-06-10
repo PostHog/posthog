@@ -295,6 +295,12 @@ pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
+// Remote config rate limiting
+pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
+pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_remote_config_rate_limit_bypassed_total";
+pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";

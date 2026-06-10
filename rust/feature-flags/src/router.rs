@@ -54,6 +54,8 @@ use crate::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
+            REMOTE_CONFIG_RATE_LIMITED_COUNTER, REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+            REMOTE_CONFIG_REQUESTS_COUNTER,
         },
         utils::team_id_label_filter,
     },
@@ -79,6 +81,9 @@ pub struct State {
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    /// Per-team limiter for the remote_config endpoint (mirrors Django's
+    /// RemoteConfigThrottle). Separate budget from flag definitions.
+    pub(crate) remote_config_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
     pub(crate) flags_rate_limiter: FlagsRateLimiter,
     pub(crate) ip_rate_limiter: IpRateLimiter,
@@ -154,6 +159,17 @@ pub fn router(
         FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
+
+    // Per-team limiter for the remote_config endpoint (mirrors Django's RemoteConfigThrottle).
+    let remote_config_limiter = FlagDefinitionsRateLimiter::new(
+        config.remote_config_default_rate_per_minute,
+        config.remote_config_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
+        REMOTE_CONFIG_REQUESTS_COUNTER,
+        REMOTE_CONFIG_RATE_LIMITED_COUNTER,
+        REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize remote config rate limiter");
 
     // Initialize token-based rate limiter.
     // Both modes use the same thresholds (warn at ratio of enforce capacity).
@@ -249,6 +265,7 @@ pub fn router(
         session_replay_billing_limiter,
         cookieless_manager,
         flag_definitions_limiter,
+        remote_config_limiter,
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,

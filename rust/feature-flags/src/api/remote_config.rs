@@ -27,6 +27,8 @@ use tracing::warn;
 enum AuthOutcome {
     Authorized {
         should_decrypt: bool,
+        /// The team the request is scoped to (== project_id), used as the throttle key.
+        team_id: i32,
     },
     /// Credential is valid but not for this project (Django: 403 team mismatch).
     Forbidden,
@@ -45,11 +47,18 @@ pub async fn remote_config(
         return Ok(StatusCode::METHOD_NOT_ALLOWED.into_response());
     }
 
-    let should_decrypt = match authenticate(&state, project_id, &headers).await? {
-        AuthOutcome::Authorized { should_decrypt } => should_decrypt,
+    let (should_decrypt, team_id) = match authenticate(&state, project_id, &headers).await? {
+        AuthOutcome::Authorized {
+            should_decrypt,
+            team_id,
+        } => (should_decrypt, team_id),
         AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
         AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
     };
+
+    // Per-team throttle (mirrors Django's RemoteConfigThrottle). After auth so only
+    // authenticated callers count; before the DB lookup so it shields Postgres.
+    state.remote_config_limiter.check_rate_limit(team_id)?;
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag.
     let Some((filters, is_remote_configuration, has_encrypted_payloads)) =
@@ -143,6 +152,7 @@ async fn authenticate(
         }
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
+            team_id,
         });
     }
 
@@ -162,6 +172,7 @@ async fn authenticate(
         auth::validate_personal_api_key_with_scopes_for_team(state, &key, &team).await?;
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
+            team_id,
         });
     }
 
