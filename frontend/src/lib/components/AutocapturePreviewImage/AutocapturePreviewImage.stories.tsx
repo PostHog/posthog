@@ -3,7 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import { ElementType } from '~/types'
 
-import { AutocaptureImageTab, AutocapturePreviewImage } from './autocapture-previews'
+import { AutocaptureImageTab, AutocapturePreviewImage } from './AutocapturePreviewImage'
 
 const meta: Meta = {
     title: 'Utils/Autocapture Preview Image',
