@@ -872,7 +872,7 @@ export const QueryDatabase = ({
                         <ButtonPrimitive
                             iconOnly
                             isSideActionRight
-                            className="z-2"
+                            className="absolute right-0 opacity-0 group-hover/lemon-tree-button-group:opacity-100 z-10 data-[state=open]:opacity-100 -outline-offset-2 focus-visible:opacity-100"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 newInternalTab(urls.dataWarehouseSourceNew(sourceType))
