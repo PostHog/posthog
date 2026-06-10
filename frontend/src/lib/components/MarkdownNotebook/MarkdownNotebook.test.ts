@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
-import { createElement, useEffect, useState } from 'react'
+import { createElement, useEffect, useState, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -2733,6 +2733,41 @@ ${queryMarkdown}`)
             })
         )
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />`)
+    })
+
+    it('submits an Ask AI prompt on Enter without bubbling to surrounding handlers', () => {
+        const onAskAI = jest.fn()
+        const onOuterKeyDown = jest.fn()
+        const onSubmit = jest.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault())
+        const { container } = render(
+            createElement(
+                'form',
+                { onSubmit },
+                createElement(
+                    'div',
+                    { onKeyDown: onOuterKeyDown },
+                    createElement(MarkdownNotebook, {
+                        value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" />`,
+                        onAskAI,
+                        createAIChatId: () => TEST_AI_CHAT_ID,
+                    })
+                )
+            )
+        )
+        const promptBlock = getAIPromptInput(container)
+
+        updateAIPromptInput(promptBlock, 'What happened here?')
+        const wasDefaultAllowed = fireEvent.keyDown(promptBlock, { key: 'Enter' })
+
+        expect(wasDefaultAllowed).toBe(false)
+        expect(onOuterKeyDown).not.toHaveBeenCalled()
+        expect(onSubmit).not.toHaveBeenCalled()
+        expect(onAskAI).toHaveBeenCalledWith(
+            expect.objectContaining({
+                chatId: TEST_AI_CHAT_ID,
+                query: 'What happened here?',
+            })
+        )
     })
 
     it('turns an Ask AI prompt back into regular text when backspacing at the start', () => {

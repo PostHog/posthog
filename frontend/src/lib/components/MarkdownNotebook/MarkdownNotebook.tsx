@@ -4201,6 +4201,7 @@ function EditablePromptComponent({
                             minRows={2}
                             maxRows={6}
                             autoFocus={isActive}
+                            stopPropagation
                             disabled={mode !== 'edit'}
                         />
                         <LemonButton
