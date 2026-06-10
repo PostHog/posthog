@@ -30,8 +30,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        validate_uuid_param(self.query.issueId, "issueId")
-        validate_uuid_param(self.query.personId, "personId")
+        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
+        self.query.personId = validate_uuid_param(self.query.personId, "personId")
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,

@@ -749,6 +749,19 @@ class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, Clickhous
         with self.assertRaises(ValidationError):
             self._calculate(**{field: "test-distinct-id"})
 
+    def test_canonicalizes_uuid_params(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+                issueId="01936E7FD7FF7314B2D47627981E34F0",
+            ),
+        )
+        self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
     @freeze_time("2022-01-10T12:11:00")
     def test_event_filter_group_operator(self):
         firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"

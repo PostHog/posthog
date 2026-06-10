@@ -12,13 +12,17 @@ from posthog.schema import ErrorTrackingQuery
 from posthog.hogql import ast
 
 
-def validate_uuid_param(value: str | None, name: str) -> None:
-    # Malformed values otherwise reach ClickHouse and fail the whole query with CANNOT_PARSE_UUID.
-    # DRF's ValidationError, not Django's: the query API only maps the DRF one to a 400.
+def validate_uuid_param(value: str | None, name: str) -> str | None:
+    """Canonicalize a UUID query param, rejecting values ClickHouse could not parse.
+
+    Returns the dashed-hex form: Python accepts looser formats (32 hex chars, braces,
+    urn prefixes) that would still fail ClickHouse's UUID parsing at query time.
+    DRF's ValidationError, not Django's: the query API only maps the DRF one to a 400.
+    """
     if value is None:
-        return
+        return None
     try:
-        UUID(value)
+        return str(UUID(value))
     except ValueError:
         raise DRFValidationError(f"{name} must be a valid UUID")
 
