@@ -1081,7 +1081,8 @@ def evaluate_and_report(
     logreg_run: MatchingRun,
 ) -> None:
     """Grade links against held-out merge labels and report coverage and marketing impact."""
-    assert rules_run.job_id == logreg_run.job_id
+    if rules_run.job_id != logreg_run.job_id:
+        raise ValueError(f"Mismatched runs: {rules_run.job_id!r} vs {logreg_run.job_id!r}")
     run = rules_run
     config = run.config
     ch_settings = settings_with_log_comment(context)

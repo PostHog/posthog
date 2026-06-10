@@ -16,6 +16,7 @@ OTHER_TEAM_ID = 909_090_909
 
 RUN_A = str(uuid4())
 RUN_B = str(uuid4())
+RUN_OTHER_TEAM = str(uuid4())
 
 # Within the tables' 30-day TTL on computed_at; expired rows are dropped by ClickHouse.
 RUN_A_COMPUTED_AT = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
@@ -98,7 +99,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
             computed_at=RUN_B_COMPUTED_AT,
         )
         # Another team's rows: must never be visible.
-        self._insert_link(OTHER_TEAM_ID, str(uuid4()), "phone-other-team", "intruder@x.com", score=9.0)
+        self._insert_link(OTHER_TEAM_ID, RUN_OTHER_TEAM, "phone-other-team", "intruder@x.com", score=9.0)
 
     def test_lists_latest_run_for_own_team_only(self) -> None:
         self._seed()
@@ -115,11 +116,17 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert data["results"][0]["geo_city_match"] is True
         assert data["results"][0]["ua_exact_match"] is False
 
-    def test_other_team_rows_are_not_reachable_via_job_id(self) -> None:
+    def test_specific_run_selectable_via_job_id(self) -> None:
         self._seed()
         response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/", {"job_id": RUN_B})
         assert response.status_code == status.HTTP_200_OK
         assert {row["orphan_distinct_id"] for row in response.json()["results"]} == {"phone-old"}
+
+    def test_other_team_rows_are_not_reachable_via_job_id(self) -> None:
+        self._seed()
+        response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/", {"job_id": RUN_OTHER_TEAM})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [], "count": 0}
 
     @parameterized.expand(
         [

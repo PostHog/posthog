@@ -205,7 +205,7 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 p.orphan_paid_touch,
                 p.anchor_paid_touch
             FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk
-            INNER JOIN {IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE} AS p
+            LEFT JOIN {IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE} AS p
                 ON lk.job_id = p.job_id
                 AND lk.team_id = p.team_id
                 AND lk.orphan_distinct_id = p.orphan_distinct_id
