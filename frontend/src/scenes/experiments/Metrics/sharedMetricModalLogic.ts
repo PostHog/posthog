@@ -34,7 +34,8 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         setSelectedMetricIds: (ids: SharedMetric['id'][]) => ({ ids }),
         toggleSelectedMetricId: (id: SharedMetric['id']) => ({ id }),
         clearSelectedMetricIds: true,
-        toggleFilterTag: (tag: string) => ({ tag }),
+        // Click a tag to select (and show) every metric carrying it, loading any unloaded pages first.
+        selectByTag: (tag: string, alreadyAddedIds: SharedMetric['id'][]) => ({ tag, alreadyAddedIds }),
         clearFilterTags: true,
     }),
 
@@ -95,16 +96,28 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                 closeSharedMetricModal: () => [],
             },
         ],
-        // Tags chosen as a display filter — the metric table only shows metrics carrying one of these.
+        // The active tag(s) used both to filter the table and to drive tag-based selection.
+        // Clicking a tag activates it (replacing any previous one); clicking it again clears it.
         filterTags: [
             [] as string[],
             {
-                toggleFilterTag: (state, { tag }) =>
-                    state.includes(tag) ? state.filter((existingTag) => existingTag !== tag) : [...state, tag],
+                selectByTag: (state, { tag }) => (state.length === 1 && state[0] === tag ? [] : [tag]),
                 clearFilterTags: () => [],
                 setSearchTerm: () => [],
                 openSharedMetricModal: () => [],
                 closeSharedMetricModal: () => [],
+            },
+        ],
+        // The tag selection waiting to be applied once every page has loaded.
+        pendingTagSelection: [
+            null as { tag: string; alreadyAddedIds: SharedMetric['id'][] } | null,
+            {
+                selectByTag: (_, { tag, alreadyAddedIds }) => ({ tag, alreadyAddedIds }),
+                setSelectedMetricIds: () => null,
+                clearSelectedMetricIds: () => null,
+                clearFilterTags: () => null,
+                openSharedMetricModal: () => null,
+                closeSharedMetricModal: () => null,
             },
         ],
     }),
@@ -186,23 +199,57 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
 
-    listeners(({ actions, values }) => ({
-        openSharedMetricModal: () => {
-            actions.loadSharedMetrics()
-        },
-        setSearchTerm: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadSharedMetrics()
-        },
-        loadSharedMetricsSuccess: () => {
-            // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
-            if (!values.searchTerm) {
-                actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
+    listeners(({ actions, values }) => {
+        // Select every (still-addable) metric carrying the pending tag. Runs once all pages are loaded.
+        const applyPendingTagSelection = (): void => {
+            const pending = values.pendingTagSelection
+            if (!pending) {
+                return
             }
-            // Eagerly pull in the rest of the pages so the tag filter operates on every metric.
-            if (values.sharedMetricsResponse?.next) {
-                actions.loadAllSharedMetrics()
-            }
-        },
-    })),
+            const alreadyAdded = new Set(pending.alreadyAddedIds)
+            const matching = values.compatibleSharedMetrics.filter(
+                (metric) => !alreadyAdded.has(metric.id) && metric.tags?.includes(pending.tag)
+            )
+            actions.setSelectedMetricIds(matching.map((metric) => metric.id))
+        }
+        return {
+            openSharedMetricModal: () => {
+                actions.loadSharedMetrics()
+            },
+            setSearchTerm: async (_, breakpoint) => {
+                await breakpoint(300)
+                actions.loadSharedMetrics()
+            },
+            loadSharedMetricsSuccess: () => {
+                // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
+                if (!values.searchTerm) {
+                    actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
+                }
+                // Eagerly pull in the rest of the pages so tag selection covers every metric.
+                if (values.sharedMetricsResponse?.next) {
+                    actions.loadAllSharedMetrics(null)
+                }
+            },
+            selectByTag: () => {
+                // Clicking the active tag again clears the filter and its selection.
+                if (values.filterTags.length === 0) {
+                    actions.clearSelectedMetricIds()
+                    return
+                }
+                // Wait for any in-flight (or still-needed) full load before selecting, so the
+                // selection includes metrics that have not been rendered yet.
+                if (values.sharedMetricsResponseLoading) {
+                    return
+                }
+                if (values.sharedMetricsResponse?.next) {
+                    actions.loadAllSharedMetrics(null)
+                    return
+                }
+                applyPendingTagSelection()
+            },
+            loadAllSharedMetricsSuccess: () => {
+                applyPendingTagSelection()
+            },
+        }
+    }),
 ])

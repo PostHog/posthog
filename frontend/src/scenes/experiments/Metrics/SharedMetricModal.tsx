@@ -42,7 +42,7 @@ export function SharedMetricModal({
         toggleSelectedMetricId,
         setSelectedMetricIds,
         clearSelectedMetricIds,
-        toggleFilterTag,
+        selectByTag,
         clearFilterTags,
     } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
@@ -64,7 +64,8 @@ export function SharedMetricModal({
         closeSharedMetricModal()
     }
 
-    const alreadyAddedIds = new Set(experiment.saved_metrics.map((savedMetric) => savedMetric.saved_metric))
+    const alreadyAddedIdsList = experiment.saved_metrics.map((savedMetric) => savedMetric.saved_metric)
+    const alreadyAddedIds = new Set(alreadyAddedIdsList)
 
     // Ids of the currently displayed metrics (after tag filtering) that can still be added.
     const displayedSelectableIds = displayedMetrics
@@ -152,15 +153,17 @@ export function SharedMetricModal({
                         </div>
                         {availableTags.length > 0 && (
                             <div className="flex flex-wrap gap-2 items-center">
-                                <LemonLabel>Filter by tag:</LemonLabel>
+                                <LemonLabel>Select by tag:</LemonLabel>
                                 {availableTags.map((tag: string) => (
                                     <LemonButton
                                         key={tag}
                                         size="xsmall"
                                         type="secondary"
                                         active={filterTags.includes(tag)}
+                                        loading={isLoadingAllSharedMetrics && filterTags.includes(tag)}
                                         onClick={() => {
-                                            toggleFilterTag(tag)
+                                            // Selects (and shows) every metric carrying this tag, across all pages.
+                                            selectByTag(tag, alreadyAddedIdsList)
                                         }}
                                     >
                                         {tag}
@@ -168,7 +171,7 @@ export function SharedMetricModal({
                                 ))}
                                 {filterTags.length > 0 && (
                                     <LemonButton size="xsmall" type="tertiary" onClick={() => clearFilterTags()}>
-                                        Clear filters
+                                        Show all
                                     </LemonButton>
                                 )}
                             </div>

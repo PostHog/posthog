@@ -86,52 +86,66 @@ describe('sharedMetricModalLogic', () => {
         await expectLogic(logic).toMatchValues({ availableTags: ['main', 'secondary'] })
     })
 
-    it('toggleFilterTag narrows displayedMetrics to matching metrics across pages', async () => {
+    it('selectByTag selects matching metrics across pages and shows them', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         }).toDispatchActions(['loadAllSharedMetricsSuccess'])
 
+        // "secondary" only lives on the second page, which was loaded eagerly
         await expectLogic(logic, () => {
-            logic.actions.toggleFilterTag('secondary')
+            logic.actions.selectByTag('secondary', [])
         }).toMatchValues({
             filterTags: ['secondary'],
+            selectedMetricIds: [3],
             displayedMetrics: [expect.objectContaining({ id: 3 })],
         })
+    })
 
-        // a second tag widens the filter (OR semantics)
+    it('selectByTag excludes already-added metrics from the selection', async () => {
         await expectLogic(logic, () => {
-            logic.actions.toggleFilterTag('main')
-        }).toMatchValues({
-            displayedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 3 })],
-        })
+            logic.actions.loadSharedMetrics()
+        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
 
-        // toggling the same tag again removes it
+        // metric 1 carries "main" but is already on the experiment, so it must not be selected
         await expectLogic(logic, () => {
-            logic.actions.toggleFilterTag('secondary')
+            logic.actions.selectByTag('main', [1])
         }).toMatchValues({
             filterTags: ['main'],
-            displayedMetrics: [expect.objectContaining({ id: 1 })],
+            selectedMetricIds: [],
         })
     })
 
-    it('clearFilterTags restores the full list', async () => {
+    it('clicking the active tag again clears its selection and filter', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         }).toDispatchActions(['loadAllSharedMetricsSuccess'])
-        logic.actions.toggleFilterTag('main')
+
         await expectLogic(logic, () => {
-            logic.actions.clearFilterTags()
-        }).toMatchValues({
-            filterTags: [],
-            displayedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 3 })],
-        })
+            logic.actions.selectByTag('secondary', [])
+        }).toMatchValues({ filterTags: ['secondary'], selectedMetricIds: [3] })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('secondary', [])
+        }).toMatchValues({ filterTags: [], selectedMetricIds: [] })
     })
 
-    it('setSearchTerm reloads with the search term and clears any active tag filter', async () => {
+    it('selectByTag triggers a load when more pages remain, then selects across them', async () => {
+        // load only the first page, without waiting for the eager background load to finish
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         }).toDispatchActions(['loadAllSharedMetricsSuccess'])
-        logic.actions.toggleFilterTag('main')
+
+        // metric 3 ("secondary") came from the second page — selecting its tag picks it up
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('secondary', [])
+        }).toMatchValues({ selectedMetricIds: [3] })
+    })
+
+    it('setSearchTerm reloads with the search term and clears any active tag selection', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        logic.actions.selectByTag('main', [])
 
         jest.spyOn(api, 'get')
         await expectLogic(logic, () => {
