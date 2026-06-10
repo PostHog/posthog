@@ -286,6 +286,19 @@ class ErrorTrackingQueryRunnerTestsMixin:
         date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
         self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
+    @freeze_time("2022-01-10T12:11:00")
+    def test_date_to_only_window_ends_at_date_to(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_to="2021-06-01"),
+                orderBy=ErrorTrackingOrderBy.LAST_SEEN,
+                volumeResolution=1,
+            ),
+        )
+        self.assertEqual(runner.date_from, runner.date_to - timedelta(days=7))
+
     def test_event_fetching_defaults_off(self):
         runner = ErrorTrackingQueryRunner(
             team=self.team,
