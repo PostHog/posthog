@@ -1,7 +1,8 @@
 ---
 name: fixing-flaky-tests
 description: >
-  Reproduce, root-cause, fix, and validate flaky tests in the PostHog monorepo.
+  Guides an agent through reproducing, root-causing, fixing, and validating
+  flaky tests in the PostHog monorepo.
   Use when a test fails intermittently in CI but passes on rerun or locally,
   when `hogli ci:insights` or the debugging-ci-failures skill classifies a
   failure as a flaky test, when given a GitHub Actions URL for a flaky job, or
@@ -69,9 +70,10 @@ level that reproduces it; that level is your validation environment for step 6.
 1. **Single run**: `hogli test <path>::<test>` — confirms the test runs at all.
 2. **Repetition loop** (default N=20): catches probabilistic flakes.
 3. **CI-like conditions**: CI runs Jest sharded with low worker counts on
-   contended runners — take the exact flags from `frontend/package.json`'s `test`
-   script and `.github/workflows/ci-frontend.yml` (currently `--shard`,
-   `--maxWorkers=2`, `--forceExit`). Run the test alongside its shard neighbors:
+   contended runners — read the current flags from `frontend/package.json`'s
+   `test` script and `.github/workflows/ci-frontend.yml` before running. Example
+   (with the flags as of this writing), running the test alongside its shard
+   neighbors:
 
    ```bash
    pnpm --filter=@posthog/frontend jest <test_file> <neighbor_file> --maxWorkers=2 --forceExit
