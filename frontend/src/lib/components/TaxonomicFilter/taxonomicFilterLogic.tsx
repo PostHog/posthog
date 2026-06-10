@@ -1597,46 +1597,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 ),
         ],
         anyGroupLoading: [
-            (s) => [
-                (state, props) => {
-                    const logics = s.infiniteListLogics(state, props)
-                    const meta = s.metaGroupTypes(state, props)
-                    return Object.entries(logics).some(
-                        ([type, logic]) =>
-                            !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
-                    )
-                },
-            ],
-            (anyGroupLoading: boolean) => anyGroupLoading,
+            (s) => [s.infiniteListLogics, s.metaGroupTypes],
+            (infiniteListLogics, metaGroupTypes) =>
+                Object.entries(infiniteListLogics).some(
+                    ([type, logic]) => !metaGroupTypes.has(type) && logic.isMounted() && logic.values.isLoading
+                ),
         ],
         loadingGroupTypes: [
-            (s) => [
-                (state, props) => {
-                    const logics = s.infiniteListLogics(state, props)
-                    const meta = s.metaGroupTypes(state, props)
-                    return Object.entries(logics)
-                        .filter(
-                            ([type, logic]) =>
-                                !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
-                        )
-                        .map(([type]) => type)
-                        .join(',')
-                },
-            ],
-            (loadingGroupTypesString: string): TaxonomicFilterGroupType[] =>
-                loadingGroupTypesString ? (loadingGroupTypesString.split(',') as TaxonomicFilterGroupType[]) : [],
+            (s) => [s.infiniteListLogics, s.metaGroupTypes],
+            (infiniteListLogics, metaGroupTypes): TaxonomicFilterGroupType[] =>
+                Object.entries(infiniteListLogics)
+                    .filter(([type, logic]) => !metaGroupTypes.has(type) && logic.isMounted() && logic.values.isLoading)
+                    .map(([type]) => type) as TaxonomicFilterGroupType[],
         ],
         infiniteListCounts: [
-            (s) => [
-                (state, props) =>
-                    Object.fromEntries(
-                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
-                            groupType,
-                            logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0,
-                        ])
-                    ),
-            ],
-            (infiniteListCounts) => infiniteListCounts,
+            (s) => [s.infiniteListLogics],
+            (infiniteListLogics) =>
+                Object.fromEntries(
+                    Object.entries(infiniteListLogics).map(([groupType, logic]) => [
+                        groupType,
+                        logic.isMounted() ? logic.values.totalListCount : 0,
+                    ])
+                ),
             { resultEqualityCheck: objectsEqual },
         ],
         value: [() => [(_, props) => props.value], (value) => value],
