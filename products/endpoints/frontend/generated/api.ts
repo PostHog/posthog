@@ -156,7 +156,7 @@ export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, par
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
         }
     })
 

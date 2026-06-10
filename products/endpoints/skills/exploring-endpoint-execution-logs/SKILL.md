@@ -82,13 +82,16 @@ Each run gets a distinct `instance_id`, so logs group one-per-execution in the v
      version bump.
 4. For counts/trends across many runs (e.g. error rate over a week), drop to `execute-sql` against
    `log_entries`:
+
    ```sql
    SELECT toDate(timestamp) AS day, upper(level) AS level, count() AS runs
    FROM log_entries
    WHERE log_source = 'endpoints' AND log_source_id = '<endpoint_uuid>'
    GROUP BY day, level ORDER BY day DESC
    ```
+
    Get the endpoint UUID from `endpoint-get` (the `log_source_id` is the endpoint id, not its name).
+
 5. Summarize: what's failing, since when, on which version/path, and whether it's a config issue
    (hand off to `diagnosing-endpoint-performance`) or a query bug.
 
