@@ -953,9 +953,9 @@ snapshots:
     components-markdown-notebook--malformed-markdown-recovery--light:
         hash: v1.k794b7964.d5c890ed8a90f551ceaeb391302420b474d849bfbf0a2b2438827aba0c5b2e8a.PsUh8Yj9Vc62WtR1UxMk8bRdHj-gpZd30JENe2qkR5Q
     components-markdown-notebook--mocked-collaboration--dark:
-        hash: v1.k794b7964.245e3c2253d8bff24ef6094970d7e2e5d0f71653b2a54f4238d2567f81f14ba8.WaakcX8U4md_EznEegkPI5_XLxG_WVzQRvJ3wE7sklA
+        hash: v1.k794b7964.522c3991f7ea4acfec8c7d9b51250b734a18133643a9311de06adad5ef774d7b.VT_zbqotPn_bfc33iIsR0UqufeOrN0hxqHd1BeDxMoM
     components-markdown-notebook--mocked-collaboration--light:
-        hash: v1.k794b7964.0cbffdaad6dfcbd12d7b1e1df36d4df0190d010f33b1da1554234cbd36655f4c.89irsh2l6QiMDZT9jaU-vfUocCMlrY8IMJNmkl7zPUE
+        hash: v1.k794b7964.a088a83eb0c071ea19c30a32cbc4c4e14dc498a496f98b733ecd1da12d1878d1.lznM7_izFoewsfl2lP0gkKzWkcP9AqlPNU-glE6dKEY
     components-markdown-notebook--query-block--dark:
         hash: v1.k794b7964.ad4f3961999837b2d8262ef195c79b0a7d39c905c497458ffef5eb64c4177a3c.jRsBEoCeACgmkpl8-4QhuC5t76GXfdIFW1CRgjfA9E0
     components-markdown-notebook--query-block--light:
@@ -969,9 +969,9 @@ snapshots:
     components-markdown-notebook--slash-menu-and-insertion--light:
         hash: v1.k794b7964.768434758396eb7df28e2afada8c936596a9d78c45fd0110e60ff5aaf6835087.i5ck861Jmhl5JakHgV5zu9q2Ay47GoeK_lkPVZkdDXY
     components-markdown-notebook--text-only-notebook--dark:
-        hash: v1.k794b7964.4c3f2e9192815fa5f2b8b4c8c725db62ea659795aebd5659172a774176fce5aa.KSZmsokC_Krmx-0J6aaS-yeqSKBV6OZX8-zs7oBtVr8
+        hash: v1.k794b7964.e72b82341e2b711090c6f0822145cdc1c96dac74c61ebd79a7884fefcdb99985.cvuSubsC8aqVt6C9t4kLi__VapgduRL-zEssZKWenpE
     components-markdown-notebook--text-only-notebook--light:
-        hash: v1.k794b7964.8ffa336b944b906843b2fc763d88173809682e3495c3d6a712e3451bc405cb02.KeBntn0N6gSC01TbFYbHcYk9zFDB6-MxSu7sRxzTEy4
+        hash: v1.k794b7964.7f58b3b68b9f80fb83d98028937c250fed32f977543ae65672a9f14e4cb4e5c3.s-5JLfwLTYtLHDT5kbUnIkvOXhkC8R0ko7c9KI1ChUA
     components-markdown-notebook--view-mode--dark:
         hash: v1.k794b7964.39eea594d075ad54d65f1e56f79efbeaafe534bc34929942c56745624b87ae57.Fv-afA29McIQKNPCnvkE66Q7Ih5Y_0n3l9H4OwCNHzo
     components-markdown-notebook--view-mode--light:
