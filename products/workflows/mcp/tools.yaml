@@ -104,9 +104,9 @@ tools:
             a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the
             event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not
             behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days')
-            are unsupported — if the user requests one, reject it and explain why. A batch
-            workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring
-            schedule with workflows-schedule-create.
+            are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on
+            enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with
+            workflows-schedule-create.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
