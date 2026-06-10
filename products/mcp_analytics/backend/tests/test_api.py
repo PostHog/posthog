@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
@@ -89,6 +90,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         *,
         client_name: str = "Claude Desktop",
         distinct_id: str = "anon_seed",
+        category: str | None = None,
         session_start: datetime | None = None,
         session_end: datetime | None = None,
     ) -> None:
@@ -96,6 +98,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         tool_call_count == len(tool_sequence); tools_used == its distinct values.
         Events span [session_start, session_end] so min/max timestamps line up.
+        ``category`` stamps $mcp_tool_category on every event when provided.
         """
         now = datetime.now(tz=UTC)
         session_start = session_start or now - timedelta(minutes=5)
@@ -104,16 +107,19 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         span = session_end - session_start
         for i, tool in enumerate(tool_sequence):
             timestamp = session_end if n == 1 else session_start + span * (i / (n - 1))
+            properties: dict[str, Any] = {
+                "$mcp_session_id": session_id,
+                "$mcp_tool_name": tool,
+                "$mcp_client_name": client_name,
+            }
+            if category is not None:
+                properties["$mcp_tool_category"] = category
             _create_event(
                 team=self.team,
                 event="mcp_tool_call",
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                properties={
-                    "$mcp_session_id": session_id,
-                    "$mcp_tool_name": tool,
-                    "$mcp_client_name": client_name,
-                },
+                properties=properties,
             )
 
     def test_lists_sessions_in_newest_first_order(self) -> None:
@@ -215,6 +221,28 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert {alice_id, bob_id, misc_id}.issubset(search(""))
         # no match
         assert search("zzzz") == set()
+
+    def test_search_matches_tool_category(self) -> None:
+        # A category search surfaces sessions whose tool names don't contain the term
+        # but whose tools belong to that product category — e.g. "tracing" matching
+        # apm-* tools stamped with $mcp_tool_category = "Tracing".
+        tracing_id = str(uuid7())
+        logs_id = str(uuid7())
+        other_id = str(uuid7())
+
+        self._seed_session(tracing_id, ["apm-trace-get", "apm-services-list"], category="Tracing")
+        self._seed_session(logs_id, ["query-logs"], category="Logs")
+        self._seed_session(other_id, ["dashboard_get"], category="Dashboards")
+
+        def search(term: str) -> set[str]:
+            return {s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, search=term).results}
+
+        # "tracing" matches only via category — the apm-* tool names don't contain it
+        assert search("tracing") == {tracing_id}
+        # case-insensitive category match
+        assert search("LOGS") == {logs_id}
+        # unrelated category isn't matched
+        assert search("tracing") & {logs_id, other_id} == set()
 
     def test_order_by_whitelist(self) -> None:
         # new_id and big_id share a session_end below, so the

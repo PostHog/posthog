@@ -70,7 +70,7 @@ export function MCPSessionsTable(): JSX.Element {
                 <LemonInput
                     type="search"
                     className="w-96 !max-w-none"
-                    placeholder="Search by session id, client, or tool"
+                    placeholder="Search by session id, client, tool, or category"
                     onChange={(value) => setFilters({ search: value })}
                     value={filters.search}
                 />

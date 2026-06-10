@@ -86,7 +86,10 @@ SELECT
     count() AS tool_call_count,
     groupUniqArray(properties.$mcp_tool_name) AS tools_used,
     argMax(distinct_id, timestamp) AS distinct_id,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name
+    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name,
+    -- Only consumed by the search HAVING below (not surfaced in the contract);
+    -- mirrors tools_used so category search reuses the same proven aggregate shape.
+    groupUniqArray(properties.$mcp_tool_category) AS categories_used
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -101,13 +104,16 @@ OFFSET {offset}
 """
 
 # Search is post-aggregation (HAVING) so a match returns the whole session, not
-# just the matching events. tools_used / distinct_id / mcp_client_name are
-# aggregates, so they can only be filtered after GROUP BY.
+# just the matching events. tools_used / categories_used / distinct_id /
+# mcp_client_name are aggregates, so they can only be filtered after GROUP BY. The
+# categories_used clause lets a search like "tracing" surface sessions whose tools
+# (e.g. apm-*) don't contain the term textually but belong to that product category.
 _SESSION_SEARCH_HAVING = (
     "HAVING session_id ILIKE {search} "
     "OR distinct_id ILIKE {search} "
     "OR mcp_client_name ILIKE {search} "
-    "OR arrayExists(t -> t ILIKE {search}, tools_used)"
+    "OR arrayExists(t -> t ILIKE {search}, tools_used) "
+    "OR arrayExists(c -> c ILIKE {search}, categories_used)"
 )
 
 
@@ -148,7 +154,8 @@ def list_mcp_sessions(
     are cached briefly so concurrent dashboard refreshes share a single aggregation.
 
     ``search`` does case-insensitive substring matching across session_id,
-    distinct_id, mcp_client_name, and any element of tools_used. ``order_by`` is a
+    distinct_id, mcp_client_name, any element of tools_used, and any tool
+    category used in the session (e.g. "logs", "tracing"). ``order_by`` is a
     whitelisted column name; prefix with '-' for descending.
 
     Person email/name are resolved from distinct_id via personhog. ``intent`` is
