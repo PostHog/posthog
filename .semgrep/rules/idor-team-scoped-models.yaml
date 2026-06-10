@@ -71,6 +71,9 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
+                              |CodePrSnapshot
+                              |CodeWorkflowConfig
+                              |CodeWorkstream
                               |Cohort
                               |Comment
                               |Conversation
@@ -206,6 +209,7 @@ rules:
                               |SignalSourceConfig
                               |SignalScoutConfig
                               |SignalScoutRun
+                              |SignalScoutEmission
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -310,6 +314,9 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
+                        |CodePrSnapshot
+                        |CodeWorkflowConfig
+                        |CodeWorkstream
                         |Cohort
                         |Comment
                         |Conversation
@@ -441,6 +448,7 @@ rules:
                         |SignalSourceConfig
                         |SignalScoutConfig
                         |SignalScoutRun
+                        |SignalScoutEmission
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

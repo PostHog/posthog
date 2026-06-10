@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -76,20 +76,17 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilityTraceLogicProps {
-    tabId?: string
-}
+export type AIObservabilityTraceLogicProps = Record<string, never>
 
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceLogic']),
     props({} as AIObservabilityTraceLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilityTraceLogicProps) => ({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),

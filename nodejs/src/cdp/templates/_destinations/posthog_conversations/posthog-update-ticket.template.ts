@@ -149,7 +149,8 @@ return response.body
             label: 'Tags',
             secret: false,
             required: false,
-            description: 'Tags to apply to the ticket. Leave empty to keep current tags.',
+            description:
+                'Tags to apply to the ticket. Each tag supports variable templating, e.g. {event.properties.region}. Leave empty to keep current tags.',
         },
         {
             key: 'tags_mode',

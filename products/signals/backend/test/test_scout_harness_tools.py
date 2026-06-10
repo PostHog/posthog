@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
@@ -28,6 +28,8 @@ from products.signals.backend.scout_harness.tools import (
     search_scratchpad,
 )
 from products.signals.backend.scout_harness.tools.emit import (
+    MAX_FINDING_ID_LENGTH,
+    SCOUT_SIGNAL_WEIGHT,
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
@@ -345,31 +347,34 @@ class TestValidateEmitInputs:
 
     def test_empty_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("", 0.5, 0.5, [])
+            _validate_inputs("", 0.5, [], None)
 
     def test_whitespace_only_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("   \n\t", 0.5, 0.5, [])
-
-    @pytest.mark.parametrize("weight", [-0.1, 1.1, 2.0])
-    def test_weight_out_of_range_raises(self, weight: float) -> None:
-        with pytest.raises(InvalidEmitError, match="weight"):
-            _validate_inputs("ok", weight, 0.5, [])
+            _validate_inputs("   \n\t", 0.5, [], None)
 
     @pytest.mark.parametrize("confidence", [-0.1, 1.1])
     def test_confidence_out_of_range_raises(self, confidence: float) -> None:
         with pytest.raises(InvalidEmitError, match="confidence"):
-            _validate_inputs("ok", 0.5, confidence, [])
+            _validate_inputs("ok", confidence, [], None)
 
     def test_too_many_evidence_entries_raises(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
-            _validate_inputs("ok", 0.5, 0.5, many)
+            _validate_inputs("ok", 0.5, many, None)
 
     def test_at_capacity_evidence_passes(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES)]
         # Should not raise.
-        _validate_inputs("ok", 0.5, 0.5, many)
+        _validate_inputs("ok", 0.5, many, None)
+
+    def test_overlong_finding_id_raises(self) -> None:
+        with pytest.raises(InvalidEmitError, match="finding_id"):
+            _validate_inputs("ok", 0.5, [], "x" * (MAX_FINDING_ID_LENGTH + 1))
+
+    def test_finding_id_at_capacity_passes(self) -> None:
+        # Should not raise — and a generated 36-char uuid is always well under the cap.
+        _validate_inputs("ok", 0.5, [], "x" * MAX_FINDING_ID_LENGTH)
 
 
 class TestBuildEmitExtra:
@@ -512,7 +517,6 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
             team=ateam_emit,
             run=arun_emit,
             description="Checkout 500s post-deploy",
-            weight=0.7,
             confidence=0.85,
             evidence=evidence,
             hypothesis="post-deploy regression",
@@ -530,7 +534,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
     assert call_kwargs["source_type"] == SOURCE_TYPE
     assert call_kwargs["source_id"] == f"run:{arun_emit.id}:finding:f-happy"
     assert call_kwargs["description"] == "Checkout 500s post-deploy"
-    assert call_kwargs["weight"] == 0.7
+    assert call_kwargs["weight"] == SCOUT_SIGNAL_WEIGHT
     assert call_kwargs["extra"]["scout_run_id"] == str(arun_emit.id)
     assert call_kwargs["extra"]["task_run_id"] == str(arun_emit.task_run_id)
     assert call_kwargs["extra"]["finding_id"] == "f-happy"
@@ -547,7 +551,6 @@ async def test_emit_finding_validation_error_does_not_emit(ateam_emit, arun_emit
                 team=ateam_emit,
                 run=arun_emit,
                 description="",  # empty -> validation error
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
@@ -568,7 +571,6 @@ async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_em
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id="f-fails",
@@ -583,7 +585,6 @@ async def test_emit_finding_auto_generates_finding_id_when_not_provided(ateam_em
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
         )
@@ -609,7 +610,6 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-not-approved",
@@ -637,7 +637,6 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-source-off",
@@ -661,7 +660,6 @@ async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, 
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-dry-run",
@@ -686,7 +684,6 @@ async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_em
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-no-config",
@@ -710,7 +707,6 @@ async def test_emit_finding_records_tally_on_run(ateam_emit, arun_emit):
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id=fid,
@@ -719,6 +715,34 @@ async def test_emit_finding_records_tally_on_run(ateam_emit, arun_emit):
     await database_sync_to_async(arun_emit.refresh_from_db)()
     assert arun_emit.emitted_count == 2
     assert arun_emit.emitted_finding_ids == ["f-one", "f-two"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
+    # Each successful emit writes a SignalScoutEmission row carrying the finding's content,
+    # so a team can read *what* a run surfaced without scanning the signal store.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            severity="P1",
+            finding_id="f-emit",
+        )
+
+    rows = await database_sync_to_async(lambda: list(SignalScoutEmission.all_teams.filter(scout_run=arun_emit)))()
+    assert len(rows) == 1
+    emission = rows[0]
+    assert emission.team_id == ateam_emit.id
+    assert emission.finding_id == "f-emit"
+    assert emission.description == "Checkout 500s post-deploy"
+    assert emission.weight == SCOUT_SIGNAL_WEIGHT
+    assert emission.confidence == 0.85
+    assert emission.severity == "P1"
+    assert emission.source_id == f"run:{arun_emit.id}:finding:f-emit"
 
 
 @pytest.mark.asyncio
@@ -735,7 +759,6 @@ async def test_emit_finding_skip_does_not_record_tally(arun_emit, ateam_emit):
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-skip",
@@ -761,7 +784,6 @@ async def test_emit_finding_succeeds_when_tally_write_fails(ateam_emit, arun_emi
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id="f-tally-fail",
@@ -793,7 +815,6 @@ async def test_emit_finding_fails_closed_when_config_deleted_then_recreated(arun
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            weight=0.5,
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-recreated-config",
@@ -826,7 +847,6 @@ async def test_emit_finding_rejects_team_run_mismatch(aorganization_emit, ateam_
                 team=other_team,
                 run=arun_emit,  # owned by ateam_emit, not other_team
                 description="should be rejected",
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
@@ -857,7 +877,6 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
                 team=other_team,
                 run=run,
                 description="should be rejected",
-                weight=0.5,
                 confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )

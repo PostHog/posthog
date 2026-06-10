@@ -21,6 +21,34 @@ MAX_SUMMARIES = 100
 # Inline citation markers the model emits in summary text; stripped before handing to Max as noise.
 _EVENT_ID_CITATION_RE = re.compile(r"\(event_id [0-9a-f]{16}\)", re.IGNORECASE)
 
+DRAFT_PROMPT_TOOL_DESCRIPTION = dedent("""
+    Use this tool to write or improve the instruction prompt for the Replay Vision scanner the user is
+    currently configuring, then fill it into their configuration form.
+
+    # When to use
+    - The user is configuring a scanner and asks for help writing, drafting, or improving its prompt
+    - The user describes what they want a scanner to detect, summarize, classify, or score and wants that turned into a good prompt
+
+    # How to write a good scanner prompt
+    A scanner prompt is the instruction the model follows while watching a single session recording.
+    Write it as a direct, specific instruction grounded in observable behavior. The shape depends on the scanner type:
+    - monitor: a yes/no question about whether something happened (e.g. "Did the user fail to complete checkout?").
+      State what counts as a yes, and ask for a one-sentence reason.
+    - classifier: an instruction to categorize the session along one dimension (e.g. by primary user intent).
+      Describe the dimension; the tag vocabulary is configured separately, so don't list tags in the prompt.
+    - scorer: an instruction to rate the session on a single dimension (e.g. frustration).
+      Describe what a low score versus a high score means; the numeric scale is configured separately.
+    - summarizer: an instruction for what the summary should focus on (e.g. the user's goal and the obstacles they hit).
+
+    Keep it concrete. Avoid vague adjectives, multi-part questions, and references to data the model cannot
+    observe in a recording (e.g. revenue, account tier).
+
+    # After drafting
+    Call this tool with the finished prompt — it fills the prompt field in the form the user is editing.
+    Then briefly explain the choices you made so the user can refine them.
+    """).strip()
+
+
 SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = dedent("""
     Use this tool to reason across the per-session summaries produced by a Replay Vision *summarizer* scanner.
 
@@ -33,6 +61,51 @@ SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = dedent("""
     The scanner's most recent per-session summaries. Synthesize them to answer the user's question —
     surface recurring themes, notable outliers, and concrete takeaways rather than restating each summary.
     """).strip()
+
+
+VALID_SCANNER_TYPES = {t.value for t in ScannerType}
+
+
+class DraftScannerPromptArgs(BaseModel):
+    prompt: str = Field(description="The finished scanner instruction prompt to fill into the configuration form.")
+    scanner_type: str | None = Field(
+        default=None,
+        description="The scanner type the prompt is for (monitor, classifier, scorer, or summarizer). "
+        "Only required when not already available from context.",
+    )
+
+
+class DraftReplayVisionScannerPromptTool(MaxTool):
+    name: str = "draft_replay_vision_scanner_prompt"
+    description: str = DRAFT_PROMPT_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = DraftScannerPromptArgs
+    context_prompt_template: str = (
+        "The user is editing the configuration for a Replay Vision {scanner_type} scanner. "
+        "Its current prompt is:\n{current_prompt}"
+    )
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        # Drafting writes into the scanner's configuration form, which requires editor access.
+        return [("session_recording", "editor")]
+
+    async def _arun_impl(self, prompt: str, scanner_type: str | None = None) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+
+        cleaned = prompt.strip()
+        if not cleaned:
+            return "No prompt to apply. Please provide the drafted prompt text.", {"error": "empty_prompt"}
+
+        resolved_type = scanner_type or self.context.get("scanner_type")
+        # Artifact is consumed by the frontend callback, which fills the prompt field in the form.
+        return "Drafted a scanner prompt and filled it into the configuration form.", {
+            "prompt": cleaned,
+            "scanner_type": resolved_type if resolved_type in VALID_SCANNER_TYPES else None,
+        }
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
 
 
 class SummarizeSummariesArgs(BaseModel):

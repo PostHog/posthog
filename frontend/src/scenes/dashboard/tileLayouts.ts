@@ -21,7 +21,7 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
-const MIN_WIDGET_TILE_WIDTH_COLS = 6
+const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']

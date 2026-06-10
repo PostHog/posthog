@@ -425,23 +425,23 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     sessions: 'Analyze user sessions containing AI interactions.',
 }
 
-export function AIObservabilityScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sharedLogic = aiObservabilitySharedLogic({ tabId })
+export function AIObservabilityScene(): JSX.Element {
+    const sharedLogic = aiObservabilitySharedLogic()
     const dataCollectionLogic = dataNodeCollectionLogic({ key: AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID })
     useAttachedLogic(dataCollectionLogic, sharedLogic)
 
     return (
-        <BindLogic logic={aiObservabilitySharedLogic} props={{ tabId }}>
+        <BindLogic logic={aiObservabilitySharedLogic} props={{}}>
             <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
                 <BindLogic logic={dataNodeCollectionLogic} props={{ key: AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
-                    <BindLogic logic={aiObservabilityDashboardLogic} props={{ tabId }}>
-                        <BindLogic logic={aiObservabilityGenerationsLogic} props={{ tabId }}>
-                            <BindLogic logic={aiObservabilityTracesTabLogic} props={{ tabId }}>
-                                <BindLogic logic={aiObservabilityErrorsLogic} props={{ tabId }}>
-                                    <BindLogic logic={aiObservabilityUsersLogic} props={{ tabId }}>
-                                        <BindLogic logic={aiObservabilitySessionsViewLogic} props={{ tabId }}>
-                                            <BindLogic logic={aiObservabilityToolsLogic} props={{ tabId }}>
-                                                <BindLogic logic={aiObservabilitySentimentLogic} props={{ tabId }}>
+                    <BindLogic logic={aiObservabilityDashboardLogic} props={{}}>
+                        <BindLogic logic={aiObservabilityGenerationsLogic} props={{}}>
+                            <BindLogic logic={aiObservabilityTracesTabLogic} props={{}}>
+                                <BindLogic logic={aiObservabilityErrorsLogic} props={{}}>
+                                    <BindLogic logic={aiObservabilityUsersLogic} props={{}}>
+                                        <BindLogic logic={aiObservabilitySessionsViewLogic} props={{}}>
+                                            <BindLogic logic={aiObservabilityToolsLogic} props={{}}>
+                                                <BindLogic logic={aiObservabilitySentimentLogic} props={{}}>
                                                     <AIObservabilitySceneContent />
                                                 </BindLogic>
                                             </BindLogic>
