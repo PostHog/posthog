@@ -702,7 +702,8 @@ h3.MarkdownNotebook__text-block--heading {
     border-left-color: var(--markdown-notebook-text-block-gutter);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__list-block {
+.MarkdownNotebook__text-group .MarkdownNotebook__list-block,
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__list-block {
     width: 100%;
     min-height: 0;
     padding: 0.125rem 0;

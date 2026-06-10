@@ -14,6 +14,10 @@ Activation improved after the onboarding changes. **Signup completion** is up, *
 - Check enterprise onboarding recordings
 - Add notes for the growth sync
 
+> Key takeaways from the growth sync:
+> - Activation is trending up
+> - Onboarding drop-off needs a deeper look
+
 [Open dashboard](/dashboard/123)`
 
 const queryNotebook = `# Product analytics
