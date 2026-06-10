@@ -27,9 +27,12 @@ export function createApp(redis: RedisWithPing): App {
     const app = new Hono()
     const lifecycle: Lifecycle = { shuttingDown: false }
 
-    // Install the typed-confirm runtime exactly once per process. Generated
-    // -prepare/-execute handlers call getConfirmedActionRuntime() at request
-    // time and throw if it's missing, so do this before any tool dispatch.
+    // Install/refresh the process-level typed-confirm runtime singleton.
+    // Generated -prepare/-execute handlers call getConfirmedActionRuntime()
+    // at request time and throw if it's missing, so do this before any
+    // tool dispatch. createApp may be invoked multiple times (e.g. tests
+    // creating fresh app instances) — each call overwrites the singleton;
+    // that's intentional, the latest installation wins.
     setConfirmedActionRuntime({
         codec: new SignedStateCodec(loadSigningKeyFromEnv()),
         ledger: new NonceLedger(redis),

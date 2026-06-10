@@ -410,5 +410,21 @@ describe('Hono App Routes', () => {
             expect(runtime.codec).toBeInstanceOf(Object)
             expect(runtime.ledger).toBeInstanceOf(Object)
         })
+
+        it('overwrites the singleton on each createApp call (latest wins)', async () => {
+            // app.ts deliberately re-installs the runtime on every
+            // createApp. Lock that behavior down so a future "guard
+            // against re-install" change doesn't silently make the second
+            // app instance share the first app's Redis-bound ledger.
+            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
+            const redis1 = createMockRedis()
+            createApp(redis1)
+            const first = getConfirmedActionRuntime()
+            const redis2 = createMockRedis()
+            createApp(redis2)
+            const second = getConfirmedActionRuntime()
+            expect(second).not.toBe(first)
+            expect(second.ledger).not.toBe(first.ledger)
+        })
     })
 })

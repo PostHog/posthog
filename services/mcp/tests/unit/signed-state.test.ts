@@ -74,6 +74,29 @@ describe('SignedStateCodec', () => {
         const { token } = a.encode({ sub: 'u1', purpose: 'p1', payload: null })
         expect(() => b.decode(token, 'u1', 'p1')).toThrow(SignedStateSignatureInvalid)
     })
+
+    it('secondsUntilExpiry sources the clock from the codec, not the wall clock', () => {
+        // Inject a clock 100s before exp; assert the runtime gets 100,
+        // independent of what Date.now() reads in real wall time. This
+        // is what protects the nonce ledger from clock-skew shrinkage.
+        const { codec } = makeCodec()
+        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        expect(codec.secondsUntilExpiry(claims)).toBe(300)
+    })
+
+    it('secondsUntilExpiry tracks the injected clock as it advances', () => {
+        const { codec, advance } = makeCodec()
+        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        advance(200 * 1000)
+        expect(codec.secondsUntilExpiry(claims)).toBe(100)
+    })
+
+    it('secondsUntilExpiry clamps to 1 once the token has lapsed', () => {
+        const { codec, advance } = makeCodec()
+        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        advance(1_000 * 1000) // far past exp
+        expect(codec.secondsUntilExpiry(claims)).toBe(1)
+    })
 })
 
 describe('loadSigningKeyFromEnv', () => {

@@ -208,6 +208,32 @@ describe('executeConfirmedAction', () => {
             expect(outcome.result.content[0]!.text).toContain('signature is invalid')
         }
     })
+
+    it('sources the ledger TTL from the codec clock, not the wall clock', async () => {
+        // Regression guard: previously the runtime read Date.now() here.
+        // With the codec's fake clock pinned to 2023, that read would
+        // produce a hugely negative remaining TTL (clamped to 1) on a
+        // real Redis — re-allowing replay almost immediately. Assert the
+        // runtime now hands the ledger the codec-derived TTL.
+        const codec = makeCodec() // ttlSeconds: 300, clock pinned 100s before exp
+        let observedTtl: number | undefined
+        const ledger = new NonceLedger({
+            set: async (_key, _value, ..._args) => {
+                // arg order from NonceLedger.consume: ('EX', ttl, 'NX')
+                observedTtl = _args[1] as number
+                return 'OK'
+            },
+        })
+        const hash = await mintToken(codec, 'did-1', 'tool-A', { x: 1 })
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', x: 1 },
+            purpose: 'tool-A',
+            codec,
+            ledger,
+        })
+        expect(outcome.ok).toBe(true)
+        expect(observedTtl).toBe(300)
+    })
 })
 
 describe('confirmed-action metrics', () => {

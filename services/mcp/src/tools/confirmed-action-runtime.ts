@@ -27,6 +27,13 @@
  *     single-use nonce ledger. Returns the validated payload (the original
  *     args) for the rest of the handler to act on, or a `ToolErrorResult`
  *     to short-circuit the call.
+ *
+ * Failure UX note: the nonce is consumed before the underlying handler
+ * runs. If the downstream API call then fails, the user must run
+ * prepare + confirm again — that's intentional. A failed call may have
+ * partially succeeded server-side, and silently allowing a retry under
+ * the same confirmation could perform the action a second time when the
+ * user thought it had been canceled.
  */
 
 import {
@@ -154,11 +161,12 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
 
     // Single-use enforcement. Bind the ledger TTL to the token's remaining
     // life so abandoned nonces self-clean exactly when the token they
-    // protect can no longer be replayed.
-    const nowSeconds = Math.floor(Date.now() / 1000)
-    const remainingTtl = Math.max(1, claims.exp - nowSeconds)
+    // protect can no longer be replayed. Source the remaining TTL from the
+    // codec's own clock — reading Date.now() here would skew under test
+    // injections or signer/consumer clock drift, potentially shrinking the
+    // ledger TTL enough to re-allow replay.
     try {
-        await options.ledger.consume(claims.nonce, remainingTtl)
+        await options.ledger.consume(claims.nonce, options.codec.secondsUntilExpiry(claims))
     } catch (err) {
         if (err instanceof SignedStateAlreadyConsumed) {
             return refuse(
