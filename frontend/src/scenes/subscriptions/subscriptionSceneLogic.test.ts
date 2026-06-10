@@ -255,6 +255,7 @@ describe('subscriptionSceneLogic', () => {
             delivery_id: 'd-123',
             feedback,
             source,
+            previous_feedback: null,
         })
         // The replace must remove the params so a refresh doesn't double-capture.
         expect(router.values.searchParams).toEqual({})
@@ -350,6 +351,7 @@ describe('subscriptionSceneLogic', () => {
             delivery_id: 'd-9',
             feedback: 'negative',
             source: 'in_app',
+            previous_feedback: null,
         })
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
         // Thanks flashes first, then expiry settles the row into the recorded option.
@@ -359,6 +361,19 @@ describe('subscriptionSceneLogic', () => {
         }).toFinishAllListeners()
         expect(logic.values.recentlyThankedDeliveries).toEqual({})
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
+
+        // Switching the vote captures again with the previous value, and the latest one wins.
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-9',
+            feedback: 'positive',
+            source: 'in_app',
+            previous_feedback: 'negative',
+        })
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
 
         logic.unmount()
         featureFlagLogic.unmount()

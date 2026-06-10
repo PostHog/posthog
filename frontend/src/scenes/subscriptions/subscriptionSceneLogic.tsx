@@ -199,13 +199,16 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, values, props, cache }) => ({
-        submitDeliveryFeedback: ({ deliveryId, feedback, source }) => {
+    listeners(({ actions, values, props, cache, selectors }) => ({
+        submitDeliveryFeedback: ({ deliveryId, feedback, source }, _breakpoint, _action, previousState) => {
             posthog.capture('ai_report_feedback', {
                 subscription_id: parseInt(props.id, 10),
                 delivery_id: deliveryId,
                 feedback,
                 source,
+                // Lets analysis distinguish first votes from switches; consumers take the latest
+                // event per person + delivery, so a switched vote simply wins.
+                previous_feedback: selectors.deliveryFeedback(previousState)[deliveryId] ?? null,
             })
             // In-app thumbs show a per-row "Thanks" state instead of a toast.
             if (source !== 'in_app') {

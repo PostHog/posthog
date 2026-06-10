@@ -212,39 +212,31 @@ function buildFeedbackColumn(
             if (recentlyThankedDeliveries[row.id]) {
                 return <span className="text-secondary whitespace-nowrap">Thanks!</span>
             }
+            // Recorded feedback highlights the chosen side; clicking the other side switches the vote
+            // (analysis takes the latest event per person + delivery, so switching just wins).
             const recorded = deliveryFeedback[row.id]
-            if (recorded) {
-                return (
-                    <Tooltip
-                        title={
-                            recorded === 'positive'
-                                ? 'You marked this report as useful'
-                                : 'You marked this report as not useful'
-                        }
-                    >
-                        <span
-                            className="text-secondary inline-flex p-1"
-                            data-attr="subscription-delivery-feedback-recorded"
-                        >
-                            {recorded === 'positive' ? <IconThumbsUp /> : <IconThumbsDown />}
-                        </span>
-                    </Tooltip>
-                )
-            }
             return (
                 <div className="flex items-center gap-1">
                     <LemonButton
                         size="xsmall"
                         icon={<IconThumbsUp />}
-                        tooltip="This report was useful"
-                        onClick={() => onDeliveryFeedback(row.id, 'positive')}
+                        active={recorded === 'positive'}
+                        tooltip={
+                            recorded === 'positive' ? 'You marked this report as useful' : 'This report was useful'
+                        }
+                        onClick={recorded === 'positive' ? undefined : () => onDeliveryFeedback(row.id, 'positive')}
                         data-attr="subscription-delivery-feedback-positive"
                     />
                     <LemonButton
                         size="xsmall"
                         icon={<IconThumbsDown />}
-                        tooltip="This report was not useful"
-                        onClick={() => onDeliveryFeedback(row.id, 'negative')}
+                        active={recorded === 'negative'}
+                        tooltip={
+                            recorded === 'negative'
+                                ? 'You marked this report as not useful'
+                                : 'This report was not useful'
+                        }
+                        onClick={recorded === 'negative' ? undefined : () => onDeliveryFeedback(row.id, 'negative')}
                         data-attr="subscription-delivery-feedback-negative"
                     />
                 </div>
