@@ -222,11 +222,11 @@ describe('executeConfirmedAction', () => {
     })
 
     it('sources the ledger TTL from the codec clock, not the wall clock', async () => {
-        // Regression guard: previously the runtime read Date.now() here.
-        // With the codec's fake clock pinned to 2023, that read would
-        // produce a hugely negative remaining TTL (clamped to 1) on a
-        // real Redis — re-allowing replay almost immediately. Assert the
-        // runtime now hands the ledger the codec-derived TTL.
+        // Pin the codec's clock 100s before exp. If the runtime ever
+        // sources the TTL from the wall clock instead, the codec's fake
+        // clock and real Date.now() will diverge by ~years and the
+        // observed TTL will collapse to 1 — re-allowing replay against
+        // a real Redis.
         const codec = makeCodec() // ttlSeconds: 300, clock pinned 100s before exp
         let observedTtl: number | undefined
         const ledger = new NonceLedger({

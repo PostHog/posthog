@@ -161,10 +161,10 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
 
     // Single-use enforcement. Bind the ledger TTL to the token's remaining
     // life so abandoned nonces self-clean exactly when the token they
-    // protect can no longer be replayed. Source the remaining TTL from the
-    // codec's own clock — reading Date.now() here would skew under test
-    // injections or signer/consumer clock drift, potentially shrinking the
-    // ledger TTL enough to re-allow replay.
+    // protect can no longer be replayed. The remaining TTL comes from the
+    // codec's clock, not the wall clock — clock drift between the signer
+    // and the consumer could otherwise shrink the ledger TTL enough to
+    // re-allow replay.
     try {
         await options.ledger.consume(claims.nonce, options.codec.secondsUntilExpiry(claims))
     } catch (err) {

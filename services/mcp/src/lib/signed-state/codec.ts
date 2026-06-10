@@ -2,15 +2,15 @@
  * Signed-state token codec — a thin wrapper around `jose` that stamps an
  * HMAC-SHA256 JWT-compact-format token (`header.payload.signature`)
  * binding a `(user, purpose, payload)` triple plus expiry + nonce. Used
- * today by the typed-confirm two-tool paradigm to carry confirmation
- * state through the LLM between a `prepare-X` and `execute-X` call.
+ * by the typed-confirm two-tool paradigm to carry confirmation state
+ * through the LLM between a `prepare-X` and `execute-X` call.
  *
- * Claim mapping (ours → standard JWT):
- *   - `sub`     → `sub`     — user identity, binds the token to the authenticated principal
- *   - `purpose` → `aud`     — what the token is for (e.g. tool name); guards cross-purpose replay
- *   - `nonce`   → `jti`     — 128 random bits; the key for the single-use ledger
- *   - `iat/exp` → `iat/exp` — unix seconds; expiry caps the replay window
- *   - `payload` → custom claim `payload` (no standard equivalent)
+ * Claims:
+ *   - `sub`     — user identity (mapped to JWT `sub`); binds the token to the authenticated principal
+ *   - `purpose` — what the token is for, e.g. tool name (mapped to JWT `aud`); guards cross-purpose replay
+ *   - `nonce`   — 128 random bits (mapped to JWT `jti`); the key for the single-use ledger
+ *   - `iat/exp` — unix seconds; expiry caps the replay window
+ *   - `payload` — caller-supplied opaque data, kept as a custom claim
  *
  * The token header is `{alg: 'HS256', typ: 'MCP-SIGNED-STATE'}` — `jose`
  * validates both at decode time so a token signed for a different purpose
