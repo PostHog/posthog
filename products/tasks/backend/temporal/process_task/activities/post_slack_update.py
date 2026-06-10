@@ -9,6 +9,7 @@ from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import has_tasks_access
 
 logger = get_logger(__name__)
@@ -134,16 +135,12 @@ def _post_pr_opened_notification_once(
     if _is_pr_opened_notified(task_run, pr_url):
         return
 
-    # Resolve the reply target from the live mapping at the moment we actually
-    # post — multiplayer follow-ups update ``latest_actor_slack_user_id`` so
-    # the PR notification tags the current actor instead of the thread starter.
-    # Deferred here (not in the activity's hot path) because the mapping is
-    # only needed when we're about to post a fresh PR-opened message.
-    from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.slack_thread import resolve_reply_target_slack_user_id
-
+    # Resolve the reply target from the live mapping so the PR notification
+    # tags the current actor instead of the thread starter.
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    reply_target_slack_user_id = resolve_reply_target_slack_user_id(mapping) if mapping else None
+    reply_target_slack_user_id = (
+        (mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id) if mapping else None
+    )
 
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 

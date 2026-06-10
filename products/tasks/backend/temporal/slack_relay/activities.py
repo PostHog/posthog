@@ -261,11 +261,7 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.slack_thread import (
-        SlackThreadContext,
-        SlackThreadHandler,
-        resolve_reply_target_slack_user_id,
-    )
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -305,7 +301,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    target = resolve_reply_target_slack_user_id(mapping)
+    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()

@@ -1202,17 +1202,8 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Record who triggered this turn so async reply paths (agent relays via the
-    # relay API, workflow-driven status updates) tag them instead of the
-    # thread's original mentioner. The thread creator stays in
-    # ``mentioning_slack_user_id``; the live actor lives on
-    # ``latest_actor_slack_user_id``.
-    #
-    # Edge case (accepted): two concurrent follow-ups can race on this write —
-    # the loser's UPDATE may land second and overwrite the actually-newer
-    # message's actor. Worst case is a wrong @mention on the next bot reply;
-    # if it becomes user-visible, the fix is a monotonic UPDATE keyed on a
-    # ``latest_actor_message_ts`` column using Slack's per-channel ``ts``.
+    # Record the live actor so async reply paths tag them instead of the
+    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
     if slack_user_id != mapping.latest_actor_slack_user_id:
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
