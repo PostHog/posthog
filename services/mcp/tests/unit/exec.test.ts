@@ -7,7 +7,12 @@ import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
+import {
+    createExecTool,
+    type ExecInnerCallProperties,
+    parseExecCallInnerToolName,
+    parseExecCommandKind,
+} from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -672,6 +677,26 @@ describe('exec tool', () => {
         ])('returns undefined for "%s"', (command) => {
             expect(parseExecCallInnerToolName(command)).toBeUndefined()
         })
+    })
+
+    describe('parseExecCommandKind', () => {
+        it.each([
+            ['call my-tool {}', 'call'],
+            ['  call   my-tool {}', 'call'],
+            ['info my-tool', 'info'],
+            ['schema my-tool field', 'schema'],
+            ['search query-', 'search'],
+            ['tools', 'tools'],
+        ])('classifies "%s" as "%s"', (command, expected) => {
+            expect(parseExecCommandKind(command)).toBe(expected)
+        })
+
+        it.each([['bogus my-tool'], [''], ['   '], ['CALL my-tool']])(
+            'classifies unrecognised command "%s" as "unknown"',
+            (command) => {
+                expect(parseExecCommandKind(command)).toBe('unknown')
+            }
+        )
     })
 
     describe('exec tool description', () => {

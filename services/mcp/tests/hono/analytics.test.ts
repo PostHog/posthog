@@ -10,7 +10,7 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackInitEvent, trackToolCall } from '@/hono/analytics'
+import { trackExecCommand, trackInitEvent, trackToolCall } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -108,5 +108,39 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('exec', 5, false, makeState())
 
         expect(mockCapture.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+    })
+
+    it('passes extra properties through to the captured event', async () => {
+        await trackToolCall('query-logs', 5, false, makeState(), { $mcp_via_exec: true })
+
+        expect(mockCapture.mock.calls[0]![0].properties.$mcp_via_exec).toBe(true)
+        expect(mockCapture.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+    })
+
+    it('emits mcp_exec_command with the command kind and inner tool', async () => {
+        await trackExecCommand(makeState(), {
+            commandKind: 'call',
+            innerToolName: 'query-logs',
+            durationMs: 7,
+            isError: false,
+        })
+
+        const call = mockCapture.mock.calls[0]![0]
+        expect(call.event).toBe('mcp_exec_command')
+        expect(call.properties).toMatchObject({
+            $mcp_exec_command_kind: 'call',
+            $mcp_exec_inner_tool: 'query-logs',
+            $mcp_duration_ms: 7,
+            $mcp_is_error: false,
+        })
+    })
+
+    it('omits $mcp_exec_inner_tool for non-call exec commands', async () => {
+        await trackExecCommand(makeState(), { commandKind: 'search', durationMs: 2, isError: false })
+
+        const call = mockCapture.mock.calls[0]![0]
+        expect(call.event).toBe('mcp_exec_command')
+        expect(call.properties).not.toHaveProperty('$mcp_exec_inner_tool')
+        expect(call.properties.$mcp_exec_command_kind).toBe('search')
     })
 })

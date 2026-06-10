@@ -10,13 +10,11 @@ import {
     findPostHogPermissionError,
     findRecoverableApiError,
 } from '@/lib/errors'
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecTool, parseExecCommandKind, type ExecInnerCallTracker } from '@/tools/exec'
 import { createRenderUiTool } from '@/tools/render-ui'
-import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackToolCall } from './analytics'
+import { trackExecCommand, trackToolCall } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -182,7 +180,15 @@ export class ToolExecutor {
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
 
-            void trackToolCall('exec', Date.now() - startMs, false, state)
+            // The underlying tool (if any) is attributed by `trackInnerCall` as its own
+            // `mcp_tool_call`. Here we record the wrapper invocation itself as a separate
+            // `mcp_exec_command` event so exec usage is countable without polluting tool stats.
+            void trackExecCommand(state, {
+                commandKind: parseExecCommandKind(validation.data.command),
+                innerToolName: execMetrics.innerToolName,
+                durationMs: Date.now() - startMs,
+                isError: false,
+            })
 
             if (isToolCallPayload(handlerResult)) {
                 return handlerResult
@@ -203,7 +209,12 @@ export class ToolExecutor {
             }
             classifyToolError(error, metricTool)
 
-            void trackToolCall('exec', Date.now() - startMs, true, state)
+            void trackExecCommand(state, {
+                commandKind: parseExecCommandKind(validation.data.command),
+                innerToolName: execMetrics.innerToolName,
+                durationMs: Date.now() - startMs,
+                isError: true,
+            })
 
             const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
@@ -223,24 +234,15 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status })
             toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
 
-            // Mirror the native path: stamp the inner tool's category so exec-routed
-            // calls share the dashboard's `$mcp_tool_category` grouping dimension.
-            const toolCategory = getToolCategory(toolName)
-
-            void (async () => {
-                const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
-                await state.reqCtx.trackEvent(
-                    AnalyticsEvent.MCP_TOOL_CALL,
-                    {
-                        tool_name: toolName,
-                        ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
-                        ...properties,
-                    },
-                    freshContext,
-                    undefined,
-                    state.distinctId
-                )
-            })().catch(() => {})
+            // Emit the SAME `mcp_tool_call` shape as the native path (including the
+            // category), tagged `$mcp_via_exec` so the inner tool is attributed
+            // correctly while the dashboard can still slice exec-routed traffic
+            // without exec masquerading as a tool name.
+            void trackToolCall(toolName, properties.duration_ms, !properties.success, state, {
+                $mcp_via_exec: true,
+                output_format: properties.output_format,
+                ...(properties.error_message ? { error_message: properties.error_message } : {}),
+            })
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 

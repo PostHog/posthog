@@ -45,6 +45,18 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+// The recognised exec command verbs. Anything else (or an empty command)
+// classifies as "unknown" so the analytics dimension stays bounded.
+const EXEC_COMMAND_VERBS = new Set(['tools', 'search', 'info', 'schema', 'call'])
+
+// Classifies an exec command by its leading verb (e.g. "call docs-search {...}"
+// → "call"). Used to record what kind of command each `exec` invocation ran,
+// independently of which underlying tool (if any) it dispatched to.
+export function parseExecCommandKind(command: string): string {
+    const { verb } = parseCommand(command)
+    return EXEC_COMMAND_VERBS.has(verb) ? verb : 'unknown'
+}
+
 // Extracts the inner tool name from an exec `call` command, e.g.
 // "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
 // malformed input. Used by analytics to surface the real tool being invoked

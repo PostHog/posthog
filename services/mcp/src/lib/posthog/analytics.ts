@@ -9,6 +9,7 @@ export enum AnalyticsEvent {
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
     MCP_TOOL_CALL = 'mcp_tool_call', // matching @posthog/mcp-analytics
+    MCP_EXEC_COMMAND = 'mcp_exec_command',
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 

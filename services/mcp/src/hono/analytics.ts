@@ -131,3 +131,43 @@ export async function trackToolCall(
         // never break the request for analytics
     }
 }
+
+/**
+ * Records an invocation of the `exec` wrapper as a distinct `mcp_exec_command`
+ * event — NOT `mcp_tool_call`. The real underlying tool is attributed separately
+ * (the inner call emits its own `mcp_tool_call` tagged `$mcp_via_exec`), so this
+ * event answers "how often is exec used, and with which command verb?" without
+ * exec masquerading as a tool name in the tool-quality dataset. `$mcp_exec_inner_tool`
+ * is set only for `call` commands; discovery verbs (`info`/`search`/`schema`/`tools`)
+ * leave it unset.
+ */
+export async function trackExecCommand(
+    state: ResolvedState,
+    args: { commandKind: string; innerToolName?: string | undefined; durationMs: number; isError: boolean }
+): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const requestContext = state.requestContext
+        const sessionUuid = requestContext.sessionId
+            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
+            : undefined
+
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'mcp_exec_command',
+            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            properties: {
+                ...properties,
+                $mcp_exec_command_kind: args.commandKind,
+                ...(args.innerToolName ? { $mcp_exec_inner_tool: args.innerToolName } : {}),
+                $mcp_duration_ms: args.durationMs,
+                $mcp_is_error: args.isError,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
