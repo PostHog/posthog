@@ -84,3 +84,23 @@ const realisticFixture = {
 export const RealisticCurve: Story = {
     render: () => renderRetentionLineChart(realisticFixture),
 }
+
+// `display: ActionsAreaGraph` flows through `buildRetentionSeries` as `fill: {}` on every
+// cohort series, which the chart auto-stacks once 2+ series are filled — same as Trends area.
+const areaFixture = {
+    ...realisticFixture,
+    query: {
+        ...realisticFixture.query,
+        source: {
+            ...(realisticFixture.query.source as any),
+            retentionFilter: {
+                ...(realisticFixture.query.source as any).retentionFilter,
+                display: 'ActionsAreaGraph',
+            },
+        },
+    },
+}
+
+export const AreaChart: Story = {
+    render: () => renderRetentionLineChart(areaFixture),
+}
