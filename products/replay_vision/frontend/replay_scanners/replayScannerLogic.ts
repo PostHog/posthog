@@ -64,7 +64,7 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
-const UNIT_BY_LETTER: Record<string, dayjs.OpUnitType> = {
+const UNIT_BY_LETTER: Record<string, dayjs.ManipulateType> = {
     h: 'hour',
     d: 'day',
     w: 'week',
@@ -72,7 +72,7 @@ const UNIT_BY_LETTER: Record<string, dayjs.OpUnitType> = {
     y: 'year',
 }
 
-const START_OF_BY_PREFIX: Record<string, dayjs.OpUnitType> = {
+const START_OF_BY_PREFIX: Record<string, dayjs.ManipulateType> = {
     dStart: 'day',
     wStart: 'week',
     mStart: 'month',
