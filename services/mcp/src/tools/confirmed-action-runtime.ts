@@ -90,7 +90,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     options: PrepareConfirmedActionOptions<P>
 ): Promise<PrepareConfirmedActionResult> {
     const sub = await context.getDistinctId()
-    const { token } = options.codec.encode({
+    const { token } = await options.codec.encode({
         sub,
         purpose: options.purpose,
         payload: options.args,
@@ -151,7 +151,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
 
     let claims
     try {
-        claims = options.codec.decode(hash, sub, options.purpose)
+        claims = await options.codec.decode(hash, sub, options.purpose)
     } catch (err) {
         if (err instanceof SignedStateError) {
             return refuse(options.purpose, err.kind, `${options.purpose} was not executed — ${reasonFor(err)}.`)

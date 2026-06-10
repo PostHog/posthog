@@ -1,34 +1,40 @@
 /**
- * General-purpose signed-state token codec.
+ * Signed-state token codec — a thin wrapper around `jose` that stamps an
+ * HMAC-SHA256 JWT-compact-format token (`header.payload.signature`)
+ * binding a `(user, purpose, payload)` triple plus expiry + nonce. Used
+ * today by the typed-confirm two-tool paradigm to carry confirmation
+ * state through the LLM between a `prepare-X` and `execute-X` call.
  *
- * Stamps an HMAC-SHA256 JWT-compact-format token (`header.payload.signature`)
- * binding a `(user, purpose, payload)` triple plus expiry + nonce. Used today
- * by the typed-confirm two-tool paradigm to carry confirmation state through
- * the LLM between a `prepare-X` and `execute-X` call; can be reused by any
- * future feature that needs to pass server-only state through an untrusted
- * client.
+ * Claim mapping (ours → standard JWT):
+ *   - `sub`     → `sub`     — user identity, binds the token to the authenticated principal
+ *   - `purpose` → `aud`     — what the token is for (e.g. tool name); guards cross-purpose replay
+ *   - `nonce`   → `jti`     — 128 random bits; the key for the single-use ledger
+ *   - `iat/exp` → `iat/exp` — unix seconds; expiry caps the replay window
+ *   - `payload` → custom claim `payload` (no standard equivalent)
  *
- * Claims:
- *   - `sub`     — user identity, binds the token to the authenticated principal
- *   - `purpose` — what the token is for (e.g. tool name); guards cross-purpose replay
- *   - `payload` — caller-supplied opaque data (re-validated as untrusted on read)
- *   - `iat/exp` — unix seconds; expiry caps the replay window
- *   - `nonce`   — 128 random bits; the key for the single-use ledger
+ * The token header is `{alg: 'HS256', typ: 'MCP-SIGNED-STATE'}` — `jose`
+ * validates both at decode time so a token signed for a different purpose
+ * or a different system (`typ`) can't be coerced into ours.
  *
  * One key: `MCP_SIGNED_STATE_KEY`. No encryption — confidentiality of
  * `payload` is the caller's responsibility.
  */
 
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { jwtVerify, SignJWT } from 'jose'
+import { JOSEError, JWSSignatureVerificationFailed, JWTClaimValidationFailed, JWTExpired } from 'jose/errors'
+import { randomBytes } from 'node:crypto'
 
 import { DEFAULT_STATE_TTL_SECONDS, SIGNING_KEY_ENV_VAR, SIGNING_KEY_MIN_BYTES } from './constants'
 import {
+    SignedStateError,
     SignedStateExpired,
     SignedStateMalformed,
     SignedStatePurposeMismatch,
     SignedStateSignatureInvalid,
     SignedStateUserMismatch,
 } from './errors'
+
+const JWT_TYP = 'MCP-SIGNED-STATE'
 
 export interface SignedStateClaims {
     sub: string
@@ -38,13 +44,6 @@ export interface SignedStateClaims {
     nonce: string
     payload: unknown
 }
-
-interface TokenHeader {
-    alg: 'HS256'
-    typ: 'MCP-SIGNED-STATE'
-}
-
-const HEADER: TokenHeader = { alg: 'HS256', typ: 'MCP-SIGNED-STATE' }
 
 export interface SignedStateCodecOptions {
     /** TTL applied at encode time; default `DEFAULT_STATE_TTL_SECONDS`. */
@@ -56,85 +55,77 @@ export interface SignedStateCodecOptions {
 }
 
 export class SignedStateCodec {
-    private readonly key: Buffer
+    private readonly key: Uint8Array
     private readonly ttlSeconds: number
     private readonly now: () => number
     private readonly randomNonce: () => string
 
-    constructor(key: Buffer, options: SignedStateCodecOptions = {}) {
-        this.key = key
+    constructor(key: Buffer | Uint8Array, options: SignedStateCodecOptions = {}) {
+        this.key = key instanceof Uint8Array ? key : new Uint8Array(key)
         this.ttlSeconds = options.ttlSeconds ?? DEFAULT_STATE_TTL_SECONDS
         this.now = options.now ?? (() => Date.now())
         this.randomNonce = options.randomNonce ?? (() => randomBytes(16).toString('hex'))
     }
 
     /** Encode a fresh signed-state token bound to `(sub, purpose, payload)`. */
-    encode(input: { sub: string; purpose: string; payload: unknown }): { token: string; claims: SignedStateClaims } {
-        const nowSeconds = Math.floor(this.now() / 1000)
-        const claims: SignedStateClaims = {
-            sub: input.sub,
-            purpose: input.purpose,
-            iat: nowSeconds,
-            exp: nowSeconds + this.ttlSeconds,
-            nonce: this.randomNonce(),
-            payload: input.payload,
+    async encode(input: {
+        sub: string
+        purpose: string
+        payload: unknown
+    }): Promise<{ token: string; claims: SignedStateClaims }> {
+        const iat = Math.floor(this.now() / 1000)
+        const exp = iat + this.ttlSeconds
+        const nonce = this.randomNonce()
+        const token = await new SignJWT({ payload: input.payload })
+            .setProtectedHeader({ alg: 'HS256', typ: JWT_TYP })
+            .setSubject(input.sub)
+            .setAudience(input.purpose)
+            .setIssuedAt(iat)
+            .setExpirationTime(exp)
+            .setJti(nonce)
+            .sign(this.key)
+        return {
+            token,
+            claims: { sub: input.sub, purpose: input.purpose, iat, exp, nonce, payload: input.payload },
         }
-        const headerB64 = base64UrlEncode(JSON.stringify(HEADER))
-        const payloadB64 = base64UrlEncode(JSON.stringify(claims))
-        const signingInput = `${headerB64}.${payloadB64}`
-        const signature = sign(signingInput, this.key)
-        return { token: `${signingInput}.${signature}`, claims }
     }
 
     /**
      * Decode + verify an inbound token against the currently authenticated
-     * (user, purpose). Throws `SignedStateError` subclasses for any failure;
-     * the caller maps these to the appropriate response shape.
+     * (user, purpose). Throws `SignedStateError` subclasses for any
+     * failure; the caller maps these to the appropriate response shape.
      */
-    decode(token: string, expectedSub: string, expectedPurpose: string): SignedStateClaims {
-        const parts = token.split('.')
-        if (parts.length !== 3) {
-            throw new SignedStateMalformed('Token must have three dot-separated segments')
-        }
-        const [headerB64, payloadB64, signatureB64] = parts as [string, string, string]
-
-        const signingInput = `${headerB64}.${payloadB64}`
-        if (!verify(signingInput, signatureB64, this.key)) {
-            throw new SignedStateSignatureInvalid('Signature does not match the configured key')
-        }
-
-        let parsedHeader: unknown
-        let parsedClaims: unknown
+    async decode(token: string, expectedSub: string, expectedPurpose: string): Promise<SignedStateClaims> {
         try {
-            parsedHeader = JSON.parse(base64UrlDecode(headerB64).toString('utf8'))
-            parsedClaims = JSON.parse(base64UrlDecode(payloadB64).toString('utf8'))
-        } catch {
-            throw new SignedStateMalformed('Header or payload is not valid JSON')
+            const { payload } = await jwtVerify(token, this.key, {
+                algorithms: ['HS256'],
+                typ: JWT_TYP,
+                subject: expectedSub,
+                audience: expectedPurpose,
+                clockTolerance: 0,
+                currentDate: new Date(this.now()),
+            })
+            // jose has already validated sub/aud/exp/typ; the cast is safe.
+            return {
+                sub: payload.sub as string,
+                purpose: payload.aud as string,
+                iat: payload.iat as number,
+                exp: payload.exp as number,
+                nonce: payload.jti as string,
+                payload: (payload as { payload: unknown }).payload,
+            }
+        } catch (err) {
+            throw mapJoseError(err)
         }
-        if (!isTokenHeader(parsedHeader)) {
-            throw new SignedStateMalformed('Header alg/typ mismatch')
-        }
-        const claims = asClaims(parsedClaims)
-
-        const nowSeconds = Math.floor(this.now() / 1000)
-        if (claims.exp <= nowSeconds) {
-            throw new SignedStateExpired(`Expired at ${claims.exp}; now=${nowSeconds}`)
-        }
-        if (!timingSafeStringEqual(claims.sub, expectedSub)) {
-            throw new SignedStateUserMismatch('Token sub does not match the authenticated user')
-        }
-        if (!timingSafeStringEqual(claims.purpose, expectedPurpose)) {
-            throw new SignedStatePurposeMismatch('Token purpose does not match the invoked tool/operation')
-        }
-        return claims
     }
 
     /**
-     * Seconds until `claims.exp` according to the codec's clock — guaranteed
-     * to be at least 1. Used by callers (e.g. the typed-confirm nonce ledger)
-     * that need to size a TTL off the same time source the codec used to
-     * stamp the token; reading the wall clock here would skew under test
-     * injections or clock drift between the signer and the consumer.
+     * Seconds until `claims.exp` according to the codec's clock —
+     * guaranteed to be at least 1. Used by callers (e.g. the typed-confirm
+     * nonce ledger) that need to size a TTL off the same time source the
+     * codec used to stamp the token; reading the wall clock here would
+     * skew under test injections or clock drift between the signer and
+     * the consumer.
      */
     secondsUntilExpiry(claims: SignedStateClaims): number {
         const nowSeconds = Math.floor(this.now() / 1000)
@@ -160,62 +151,37 @@ export function loadSigningKeyFromEnv(env: NodeJS.ProcessEnv = process.env): Buf
     return key
 }
 
-// --- helpers ---
-
-function sign(input: string, key: Buffer): string {
-    return base64UrlEncode(createHmac('sha256', key).update(input).digest())
-}
-
-function verify(input: string, signatureB64: string, key: Buffer): boolean {
-    const provided = base64UrlDecode(signatureB64)
-    const expected = createHmac('sha256', key).update(input).digest()
-    return constantTimeEqual(provided, expected)
-}
-
-function constantTimeEqual(a: Buffer, b: Buffer): boolean {
-    if (a.length !== b.length) {
-        return false
+/**
+ * Map jose's exception hierarchy onto our typed `SignedStateError`
+ * subclasses. The runtime catches by class to drive metric labels and
+ * user-facing refusal messages, so we want a stable, semantic mapping
+ * rather than leaking jose's internal types upward.
+ *
+ * The `JWTClaimValidationFailed.claim` field tells us which standard
+ * claim mismatched; we map `sub` and `aud` to our user/purpose flavors.
+ * Anything else (malformed token, bad header) collapses to `Malformed`.
+ */
+function mapJoseError(err: unknown): SignedStateError {
+    const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof JWTExpired) {
+        return new SignedStateExpired(message)
     }
-    return timingSafeEqual(a, b)
-}
-
-function timingSafeStringEqual(a: string, b: string): boolean {
-    const aBuf = Buffer.from(a, 'utf8')
-    const bBuf = Buffer.from(b, 'utf8')
-    return constantTimeEqual(aBuf, bBuf)
-}
-
-function base64UrlEncode(input: string | Buffer): string {
-    const buf = typeof input === 'string' ? Buffer.from(input, 'utf8') : input
-    return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-}
-
-function base64UrlDecode(input: string): Buffer {
-    const padded = input + '='.repeat((4 - (input.length % 4)) % 4)
-    return Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
-}
-
-function isTokenHeader(value: unknown): value is TokenHeader {
-    if (value === null || typeof value !== 'object') {
-        return false
+    if (err instanceof JWTClaimValidationFailed) {
+        if (err.claim === 'sub') {
+            return new SignedStateUserMismatch(message)
+        }
+        if (err.claim === 'aud') {
+            return new SignedStatePurposeMismatch(message)
+        }
+        return new SignedStateMalformed(message)
     }
-    const obj = value as Record<string, unknown>
-    return obj['alg'] === 'HS256' && obj['typ'] === 'MCP-SIGNED-STATE'
-}
-
-function asClaims(value: unknown): SignedStateClaims {
-    if (value === null || typeof value !== 'object') {
-        throw new SignedStateMalformed('Payload is not an object')
+    if (err instanceof JWSSignatureVerificationFailed) {
+        return new SignedStateSignatureInvalid(message)
     }
-    const obj = value as Record<string, unknown>
-    if (
-        typeof obj['sub'] !== 'string' ||
-        typeof obj['purpose'] !== 'string' ||
-        typeof obj['iat'] !== 'number' ||
-        typeof obj['exp'] !== 'number' ||
-        typeof obj['nonce'] !== 'string'
-    ) {
-        throw new SignedStateMalformed('Payload is missing required claims')
+    if (err instanceof JOSEError) {
+        return new SignedStateMalformed(message)
     }
-    return obj as unknown as SignedStateClaims
+    // Non-jose error: shouldn't happen in normal flow; surface as malformed
+    // rather than swallowing or re-throwing an unknown type upward.
+    return new SignedStateMalformed(message)
 }

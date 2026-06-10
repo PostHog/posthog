@@ -26,76 +26,94 @@ function makeCodec(now = 1_700_000_000_000): {
 }
 
 describe('SignedStateCodec', () => {
-    it('round-trips claims through encode + decode', () => {
+    it('round-trips claims through encode + decode', async () => {
         const { codec } = makeCodec()
-        const { token, claims } = codec.encode({ sub: 'u1', purpose: 'p1', payload: { x: 7 } })
+        const { token, claims } = await codec.encode({ sub: 'u1', purpose: 'p1', payload: { x: 7 } })
         expect(claims.exp).toBe(claims.iat + 300)
-        const decoded = codec.decode(token, 'u1', 'p1')
+        const decoded = await codec.decode(token, 'u1', 'p1')
         expect(decoded.payload).toEqual({ x: 7 })
         expect(decoded.nonce).toBe('fixed-nonce')
     })
 
-    it('rejects a token whose signature was tampered with', () => {
+    it('rejects a token whose signature was tampered with', async () => {
         const { codec } = makeCodec()
-        const { token } = codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        const { token } = await codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
         const segs = token.split('.')
         const sig = segs[2]!
         const tampered = `${segs[0]}.${segs[1]}.${sig.slice(0, -1)}${sig.endsWith('A') ? 'B' : 'A'}`
-        expect(() => codec.decode(tampered, 'u1', 'p1')).toThrow(SignedStateSignatureInvalid)
+        await expect(codec.decode(tampered, 'u1', 'p1')).rejects.toBeInstanceOf(SignedStateSignatureInvalid)
     })
 
-    it('rejects a token after exp has passed', () => {
+    it('rejects a token after exp has passed', async () => {
         const { codec, advance } = makeCodec()
-        const { token } = codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        const { token } = await codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
         advance(301 * 1000)
-        expect(() => codec.decode(token, 'u1', 'p1')).toThrow(SignedStateExpired)
+        await expect(codec.decode(token, 'u1', 'p1')).rejects.toBeInstanceOf(SignedStateExpired)
     })
 
-    it('rejects a token replayed under a different sub', () => {
+    it('rejects a token replayed under a different sub', async () => {
         const { codec } = makeCodec()
-        const { token } = codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
-        expect(() => codec.decode(token, 'attacker', 'p1')).toThrow(SignedStateUserMismatch)
+        const { token } = await codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        await expect(codec.decode(token, 'attacker', 'p1')).rejects.toBeInstanceOf(SignedStateUserMismatch)
     })
 
-    it('rejects a token replayed for a different purpose', () => {
+    it('rejects a token replayed for a different purpose', async () => {
         const { codec } = makeCodec()
-        const { token } = codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
-        expect(() => codec.decode(token, 'u1', 'p2')).toThrow(SignedStatePurposeMismatch)
+        const { token } = await codec.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        await expect(codec.decode(token, 'u1', 'p2')).rejects.toBeInstanceOf(SignedStatePurposeMismatch)
     })
 
-    it('rejects malformed tokens (wrong segment count)', () => {
+    it('rejects malformed tokens (wrong segment count)', async () => {
         const { codec } = makeCodec()
-        expect(() => codec.decode('only.two', 'u', 'p')).toThrow(SignedStateMalformed)
+        await expect(codec.decode('only.two', 'u', 'p')).rejects.toBeInstanceOf(SignedStateMalformed)
     })
 
-    it('rejects a token signed with a different key', () => {
+    it('rejects a token signed with a different key', async () => {
         const a = new SignedStateCodec(Buffer.alloc(32, 0x11), { now: () => 1_700_000_000_000 })
         const b = new SignedStateCodec(Buffer.alloc(32, 0x22), { now: () => 1_700_000_000_000 })
-        const { token } = a.encode({ sub: 'u1', purpose: 'p1', payload: null })
-        expect(() => b.decode(token, 'u1', 'p1')).toThrow(SignedStateSignatureInvalid)
+        const { token } = await a.encode({ sub: 'u1', purpose: 'p1', payload: null })
+        await expect(b.decode(token, 'u1', 'p1')).rejects.toBeInstanceOf(SignedStateSignatureInvalid)
     })
 
-    it('secondsUntilExpiry sources the clock from the codec, not the wall clock', () => {
+    it('secondsUntilExpiry sources the clock from the codec, not the wall clock', async () => {
         // Inject a clock 100s before exp; assert the runtime gets 100,
         // independent of what Date.now() reads in real wall time. This
         // is what protects the nonce ledger from clock-skew shrinkage.
         const { codec } = makeCodec()
-        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
         expect(codec.secondsUntilExpiry(claims)).toBe(300)
     })
 
-    it('secondsUntilExpiry tracks the injected clock as it advances', () => {
+    it('secondsUntilExpiry tracks the injected clock as it advances', async () => {
         const { codec, advance } = makeCodec()
-        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
         advance(200 * 1000)
         expect(codec.secondsUntilExpiry(claims)).toBe(100)
     })
 
-    it('secondsUntilExpiry clamps to 1 once the token has lapsed', () => {
+    it('secondsUntilExpiry clamps to 1 once the token has lapsed', async () => {
         const { codec, advance } = makeCodec()
-        const { claims } = codec.encode({ sub: 'u', purpose: 'p', payload: null })
+        const { claims } = await codec.encode({ sub: 'u', purpose: 'p', payload: null })
         advance(1_000 * 1000) // far past exp
         expect(codec.secondsUntilExpiry(claims)).toBe(1)
+    })
+
+    it('rejects a token whose protected header typ is wrong (cross-system replay)', async () => {
+        // jose pins the typ header on verify — this protects against
+        // someone feeding us a token signed for a different MCP feature
+        // that happens to share the same key.
+        const key = Buffer.alloc(32, 0x42)
+        const { SignJWT } = await import('jose')
+        const foreignToken = await new SignJWT({})
+            .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+            .setSubject('u1')
+            .setAudience('p1')
+            .setIssuedAt(1_700_000_000)
+            .setExpirationTime(1_700_000_300)
+            .setJti('n')
+            .sign(new Uint8Array(key))
+        const codec = new SignedStateCodec(key, { now: () => 1_700_000_000_000 })
+        await expect(codec.decode(foreignToken, 'u1', 'p1')).rejects.toBeInstanceOf(SignedStateMalformed)
     })
 })
 
