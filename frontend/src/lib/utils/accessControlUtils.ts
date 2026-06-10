@@ -211,5 +211,8 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     if (resource === AccessControlResourceType.WarehouseObjects) {
         return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
     }
+    if (resource === AccessControlResourceType.WarehouseTable || resource === AccessControlResourceType.WarehouseView) {
+        return 'Restricts querying the underlying data. Users with "No access" won\'t see it in the SQL editor schema and any query referencing it (SQL, insights, PostHog AI) will fail for them.'
+    }
     return null
 }
