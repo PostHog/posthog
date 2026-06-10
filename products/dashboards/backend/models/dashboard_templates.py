@@ -69,7 +69,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         return DashboardTemplate(
             template_name="Product analytics",
             dashboard_description=(
-                "How people use your app at a glance — traffic, retention, where visitors come from, and "
+                "How people use your app at a glance: traffic, retention, where visitors come from, and "
                 "whether they take action. Built from automatically captured events, so it works on day one. "
                 "Swap in your own events to make it yours."
             ),
@@ -81,14 +81,13 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": (
                         "### 👋 Start here\n\n"
-                        "Everything below is captured automatically — pageviews, clicks, sessions, and location — "
-                        "so this dashboard fills in from day one with no extra setup. Coming from Google Analytics, "
-                        "Mixpanel, or Amplitude? The headline numbers will feel familiar; the retention and funnel "
-                        "tiles are where you point PostHog at your own events. Edit any tile, or duplicate the "
-                        "dashboard to make it your own."
+                        "Everything below is captured automatically (pageviews, clicks, sessions, and location), "
+                        "so this dashboard fills in from day one with no extra setup. The headline numbers will "
+                        "feel familiar; the retention and funnel tiles are where you point PostHog at your own "
+                        "events. Edit any tile, or duplicate the dashboard to make it your own."
                     ),
                     "layouts": {
-                        "sm": {"h": 3, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
                         "xs": {"h": 3, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
                     },
                 },
@@ -130,7 +129,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 3, "x": 0, "y": 3, "minH": 3, "minW": 3},
+                        "sm": {"h": 3, "w": 4, "x": 0, "y": 2, "minH": 3, "minW": 3},
                         "xs": {"h": 3, "w": 1, "x": 0, "y": 3, "minH": 3, "minW": 1},
                     },
                     "description": "Unique people who used your app in the last 30 days. A quick pulse on your overall reach.",
@@ -169,7 +168,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 3, "x": 3, "y": 3, "minH": 3, "minW": 3},
+                        "sm": {"h": 3, "w": 4, "x": 4, "y": 2, "minH": 3, "minW": 3},
                         "xs": {"h": 3, "w": 1, "x": 0, "y": 6, "minH": 3, "minW": 1},
                     },
                     "description": "Distinct visits in the last 7 days. A session groups everything one person does in a single sitting.",
@@ -203,57 +202,22 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 3, "x": 6, "y": 3, "minH": 3, "minW": 3},
+                        "sm": {"h": 3, "w": 4, "x": 8, "y": 2, "minH": 3, "minW": 3},
                         "xs": {"h": 3, "w": 1, "x": 0, "y": 9, "minH": 3, "minW": 1},
                     },
                     "description": "Total pages viewed in the last 7 days, repeat views included. The classic traffic-volume number.",
-                },
-                {
-                    "name": "Clicks & interactions (last 7 days)",
-                    "type": "INSIGHT",
-                    "color": "blue",
-                    "query": {
-                        "kind": "InsightVizNode",
-                        "source": {
-                            "kind": "TrendsQuery",
-                            "series": [
-                                {"kind": "EventsNode", "math": "total", "name": "$autocapture", "event": "$autocapture"}
-                            ],
-                            "interval": "day",
-                            "dateRange": {"date_from": "-7d", "explicitDate": False},
-                            "properties": [],
-                            "trendsFilter": {
-                                "display": "BoldNumber",
-                                "showLegend": False,
-                                "yAxisScaleType": "linear",
-                                "showValuesOnSeries": False,
-                                "smoothingIntervals": 1,
-                                "showPercentStackView": False,
-                                "aggregationAxisFormat": "numeric",
-                                "showAlertThresholdLines": False,
-                            },
-                            "breakdownFilter": {"breakdown_type": "event"},
-                            "filterTestAccounts": False,
-                        },
-                    },
-                    "layouts": {
-                        "sm": {"h": 3, "w": 3, "x": 9, "y": 3, "minH": 3, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 12, "minH": 3, "minW": 1},
-                    },
-                    "description": "Clicks, taps, and form submits captured automatically in the last 7 days — no tracking code required.",
                 },
                 {
                     "type": "TEXT",
                     "color": None,
                     "transparent_background": True,
                     "body": (
-                        "### Are people coming back?\n\n"
-                        "Daily and weekly active users show your trend; retention shows how many people return "
-                        "after their first visit — the clearest signal of whether what you built is sticky."
+                        "**Are people coming back?** Active users show your trend; retention shows how many "
+                        "return after their first visit. The clearest sign your product is sticky."
                     ),
                     "layouts": {
-                        "sm": {"h": 2, "w": 12, "x": 0, "y": 6, "minH": 1, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 15, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 5, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 15, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -294,7 +258,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 0, "y": 8, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 6, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 18, "minH": 5, "minW": 1},
                     },
                     "description": "Unique people who use your app each day. Watch for steady growth or sudden drops.",
@@ -337,7 +301,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 6, "y": 8, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 6, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 23, "minH": 5, "minW": 1},
                     },
                     "description": "Unique people who use your app each week. Smooths out daily noise to show the underlying trend.",
@@ -363,7 +327,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 13, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 11, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 28, "minH": 5, "minW": 1},
                     },
                     "description": "How many people come back week after week after their first visit. The clearest signal of whether your product is sticky.",
@@ -373,13 +337,12 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "color": None,
                     "transparent_background": True,
                     "body": (
-                        "### Where your traffic comes from\n\n"
-                        "Your most-visited pages, the sites referring people to you, and where in the world they "
-                        "are — the acquisition basics, captured for you."
+                        "**Where your traffic comes from** Your top pages, the sites sending you visitors, and "
+                        "where in the world they are."
                     ),
                     "layouts": {
-                        "sm": {"h": 2, "w": 12, "x": 0, "y": 18, "minH": 1, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 33, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 16, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 33, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -411,7 +374,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 0, "y": 20, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 17, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 36, "minH": 5, "minW": 1},
                     },
                     "description": "Your most visited pages over the last 7 days. Shows where people spend their attention.",
@@ -445,10 +408,10 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 6, "x": 6, "y": 20, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 17, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 41, "minH": 5, "minW": 1},
                     },
-                    "description": "Which sites send you the most visitors — search, social, and direct. Your acquisition channels at a glance.",
+                    "description": "Which sites send you the most visitors, like search, social, and direct. Your acquisition channels at a glance.",
                 },
                 {
                     "name": "Users by country",
@@ -479,7 +442,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 25, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 22, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 46, "minH": 5, "minW": 1},
                     },
                     "description": "Where your users are, based on their IP address. Hover a country to see its user count.",
@@ -489,13 +452,12 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "color": None,
                     "transparent_background": True,
                     "body": (
-                        "### Turning visits into actions\n\n"
-                        "A funnel from landing on a page to clicking something. Swap these steps for your own "
-                        "events — signup, purchase, upgrade — to measure conversion that matters to you."
+                        "**Turning visits into actions** A funnel from page view to click. Swap in your own "
+                        "events (signup, purchase, upgrade) to measure real conversion."
                     ),
                     "layouts": {
-                        "sm": {"h": 2, "w": 12, "x": 0, "y": 30, "minH": 1, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 51, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 27, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 51, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -538,7 +500,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 32, "minH": 5, "minW": 3},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 28, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 54, "minH": 5, "minW": 1},
                     },
                     "description": "Of people who land on a page, how many go on to interact. Replace these steps with your own events to track real conversions.",

@@ -164,8 +164,8 @@ class TestTeam(BaseTest):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertIsInstance(team.primary_dashboard, Dashboard)
 
-        # Ensure insights are created and linked (11 insight tiles + 4 text tiles)
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 15)
+        # Ensure insights are created and linked (10 insight tiles + 4 text tiles)
+        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 14)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
