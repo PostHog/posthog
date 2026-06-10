@@ -166,7 +166,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
-            "wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). "
+            "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
+            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
+            "delay). Continues when condition.filters match OR any events entry fires; each events entry "
+            "must target at least one event or action. "
             "exit: {reason}."
         ),
     )
