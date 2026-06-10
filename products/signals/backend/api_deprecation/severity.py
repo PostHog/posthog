@@ -14,11 +14,16 @@ _SEVERITY_RANK = {sev: rank for rank, sev in enumerate(VALID_SEVERITIES)}
 
 
 def score_severity(cutoff_date: date | None, today: date) -> Severity:
-    """Map a cited cutoff date to a P0..P3 severity. No date ⇒ P3 (no manufactured urgency)."""
+    """Map a cited cutoff date to a P0..P3 severity. No date ⇒ P3 (no manufactured urgency).
+
+    Mirrors the inbox priority guide: P0 means production breakage, so it is reserved for a cutoff
+    that has already been reached (the vendor is blocking the pinned version *now*). A future cutoff
+    is imminent impact, not breakage — at most P1.
+    """
     if cutoff_date is None:
         return "P3"
     days = (cutoff_date - today).days
-    if days <= 30:  # past or imminent
+    if days <= 0:  # cutoff reached — the pinned version is already blocked
         return "P0"
     if days <= 90:
         return "P1"

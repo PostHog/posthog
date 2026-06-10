@@ -111,7 +111,9 @@ def test_non_deprecated_needs_no_citation():
 @pytest.mark.parametrize(
     "cutoff,expected",
     [
-        (date(2026, 6, 1), "P0"),  # past
+        (date(2026, 6, 1), "P0"),  # past — vendor already blocks the pinned version
+        (date(2026, 6, 9), "P0"),  # cutoff is today — blocked as of now
+        (date(2026, 6, 20), "P1"),  # imminent but future — impact, not breakage yet
         (date(2026, 8, 1), "P1"),  # 53 days
         (date(2026, 11, 1), "P2"),  # 145 days
         (None, "P3"),  # unknown date -> no manufactured urgency

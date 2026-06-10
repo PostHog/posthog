@@ -23,6 +23,7 @@ Several additional Signals workflows also exist but are not part of the main rep
 - `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
 - `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — periodic tick (every `COORDINATOR_INTERVAL_MINUTES = 30`) that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
 - `RunSignalsScoutWorkflow` (`backend/temporal/agentic/scout_scheduler.py`) — child workflow per planned run; thin wrapper around the harness activity. Spec'd separately below.
+- `signals-custom-agent` (`backend/temporal/custom_agent.py`) — shared fire-and-forget workflow for `CustomSignalAgent` subclasses (`backend/custom_agent/`). Unlike the sources above, custom agents bypass emit/grouping and persist READY `SignalReport`s directly (`custom_agent/persistence.py`), then hand off to autostart. Launched via `run_agent`/`arun_agent`; the activity imports the agent class dynamically by dotted path. First production user: the API deprecation watcher (`backend/api_deprecation/`, launched by the `run_api_deprecation_detector` management command).
 
 ### Activity decoration
 

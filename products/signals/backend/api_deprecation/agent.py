@@ -68,10 +68,10 @@ class ApiDeprecationAgent(CustomSignalAgent):
             top.classification == Classification.MECHANICAL and top.confidence >= MECHANICAL_CONFIDENCE_THRESHOLD
         )
 
+        # PR-style title (same convention as ReportPresentationOutput) — it flows into the
+        # auto-started implementation task and ultimately a draft PR.
         self.register_title(
-            f"{top.pin.product}: {top.pin.pinned_version} deprecated — bump to {top.recommended_version or 'latest GA'}"[
-                :255
-            ]
+            f"fix(cdp): Bump {top.pin.product} {top.pin.pinned_version} → {top.recommended_version or 'latest GA'}"[:96]
         )
         self.register_description(
             f"{len(ranked)} stale external-API version pin(s), grounded in vendor changelogs:\n\n"
