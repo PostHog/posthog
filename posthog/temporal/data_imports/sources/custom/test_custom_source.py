@@ -903,6 +903,13 @@ def _break_path_starting_with_placeholder(m: dict) -> None:
     m["resources"][1]["endpoint"]["path"] = "{form_id}/responses"
 
 
+def _break_leading_slash_placeholder(m: dict) -> None:
+    # A leading slash is NOT a defense: the engine strips leading slashes before
+    # joining onto base_url, so `/{form_id}/...` still resolves to whatever host
+    # the bound parent value carries.
+    m["resources"][1]["endpoint"]["path"] = "/{form_id}/responses"
+
+
 def _add_nested_child(m: dict) -> None:
     # Grandchild: nesting is capped at one level — a parent must be top-level.
     m["resources"].append(
@@ -932,6 +939,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("invalid_resolve_field_jsonpath", _break_invalid_resolve_field_jsonpath),
             ("nested_child", _add_nested_child),
             ("path_starting_with_placeholder", _break_path_starting_with_placeholder),
+            ("leading_slash_placeholder", _break_leading_slash_placeholder),
         ]
     )
     def test_rejects_invalid_fanout(self, _name, break_manifest):

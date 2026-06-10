@@ -225,20 +225,27 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
                 "a resource can only depend on a top-level resource (one level of nesting)"
             )
         # The parent placeholder is filled with uncontrolled upstream data at
-        # sync time. A path that BEGINS with it lets an absolute URL in the
-        # parent's field move the authenticated request off base_url, and
-        # neither the create-time host validator nor the update retarget guard
-        # can see it (they only ever see the literal placeholder). The check
-        # reads the engine-normalized path from `resource_map` — defaults
-        # merged, scalar params already bound — so it inspects the same string
-        # the request will be built from; only the resolve placeholder survives
-        # binding and needs this guard.
+        # sync time. If it's the FIRST path segment, an absolute URL in the
+        # parent's field moves the authenticated request off base_url (the
+        # engine's `resolve_request_url` strips leading slashes before joining,
+        # so a leading-slash path is not a defense — `/{form_id}/...` with
+        # `form_id="https://attacker/x"` resolves to the attacker host). Neither
+        # the create-time host validator nor the update retarget guard can see
+        # this (they only ever see the literal placeholder). The check reads the
+        # engine-normalized path from `resource_map` — defaults merged, scalar
+        # params already bound — so it inspects the same string the request will
+        # be built from; only the resolve placeholder survives binding.
         endpoint = resource_map[name].get("endpoint")
         path = endpoint.get("path", "") if isinstance(endpoint, dict) else ""
-        if isinstance(path, str) and path.lstrip().startswith("{" + resolved_param.param_name + "}"):
+        # Strip leading whitespace and slashes so every leading-placeholder form
+        # is caught; mid-path placeholders (`/forms/{form_id}/responses`) pass.
+        if isinstance(path, str) and path.lstrip().lstrip("/").lstrip().startswith(
+            "{" + resolved_param.param_name + "}"
+        ):
             raise ManifestValidationError(
-                f"Resource {name!r}: the path must not begin with the parent placeholder "
-                f"{{{resolved_param.param_name}}} — start it with '/' so requests stay on the manifest's base URL"
+                f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must not be the first "
+                "path segment — put a literal prefix before it (e.g. /forms/{form_id}/responses) so the bound parent "
+                "value can't redirect the request off the manifest's base URL"
             )
     return resolved
 
