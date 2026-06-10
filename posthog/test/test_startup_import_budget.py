@@ -1,3 +1,4 @@
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -331,3 +332,72 @@ def test_schema_models_deferred_by_default_but_built_for_web() -> None:
         )
         assert result.returncode == 0, f"{mode} probe failed:\n{result.stderr[-2000:]}"
         assert "SCHEMA_MODE_OK" in result.stdout
+
+
+# Forward-looking counterpart to FORBIDDEN_AT_SETUP: that list catches *known* evicted modules
+# returning; this catches a *new* heavy import nobody has named yet. There are deliberately no
+# per-entry time budgets — absolute timings flake in CI — time is only the materiality gate
+# for packages absent from the baseline. Captured with GC disabled, because a migrating gen2
+# pause (~100ms) otherwise gets booked as self-time of whatever innocent module was executing.
+_NEW_IMPORT_THRESHOLD_MS = 100
+_FIRST_PARTY_ROOTS = ("posthog", "products", "ee", "common")
+_IMPORT_BASELINE = Path(__file__).parent / "setup_import_baseline.txt"
+
+_IMPORTTIME_CAPTURE = """
+import gc
+import os
+gc.disable()
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+"""
+
+
+def _capture_setup_import_costs() -> dict[str, int]:
+    result = subprocess.run(
+        [sys.executable, "-X", "importtime", "-c", _IMPORTTIME_CAPTURE],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"django.setup() failed:\n{result.stderr[-2000:]}"
+
+    costs: dict[str, int] = {}
+    for line in result.stderr.splitlines():
+        match = re.match(r"import time:\s+(\d+) \|\s+\d+ \| +(\S+)$", line)
+        if not match:
+            continue
+        self_us, module = int(match.group(1)), match.group(2)
+        root = module.split(".")[0]
+        if root in _FIRST_PARTY_ROOTS:
+            # judged per module: aggregating posthog.* would be one permanent offender
+            costs[module] = self_us
+        else:
+            costs[root] = costs.get(root, 0) + self_us
+    return costs
+
+
+def test_no_new_heavy_imports_at_setup() -> None:
+    baseline = {
+        line.split("#")[0].strip() for line in _IMPORT_BASELINE.read_text().splitlines() if line.split("#")[0].strip()
+    }
+    # Two captures, per-name minimum: the first boot on a cold machine pays page-cache misses
+    # that can double a package's apparent cost (django measured 116ms cold vs ~67ms warm);
+    # the minimum converges on the stable warm number, so the threshold compares like with like.
+    first, second = _capture_setup_import_costs(), _capture_setup_import_costs()
+    costs = {name: min(us, second.get(name, us)) for name, us in first.items()}
+
+    threshold_us = _NEW_IMPORT_THRESHOLD_MS * 1000
+    offenders = {name: us for name, us in costs.items() if us >= threshold_us and name not in baseline}
+    assert not offenders, (
+        f"New heavy import(s) appeared on the django.setup() path: "
+        f"{ {name: f'{us / 1000:.0f}ms' for name, us in sorted(offenders.items(), key=lambda kv: -kv[1])} }. "
+        "Every process (web, celery, temporal, migrate, shell, every CI job) now pays this on every boot. "
+        "DO NOT add the package to setup_import_baseline.txt to make this pass — defer the import instead: "
+        "function-local with `# noqa: PLC0415`, TYPE_CHECKING for type-only uses, a PEP 562 lazy facade for "
+        "package aggregators, or a light activity_logging/visibility module for AppConfig.ready() wiring. "
+        "Read docs/internal/django-startup-time.md for the patterns and the traps. To find the door, run: "
+        "python -X importtime -c 'import gc; gc.disable(); import django; django.setup()' and trace the first "
+        "importer of the offending package. Only if the package is genuinely required by every process during "
+        "django.setup() may it be baselined, with a comment justifying why."
+    )

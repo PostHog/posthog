@@ -60,6 +60,13 @@ The list cuts both ways: when you _deliberately_ defer a significant heavy libra
 Removing an entry to dodge a failure weakens the guard; adding one to lock in a deferral strengthens it.
 Confirm the module is absent from a bare `django.setup()` first, then add it.
 
+**The forward-looking guard: new heavy imports.**
+`FORBIDDEN_AT_SETUP` only catches modules someone already named; `test_no_new_heavy_imports_at_setup` catches the heavy import nobody has named yet.
+It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/setup_import_baseline.txt` costs ≥100ms.
+There are deliberately no per-entry time budgets — absolute timings flake in CI — time is only the materiality gate for _new arrivals_: known names are never timed, and a new arrival is deterministic (the PR that adds the import, adds it).
+Two captures are taken and the per-name minimum used, because a cold first boot pays page-cache misses that can double a package's apparent cost.
+When it fires: defer the import (the failure message carries the playbook); baseline a package only when every process genuinely needs it during setup, with a justifying comment.
+
 ## Doing it right, and keeping it right
 
 The startup path is a shared resource with no natural backpressure: nothing about adding a normal import _looks_ expensive, and the cost lands on processes you are not running locally.
