@@ -364,7 +364,13 @@ function StreamCard({
                     <code>items</code>, <code>results.data</code>).
                 </p>
             </LemonField.Pure>
-            <ParentSection stream={stream} parentOptions={parentOptions} onUpdate={onUpdate} />
+            {/* Only show the dependency section when there's an eligible parent to
+                pick, or an existing dependency to edit / warn about (a stale parent
+                from raw-authored JSON still needs its warning). A single-stream
+                manifest has neither, so the section would just be an inert box. */}
+            {(parentOptions.length > 0 || stream.parent_stream.trim().length > 0) && (
+                <ParentSection stream={stream} parentOptions={parentOptions} onUpdate={onUpdate} />
+            )}
             <PaginatorSection paginator={stream.paginator} onUpdate={onUpdatePaginator} />
             <IncrementalSection stream={stream} onUpdate={onUpdate} />
         </div>
