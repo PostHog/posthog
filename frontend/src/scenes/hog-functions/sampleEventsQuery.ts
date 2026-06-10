@@ -86,7 +86,7 @@ function shouldTry24hPreStage(after: string | undefined): boolean {
     }
     const parsed = dayjs(after)
     if (parsed.isValid()) {
-        return dayjs().diff(parsed, 'hour') > 24
+        return dayjs().diff(parsed, 'hour', true) > 24
     }
     return false
 }

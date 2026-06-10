@@ -69,41 +69,23 @@ describe('performWideEventsQueryInTwoPhases', () => {
             expect((result.results as unknown[])[0]).toEqual(['hydrated-week'])
         })
 
-        it('skips the pre-stage when the caller window is exactly 24h', async () => {
-            mockedPerformQuery.mockResolvedValueOnce({ results: [] })
+        // Boundary table: each row asserts the full sequence of `after` values ClickHouse sees.
+        // A leading `-24h` means the pre-stage fired; otherwise it was skipped. All mocked phase-1
+        // responses are empty so each entry in `expectedAfters` corresponds to exactly one query.
+        it.each([
+            { label: 'exactly 24h', after: '-24h', expectedAfters: ['-24h'] },
+            { label: 'narrower than 24h', after: '-1h', expectedAfters: ['-1h'] },
+            { label: 'no window specified', after: undefined, expectedAfters: [undefined] },
+            { label: '30d', after: '-30d', expectedAfters: ['-24h', '-30d'] },
+        ])('pre-stage boundary: $label', async ({ after, expectedAfters }) => {
+            for (let i = 0; i < expectedAfters.length; i++) {
+                mockedPerformQuery.mockResolvedValueOnce({ results: [] })
+            }
 
-            await performWideEventsQueryInTwoPhases({ ...intent, after: '-24h' })
+            await performWideEventsQueryInTwoPhases({ ...intent, after })
 
-            expect(mockedPerformQuery).toHaveBeenCalledTimes(1)
-            expect((mockedPerformQuery.mock.calls[0][0] as EventsQuery).after).toBe('-24h')
-        })
-
-        it('skips the pre-stage when the caller window is narrower than 24h', async () => {
-            mockedPerformQuery.mockResolvedValueOnce({ results: [] })
-
-            await performWideEventsQueryInTwoPhases({ ...intent, after: '-1h' })
-
-            expect(mockedPerformQuery).toHaveBeenCalledTimes(1)
-            expect((mockedPerformQuery.mock.calls[0][0] as EventsQuery).after).toBe('-1h')
-        })
-
-        it('skips the pre-stage when the caller did not specify a window', async () => {
-            mockedPerformQuery.mockResolvedValueOnce({ results: [] })
-
-            await performWideEventsQueryInTwoPhases({ ...intent, after: undefined })
-
-            expect(mockedPerformQuery).toHaveBeenCalledTimes(1)
-            expect((mockedPerformQuery.mock.calls[0][0] as EventsQuery).after).toBeUndefined()
-        })
-
-        it('runs the pre-stage for a 30d caller window too', async () => {
-            mockedPerformQuery.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] })
-
-            await performWideEventsQueryInTwoPhases({ ...intent, after: '-30d' })
-
-            expect(mockedPerformQuery).toHaveBeenCalledTimes(2)
-            expect((mockedPerformQuery.mock.calls[0][0] as EventsQuery).after).toBe('-24h')
-            expect((mockedPerformQuery.mock.calls[1][0] as EventsQuery).after).toBe('-30d')
+            const actualAfters = mockedPerformQuery.mock.calls.map((c) => (c[0] as EventsQuery).after)
+            expect(actualAfters).toEqual(expectedAfters)
         })
     })
 
