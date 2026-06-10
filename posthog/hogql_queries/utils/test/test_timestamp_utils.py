@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
@@ -349,10 +350,19 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     @parameterized.expand(
         [
-            ("datetime", datetime.datetime(2023, 5, 1, 12, 30, 0), datetime.datetime(2023, 5, 1, 12, 30, 0)),
-            ("date", datetime.date(2023, 5, 1), datetime.datetime(2023, 5, 1, 0, 0, 0)),
-            ("string", "2023-05-01 12:30:00", datetime.datetime(2023, 5, 1, 12, 30, 0)),
-            ("date_string", "2023-05-01", datetime.datetime(2023, 5, 1, 0, 0, 0)),
+            (
+                "naive_datetime",
+                datetime.datetime(2023, 5, 1, 12, 30, 0),
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+            ),
+            (
+                "aware_datetime",
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+            ),
+            ("date", datetime.date(2023, 5, 1), datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=datetime.UTC)),
+            ("string", "2023-05-01 12:30:00", datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC)),
+            ("date_string", "2023-05-01", datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=datetime.UTC)),
             ("none", None, EARLIEST_EVENT_TIMESTAMP),
             ("unsupported", 12345, EARLIEST_EVENT_TIMESTAMP),
             ("unparseable_na", "N/A", EARLIEST_EVENT_TIMESTAMP),
@@ -362,13 +372,16 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         ]
     )
     def test_coerce_to_datetime(self, _name, value, expected):
-        self.assertEqual(_coerce_to_datetime(value), expected)
+        result = _coerce_to_datetime(value)
+        self.assertEqual(result, expected)
+        # Must be timezone-aware so it can be compared against the tz-aware date_to.
+        self.assertIsNotNone(result.tzinfo)
 
     @parameterized.expand(
         [
-            ("string_timestamp", "2022-03-15 08:00:00", datetime.datetime(2022, 3, 15, 8, 0, 0)),
-            ("date_only_string", "2022-03-15", datetime.datetime(2022, 3, 15, 0, 0, 0)),
-            ("date_object", datetime.date(2022, 3, 15), datetime.datetime(2022, 3, 15, 0, 0, 0)),
+            ("string_timestamp", "2022-03-15 08:00:00", datetime.datetime(2022, 3, 15, 8, 0, 0, tzinfo=datetime.UTC)),
+            ("date_only_string", "2022-03-15", datetime.datetime(2022, 3, 15, 0, 0, 0, tzinfo=datetime.UTC)),
+            ("date_object", datetime.date(2022, 3, 15), datetime.datetime(2022, 3, 15, 0, 0, 0, tzinfo=datetime.UTC)),
         ]
     )
     def test_data_warehouse_all_time_resolves_string_timestamp(self, _name, raw_value, expected):
@@ -402,3 +415,30 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # resolved to a str instead of a datetime.
         self.assertEqual(query_date_range.date_from(), expected)
         self.assertEqual(query_date_range.date_from_str, expected.strftime("%Y-%m-%d %H:%M:%S"))
+        # A Date-typed column yields a naive datetime; comparing it against the tz-aware
+        # date_to raised "can't compare offset-naive and offset-aware datetimes" here.
+        self.assertGreater(len(query_date_range.all_values()), 0)
+
+    @override_settings(IN_UNIT_TESTING=False)
+    @patch("posthog.hogql_queries.utils.timestamp_utils._get_earliest_timestamp_from_node")
+    def test_multi_node_propagates_query_tags_to_threads(self, mock_node):
+        # Multiple nodes resolve their earliest timestamp via ThreadPoolExecutor, which does not
+        # inherit contextvars. Without copying the context, the worker threads' sync_execute calls
+        # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
+        captured: dict[str, object] = {}
+
+        def capture(team, node):
+            captured[node.table_name] = get_query_tags().product
+            return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+
+        mock_node.side_effect = capture
+        nodes = [
+            DataWarehouseNode(id="a", table_name="a", id_field="id", distinct_id_field="id", timestamp_field="ts"),
+            DataWarehouseNode(id="b", table_name="b", id_field="id", distinct_id_field="id", timestamp_field="ts"),
+        ]
+
+        with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY):
+            get_earliest_timestamp_from_series(self.team, nodes)
+
+        self.assertEqual(captured["a"], Product.MARKETING_ANALYTICS)
+        self.assertEqual(captured["b"], Product.MARKETING_ANALYTICS)

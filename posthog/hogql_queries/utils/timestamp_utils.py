@@ -1,5 +1,6 @@
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Union
 
 from django.conf import settings
@@ -126,22 +127,28 @@ def _get_earliest_timestamp_cache_key(
 
 
 def _coerce_to_datetime(value: Any) -> datetime:
-    """Normalize a min(timestamp) result to a ``datetime``.
+    """Normalize a min(timestamp) result to a timezone-aware ``datetime``.
 
     Data warehouse tables may declare their timestamp field as a String or Date
     column, so the query can return a ``str`` or ``date`` instead of a ``datetime``.
     Leaving those unconverted breaks downstream date math (``.strftime()`` and
     ``<`` comparisons), so we resolve them to a concrete ``datetime`` here.
+
+    The result must be timezone-aware: this value becomes the "all time" date_from,
+    which is compared against the timezone-aware date_to. A naive datetime would
+    raise "can't compare offset-naive and offset-aware datetimes". We normalize to
+    UTC, matching the events path and ``EARLIEST_EVENT_TIMESTAMP``.
     """
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
     if isinstance(value, str):
         try:
-            return parse_datetime(value)
+            parsed = parse_datetime(value)
         except (ValueError, TypeError, OverflowError):
             return EARLIEST_EVENT_TIMESTAMP
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return EARLIEST_EVENT_TIMESTAMP
 
 
@@ -212,7 +219,12 @@ def get_earliest_timestamp_from_series(
 
     else:
         with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
-            futures = [executor.submit(_get_earliest_timestamp_from_node, team, node) for node in nodes]
+            # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
+            # current context into each worker so tagged sync_execute calls don't fail untagged.
+            futures = [
+                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node)
+                for node in nodes
+            ]
             timestamps = [future.result() for future in futures]
 
     return min(timestamps)
