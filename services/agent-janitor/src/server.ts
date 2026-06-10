@@ -159,25 +159,16 @@ function defaultSince(): string {
 }
 
 /**
- * Derive `spec.skills[]` + `spec.tools[]` from the typed resources in the
- * bundle and persist the merged spec onto `agent_revision.spec`. Called by
- * the freeze handler immediately before validate + freeze so the validator
- * sees the final shape.
+ * Compute the freeze-time spec: derive `spec.skills[]` + `spec.tools[]` from
+ * the typed resources in the bundle and merge them with the author-written
+ * non-custom (native/client) tools already on the spec. Pure — the freeze
+ * handler persists the result via `revisions.updateSpec`.
  *
  * Authors never write the derived arrays directly — they're computed from
  * the source of truth (the typed-resource state in the bundle) at the
  * freeze instant. This is what makes orphan files structurally impossible:
  * any skill markdown in the bundle gets a spec entry, any tool dir gets a
  * spec entry. Drift requires a writer; there isn't one.
- */
-/**
- * Compute the freeze-time spec without persisting it. Django wraps the
- * freeze call in `transaction.atomic()` and holds the `agent_revision`
- * row lock for the duration; a janitor-side `UPDATE` from a different
- * connection deadlocks (we saw 120s freezes pinning the Django proxy).
- * The caller (Django) is the sole writer to that row — it stamps the
- * derived spec alongside `state='ready'` and `bundle_sha256` in its
- * own atomic.
  */
 async function deriveSpec(args: {
     revisionId: string
@@ -851,11 +842,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const entries = await instrument({ key: 'freeze.list', log, context: ctx }, () =>
                 opts.bundles!.list(req.params.id)
             )
-            // Derive spec without persisting — Django holds the
-            // agent_revision row lock for the duration of its freeze
-            // atomic, so a janitor-side UPDATE deadlocks. Django stamps
-            // the returned spec alongside state + sha in its own
-            // transaction.
             const derivedSpec = await instrument(
                 { key: 'freeze.derive', log, context: { ...ctx, files: entries.length } },
                 () =>
@@ -876,6 +862,16 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             }
             const sha = await instrument({ key: 'freeze.seal', log, context: { ...ctx, files: entries.length } }, () =>
                 opts.bundles!.freeze(req.params.id, entries)
+            )
+            // Persist the derived spec now that the bundle is sealed + validated.
+            // Safe to write from the janitor: Django's freeze proxy no longer
+            // wraps this call in `transaction.atomic()`, so it holds no
+            // `agent_revision` row lock for our UPDATE to deadlock against. The
+            // revision is still `draft` here (Django flips it to `ready` after we
+            // return), so updateSpec's draft guard passes. Django re-stamps the
+            // same spec alongside state + sha — harmless belt-and-suspenders.
+            await instrument({ key: 'freeze.persistSpec', log, context: ctx }, () =>
+                opts.revisions!.updateSpec(req.params.id, derivedSpec)
             )
             res.json({ ok: true, state: 'ready', bundle_sha256: sha, derived_spec: derivedSpec })
         })
