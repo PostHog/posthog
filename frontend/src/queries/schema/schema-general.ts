@@ -4783,6 +4783,24 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+/** Alert config for HogQL/SQL-backed insights. Empty by design — the query owns its own time window
+ * and the alert evaluates the last row of the single-column result. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+}
+
+/** How a funnel alert measures conversion at its step.
+ * `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count. */
+export type FunnelConversionMetric = 'conversion_from_start' | 'conversion_from_previous'
+
+/** Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step. */
+export interface FunnelsAlertConfig {
+    type: 'FunnelsAlertConfig'
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: integer | null
+    metric: FunnelConversionMetric
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string

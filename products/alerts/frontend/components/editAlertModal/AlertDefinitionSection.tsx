@@ -12,7 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertSimulationResult } from 'lib/components/Alerts/types'
+import { AlertSimulationResult, isFunnelsAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -32,6 +32,8 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
+    /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
+    funnelStepCount: number
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -52,6 +54,7 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
+    funnelStepCount,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -63,6 +66,11 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
+    // Funnel alerts evaluate a single conversion-rate snapshot, so only absolute conditions apply.
+    const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
+    const relativeConditionDisabledReason =
+        (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
+        (isFunnelAlert && 'Funnel alerts only support absolute value conditions')
     return (
         <>
             {isBreakdownValid && (
@@ -72,36 +80,71 @@ export function AlertDefinitionSection({
                         : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
                 </LemonBanner>
             )}
-            <div className="flex gap-3 items-center">
-                <div>When</div>
-                <Group name={['config']}>
-                    <LemonField name="series_index" className="flex-auto">
-                        <LemonSelect
-                            fullWidth
-                            data-attr="alertForm-series-index"
-                            options={
-                                (formulaNodes?.length ?? 0) > 0
-                                    ? (formulaNodes ?? []).map(({ formula, custom_name }, index) => ({
-                                          label: `${custom_name ? custom_name : 'Formula'} (${formula})`,
-                                          value: index,
-                                      }))
-                                    : (alertSeries?.map(({ custom_name, name, event }, index) => ({
-                                          label: isBreakdownValid
-                                              ? 'any breakdown value'
-                                              : `${alphabet[index]} - ${custom_name ?? name ?? event}`,
-                                          value: isBreakdownValid ? 0 : index,
-                                      })) ?? [])
-                            }
-                            disabledReason={
-                                isBreakdownValid &&
-                                (alertMode === 'detector'
-                                    ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                    : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
-                            }
-                        />
-                    </LemonField>
-                </Group>
-            </div>
+            {isTrendsAlertConfig(alertForm.config) ? (
+                <div className="flex gap-3 items-center">
+                    <div>When</div>
+                    <Group name={['config']}>
+                        <LemonField name="series_index" className="flex-auto">
+                            <LemonSelect
+                                fullWidth
+                                data-attr="alertForm-series-index"
+                                options={
+                                    (formulaNodes?.length ?? 0) > 0
+                                        ? (formulaNodes ?? []).map(({ formula, custom_name }, index) => ({
+                                              label: `${custom_name ? custom_name : 'Formula'} (${formula})`,
+                                              value: index,
+                                          }))
+                                        : (alertSeries?.map(({ custom_name, name, event }, index) => ({
+                                              label: isBreakdownValid
+                                                  ? 'any breakdown value'
+                                                  : `${alphabet[index]} - ${custom_name ?? name ?? event}`,
+                                              value: isBreakdownValid ? 0 : index,
+                                          })) ?? [])
+                                }
+                                disabledReason={
+                                    isBreakdownValid &&
+                                    (alertMode === 'detector'
+                                        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+                                        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
+                                }
+                            />
+                        </LemonField>
+                    </Group>
+                </div>
+            ) : isFunnelsAlertConfig(alertForm.config) ? (
+                <div className="flex flex-wrap gap-3 items-center">
+                    <div>Alert on</div>
+                    <Group name={['config']}>
+                        <LemonField name="metric" className="flex-auto">
+                            <LemonSelect
+                                fullWidth
+                                data-attr="alertForm-funnel-metric"
+                                options={[
+                                    { label: 'conversion from first step', value: 'conversion_from_start' },
+                                    { label: 'conversion from previous step', value: 'conversion_from_previous' },
+                                ]}
+                            />
+                        </LemonField>
+                        <LemonField name="funnel_step" className="flex-auto">
+                            <LemonSelect
+                                fullWidth
+                                data-attr="alertForm-funnel-step"
+                                options={[
+                                    { label: 'overall (last step)', value: null },
+                                    ...Array.from({ length: funnelStepCount }, (_, index) => ({
+                                        label: `step ${index + 1}`,
+                                        value: index,
+                                    })),
+                                ]}
+                            />
+                        </LemonField>
+                    </Group>
+                </div>
+            ) : (
+                <LemonBanner type="info">
+                    This alert evaluates the last row of the SQL insight's single-column result.
+                </LemonBanner>
+            )}
 
             {anomalyDetectionEnabled && (
                 <LemonSegmentedButton
@@ -155,16 +198,12 @@ export function AlertDefinitionSection({
                                         {
                                             label: 'increases by',
                                             value: AlertConditionType.RELATIVE_INCREASE,
-                                            disabledReason:
-                                                isNonTimeSeriesDisplay &&
-                                                'This condition is only supported for time series trends',
+                                            disabledReason: relativeConditionDisabledReason,
                                         },
                                         {
                                             label: 'decreases by',
                                             value: AlertConditionType.RELATIVE_DECREASE,
-                                            disabledReason:
-                                                isNonTimeSeriesDisplay &&
-                                                'This condition is only supported for time series trends',
+                                            disabledReason: relativeConditionDisabledReason,
                                         },
                                     ]}
                                 />

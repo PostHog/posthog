@@ -400,19 +400,27 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         except (AttributeError, TypeError, KeyError):
             return False
 
-    @property
-    def are_alerts_supported(self) -> bool:
+    def _unwrapped_query_kind(self) -> str | None:
+        """Innermost query ``kind`` after unwrapping DataTable/DataVisualization/InsightVizNode
+        wrappers, or None if the insight has no query."""
         from posthog.schema_migrations.upgrade_manager import upgrade_query
 
         with upgrade_query(self):
             query = self.query
             if query is None:
-                return False
+                return None
             while query.get("source"):
                 query = query["source"]
-            if query.get("kind") != "TrendsQuery":
-                return False
-        return True
+            return query.get("kind")
+
+    @property
+    def are_alerts_supported(self) -> bool:
+        return self._unwrapped_query_kind() == "TrendsQuery"
+
+    @property
+    def is_hogql_backed(self) -> bool:
+        """True when the underlying query (unwrapped from any wrapper) is a HogQLQuery."""
+        return self._unwrapped_query_kind() == "HogQLQuery"
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

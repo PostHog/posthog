@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import OuterRef, QuerySet, Subquery
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -501,9 +502,30 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return value
 
     def validate_insight(self, value):
-        if value and not value.are_alerts_supported:
-            raise ValidationError("Alerts are not supported for this insight.")
-        return value
+        if not value:
+            return value
+        if value.are_alerts_supported:
+            return value
+        if value.is_hogql_backed:
+            if not self._hogql_alerts_enabled():
+                raise ValidationError("SQL insight alerts are not enabled for your account.")
+            return value
+        raise ValidationError("Alerts are not supported for this insight.")
+
+    def _hogql_alerts_enabled(self) -> bool:
+        # Scope the flag to the alert's organization (via team scope), not the user's current
+        # organization — otherwise a user in multiple orgs could flip their current org to a
+        # flag-on org and create a SQL alert in a team where the flag is disabled.
+        user = self.context["request"].user
+        get_organization = self.context.get("get_organization")
+        org = get_organization() if get_organization else None
+        return bool(
+            posthoganalytics.feature_enabled(
+                "hogql-insight-alerts",
+                str(user.distinct_id),
+                groups={"organization": str(org.id)} if org else {},
+            )
+        )
 
     def validate_subscribed_users(self, value):
         for user in value:

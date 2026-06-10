@@ -126,6 +126,16 @@ def validate_alert_config(
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
 
+    if config_type == "HogQLAlertConfig":
+        # SQL insights own their time window; there is no series_index or ongoing-interval concept,
+        # so only the query kind, condition/threshold compatibility, and bounds are validated.
+        if kind != NodeKind.HOG_QL_QUERY:
+            raise ValueError(f"SQL alert config requires a HogQLQuery insight, got '{kind}'")
+        _validate_condition_threshold_compatibility(parsed_condition, threshold_config)
+        if require_threshold_bounds and detector_config is None:
+            validate_threshold_bounds_required(threshold_config)
+        return
+
     if config_type != "TrendsAlertConfig":
         raise ValueError(f"Unsupported alert config type: {config}")
     try:

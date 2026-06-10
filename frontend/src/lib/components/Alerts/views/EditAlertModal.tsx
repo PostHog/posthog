@@ -13,12 +13,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -33,6 +35,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
+import { isTrendsAlertConfig } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -75,12 +78,23 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
+    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+
+    const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
+    const isFunnelInsight = funnelSource !== null
+    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
+        ? 'hogql'
+        : isFunnelInsight
+          ? 'funnels'
+          : 'trends'
+
     const formLogicProps = {
         alert,
         insightId,
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        insightAlertKind,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -154,7 +168,11 @@ export function EditAlertModal({
 
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
-        if (can_check_ongoing_interval && alertForm.config.check_ongoing_interval) {
+        if (
+            can_check_ongoing_interval &&
+            isTrendsAlertConfig(alertForm.config) &&
+            alertForm.config.check_ongoing_interval
+        ) {
             n += 1
         }
         if (
@@ -170,7 +188,7 @@ export function EditAlertModal({
         return n
     }, [
         alertForm.calculation_interval,
-        alertForm.config.check_ongoing_interval,
+        alertForm.config,
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
@@ -232,7 +250,8 @@ export function EditAlertModal({
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
-                                        anomalyDetectionEnabled={anomalyDetectionEnabled}
+                                        funnelStepCount={funnelSource?.series?.length ?? 0}
+                                        anomalyDetectionEnabled={anomalyDetectionEnabled && !isFunnelInsight}
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

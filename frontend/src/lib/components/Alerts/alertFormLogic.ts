@@ -30,7 +30,14 @@ import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
+import {
+    AlertConfig,
+    AlertSimulationResult,
+    AlertType,
+    AlertTypeWrite,
+    AnomalyPoint,
+    isTrendsAlertConfig,
+} from './types'
 
 export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
@@ -73,6 +80,22 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+    /** Selects the default config type for new alerts based on the insight's query kind. */
+    insightAlertKind?: 'hogql' | 'funnels' | 'trends'
+}
+
+const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
+    if (kind === 'hogql') {
+        return { type: 'HogQLAlertConfig' }
+    }
+    if (kind === 'funnels') {
+        return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
+    }
+    return {
+        type: 'TrendsAlertConfig',
+        series_index: 0,
+        check_ongoing_interval: false,
+    }
 }
 
 /**
@@ -194,10 +217,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const formConfig = values.alertForm.config
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
-                        series_index: values.alertForm.config?.series_index ?? 0,
+                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
                         date_from:
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
@@ -219,11 +243,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       created_by: null,
                       created_at: '',
                       enabled: true,
-                      config: {
-                          type: 'TrendsAlertConfig',
-                          series_index: 0,
-                          check_ongoing_interval: false,
-                      },
+                      config: defaultConfigForInsight(props.insightAlertKind),
                       threshold: {
                           configuration: {
                               type: InsightThresholdType.ABSOLUTE,
@@ -266,10 +286,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             isHighFrequencyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
-                    config: {
-                        ...alert.config,
-                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
-                    },
+                    config: isTrendsAlertConfig(alert.config)
+                        ? {
+                              ...alert.config,
+                              check_ongoing_interval:
+                                  canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                          }
+                        : alert.config,
                     detector_config: alert.detector_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
@@ -470,7 +493,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         }))
                     )
                 } else {
-                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    const formConfig = values.alertForm.config
+                    const seriesIndex = isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0
                     anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
                         index: idx,
                         date: simulationResult.dates[idx] ?? '',

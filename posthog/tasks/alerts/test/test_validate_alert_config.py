@@ -25,6 +25,14 @@ def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, 
     return query
 
 
+def _hogql_config() -> dict[str, Any]:
+    return {"type": "HogQLAlertConfig"}
+
+
+def _hogql_query() -> dict[str, Any]:
+    return {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+
+
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
     if bounds is None:
@@ -245,6 +253,33 @@ class TestValidateAlertConfig:
                 None,
                 "Invalid calculation interval: None",
             ),
+            (
+                "valid_hogql_config",
+                _hogql_query(),
+                _base_condition(),
+                _hogql_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "hogql_config_with_trends_query_rejected",
+                _base_query(),
+                _base_condition(),
+                _hogql_config(),
+                _base_threshold(),
+                "daily",
+                "SQL alert config requires a HogQLQuery insight",
+            ),
+            (
+                "hogql_absolute_condition_with_percentage_threshold_rejected",
+                _hogql_query(),
+                _base_condition("absolute_value"),
+                _hogql_config(),
+                _base_threshold(type="percentage"),
+                "daily",
+                "Absolute value alerts require an absolute threshold",
+            ),
         ]
     )
     def test_validate_alert_config(
@@ -262,6 +297,16 @@ class TestValidateAlertConfig:
         else:
             with pytest.raises(ValueError, match=expected_error_fragment):
                 validate_alert_config(query, condition, config, threshold_config, calculation_interval)
+
+    def test_hogql_alert_requires_at_least_one_bound(self) -> None:
+        with pytest.raises(ValueError, match="At least one threshold bound"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition(),
+                _hogql_config(),
+                _base_threshold(bounds={}),
+                "daily",
+            )
 
     def test_threshold_alert_requires_at_least_one_bound(self) -> None:
         with pytest.raises(ValueError, match="At least one threshold bound"):

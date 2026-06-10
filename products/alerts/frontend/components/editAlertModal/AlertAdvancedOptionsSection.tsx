@@ -4,6 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -59,7 +60,8 @@ export function AlertAdvancedOptionsSection({
                                             <LemonCheckbox
                                                 checked={
                                                     can_check_ongoing_interval &&
-                                                    alertForm?.config.check_ongoing_interval
+                                                    isTrendsAlertConfig(alertForm?.config) &&
+                                                    alertForm.config.check_ongoing_interval
                                                 }
                                                 data-attr="alertForm-check-ongoing-interval"
                                                 fullWidth

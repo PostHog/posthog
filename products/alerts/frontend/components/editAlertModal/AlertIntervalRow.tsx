@@ -2,7 +2,7 @@ import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertType } from 'lib/components/Alerts/types'
+import { AlertType, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -57,7 +57,12 @@ export function AlertIntervalRow({
                         />
                     )}
                 </LemonField>
-                <div>and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}</div>
+                <div>
+                    and check{' '}
+                    {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
+                        ? 'current'
+                        : 'last'}
+                </div>
                 <LemonSelect
                     fullWidth
                     className="w-28"
