@@ -432,7 +432,7 @@ def team_api_test_factory():
                     "item_id": ANY,
                     "scope": "Dashboard",
                     "detail": {
-                        "name": "My App Dashboard",
+                        "name": "Your starter dashboard",
                         "type": "dashboard",
                         "changes": [],
                         "context": None,

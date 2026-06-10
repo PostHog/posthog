@@ -129,7 +129,7 @@ class TeamManager(models.Manager):
         # Create default dashboards
         default_app_template = DashboardTemplate.original_template()
         dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="My App Dashboard",
+            name="Your starter dashboard",
             pinned=True,
             team=team,
             description=default_app_template.dashboard_description or "",
