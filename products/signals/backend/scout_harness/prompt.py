@@ -118,6 +118,8 @@ as the description apply — front-load, structure, no walls:
 - Keep it a close-out, not a transcript: methodology and tool-by-tool narration
   belong in the task log, not the summary.
 
+# Dedupe rules
+
 - If a recent run already covers this hypothesis with the same evidence, don't
   re-emit — attach a `remember(...)` note or skip. But if you have new evidence
   (a different source, a fresh deploy correlation, a contradicting signal),
