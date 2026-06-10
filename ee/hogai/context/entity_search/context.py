@@ -390,7 +390,7 @@ class EntitySearchContext:
         )
         if active_filter is not None:
             queryset = filter_flags_by_active_param(queryset, active_filter)
-        queryset = queryset.order_by("-created_at")
+        queryset = queryset.order_by("-updated_at")
 
         total_count = queryset.count()
         flags = list(queryset[offset : offset + limit])
