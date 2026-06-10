@@ -52,8 +52,14 @@ const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, Require
     return levels
 }
 
-// `*` grants read+write to everything; its read-only form is every object's read scope.
-const wildcardReadScopes = (): string[] => API_SCOPES.map(({ key }) => `${key}:read`)
+// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
+// /authorize can never grant, so the wildcard expansion must skip them or the server
+// would reject the whole submit with invalid_scope.
+const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
+
+// `*` grants read+write to everything; its read-only form is every grantable object's read scope.
+const wildcardReadScopes = (): string[] =>
+    API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
 
 const isNativeProtocol = (url: string): boolean => {
     try {

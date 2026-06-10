@@ -70,6 +70,10 @@ describe('oauthAuthorizeLogic', () => {
         expect(scopes).toContain('feature_flag:read')
         expect(scopes).not.toContain('*')
         expect(scopes.some((scope) => scope.endsWith(':write'))).toBe(false)
+        // Privileged/hidden objects are never grantable via /authorize; including them
+        // would make the server reject the whole submit.
+        expect(scopes).not.toContain('llm_gateway:read')
+        expect(scopes).not.toContain('metrics:read')
     })
 
     it('drops a scope when its object is denied and re-adds it when toggled back', () => {
