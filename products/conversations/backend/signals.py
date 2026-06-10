@@ -138,6 +138,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if is_team_message:
                 if author:
                     report_user_action(author, "support message sent", props, team=ticket.team)
+                else:
+                    report_team_action(ticket.team, "support message sent", props)
             else:
                 report_team_action(ticket.team, "support message received", props)
             # Send email notification on first customer message (i.e. new ticket)
