@@ -36,6 +36,22 @@ pub async fn handle_request(
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
 
+    // Non-fatal: unusable PostHog-Sdk-Info means $lib/$lib_version can't be
+    // materialized for this batch. Count once per request for visibility.
+    if context.sdk_lib_and_version().is_none() {
+        let reason = if context.sdk_info.len() > MAX_SDK_INFO_LEN {
+            "sdk_info_oversized"
+        } else {
+            "sdk_info_unparseable"
+        };
+        metrics::counter!(
+            CAPTURE_V1_WARNING_METRIC,
+            "reason" => reason,
+            "path" => context.path,
+        )
+        .increment(1);
+    }
+
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
         state.capture_v1_max_compressed_body_bytes,
@@ -157,7 +173,7 @@ mod tests {
         Router::new()
             .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(
-                super::super::router::v1_common_headers,
+                crate::v1::middleware::v1_common_headers,
             ))
             .with_state(state)
     }
@@ -169,7 +185,7 @@ mod tests {
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -236,7 +252,7 @@ mod tests {
             .uri(CAPTURE_V1_PATH)
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -327,7 +343,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "gzip")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -358,7 +374,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "zstd")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -385,7 +401,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "lz4")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
