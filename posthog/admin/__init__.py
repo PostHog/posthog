@@ -14,6 +14,13 @@ def register_all_admin():
     from django.contrib import admin
     from django.utils.module_loading import autodiscover_modules
 
+    from posthog.admin.json_fields import install_pretty_json_admin
+
+    # Pretty JSONField rendering/editing must be installed before any
+    # `ModelAdmin` below is instantiated — each instance snapshots
+    # `FORMFIELD_FOR_DBFIELD_DEFAULTS` at construction time.
+    install_pretty_json_admin()
+
     # Imports each app's `<app>.admin` module. Every product / third-party admin
     # uses `@admin.register(Model)` at module top, which fires here.
     autodiscover_modules("admin")
