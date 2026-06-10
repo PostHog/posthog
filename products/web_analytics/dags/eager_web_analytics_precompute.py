@@ -130,6 +130,13 @@ EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE = Counter(
     "Teams skipped by the eager warmer because they are not lazy-precompute eligible "
     "(the gate would route every tile through the raw path).",
 )
+EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
+    "web_analytics_eager_precompute_baseline_not_precomputed_total",
+    "Baseline queries that ran but did NOT resolve to a precompute read (fell through "
+    "to raw) — the precompute the warmer should keep fresh is stale, missing, or the "
+    "breakdown isn't precomputable. Labeled by query kind.",
+    ["query_kind"],
+)
 
 
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
@@ -232,9 +239,28 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # the precompute warm. It also skips the result-cache write on purpose: that
             # is `cache_warming.py`'s job (it replays real user queries with their own
             # access context), not this job's.
-            runner.calculate()
+            response = runner.calculate()
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
+            # Self-check the warm actually did its job: the tile must resolve to a
+            # precompute read, not fall through to raw. `usedLazyPrecompute` is only
+            # True when the read passed the lazy executor's TTL freshness filter
+            # (`created_at + TTL >= now`, TTL = 15min today … 7d old), so True is a
+            # guarantee the precomputed value is well within the 2h threshold. A tile
+            # that comes back `not True` warmed nothing useful — surface it loudly so a
+            # stale/missing precompute or a non-precomputable breakdown can't hide.
+            if getattr(response, "usedLazyPrecompute", None) is not True:
+                EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
+                context.log.warning(
+                    f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
+                )
+                logger.warning(
+                    "eager_baseline_warming_tile_not_precomputed",
+                    team_id=team.pk,
+                    query=label,
+                    tile=idx,
+                    total=total,
+                )
             tile_ms = round((time.monotonic() - tile_started) * 1000)
             context.log.info(
                 f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "

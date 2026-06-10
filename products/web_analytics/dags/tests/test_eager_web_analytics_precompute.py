@@ -74,7 +74,7 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         t1, t2 = self._enroll_teams(count=2)
 
         ok_runner = Mock()
-        ok_runner.calculate.return_value = None
+        ok_runner.calculate.return_value = Mock(usedLazyPrecompute=True)
         bad_runner = Mock()
         bad_runner.calculate.side_effect = RuntimeError("boom")
 
@@ -124,7 +124,7 @@ class TestWarmBaselineForTeam(APIBaseTest):
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_warms_full_matrix(self, get_runner, tag_queries_mock):
         runner = Mock()
-        runner.calculate.return_value = None
+        runner.calculate.return_value = Mock(usedLazyPrecompute=True)
         get_runner.return_value = runner
 
         warmed, failed = _warm_baseline_for_team(Mock(spec=dagster.OpExecutionContext), self.team)
@@ -135,6 +135,22 @@ class TestWarmBaselineForTeam(APIBaseTest):
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
+    def test_flags_tiles_that_do_not_resolve_to_precompute(self, get_runner, tag_queries_mock):
+        # A tile whose calculate() does not come back with usedLazyPrecompute=True fell
+        # through to raw — the warm populated no fresh precompute. It still counts as
+        # "warmed" (it ran without error) but must be surfaced as not-precomputed.
+        get_runner.return_value = Mock(calculate=Mock(return_value=Mock(usedLazyPrecompute=None)))
+
+        with capture_logs() as cap_logs:
+            warmed, failed = _warm_baseline_for_team(Mock(spec=dagster.OpExecutionContext), self.team)
+
+        assert warmed == _QUERIES_PER_TEAM
+        assert failed == 0
+        not_precomputed = [log for log in cap_logs if log.get("event") == "eager_baseline_warming_tile_not_precomputed"]
+        assert len(not_precomputed) == _QUERIES_PER_TEAM
+
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_warms_every_breakdown_with_correct_quirks(self, get_runner, tag_queries_mock):
         # PAGE/INITIAL_PAGE need includeBounceRate; vitals needs doPathCleaning.
         # Other breakdowns must NOT carry includeBounceRate.
@@ -142,7 +158,7 @@ class TestWarmBaselineForTeam(APIBaseTest):
 
         def capture(query, team, limit_context):
             captured.append(query)
-            return Mock(calculate=Mock())
+            return Mock(calculate=Mock(return_value=Mock(usedLazyPrecompute=True)))
 
         get_runner.side_effect = capture
         _warm_baseline_for_team(Mock(spec=dagster.OpExecutionContext), self.team)
@@ -190,7 +206,7 @@ class TestWarmBaselineForTeam(APIBaseTest):
 
         def record_get_runner(**kwargs):
             call_order.append("get_runner")
-            return Mock(calculate=Mock())
+            return Mock(calculate=Mock(return_value=Mock(usedLazyPrecompute=True)))
 
         tag_queries_mock.side_effect = record_tag
         get_runner.side_effect = record_get_runner
@@ -213,7 +229,7 @@ class TestEagerBaselineLogging(APIBaseTest):
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_emits_structured_lifecycle_events_on_success(self, get_runner, _tag, _is_cloud):
-        get_runner.return_value = Mock(calculate=Mock(return_value=None))
+        get_runner.return_value = Mock(calculate=Mock(return_value=Mock(usedLazyPrecompute=True)))
 
         with _eager_audience([self.team.pk]), capture_logs() as cap_logs:
             warm_eager_baseline_op(dagster.build_op_context())
