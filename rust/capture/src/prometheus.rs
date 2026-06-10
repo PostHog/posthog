@@ -228,6 +228,19 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
             KAFKA_PRODUCE_ACK_SECONDS,
         )
         .unwrap()
+        // capture_v1_event_batch_size is covered by the Suffix("_batch_size")
+        // matcher above; only the payload-size and clock-skew histograms need
+        // explicit entries.
+        .set_buckets_for_metric(
+            Matcher::Full("capture_v1_payload_size_bytes".to_string()),
+            PAYLOAD_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_v1_clock_skew_seconds".to_string()),
+            CLOCK_SKEW_SECONDS,
+        )
+        .unwrap()
         .install_recorder()
         .unwrap()
 }
