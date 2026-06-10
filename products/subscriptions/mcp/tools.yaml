@@ -88,11 +88,14 @@ tools:
             finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
             newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes
             and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.
+            ai_report (the full report markdown) is also excluded here to keep list responses small — fetch a single
+            delivery with subscriptions-deliveries-retrieve to read it.
         response:
             exclude:
                 - content_snapshot
                 - recipient_results
                 - error
+                - ai_report
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
         enabled: true
@@ -108,7 +111,9 @@ tools:
             timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
             dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
             recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
-            recipient identifiers or upstream response bodies that may contain tokens / PII.
+            recipient identifiers or upstream response bodies that may contain tokens / PII. Unlike the list tool,
+            ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside
+            ai_report_prompt (the prompt it was generated from).
         response:
             exclude:
                 - content_snapshot

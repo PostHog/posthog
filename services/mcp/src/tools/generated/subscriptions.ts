@@ -131,7 +131,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error', 'ai_report'])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/subscriptions')

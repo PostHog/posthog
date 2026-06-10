@@ -92,7 +92,10 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element {
+function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
+    if (!row.change_summary && !row.ai_report) {
+        return null
+    }
     return (
         <div className="px-4 py-3 text-sm flex flex-col gap-4">
             {row.change_summary ? (
@@ -111,7 +114,9 @@ function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Ele
                             <div className="text-secondary whitespace-pre-wrap">{row.ai_report_prompt}</div>
                         </div>
                     ) : null}
-                    <LemonMarkdown>{row.ai_report}</LemonMarkdown>
+                    <div className="max-h-96 overflow-y-auto">
+                        <LemonMarkdown>{row.ai_report}</LemonMarkdown>
+                    </div>
                 </div>
             ) : null}
         </div>
