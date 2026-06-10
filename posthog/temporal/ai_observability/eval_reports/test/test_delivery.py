@@ -454,3 +454,27 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_empty_channel_id_fails_gracefully(self, mock_integration, mock_slack_integration):
+        # A malformed target like "|#name" passes the non-empty channel check but splits to an
+        # empty channel ID, which Slack rejects with channel_not_found. Skip the send, record an
+        # error, and never call chat.postMessage.
+        client = MagicMock()
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "|#tech-devops-cron"}]
+        errors = deliver_slack_report(
+            self._make_report_run(),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("|#tech-devops-cron", errors[0])
+        client.chat_postMessage.assert_not_called()

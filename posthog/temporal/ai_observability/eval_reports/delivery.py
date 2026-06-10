@@ -311,6 +311,11 @@ def deliver_slack_report(
         # ID, so strip the "|#name" suffix before sending. Mirrors the subscriptions path in
         # ee/tasks/subscriptions/slack_subscriptions.py, which splits the same composite value.
         channel_id = channel.split("|")[0]
+        if not channel_id:
+            error_msg = f"Failed to send Slack message to {channel}: no channel ID in target value"
+            logger.warning(error_msg)
+            errors.append(error_msg)
+            continue
 
         try:
             integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
