@@ -2065,7 +2065,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
         else:
             self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            auth_token = self.team.secret_api_token
+            secret_token = self.team.secret_api_token
+            assert secret_token is not None
+            auth_token = secret_token
 
         self.client.logout()
         response = self.client.get(
