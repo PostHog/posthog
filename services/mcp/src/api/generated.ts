@@ -17513,6 +17513,25 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaRowFiltersItemOperator = typeof ExternalDataSchemaRowFiltersItemOperator[keyof typeof ExternalDataSchemaRowFiltersItemOperator];
+
+
+    export const ExternalDataSchemaRowFiltersItemOperator = {
+      '': '>',
+      '': '>=',
+      '': '<',
+      '': '<=',
+      '': '=',
+      '': '!=',
+    } as const;
+
+    export type ExternalDataSchemaRowFiltersItem = {
+      column: string;
+      operator: ExternalDataSchemaRowFiltersItemOperator;
+      /** Comparison value; must match the column's type. */
+      value: unknown;
+    };
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -17676,6 +17695,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -17684,6 +17708,25 @@ export namespace Schemas {
          */
       readonly source: ExternalDataSchemaSource;
     }
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator = typeof ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator[keyof typeof ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator];
+
+
+    export const ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator = {
+      '': '>',
+      '': '>=',
+      '': '<',
+      '': '<=',
+      '': '=',
+      '': '!=',
+    } as const;
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
+      column: string;
+      operator: ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator;
+      /** Comparison value; must match the column's type. */
+      value: unknown;
+    };
 
     export interface ExternalDataSourceBulkUpdateSchema {
       /** Schema identifier to update. */
@@ -17729,6 +17772,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -30114,6 +30162,25 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaRowFiltersItemOperator = typeof PatchedExternalDataSchemaRowFiltersItemOperator[keyof typeof PatchedExternalDataSchemaRowFiltersItemOperator];
+
+
+    export const PatchedExternalDataSchemaRowFiltersItemOperator = {
+      '': '>',
+      '': '>=',
+      '': '<',
+      '': '<=',
+      '': '=',
+      '': '!=',
+    } as const;
+
+    export type PatchedExternalDataSchemaRowFiltersItem = {
+      column: string;
+      operator: PatchedExternalDataSchemaRowFiltersItemOperator;
+      /** Comparison value; must match the column's type. */
+      value: unknown;
+    };
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -30209,6 +30276,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**

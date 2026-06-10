@@ -112,6 +112,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
@@ -175,6 +178,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -248,6 +254,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -294,6 +303,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -339,6 +351,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
