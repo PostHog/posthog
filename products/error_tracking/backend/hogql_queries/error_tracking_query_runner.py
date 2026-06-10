@@ -138,8 +138,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         FROM events
                         WHERE event = '$exception'
                             AND uuid IN {uuids}
-                            AND timestamp >= {date_from}
-                            AND timestamp <= {date_to}
+                            AND timestamp >= toDateTime({date_from})
+                            AND timestamp <= toDateTime({date_to})
                         LIMIT {event_limit}
                         """,
                         placeholders={

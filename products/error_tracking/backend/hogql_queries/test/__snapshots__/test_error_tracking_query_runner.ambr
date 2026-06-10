@@ -120,7 +120,7 @@
          toTimeZone(events.timestamp, 'UTC') AS timestamp,
          events.properties AS properties
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['5a89fa54-b472-402a-8a91-00dddb75fc11', 'b6b03156-cf9d-4c2a-a61f-a24a0fe445aa', 'd0c37a93-334f-48e3-a7a3-d75bea24e4a1']), greaterOrEquals(events.timestamp, toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['6ea7f91f-74c7-43cd-8c23-3baf2789e66f', 'c216eb70-92db-4c09-baa4-a90004e035e0', 'dd4d5ef6-8e0e-4e51-806b-dca832b986d9']), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   LIMIT 3 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -188,7 +188,7 @@
          toTimeZone(events.timestamp, 'UTC') AS timestamp,
          events.properties AS properties
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['d0c37a93-334f-48e3-a7a3-d75bea24e4a1']), greaterOrEquals(events.timestamp, toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['6ea7f91f-74c7-43cd-8c23-3baf2789e66f']), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
