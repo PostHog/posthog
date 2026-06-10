@@ -311,16 +311,19 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.status == DataWarehouseSavedQuery.Status.MODIFIED
 
     def test_update_via_mcp_infers_columns_async(self):
-        create_response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
+        # Patch the setup create so it doesn't depend on live inference — this
+        # test only exercises the MCP update path below.
+        with patch.object(DataWarehouseSavedQuery, "get_columns", return_value={}):
+            create_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
                 },
-            },
-        )
+            )
         assert create_response.status_code == 201, create_response.content
         saved_query_id = create_response.json()["id"]
         edited_history_id = create_response.json()["latest_history_id"]
