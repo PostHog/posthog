@@ -756,13 +756,42 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.QUEUED)
 
-    def test_verify_view_rejects_non_queued(self):
+    def test_verify_view_rejects_non_verifiable_status(self):
         request = self._queued_request()
         request.status = RequestStatus.APPROVED
         request.save(update_fields=["status"])
         self._call_verify(request)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.APPROVED)
+
+    def test_verify_view_promotes_failed_when_events_gone(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_failed_when_events_remain(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=3):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_event_removal(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PROPERTY_REMOVAL
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+            self._call_verify(request)
+        counted.assert_not_called()
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
 
     def test_verify_view_rejects_non_clickhouse_team(self):
         request = self._queued_request()

@@ -25,6 +25,7 @@ interface OverviewMetricCardGridProps {
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
     usedLazyPrecompute?: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }
 
@@ -35,6 +36,7 @@ export function OverviewMetricCardGrid({
     samplingRate,
     usedPreAggregatedTables = false,
     usedLazyPrecompute = false,
+    onDisablePrecompute,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
@@ -48,6 +50,7 @@ export function OverviewMetricCardGrid({
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
                               usedLazyPrecompute={usedLazyPrecompute}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                           />
                       ))}
@@ -61,11 +64,13 @@ function MetricCardCell({
     item,
     usedPreAggregatedTables,
     usedLazyPrecompute,
+    onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
     usedPreAggregatedTables: boolean
     usedLazyPrecompute: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
@@ -103,7 +108,7 @@ function MetricCardCell({
             aria-pressed={clickable ? !!item.selected : undefined}
         >
             {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" position="bottom-right" />
+                <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
             ) : usedPreAggregatedTables ? (
                 <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
