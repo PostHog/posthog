@@ -1,15 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
@@ -42,7 +40,6 @@ const COHORTS_PER_PAGE = 100
 
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({
         actions: [exportsLogic, ['startExport']],
     })),
@@ -203,7 +200,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.startExport(exportCommand)
         },
     })),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setCohortFilters: () => {
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
@@ -233,7 +230,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.cohorts()]: (_, searchParams) => {
             const { page, search, type, created_by_id, sorting } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {

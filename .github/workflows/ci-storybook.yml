@@ -62,6 +62,7 @@ jobs:
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         - 'ee/frontend/**'
+                        - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
@@ -121,6 +122,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-storybook.yml
+                  token: ${{ github.token }}
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -189,6 +191,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
@@ -226,7 +229,7 @@ jobs:
             && needs.build-storybook.result == 'success'
         timeout-minutes: 60
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         strategy:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
@@ -252,6 +255,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -374,7 +378,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
         timeout-minutes: 30
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -391,6 +395,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -489,6 +494,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
@@ -572,6 +578,7 @@ jobs:
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Download module-graph artifact
               id: download

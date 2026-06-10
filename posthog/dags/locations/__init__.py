@@ -5,6 +5,7 @@ import dagster_slack
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 
+from posthog.dags.common.loggers import structlog_console_logger
 from posthog.dags.common.resources import (
     ClayWebhookResource,
     ClickhouseClusterResource,
@@ -14,6 +15,13 @@ from posthog.dags.common.resources import (
     RedisResource,
     kafka_producer_resource,
 )
+
+# Default loggers for every code location's jobs. Overrides Dagster's
+# colored_console_logger so `context.log` emits structlog JSON to stdout (like
+# Django) and reaches the PostHog Logs product. Shared as a single instance —
+# Dagster errors if the same logger key maps to different objects across
+# merged definitions.
+loggers = {"console": structlog_console_logger}
 
 # Define resources for different environments
 resources_by_env = {

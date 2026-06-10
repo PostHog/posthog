@@ -31,7 +31,7 @@ export interface HealthAlertsEntryPointProps {
     logicKey?: string
     // Restricts the resulting HogFunction's filter to a `kind IN (...)` set.
     // The central scene reads this from the `preset_kinds` URL search param so
-    // per-page entry points (SDK Doctor, Pipeline Status) can deep-link in with
+    // per-page entry points (SDK Health, Pipeline Status) can deep-link in with
     // a scoped wizard. Omit (or pass an empty array) to leave filters
     // unrestricted (every kind).
     presetKinds?: string[]

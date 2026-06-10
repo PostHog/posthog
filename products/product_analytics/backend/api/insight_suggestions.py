@@ -18,8 +18,9 @@ from posthog.schema import (
 
 from posthog.hogql.ai import hit_openai
 
-from posthog.api.annotation_context import build_annotations_block, resolve_query_date_range
 from posthog.models import Team
+
+from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_query_date_range
 
 logger = structlog.get_logger(__name__)
 

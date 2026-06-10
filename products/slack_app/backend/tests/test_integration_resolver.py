@@ -7,6 +7,7 @@ from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.integration_resolver import load_integrations
+from products.tasks.backend.models import Task, TaskRun
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -51,21 +52,29 @@ class TestResolveIntegration:
             )
         )
 
-    def test_thread_mapping_wins_over_everything(self):
-        from products.tasks.backend.models import Task, TaskRun
-
-        task = Task.objects.create(team=self.team_b, title="t")
-        task_run = TaskRun.objects.create(team=self.team_b, task=task)
-        SlackThreadTaskMapping.objects.create(
-            team=self.team_b,
-            integration=self.integration_b,
+    def _mk_thread_mapping(
+        self,
+        *,
+        team: Team,
+        integration: Integration,
+        channel: str = "C1",
+        thread_ts: str = "123.456",
+    ) -> SlackThreadTaskMapping:
+        task = Task.objects.create(team=team, title="t")
+        task_run = TaskRun.objects.create(team=team, task=task)
+        return SlackThreadTaskMapping.objects.create(
+            team=team,
+            integration=integration,
             slack_workspace_id=WORKSPACE,
-            channel="C1",
-            thread_ts="123.456",
+            channel=channel,
+            thread_ts=thread_ts,
             task=task,
             task_run=task_run,
             mentioning_slack_user_id=SLACK_USER,
         )
+
+    def test_thread_mapping_wins_over_everything(self):
+        self._mk_thread_mapping(team=self.team_b, integration=self.integration_b)
         # Even with an unrelated user_default pointing at A, the thread mapping wins.
         SlackSettings.objects.create(
             default_integration=self.integration_a,
@@ -90,20 +99,7 @@ class TestResolveIntegration:
         # (it's in `other_org`). The thread match must be skipped — a user
         # whose access was revoked or who never had access can't drive the
         # thread just by replying to it.
-        from products.tasks.backend.models import Task, TaskRun
-
-        task = Task.objects.create(team=self.team_c, title="t")
-        task_run = TaskRun.objects.create(team=self.team_c, task=task)
-        SlackThreadTaskMapping.objects.create(
-            team=self.team_c,
-            integration=self.integration_c,
-            slack_workspace_id=WORKSPACE,
-            channel="C1",
-            thread_ts="123.456",
-            task=task,
-            task_run=task_run,
-            mentioning_slack_user_id=SLACK_USER,
-        )
+        self._mk_thread_mapping(team=self.team_c, integration=self.integration_c)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -118,6 +114,58 @@ class TestResolveIntegration:
         # accessible candidates (A, B).
         assert result.source == "needs_picker"
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
+
+    def test_thread_mapping_remaps_to_sibling_when_mapped_integration_out_of_lookup(self):
+        # Older mapping points at a sibling Integration row of a different kind
+        # for the same team in this workspace. The resolver must remap to the
+        # in-set sibling and keep the mapping's task_run linkage rather than
+        # fall back to the picker.
+        legacy_integration = Integration.objects.create(
+            team=self.team_b,
+            kind="slack-posthog-code",
+            integration_id=WORKSPACE,
+            sensitive_config={"access_token": "xoxb-legacy"},
+        )
+        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+            channel="C1",
+            thread_ts="123.456",
+        )
+
+        assert result.source == "thread"
+        assert result.integration == self.integration_b
+
+    def test_thread_mapping_falls_through_when_no_sibling_for_team(self):
+        # The mapping points at an Integration whose team has no candidate in
+        # the current lookup at all (kind drift left no replacement). Without a
+        # sibling to remap to, the resolver must fall through to the next
+        # branch rather than route to a row that isn't in the candidate set.
+        self.integration_b.delete()
+        legacy_integration = Integration.objects.create(
+            team=self.team_b,
+            kind="slack-posthog-code",
+            integration_id=WORKSPACE,
+            sensitive_config={"access_token": "xoxb-legacy"},
+        )
+        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+            channel="C1",
+            thread_ts="123.456",
+        )
+
+        # Only integration_a remains accessible → resolves as sole candidate.
+        assert result.source == "sole_candidate"
+        assert result.integration == self.integration_a
 
     def test_user_default_used_when_accessible(self):
         SlackSettings.objects.create(

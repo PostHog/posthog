@@ -50,11 +50,11 @@
             "intents": ["llm_prompts"]
         },
         {
-            "path": "Skills",
+            "path": "Business knowledge",
             "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_skills",
-            "intents": ["llm_prompts"]
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
         },
         {
             "path": "Web scripts",
@@ -97,13 +97,6 @@
             "iconType": "data_warehouse",
             "type": null,
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
-        },
-        {
-            "path": "Deployments",
-            "category": "Tools",
-            "iconType": null,
-            "type": "deployments",
-            "intents": ["deployments"]
         },
         {
             "path": "Early access features",
@@ -207,6 +200,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["llm_prompts"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {

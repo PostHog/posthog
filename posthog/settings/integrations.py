@@ -9,14 +9,6 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
-SLACK_POSTHOG_CODE_CLIENT_ID = get_from_env("SLACK_POSTHOG_CODE_CLIENT_ID", get_from_env("SLACK_TWIG_CLIENT_ID", ""))
-SLACK_POSTHOG_CODE_CLIENT_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_CLIENT_SECRET", get_from_env("SLACK_TWIG_CLIENT_SECRET", "")
-)
-SLACK_POSTHOG_CODE_SIGNING_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_SIGNING_SECRET", get_from_env("SLACK_TWIG_SIGNING_SECRET", "")
-)
-
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
@@ -26,6 +18,9 @@ LINKEDIN_APP_CLIENT_SECRET = get_from_env("LINKEDIN_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_APP_CLIENT_ID = get_from_env("GOOGLE_ADS_APP_CLIENT_ID", "")
 GOOGLE_ADS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ADS_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_DEVELOPER_TOKEN = get_from_env("GOOGLE_ADS_DEVELOPER_TOKEN", "")
+
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "")
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET", "")
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
@@ -130,3 +125,7 @@ HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", Fa
 HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
     "HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS", True, type_cast=str_to_bool
 )
+# Pass --no-sandbox to the local heatmap Chromium. Defaults True (required where the container
+# can't create the unprivileged user namespace the Chromium sandbox needs). Set False to keep the
+# sandbox once the runtime allows it (seccomp profile permitting userns clone, non-root user).
+HEATMAP_CHROMIUM_NO_SANDBOX = get_from_env("HEATMAP_CHROMIUM_NO_SANDBOX", True, type_cast=str_to_bool)

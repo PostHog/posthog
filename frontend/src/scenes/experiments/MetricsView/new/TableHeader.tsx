@@ -14,9 +14,10 @@ import { useAxisScale } from './useAxisScale'
 interface TableHeaderProps {
     axisRange?: number
     statsMethod?: ExperimentStatsMethod
+    sequentialTestingEnabled?: boolean
 }
 
-export function TableHeader({ axisRange, statsMethod }: TableHeaderProps): JSX.Element {
+export function TableHeader({ axisRange, statsMethod, sequentialTestingEnabled }: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
@@ -57,7 +58,16 @@ export function TableHeader({ axisRange, statsMethod }: TableHeaderProps): JSX.E
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header whitespace-nowrap">
                     {statsMethod === ExperimentStatsMethod.Frequentist ? (
-                        'P-value'
+                        sequentialTestingEnabled ? (
+                            <span className="inline-flex items-center gap-1">
+                                P-value
+                                <Tooltip title="Sequential testing is enabled. These are always-valid p-values, robust to peeking. They have a slightly different interpretation than ordinary p-values and can often be exactly 1.000 early in the experiment. The result is still statistically significant if the p-value drops below your threshold.">
+                                    <IconInfo className="text-secondary text-base" />
+                                </Tooltip>
+                            </span>
+                        ) : (
+                            'P-value'
+                        )
                     ) : (
                         <span className="inline-flex items-center gap-1">
                             Win %

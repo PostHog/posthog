@@ -966,10 +966,31 @@ describe('infiniteListLogic', () => {
             const filtered = listLogic.values.contextFilteredRecentItems
             const cohortValues = filtered
                 .filter(onlyWithRecentContext)
-                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .filter(
+                    (i) =>
+                        i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts &&
+                        i._recentContext.propertyFilter
+                )
                 .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual([1])
             expect(filtered.some((i) => 'name' in i && i.name === '$browser')).toBe(true)
+        })
+
+        it('surfaces a bare key alongside each complete recent in value mode', () => {
+            seedRecents([recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-bare-key-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const items = listLogic.values.contextFilteredRecentItems.filter(onlyWithRecentContext)
+            expect(items).toHaveLength(2)
+            expect(items[0]._recentContext.propertyFilter).toBeUndefined()
+            expect(items[1]._recentContext.propertyFilter).not.toBeUndefined()
         })
 
         it('keeps cohort recents whose operator is undefined even when excludedOperators is set', () => {
@@ -1023,6 +1044,36 @@ describe('infiniteListLogic', () => {
                 .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
                 .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
+        })
+
+        it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
+            // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
+            // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of
+            // calling Persons.getValue (which would return undefined). This test asserts that
+            // sourceValue is recorded correctly at storage time so the fallback has something to use.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Persons,
+                groupName: 'Persons',
+                value: 'user-distinct-id',
+                item: { name: 'Jane Doe' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'persons-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const personItems = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
+
+            expect(personItems).toHaveLength(1)
+            expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
         })
     })
 })

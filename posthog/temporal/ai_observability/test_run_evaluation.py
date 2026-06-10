@@ -103,9 +103,8 @@ class TestRunEvaluationWorkflow:
             assert result["output_type"] == "boolean"
             assert result["output_config"] == {"allows_na": False}
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity(self, setup_data):
+    def test_execute_llm_judge_activity(self, setup_data):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -140,9 +139,7 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
@@ -173,7 +170,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -230,7 +227,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -270,9 +267,8 @@ class TestRunEvaluationWorkflow:
         assert parsed.evaluation_id == "eval-123"
         assert parsed.event_data == event_data
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -306,18 +302,15 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert result["verdict"] is True
             assert result["applicable"] is True
             assert result["reasoning"] == "The answer is correct"
             assert result["allows_na"] is True
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -353,9 +346,7 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert result["verdict"] is None
             assert result["applicable"] is False
@@ -370,9 +361,8 @@ class TestRunEvaluationWorkflow:
             pytest.param("True", id="string_True_capitalized"),
         ],
     )
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_skips_errored_traces(self, ai_is_error_value: bool | str, setup_data):
+    def test_execute_llm_judge_activity_skips_errored_traces(self, ai_is_error_value: bool | str, setup_data):
         """Errored traces have no meaningful output — the judge must short-circuit instead of
         producing a verdict against an empty Output (which historically defaulted to true)."""
         evaluation_obj = setup_data["evaluation"]
@@ -398,9 +388,7 @@ class TestRunEvaluationWorkflow:
         )
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_client_class.assert_not_called()
 
@@ -417,9 +405,8 @@ class TestRunEvaluationWorkflow:
         assert "model" not in result
         assert "provider" not in result
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_skips_errored_trace_with_allows_na(self, setup_data):
+    def test_execute_llm_judge_activity_skips_errored_trace_with_allows_na(self, setup_data):
         """When N/A is allowed, errored traces should be marked inapplicable rather than verdict=false."""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -443,9 +430,7 @@ class TestRunEvaluationWorkflow:
         )
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_client_class.assert_not_called()
 
@@ -463,11 +448,8 @@ class TestRunEvaluationWorkflow:
             pytest.param({"$ai_is_error": "false"}, id="string_false"),
         ],
     )
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
-        self, error_props: dict[str, Any], setup_data
-    ):
+    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(self, error_props: dict[str, Any], setup_data):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -500,9 +482,7 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(
-                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-            )
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_client.complete.assert_called_once()
 
@@ -531,7 +511,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -572,7 +552,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -620,9 +600,8 @@ class TestRunEvaluationWorkflow:
         assert fields["status_reason"]["after"] == "trial_limit_reached"
         assert logs[0].is_system is True
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_successful_execution_does_not_disable_evaluation(self, setup_data):
+    def test_successful_execution_does_not_disable_evaluation(self, setup_data):
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -653,14 +632,13 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation_dict, event_data=event_data))
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation_dict, event_data=event_data))
 
-        await sync_to_async(evaluation.refresh_from_db)()
+        evaluation.refresh_from_db()
         assert evaluation.enabled is True
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
+    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -690,7 +668,7 @@ class TestRunEvaluationWorkflow:
             )
 
             with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
-                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
@@ -703,9 +681,8 @@ class TestRunEvaluationWorkflow:
             pytest.param(TimeoutError("read timeout"), "TimeoutError", id="timeout_error"),
         ],
     )
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
+    def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
         self, raised_exception: Exception, expected_label: str, setup_data
     ):
         evaluation_obj = setup_data["evaluation"]
@@ -731,13 +708,12 @@ class TestRunEvaluationWorkflow:
             mock_client.complete.side_effect = raised_exception
 
             with pytest.raises(type(raised_exception)):
-                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
         team = setup_data["team"]
 
         evaluation = {
@@ -750,7 +726,7 @@ class TestRunEvaluationWorkflow:
             "team_id": team.id,
             "model_configuration": {
                 "provider": "openai",
-                "model": "o3-pro",
+                "model": "gpt-5.4",
                 "provider_key_id": None,
             },
         }
@@ -758,7 +734,7 @@ class TestRunEvaluationWorkflow:
         event_data = create_mock_event_data(team.id)
 
         with pytest.raises(ApplicationError, match="not available on the trial plan") as exc_info:
-            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         assert exc_info.value.non_retryable is True
         assert exc_info.value.details[0]["error_type"] == "model_not_allowed"
@@ -1336,9 +1312,8 @@ class TestJudgePromptAssembly:
     regressions in section ordering, tool catalog inclusion, and tool_call_id
     correlation that the unit tests for the helpers can't catch alone."""
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_prompt_contains_input_tools_and_output_sections_in_order(self, setup_data):
+    def test_prompt_contains_input_tools_and_output_sections_in_order(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
         evaluation = {
@@ -1384,7 +1359,7 @@ class TestJudgePromptAssembly:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         completion_request = mock_client.complete.call_args[0][0]
         user_prompt = completion_request.messages[0]["content"]
@@ -1403,9 +1378,8 @@ class TestJudgePromptAssembly:
         assert "- send_email: Send an email." in user_prompt
         assert "- lookup_user: Look up a user." in user_prompt
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_prompt_omits_tools_section_when_catalog_absent(self, setup_data):
+    def test_prompt_omits_tools_section_when_catalog_absent(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
         evaluation = {
@@ -1433,7 +1407,7 @@ class TestJudgePromptAssembly:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         user_prompt = mock_client.complete.call_args[0][0].messages[0]["content"]
         assert "Tools available:" not in user_prompt

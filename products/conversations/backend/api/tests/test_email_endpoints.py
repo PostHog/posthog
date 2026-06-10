@@ -12,7 +12,7 @@ from parameterized import parameterized
 from PIL import Image
 
 from posthog.models.comment import Comment
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
 from products.conversations.backend.mailgun import (
@@ -62,7 +62,7 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_connect_rejects_duplicate_domain_different_casing(
+    def test_connect_rejects_duplicate_domain_different_casing_cross_org(
         self, _mock_setting: MagicMock, _mock_mailgun: MagicMock
     ):
         self.client.post(
@@ -71,8 +71,12 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
             content_type="application/json",
         )
 
-        # Second team tries the same domain with different casing
-        second_team = Team.objects.create(organization=self.organization)
+        # A team in a different org tries the same domain with different casing
+        other_org = Organization.objects.create(name="Other Org")
+        second_team = Team.objects.create(organization=other_org)
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
         self.user.current_team = second_team
         self.user.save()
 
@@ -214,12 +218,13 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_cross_team_domain_rejected(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    def test_same_org_different_team_domain_allowed(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
             content_type="application/json",
         )
+        mock_mailgun.reset_mock()
 
         second_team = Team.objects.create(organization=self.organization)
         self.user.current_team = second_team
@@ -230,8 +235,37 @@ class TestEmailMultiConfig(BaseTest):
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
+        assert r2.status_code == 200
+        # Reuses existing Mailgun registration — no second add_domain call
+        mock_mailgun.assert_not_called()
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_cross_org_domain_rejected(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        other_org = Organization.objects.create(name="Other Org")
+        second_team = Team.objects.create(organization=other_org)
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_team = second_team
+        self.user.save()
+
+        r2 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
         assert r2.status_code == 409
-        assert "already in use" in r2.json()["error"]
+        assert "another organization" in r2.json()["error"]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
@@ -446,8 +480,22 @@ class TestEmailMultiConfig(BaseTest):
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
-        config2_id = r2.json()["config"]["id"]
 
+        # Also connect on a different team in the same org
+        second_team = Team.objects.create(organization=self.organization)
+        self.user.current_team = second_team
+        self.user.save()
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "sales@example.com", "from_name": "Sales"},
+            content_type="application/json",
+        )
+
+        # Switch back to original team to verify
+        self.user.current_team = self.team
+        self.user.save()
+
+        config2_id = r2.json()["config"]["id"]
         response = self.client.post(
             "/api/conversations/v1/email/verify-domain",
             {"config_id": config2_id},
@@ -456,8 +504,9 @@ class TestEmailMultiConfig(BaseTest):
         assert response.status_code == 200
         assert response.json()["domain_verified"] is True
 
-        # Both configs should be verified
-        configs = EmailChannel.objects.filter(team=self.team)
+        # All configs across the org sharing the domain should be verified
+        configs = EmailChannel.objects.filter(team__organization_id=self.organization.id, domain="example.com")
+        assert configs.count() == 3
         assert all(c.domain_verified for c in configs)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})

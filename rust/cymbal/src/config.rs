@@ -98,16 +98,14 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
-    #[envconfig(default = "600")]
-    pub frame_cache_ttl_seconds: u64,
+    // Used by cymbal and cymbal-resolution through the shared symbol resolver config.
+    // Resolved frame results are relatively stable, while unresolved results can become
+    // resolvable after a user uploads missing symbols, so keep them shorter.
+    #[envconfig(default = "1800")]
+    pub frame_resolved_ttl_seconds: u64,
 
-    // When we resolve a frame, we put it in PG, so other instances of cymbal can
-    // use it, or so we can re-use it after a restart. This is the TTL for that,
-    // after this many minutes we'll discard saved resolution results and re-resolve
-    // TODO - 10 minutes is too short for production use, it's only twice as long as
-    // our in-memory caching. We should do at least an hour once we release
-    #[envconfig(default = "10")]
-    pub frame_result_ttl_minutes: u32,
+    #[envconfig(default = "300")]
+    pub frame_unresolved_ttl_seconds: u64,
 
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
@@ -269,11 +267,19 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
     pub remote_resolution_sample_rate: f64,
 
-    /// Probability of routing a remote resolution item randomly instead of
-    /// using sticky rendezvous routing. `0.0` is fully sticky, `1.0` is fully
-    /// random, and intermediate values probabilistically blend both modes.
+    /// Flattens remote resolution routing across the rendezvous-ranked candidate
+    /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is
+    /// uniform across all candidates, and intermediate values decay by rank.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER", default = "0.0")]
     pub remote_resolution_routing_jitter: f64,
+
+    /// Maximum number of remote resolution items that can concurrently wait
+    /// for a pod to accept routing ownership.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY",
+        default = "10"
+    )]
+    pub remote_resolution_routing_acceptance_concurrency: usize,
 
     /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
     /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds

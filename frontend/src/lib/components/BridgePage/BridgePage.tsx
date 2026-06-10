@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+import { WelcomeLogo } from 'scenes/authentication/shared/WelcomeLogo'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
