@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { Person, Team } from '../../types'
+import { normalizeProcessPerson } from '../../utils/event'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, ok } from '../pipelines/results'
@@ -13,6 +14,7 @@ export type ProcessPersonlessInput = {
     team: Team
     timestamp: DateTime
     processPerson: boolean
+    processPersonExplicitlyTrue: boolean
     forceDisablePersonProcessing: boolean
 }
 
@@ -25,7 +27,12 @@ const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 /**
  * Pipeline step that handles personless event processing checks.
  *
- * When processPerson=false, this step:
+ * Runs when processPerson=false, and also for $feature_flag_called events that did not
+ * explicitly set $process_person_profile=true — so server-side flag evaluation does not
+ * create orphan person profiles (see #60581). Flag-called events that find an existing
+ * person stay personful; the rest are defaulted to personless.
+ *
+ * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
  * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsBatchStep)
  * 3. Calculates force_upgrade flag
@@ -37,13 +44,15 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
-        const shouldApplyFeatureFlagCalledDefault =
-            input.processPerson &&
-            input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT &&
-            input.normalizedEvent.properties?.$process_person_profile !== true
+        if (input.processPerson) {
+            const mayDefaultFlagCalledToPersonless =
+                input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT && !input.processPersonExplicitlyTrue
 
-        if (input.processPerson && !shouldApplyFeatureFlagCalledDefault) {
-            return ok(input)
+            if (!mayDefaultFlagCalledToPersonless) {
+                return ok(input)
+            }
+
+            return await applyFeatureFlagCalledPersonlessDefault(input, personsStore)
         }
 
         const { normalizedEvent, team, timestamp, forceDisablePersonProcessing } = input
@@ -73,10 +82,6 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
         if (existingPerson) {
             const person = existingPerson as Person
 
-            if (shouldApplyFeatureFlagCalledDefault) {
-                return ok(input)
-            }
-
             // Ensure person properties don't propagate elsewhere, such as onto the event itself.
             person.properties = {}
 
@@ -95,12 +100,54 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
             return ok({ ...input, personlessPerson: person })
         }
 
-        return ok({
-            ...input,
-            processPerson: false,
-            personlessPerson: createFakePerson(team.id, distinctId),
-        })
+        return ok({ ...input, personlessPerson: createFakePerson(team.id, distinctId) })
     }
+}
+
+/**
+ * Defaults a $feature_flag_called event to personless unless a person already exists for
+ * its distinct ID, so server-side flag evaluation does not create orphan person profiles.
+ */
+async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPersonlessInput>(
+    input: TInput,
+    personsStore: PersonsStore
+): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
+    const { normalizedEvent, team } = input
+    const distinctId = normalizedEvent.distinct_id
+
+    let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
+
+    if (!existingPerson) {
+        let personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
+
+        if (personIsMerged === undefined) {
+            // The batch step (processPersonlessDistinctIdsBatchStep) only inserts rows for
+            // events with explicit $process_person_profile=false, so record this distinct ID
+            // here. Without the row, a later identify/merge would never re-point these
+            // events at the merged person.
+            personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
+        }
+
+        if (personIsMerged) {
+            // The posthog_personlessdistinctid row was updated by a merge, so fetch the
+            // person again (using the leader) to associate this event with the merge target.
+            existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
+        }
+    }
+
+    if (existingPerson) {
+        // A person already exists for this distinct ID, so keep the event personful.
+        return ok(input)
+    }
+
+    return ok({
+        ...input,
+        // The event was normalized as personful upstream, so re-normalize it to strip
+        // $set/$set_once and stamp $process_person_profile=false.
+        normalizedEvent: normalizeProcessPerson(normalizedEvent, false),
+        processPerson: false,
+        personlessPerson: createFakePerson(team.id, distinctId),
+    })
 }
 
 /**

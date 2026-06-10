@@ -74,6 +74,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
@@ -186,6 +187,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
@@ -209,6 +211,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
                 expect(result.value.event.properties?.$process_person_profile).toBeUndefined()
                 expect(result.value.event.properties?.$set).toEqual({ email: 'user@example.com' })
@@ -229,6 +232,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
@@ -248,6 +252,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
