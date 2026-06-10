@@ -25,7 +25,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
-from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_SQL, LogsFilterBuilder
+from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
 from products.logs.backend.models import LogsAlertConfiguration
 
 
@@ -519,7 +519,7 @@ def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
     )
     response = execute_hogql_query(
         query_type="alert_check_checkpoint",
-        query=parse_select(LIVE_LOGS_CHECKPOINT_SQL),
+        query=LIVE_LOGS_CHECKPOINT_QUERY,
         team=team,
         workload=Workload.LOGS,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),

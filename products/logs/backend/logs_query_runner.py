@@ -34,14 +34,18 @@ if TYPE_CHECKING:
 # Explicit per-partition `GROUP BY` is required on both the dev `MergeTree` shard
 # (no auto-merge at all) and the prod `AggregatingMergeTree` between merges. A bare
 # `min(max_observed_timestamp)` scans every raw insert and returns the oldest value
-# ever written. Shared with alert_check_query so the two callers can't drift.
-LIVE_LOGS_CHECKPOINT_SQL = """
+# ever written. Parsed once at import and shared with alert_check_query so the two
+# callers can't drift; execute_hogql_query clones before mutating, so reusing the
+# AST as both a subquery placeholder and a standalone query is safe.
+LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
+    """
     SELECT min(partition_checkpoint) FROM (
         SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
         FROM logs_kafka_metrics
         GROUP BY _topic, _partition
     )
 """
+)
 
 
 def _trace_id_normalise_to_base64(value: str) -> str:
@@ -577,7 +581,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         """,
                 placeholders={
                     "where": self.where(),
-                    "live_logs_checkpoint": parse_select(LIVE_LOGS_CHECKPOINT_SQL),
+                    "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable.
                     "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
