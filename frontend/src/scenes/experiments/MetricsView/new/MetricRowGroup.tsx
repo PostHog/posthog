@@ -478,7 +478,6 @@ interface MetricRowGroupProps {
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
     onDeleteMetric?: () => void
-    onMoveMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
     error?: any
@@ -500,7 +499,6 @@ export function MetricRowGroup({
     isAlternatingRow,
     onDuplicateMetric,
     onDeleteMetric,
-    onMoveMetric,
     onBreakdownChange,
     onRemoveBreakdown,
     error,
@@ -814,7 +812,6 @@ export function MetricRowGroup({
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
-                        onMoveMetricClick={onMoveMetric ? () => onMoveMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
                 </td>

@@ -440,7 +440,7 @@ describe('experimentLogic', () => {
             )
         })
     })
-    describe('moveMetric', () => {
+    describe('saveMetricsReorder', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
             uuid: 'primary-metric-uuid',
@@ -450,6 +450,11 @@ describe('experimentLogic', () => {
             kind: 'ExperimentMetric',
             uuid: 'other-primary-uuid',
             name: 'Other primary metric',
+        } as unknown as ExperimentMetric
+        const thirdPrimaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'third-primary-uuid',
+            name: 'Third primary metric',
         } as unknown as ExperimentMetric
         const secondaryMetric = {
             kind: 'ExperimentMetric',
@@ -465,6 +470,10 @@ describe('experimentLogic', () => {
             baseline: { key: 'control' },
             metric_uuid: 'other-primary-uuid',
         } as unknown as CachedNewExperimentQueryResponse
+        const thirdPrimaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'third-primary-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
         const secondaryMetricResult = {
             baseline: { key: 'control' },
             metric_uuid: 'secondary-metric-uuid',
@@ -475,12 +484,42 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('moves an inline metric from primary to secondary and reuses existing results', async () => {
+        it('persists a pure reorder without touching metric arrays or results', async () => {
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(false, ['other-primary-uuid', 'primary-metric-uuid'], [], [])
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
+
+            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
+                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
+                update_feature_flag_params: false,
+            })
+            expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
+        })
+
+        it('moves an inline metric to secondary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
                 metrics: [primaryMetric, otherPrimaryMetric],
                 metrics_secondary: [secondaryMetric],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
@@ -490,10 +529,16 @@ describe('experimentLogic', () => {
                 ...testExperiment,
                 metrics: [otherPrimaryMetric],
                 metrics_secondary: [secondaryMetric, primaryMetric],
+                primary_metrics_ordered_uuids: ['other-primary-uuid'],
             })
 
             await expectLogic(logic, () => {
-                logic.actions.moveMetric(primaryMetric, 'primary')
+                logic.actions.saveMetricsReorder(
+                    false,
+                    ['primary-metric-uuid', 'other-primary-uuid'],
+                    [],
+                    ['primary-metric-uuid']
+                )
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions([
@@ -504,55 +549,68 @@ describe('experimentLogic', () => {
                     'retryPrimaryMetric',
                     'retrySecondaryMetric',
                 ])
-                .toMatchValues({
-                    primaryMetricsResults: [otherPrimaryMetricResult],
-                    secondaryMetricsResults: [secondaryMetricResult, primaryMetricResult],
-                    primaryMetricsResultsErrors: [null],
-                    secondaryMetricsResultsErrors: [null, null],
-                })
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
                     metrics: [otherPrimaryMetric],
                     metrics_secondary: [secondaryMetric, primaryMetric],
+                    primary_metrics_ordered_uuids: ['other-primary-uuid'],
                 })
             )
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.not.objectContaining({ saved_metrics_ids: expect.anything() })
+            )
+            expect(logic.values.primaryMetricsResults).toEqual([otherPrimaryMetricResult])
+            expect(logic.values.secondaryMetricsResults).toEqual([secondaryMetricResult, primaryMetricResult])
+            expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+            expect(logic.values.secondaryMetricsResultsErrors).toEqual([null, null])
         })
 
-        it('moves an inline metric from secondary to primary and reuses existing results', async () => {
+        it('applies a combined move and removal in a single update', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
-                metrics: [],
-                metrics_secondary: [secondaryMetric],
+                metrics: [primaryMetric, otherPrimaryMetric, thirdPrimaryMetric],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
-            logic.actions.setSecondaryMetricsResults([secondaryMetricResult])
+            logic.actions.setPrimaryMetricsResults([
+                primaryMetricResult,
+                otherPrimaryMetricResult,
+                thirdPrimaryMetricResult,
+            ])
             api.update.mockResolvedValue({
                 ...testExperiment,
-                metrics: [secondaryMetric],
-                metrics_secondary: [],
+                metrics: [thirdPrimaryMetric],
+                metrics_secondary: [primaryMetric],
+                primary_metrics_ordered_uuids: ['third-primary-uuid'],
             })
 
             await expectLogic(logic, () => {
-                logic.actions.moveMetric(secondaryMetric, 'secondary')
+                logic.actions.saveMetricsReorder(
+                    false,
+                    ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
+                    ['other-primary-uuid'],
+                    ['primary-metric-uuid']
+                )
             })
                 .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
-                .toMatchValues({
-                    primaryMetricsResults: [secondaryMetricResult],
-                    secondaryMetricsResults: [],
-                })
+                .toNotHaveDispatchedActions(['refreshExperimentResults'])
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
-                    metrics: [secondaryMetric],
-                    metrics_secondary: [],
+                    metrics: [thirdPrimaryMetric],
+                    metrics_secondary: [primaryMetric],
+                    primary_metrics_ordered_uuids: ['third-primary-uuid'],
                 })
             )
+            expect(logic.values.primaryMetricsResults).toEqual([thirdPrimaryMetricResult])
+            expect(logic.values.secondaryMetricsResults).toEqual([primaryMetricResult])
         })
 
         it('moves a shared metric by flipping its saved-metric link type', async () => {
@@ -580,6 +638,7 @@ describe('experimentLogic', () => {
                 metrics: [],
                 metrics_secondary: [],
                 saved_metrics: [sharedSavedMetric],
+                primary_metrics_ordered_uuids: ['shared-metric-uuid'],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
@@ -587,24 +646,14 @@ describe('experimentLogic', () => {
             api.update.mockResolvedValue({
                 ...testExperiment,
                 saved_metrics: [{ ...sharedSavedMetric, metadata: { type: 'secondary' } }],
+                primary_metrics_ordered_uuids: [],
             })
 
-            const sharedDisplayMetric = {
-                kind: 'ExperimentMetric',
-                uuid: 'shared-metric-uuid',
-                isSharedMetric: true,
-                sharedMetricId,
-            } as unknown as ExperimentMetric
-
             await expectLogic(logic, () => {
-                logic.actions.moveMetric(sharedDisplayMetric, 'primary')
+                logic.actions.saveMetricsReorder(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
-                .toMatchValues({
-                    primaryMetricsResults: [],
-                    secondaryMetricsResults: [sharedMetricResult],
-                })
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
@@ -612,6 +661,8 @@ describe('experimentLogic', () => {
                     saved_metrics_ids: [{ id: sharedMetricId, metadata: { type: 'secondary' } }],
                 })
             )
+            expect(logic.values.primaryMetricsResults).toEqual([])
+            expect(logic.values.secondaryMetricsResults).toEqual([sharedMetricResult])
         })
 
         it('loads only the moved metric when it has no result yet', async () => {
@@ -645,26 +696,27 @@ describe('experimentLogic', () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
-                metrics: [primaryMetric],
-                metrics_secondary: [],
+                metrics: [],
+                metrics_secondary: [secondaryMetric],
+                secondary_metrics_ordered_uuids: ['secondary-metric-uuid'],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
             api.update.mockResolvedValue({
                 ...testExperiment,
-                metrics: [],
-                metrics_secondary: [primaryMetric],
+                metrics: [secondaryMetric],
+                metrics_secondary: [],
+                secondary_metrics_ordered_uuids: [],
             })
 
             await expectLogic(logic, () => {
-                logic.actions.moveMetric(primaryMetric, 'primary')
+                logic.actions.saveMetricsReorder(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
             })
-                .toDispatchActions(['updateExperimentSuccess', 'retrySecondaryMetric'])
+                .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
                 .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadSecondaryMetricsResults'])
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
 
-            expect(logic.values.primaryMetricsResults).toEqual([])
-            expect(logic.values.secondaryMetricsResults).toEqual([expect.objectContaining(fetchedResult)])
+            expect(logic.values.primaryMetricsResults).toEqual([expect.objectContaining(fetchedResult)])
         })
 
         it('falls back to a full refresh when results are already loading', async () => {
@@ -685,6 +737,7 @@ describe('experimentLogic', () => {
                 saved_metrics: [],
                 metrics: [primaryMetric],
                 metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid'],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
@@ -693,10 +746,11 @@ describe('experimentLogic', () => {
                 ...testExperiment,
                 metrics: [],
                 metrics_secondary: [primaryMetric],
+                primary_metrics_ordered_uuids: [],
             })
 
             await expectLogic(logic, () => {
-                logic.actions.moveMetric(primaryMetric, 'primary')
+                logic.actions.saveMetricsReorder(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
                 .toFinishAllListeners()

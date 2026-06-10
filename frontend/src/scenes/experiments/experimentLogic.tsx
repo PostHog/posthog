@@ -638,6 +638,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
+                'closePrimaryMetricsReorderModal',
+                'closeSecondaryMetricsReorderModal',
             ],
         ],
     })),
@@ -784,7 +786,12 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
-        moveMetric: (metric: ExperimentMetric, sourceContext: 'primary' | 'secondary') => ({ metric, sourceContext }),
+        saveMetricsReorder: (
+            isSecondary: boolean,
+            orderedUuids: string[],
+            removedUuids: string[],
+            movedUuids: string[]
+        ) => ({ isSecondary, orderedUuids, removedUuids, movedUuids }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
@@ -2180,21 +2187,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 update_feature_flag_params: false,
             })
         },
-        moveMetric: async ({ metric, sourceContext }) => {
-            const targetType = sourceContext === 'primary' ? 'secondary' : 'primary'
+        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+            const removed = new Set(removedUuids)
+            const moved = new Set(movedUuids)
+            const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+            const closeModal = isSecondary
+                ? actions.closeSecondaryMetricsReorderModal
+                : actions.closePrimaryMetricsReorderModal
 
-            // A move doesn't change the metric's definition, so existing results stay
-            // valid — they only need realigning to the new positional layout. That's
-            // unsafe while a load is writing positional results concurrently.
+            // Pure reorder: only the ordering array changes, so the positional
+            // results arrays stay aligned and nothing needs reloading.
+            if (removed.size === 0 && moved.size === 0) {
+                await asyncActions.updateExperiment({
+                    [orderingField]: orderedUuids,
+                    update_feature_flag_params: false,
+                })
+                closeModal()
+                return
+            }
+
+            // Moves and removals don't change any metric's definition, so existing
+            // results stay valid — they only need realigning to the new positional
+            // layout. That's unsafe while a load is writing positional results
+            // concurrently.
             const canReuseResults = !values.primaryMetricsResultsLoading && !values.secondaryMetricsResultsLoading
 
             // Snapshot results/errors by uuid before the update changes the layout.
             const resultsByUuid = new Map<string, CachedNewExperimentQueryResponse | undefined>()
             const errorsByUuid = new Map<string, any>()
-            for (const isSecondary of [false, true]) {
-                const uuids = getSectionMetricUuids(values.experiment, isSecondary)
-                const results = isSecondary ? values.secondaryMetricsResults : values.primaryMetricsResults
-                const errors = isSecondary ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
+            for (const section of [false, true]) {
+                const uuids = getSectionMetricUuids(values.experiment, section)
+                const results = section ? values.secondaryMetricsResults : values.primaryMetricsResults
+                const errors = section ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
                 uuids.forEach((uuid, index) => {
                     if (uuid) {
                         resultsByUuid.set(uuid, results[index])
@@ -2203,44 +2227,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
 
-            // Shared metrics live in saved_metrics; moving one just flips its link type.
-            // The backend keeps the ordering arrays in sync from the type change.
-            if (metric.isSharedMetric && metric.sharedMetricId) {
-                const savedMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
-                    id: sharedMetric.saved_metric,
-                    metadata:
-                        sharedMetric.saved_metric === metric.sharedMetricId
-                            ? { ...sharedMetric.metadata, type: targetType }
-                            : sharedMetric.metadata,
-                }))
+            const sourceField = isSecondary ? 'metrics_secondary' : 'metrics'
+            const targetField = isSecondary ? 'metrics' : 'metrics_secondary'
+            const sourceInlineMetrics = values.experiment[sourceField] || []
+            const movedInlineMetrics = sourceInlineMetrics.filter((m) => m.uuid && moved.has(m.uuid))
+            const remainingInlineMetrics = sourceInlineMetrics.filter(
+                (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
+            )
 
-                await asyncActions.updateExperiment({
-                    saved_metrics_ids: savedMetricsIds,
-                    update_feature_flag_params: false,
-                })
-            } else {
-                // Inline metrics move between the two arrays. The backend syncs the
-                // ordering arrays from the changed metric lists, appending to the target.
-                if (!metric.uuid) {
-                    return
-                }
-
-                const sourceField = sourceContext === 'primary' ? 'metrics' : 'metrics_secondary'
-                const targetField = sourceContext === 'primary' ? 'metrics_secondary' : 'metrics'
-                const movedMetric = (values.experiment[sourceField] || []).find((m) => m.uuid === metric.uuid)
-                if (!movedMetric) {
-                    return
-                }
-
-                const remainingMetrics = (values.experiment[sourceField] || []).filter((m) => m.uuid !== metric.uuid)
-                const targetMetrics = [...(values.experiment[targetField] || []), movedMetric]
-
-                await asyncActions.updateExperiment({
-                    [sourceField]: remainingMetrics,
-                    [targetField]: targetMetrics,
-                    update_feature_flag_params: false,
-                })
+            // The backend appends moved metrics to the target section's ordering
+            // from the metric list changes, so only the source ordering is sent.
+            const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                [sourceField]: remainingInlineMetrics,
+                [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
+                update_feature_flag_params: false,
             }
+            if (movedInlineMetrics.length > 0) {
+                update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
+            }
+
+            // Shared metrics live in saved_metrics: removing one drops its link,
+            // moving one flips the link type. Only send the links when affected.
+            const savedMetrics = (values.experiment.saved_metrics || []) as ExperimentSavedMetric[]
+            const sharedAffected = savedMetrics.some(({ query }) => {
+                const uuid = query?.uuid
+                return !!uuid && (removed.has(uuid) || moved.has(uuid))
+            })
+            if (sharedAffected) {
+                const targetType = isSecondary ? 'primary' : 'secondary'
+                update.saved_metrics_ids = savedMetrics
+                    .filter(({ query }) => !(query?.uuid && removed.has(query.uuid)))
+                    .map(({ saved_metric, metadata, query }) => ({
+                        id: saved_metric,
+                        metadata: query?.uuid && moved.has(query.uuid) ? { ...metadata, type: targetType } : metadata,
+                    }))
+            }
+
+            await asyncActions.updateExperiment(update)
+            closeModal()
 
             if (!canReuseResults) {
                 actions.refreshExperimentResults(true, 'config_change')
@@ -2266,22 +2290,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 newSecondaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
             )
 
-            // A metric without a result or error would be stuck rendering as
-            // loading in its new section — fetch just that one metric.
-            const movedUuid = metric.uuid
-            if (
-                movedUuid &&
-                isLaunched(values.experiment) &&
-                !resultsByUuid.get(movedUuid) &&
-                !errorsByUuid.get(movedUuid)
-            ) {
-                const newSectionUuids = targetType === 'secondary' ? newSecondaryUuids : newPrimaryUuids
-                const newIndex = newSectionUuids.indexOf(movedUuid)
-                if (newIndex !== -1) {
-                    if (targetType === 'secondary') {
-                        actions.retrySecondaryMetric(newIndex)
+            // A moved metric without a result or error would be stuck rendering as
+            // loading in its new section — fetch just those. Sequentially, because
+            // the retry actions write back the whole positional array and would
+            // stomp each other's results if run concurrently.
+            if (isLaunched(values.experiment)) {
+                const targetUuids = isSecondary ? newPrimaryUuids : newSecondaryUuids
+                for (const uuid of movedUuids) {
+                    if (resultsByUuid.get(uuid) || errorsByUuid.get(uuid)) {
+                        continue
+                    }
+                    const newIndex = targetUuids.indexOf(uuid)
+                    if (newIndex === -1) {
+                        continue
+                    }
+                    if (isSecondary) {
+                        await asyncActions.retryPrimaryMetric(newIndex)
                     } else {
-                        actions.retryPrimaryMetric(newIndex)
+                        await asyncActions.retrySecondaryMetric(newIndex)
                     }
                 }
             }

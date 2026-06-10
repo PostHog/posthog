@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -84,7 +84,6 @@ export const MetricHeader = ({
     onDuplicateMetricClick,
     onBreakdownChange,
     onDeleteMetricClick,
-    onMoveMetricClick,
     readOnly,
 }: {
     displayOrder?: number
@@ -95,7 +94,6 @@ export const MetricHeader = ({
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
-    onMoveMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
 }): JSX.Element => {
     /**
@@ -250,16 +248,6 @@ export const MetricHeader = ({
                                                     onClick: () => {
                                                         closeMenu()
                                                         handleDuplicate()
-                                                    },
-                                                },
-                                                onMoveMetricClick && {
-                                                    label: isPrimaryMetric
-                                                        ? 'Move to secondary metrics'
-                                                        : 'Move to primary metrics',
-                                                    icon: isPrimaryMetric ? <IconArrowRight /> : <IconArrowLeft />,
-                                                    onClick: () => {
-                                                        closeMenu()
-                                                        onMoveMetricClick(metric)
                                                     },
                                                 },
                                             ].filter(Boolean) as any,
