@@ -299,3 +299,35 @@ def test_boot_gc_window_reenables_and_freezes() -> None:
     )
     assert result.returncode == 0, f"manage.py shell failed:\n{result.stderr[-2000:]}"
     assert "GC_BOOT_OK" in result.stdout, result.stdout[-500:]
+
+
+# The generated posthog.schema models defer their pydantic core-schema builds (keeping ~400ms
+# off django.setup()) — EXCEPT in web, where wsgi/asgi set POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT
+# so the builds happen at boot behind the readiness probe instead of on each worker's first
+# request. Pin both modes: silently losing the web switch would surface as a per-worker
+# first-request latency spike after every deploy.
+_SCHEMA_BUILD_MODE_PROBE = """
+import os
+import sys
+mode = sys.argv[1]
+if mode == "web":
+    os.environ["POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT"] = "1"
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import posthog.schema as s
+complete = s.QuerySchemaRoot.__pydantic_complete__ and s.HogQLQueryModifiers.__pydantic_complete__
+expected = mode == "web"
+assert complete == expected, f"{mode}: built-at-import={complete}, expected {expected}"
+print("SCHEMA_MODE_OK")
+"""
+
+
+def test_schema_models_deferred_by_default_but_built_for_web() -> None:
+    for mode in ("default", "web"):
+        result = subprocess.run(
+            [sys.executable, "-c", _SCHEMA_BUILD_MODE_PROBE, mode],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, f"{mode} probe failed:\n{result.stderr[-2000:]}"
+        assert "SCHEMA_MODE_OK" in result.stdout

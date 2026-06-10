@@ -13,6 +13,9 @@ os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 if "SERVER_GATEWAY_INTERFACE" in os.environ:
     del os.environ["SERVER_GATEWAY_INTERFACE"]  # Delete if inherited
 os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
+# Build the generated schema models eagerly at import: web pays the cost at boot (pre-fork,
+# behind the readiness probe) instead of on each worker's first request — see posthog/schema_base.py
+os.environ.setdefault("POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT", "1")
 
 # Get a structlog logger for asgi.py's own messages
 logger = structlog.get_logger(__name__)

@@ -18,6 +18,9 @@ from posthog.otel_instrumentation import initialize_otel
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
+# Build the generated schema models eagerly at import: web pays the cost at boot (pre-fork,
+# behind the readiness probe) instead of on each worker's first request — see posthog/schema_base.py
+os.environ.setdefault("POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT", "1")
 
 start_continuous_profiling()
 initialize_otel()
