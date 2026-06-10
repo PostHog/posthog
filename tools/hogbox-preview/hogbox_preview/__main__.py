@@ -38,6 +38,9 @@ def build_backend(args: argparse.Namespace) -> HoglandBackend:
         box_id=getattr(args, "box_id", None),
         cli=args.cli,
         name=args.name,
+        cpus=args.cpus,
+        memory_mib=args.memory_mib,
+        disk_gib=args.disk_gib,
     )
 
 
@@ -112,6 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--name", default="posthog-preview", help="box name (must be unique among live boxes; e.g. preview-pr-123)"
     )
+    # Sizing MUST match the golden snapshot being restored ("omit to inherit" is
+    # broken server-side). Defaults match the current 16/64 golden; a 4/16
+    # preview needs a golden BUILT at 4/16 — set these to match it.
+    p.add_argument("--cpus", type=int, default=16, help="vCPUs (must match the golden's size)")
+    p.add_argument("--memory-mib", type=int, default=65536, help="memory MiB (must match the golden's size)")
+    p.add_argument("--disk-gib", type=int, default=100, help="rootfs GiB (must match the golden's size)")
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
