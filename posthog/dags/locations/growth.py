@@ -1,6 +1,6 @@
 import dagster
 
-from products.growth.dags import github_sdk_versions, oauth, user_product_list
+from products.growth.dags import github_sdk_versions, identity_matching, oauth, user_product_list
 
 from . import loggers, resources
 
@@ -8,6 +8,7 @@ defs = dagster.Definitions(
     jobs=[
         oauth.oauth_clear_expired_oauth_tokens_job,
         github_sdk_versions.cache_github_sdk_versions_job,
+        identity_matching.identity_matching_job,
         user_product_list.populate_user_product_list_job,
         user_product_list.sync_colleagues_products_monthly_job,
         user_product_list.sync_cross_sell_products_monthly_job,
