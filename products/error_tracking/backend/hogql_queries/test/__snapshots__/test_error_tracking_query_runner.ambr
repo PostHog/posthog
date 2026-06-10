@@ -85,7 +85,7 @@
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
-         argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
+         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS first_event_uuid,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -115,6 +115,28 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_column_names.3
   '''
+  SELECT events.uuid AS uuid,
+         events.distinct_id AS distinct_id,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.properties AS properties
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['17ce3153-abde-40fe-90d5-f5b6ba43732d', '5c0196a0-44f2-41a4-b8ee-bc6934b1f555', 'd395f031-13a9-45d1-a4d2-862d64783b5a']), greaterOrEquals(events.timestamp, toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_column_names.4
+  '''
   SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
          max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
@@ -124,7 +146,7 @@
          count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
          count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
          sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
-         argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
+         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS first_event_uuid,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM events AS e
   LEFT OUTER JOIN
@@ -157,6 +179,28 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_column_names.5
+  '''
+  SELECT events.uuid AS uuid,
+         events.distinct_id AS distinct_id,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.properties AS properties
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['17ce3153-abde-40fe-90d5-f5b6ba43732d']), greaterOrEquals(events.timestamp, toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_persons

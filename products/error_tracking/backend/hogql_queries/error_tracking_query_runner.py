@@ -7,6 +7,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -102,13 +104,60 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 context=self._hogql_context(),
             )
 
-        columns: list[str] = query_result.columns or []
+        columns, results = self._attach_events(query_result.columns or [], query_result.results)
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=self._builder.process_results(columns, query_result.results),
+            results=self._builder.process_results(columns, results),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    # Aggregation queries return only event uuids for first/last event (reading the
+    # properties blob inside argMin/argMax decompresses every matching event's blob);
+    # the payloads are fetched here with a point lookup over just the selected uuids.
+    EVENT_UUID_COLUMNS = {"first_event_uuid": "first_event", "last_event_uuid": "last_event"}
+
+    def _attach_events(self, columns: list[str], results: list) -> tuple[list[str], list]:
+        uuid_indexes = [index for index, column in enumerate(columns) if column in self.EVENT_UUID_COLUMNS]
+        if not uuid_indexes:
+            return columns, results
+
+        uuids = {str(row[index]) for row in results for index in uuid_indexes if row[index] is not None}
+        events: dict[str, tuple] = {}
+        if uuids:
+            with self.timings.measure("error_tracking_query_event_fetch"):
+                event_result = execute_hogql_query(
+                    query=parse_select(
+                        """
+                        SELECT uuid, distinct_id, timestamp, properties
+                        FROM events
+                        WHERE event = '$exception'
+                            AND uuid IN {uuids}
+                            AND timestamp >= {date_from}
+                            AND timestamp <= {date_to}
+                        """,
+                        placeholders={
+                            "uuids": ast.Constant(value=sorted(uuids)),
+                            "date_from": ast.Constant(value=self.date_from),
+                            "date_to": ast.Constant(value=self.date_to),
+                        },
+                    ),
+                    team=self.team,
+                    query_type="ErrorTrackingEventFetchQuery",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+            events = {str(row[0]): row for row in event_result.results}
+
+        new_columns = [self.EVENT_UUID_COLUMNS.get(column, column) for column in columns]
+        new_results = []
+        for row in results:
+            row = list(row)
+            for index in uuid_indexes:
+                row[index] = events.get(str(row[index])) if row[index] is not None else None
+            new_results.append(row)
+        return new_columns, new_results
