@@ -1159,16 +1159,32 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         # Static params survive; only the incremental spec is removed.
         assert parent_cfg["endpoint"]["params"] == {"status": "active"}
 
-    @parameterized.expand([("child_forces_desc", "responses", "desc"), ("parent_keeps_declared", "forms", "asc")])
+    @parameterized.expand(
+        [
+            # Child with no declared sort_mode -> forced "desc".
+            ("child_default", "responses", None, "desc"),
+            # Child that explicitly declares "asc" -> STILL forced "desc". This is
+            # the override that matters: per-batch asc commits on a child would
+            # advance the watermark past later parents' older rows and skip them.
+            ("child_overrides_declared_asc", "responses", "asc", "desc"),
+            # Top-level resource keeps its declaration (default "asc").
+            ("parent_keeps_declared", "forms", None, "asc"),
+        ]
+    )
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_child_forces_deferred_watermark_sort_mode(self, _name, schema_name, expected, mock_resources):
+    def test_fanout_child_forces_deferred_watermark_sort_mode(
+        self, _name, schema_name, declared_sort_mode, expected, mock_resources
+    ):
         # Fan-out child rows arrive grouped per parent, never globally
         # cursor-ascending, so the "asc" per-batch watermark commit would skip
         # later parents' older rows after an interruption — children must always
         # use the deferred-commit ("desc") behavior.
         mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        manifest = _fanout_manifest()
+        if declared_sort_mode is not None:
+            next(r for r in manifest["resources"] if r["name"] == schema_name)["sort_mode"] = declared_sort_mode
         source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
         inputs = MagicMock(
             team_id=999,
             schema_name=schema_name,
