@@ -416,20 +416,6 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
     )
 
 
-def get_flags_response_if_none_match(
-    team: Team, include_cohorts: bool, client_etag: str | None
-) -> tuple[dict | None, str | None, bool]:
-    """
-    Get flags response with ETag support for HTTP 304 responses.
-
-    Returns: (data, etag, modified)
-    - If client_etag matches current: (None, current_etag, False) - 304 case
-    - Otherwise: (data, current_etag, True) - 200 case with full data
-    """
-    hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
-    return hypercache.get_if_none_match(team, client_etag)
-
-
 def _resolve_team(team: Team | int) -> Team | None:
     """Resolve a Team object or ID to a Team, returning None if not found."""
     if isinstance(team, int):

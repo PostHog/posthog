@@ -12,6 +12,7 @@ import {
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
@@ -137,7 +138,7 @@ export class ToolExecutor {
                 toolMeta: tool._meta,
                 toolName: tool.name,
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                 distinctId,
             })
         } catch (error: unknown) {
@@ -179,7 +180,7 @@ export class ToolExecutor {
                 toolMeta: resolved._meta,
                 toolName: 'exec',
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                 distinctId: undefined,
             })
         } catch (error: unknown) {
@@ -209,11 +210,19 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status })
             toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
 
+            // Mirror the native path: stamp the inner tool's category so exec-routed
+            // calls share the dashboard's `$mcp_tool_category` grouping dimension.
+            const toolCategory = getToolCategory(toolName)
+
             void (async () => {
                 const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
                 await state.reqCtx.trackEvent(
                     AnalyticsEvent.MCP_TOOL_CALL,
-                    { tool_name: toolName, ...properties },
+                    {
+                        tool_name: toolName,
+                        ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                        ...properties,
+                    },
                     freshContext,
                     undefined,
                     state.distinctId

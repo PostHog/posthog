@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -105,9 +105,9 @@ export interface AlertConditionApi {
 
 /**
  * * `Firing` - Firing
- * `Not firing` - Not firing
- * `Errored` - Errored
- * `Snoozed` - Snoozed
+ * * `Not firing` - Not firing
+ * * `Errored` - Errored
+ * * `Snoozed` - Snoozed
  */
 export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
@@ -120,10 +120,10 @@ export const AlertCheckStateEnumApi = {
 
 /**
  * * `pending` - pending
- * `running` - running
- * `done` - done
- * `failed` - failed
- * `skipped` - skipped
+ * * `running` - running
+ * * `done` - done
+ * * `failed` - failed
+ * * `skipped` - skipped
  */
 export type InvestigationStatusEnumApi = (typeof InvestigationStatusEnumApi)[keyof typeof InvestigationStatusEnumApi]
 
@@ -137,8 +137,8 @@ export const InvestigationStatusEnumApi = {
 
 /**
  * * `true_positive` - true_positive
- * `false_positive` - false_positive
- * `inconclusive` - inconclusive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
  */
 export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
 
@@ -382,10 +382,10 @@ export type DetectorConfigApi =
 
 /**
  * * `every_15_minutes` - every_15_minutes
- * `hourly` - hourly
- * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
+ * * `hourly` - hourly
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
  */
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
@@ -411,7 +411,7 @@ export interface AlertScheduleRestrictionApi {
 
 /**
  * * `notify` - Notify
- * `suppress` - Suppress
+ * * `suppress` - Suppress
  */
 export type InvestigationInconclusiveActionEnumApi =
     (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
@@ -456,12 +456,12 @@ export interface AlertApi {
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -485,9 +485,9 @@ export interface AlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
@@ -535,12 +535,12 @@ export interface PatchedAlertApi {
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -564,9 +564,9 @@ export interface PatchedAlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
