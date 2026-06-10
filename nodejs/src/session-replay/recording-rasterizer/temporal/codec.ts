@@ -14,6 +14,30 @@ type FernetKey = {
     encryptionKey: Buffer
 }
 
+type RawSecretKey = string | Uint8Array
+
+function decodeHex(secret: string): Buffer {
+    const normalized = secret.replace(/\s/g, '')
+    if (normalized.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(normalized)) {
+        throw new Error('EncryptionCodec: invalid hex secret key')
+    }
+    return Buffer.from(normalized, 'hex')
+}
+
+function decodeBase64(secret: string): Buffer {
+    if (secret.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(secret)) {
+        throw new Error('EncryptionCodec: invalid base64 secret key')
+    }
+    return Buffer.from(secret, 'base64')
+}
+
+function decodeBase64Urlsafe(secret: string): Buffer {
+    if (secret.length % 4 !== 0 || !/^[A-Za-z0-9_-]*={0,2}$/.test(secret)) {
+        throw new Error('EncryptionCodec: invalid base64-urlsafe secret key')
+    }
+    return Buffer.from(secret, 'base64url')
+}
+
 /**
  * Fernet-compatible encryption codec that matches PostHog's Python EncryptionCodec.
  *
@@ -25,17 +49,44 @@ export class EncryptionCodec implements PayloadCodec {
     private primaryKey: FernetKey
     private fallbackKeys: FernetKey[]
 
-    constructor(secretKey: string, fallbackKeys: string[] = []) {
+    constructor(secretKey: RawSecretKey, fallbackKeys: RawSecretKey[] = []) {
         this.primaryKey = this.prepareKey(secretKey)
         this.fallbackKeys = fallbackKeys.map((fallbackKey) => this.prepareKey(fallbackKey))
     }
 
-    private prepareKey(secretKey: string): FernetKey {
-        if (!secretKey) {
+    private loadAsBytes(raw: RawSecretKey): Buffer {
+        if (raw instanceof Uint8Array) {
+            return Buffer.from(raw)
+        }
+
+        const separatorIndex = raw.indexOf(':')
+        if (separatorIndex === -1) {
+            return Buffer.from(raw, 'utf-8')
+        }
+
+        const prefix = raw.slice(0, separatorIndex)
+        const secret = raw.slice(separatorIndex + 1)
+
+        switch (prefix) {
+            case 'hex':
+                return decodeHex(secret)
+            case 'base64-urlsafe':
+                return decodeBase64Urlsafe(secret)
+            case 'base64':
+                return decodeBase64(secret)
+            default:
+                // Legacy format, kept for compatibility with Python's _load_as_bytes.
+                return Buffer.from(raw, 'utf-8')
+        }
+    }
+
+    private prepareKey(secretKey: RawSecretKey): FernetKey {
+        const keyBytes = this.loadAsBytes(secretKey)
+
+        if (keyBytes.length === 0) {
             throw new Error('EncryptionCodec: empty secret key is not allowed')
         }
 
-        const keyBytes = Buffer.from(secretKey, 'utf-8')
         if (keyBytes.length < 32 && process.env.NODE_ENV === 'production') {
             throw new Error(
                 `EncryptionCodec: secret key must be at least 32 bytes in production (got ${keyBytes.length})`

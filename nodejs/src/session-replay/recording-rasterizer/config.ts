@@ -27,7 +27,7 @@ export const config = {
 
     // Encryption
     secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
-    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
+    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,

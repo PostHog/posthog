@@ -13,6 +13,9 @@ const PYTHON_FIXTURE = {
 const te = new TextEncoder()
 const td = new TextDecoder()
 const TEST_SECRET_KEY = 'test-secret-key-for-codec-000000'
+const ENCODED_KEY_BYTES = Buffer.from('decaf???'.repeat(4), 'utf-8')
+const ENCODED_KEY_BASE64 = ENCODED_KEY_BYTES.toString('base64')
+const ENCODED_KEY_BASE64_URLSAFE = ENCODED_KEY_BASE64.replace(/\+/g, '-').replace(/\//g, '_')
 
 function restoreNodeEnv(nodeEnv: string | undefined): void {
     if (nodeEnv === undefined) {
@@ -82,6 +85,24 @@ describe('EncryptionCodec', () => {
         expect(decoded).toHaveLength(1)
         expect(td.decode(decoded[0].metadata!['encoding']!)).toBe('json/plain')
         expect(td.decode(decoded[0].data!)).toBe('{"rotated":true}')
+    })
+
+    it.each([
+        { encoding: 'hex', secretKey: `hex:${ENCODED_KEY_BYTES.toString('hex')}` },
+        { encoding: 'base64-urlsafe', secretKey: `base64-urlsafe:${ENCODED_KEY_BASE64_URLSAFE}` },
+        { encoding: 'base64', secretKey: `base64:${ENCODED_KEY_BASE64}` },
+    ])('loads $encoding secret keys as decoded bytes', async ({ secretKey }) => {
+        const original = {
+            metadata: { encoding: te.encode('json/plain') },
+            data: te.encode('{"encoded":true}'),
+        }
+        const legacyCodec = new EncryptionCodec(ENCODED_KEY_BYTES.toString('utf-8'))
+        const encodedKeyCodec = new EncryptionCodec(secretKey)
+
+        const encodedWithLegacyKey = await legacyCodec.encode([original])
+        const decoded = await encodedKeyCodec.decode(encodedWithLegacyKey)
+
+        expect(td.decode(decoded[0].data!)).toBe('{"encoded":true}')
     })
 
     it('encrypts with the primary key instead of fallback keys', async () => {
@@ -189,9 +210,20 @@ describe('EncryptionCodec', () => {
             expect(() => new EncryptionCodec('ab')).toThrow(
                 'EncryptionCodec: secret key must be at least 32 bytes in production (got 2)'
             )
+            expect(() => new EncryptionCodec('base64:YWI=')).toThrow(
+                'EncryptionCodec: secret key must be at least 32 bytes in production (got 2)'
+            )
         } finally {
             restoreNodeEnv(originalNodeEnv)
         }
+    })
+
+    it.each([
+        { secretKey: 'hex:not-hex', error: 'EncryptionCodec: invalid hex secret key' },
+        { secretKey: 'base64:not-base64!', error: 'EncryptionCodec: invalid base64 secret key' },
+        { secretKey: 'base64-urlsafe:not/base64url', error: 'EncryptionCodec: invalid base64-urlsafe secret key' },
+    ])('rejects invalid encoded secret keys', ({ secretKey, error }) => {
+        expect(() => new EncryptionCodec(secretKey)).toThrow(error)
     })
 
     it('round-trips with short secret keys (padding)', async () => {

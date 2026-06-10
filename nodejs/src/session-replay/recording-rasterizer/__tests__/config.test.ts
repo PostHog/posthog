@@ -24,8 +24,8 @@ describe('config', () => {
         })
 
         it('filters empty fallback keys from config', async () => {
-            const originalFallbackKeys = process.env.TEMPORAL_FALLBACK_KEYS
-            process.env.TEMPORAL_FALLBACK_KEYS = 'a,,b,'
+            const originalFallbackKeys = process.env.TEMPORAL_FALLBACK_SECRET_KEYS
+            process.env.TEMPORAL_FALLBACK_SECRET_KEYS = 'a,,b,'
 
             try {
                 jest.resetModules()
@@ -33,9 +33,9 @@ describe('config', () => {
                 expect(config.fallbackKeys).toEqual(['a', 'b'])
             } finally {
                 if (originalFallbackKeys === undefined) {
-                    delete process.env.TEMPORAL_FALLBACK_KEYS
+                    delete process.env.TEMPORAL_FALLBACK_SECRET_KEYS
                 } else {
-                    process.env.TEMPORAL_FALLBACK_KEYS = originalFallbackKeys
+                    process.env.TEMPORAL_FALLBACK_SECRET_KEYS = originalFallbackKeys
                 }
                 jest.resetModules()
             }
