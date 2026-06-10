@@ -108,9 +108,11 @@ export const HorizontalAggregatedSingle: Story = {
     },
 }
 
-// Regression guard for the horizontal value-tick de-overlap pass: thousands-separated value labels
-// (e.g. "1,500,000") in a narrow panel. d3 packs more ticks than fit, so without the de-overlap pass
-// the x-axis smears into "0 500,0001,000,000…"; with it, the survivors stay evenly spaced and legible.
+// Exercises the horizontal value-tick de-overlap: wide thousands-separated labels (millions) in a
+// compact panel, where consecutive ticks genuinely collide. The de-overlap pass hides the colliding
+// ones so the axis reads cleanly instead of smearing into "0 500,0001,000,000…" — gridlines stay at
+// every tick, labels only at the survivors. Remove the pass and the labels overlap again; the exact
+// gap that decides which survive is pinned by AxisLabels.test.ts.
 export const HorizontalWideValueLabels: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -122,10 +124,10 @@ export const HorizontalWideValueLabels: Story = {
         }
         const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
         const series: Series[] = [
-            { key: 'total', label: 'Total', color: '', data: [1_840_000, 1_210_000, 760_000, 430_000, 180_000] },
+            { key: 'views', label: 'Views', color: '', data: [2_300_000, 1_510_000, 940_000, 460_000, 180_000] },
         ]
         return (
-            <Stage width={300} height={280}>
+            <Stage width={340} height={280}>
                 <BarChart series={series} labels={labels} config={config} theme={theme} />
             </Stage>
         )
