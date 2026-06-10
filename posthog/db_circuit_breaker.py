@@ -28,6 +28,10 @@ _KEY_PREFIX = "posthog:dbcb:v1"
 # stalls the request it is supposed to be protecting.
 _REDIS_OP_TIMEOUT_SECONDS = 0.1
 
+# Floor for how long the open marker is remembered in Redis (decoupled from the
+# cooldown) so low-traffic products stay protected across idle gaps while down.
+_OPEN_MARKER_MIN_TTL_SECONDS = 300
+
 # Decide whether the breaker should let a connection attempt through. Returns
 # {allowed, is_probe, open_until}. While open and within cooldown the request is
 # denied without touching the database, and the real Redis deadline is returned
@@ -53,14 +57,19 @@ return {0, 0, 0}
 # Record a failed connection. A failing probe re-opens the breaker immediately
 # and releases the lease. Otherwise the failure counter is incremented within a
 # fixed window (TTL set only when the counter is created); crossing the threshold
-# opens the breaker. Returns 1 when the breaker is open after this failure, else 0.
+# opens the breaker. The open marker (KEYS[2]) holds the cooldown deadline as its
+# value but is kept for ARGV[6] seconds — far longer than the cooldown — so a
+# low-traffic product whose DB stays down through an idle gap still has the open
+# marker present when traffic resumes, forcing a single half-open probe instead
+# of letting every worker burn the connect timeout. Returns 1 when the breaker is
+# open after this failure, else 0.
 _FAILURE_SCRIPT = """
 local now = tonumber(ARGV[1])
 local threshold = tonumber(ARGV[2])
 local cooldown = tonumber(ARGV[3])
 local window = tonumber(ARGV[4])
 local is_probe = ARGV[5]
-local open_for = math.ceil(cooldown) + 5
+local open_for = tonumber(ARGV[6])
 
 if is_probe == '1' then
     redis.call('SET', KEYS[2], tostring(now + cooldown), 'EX', open_for)
@@ -216,10 +225,20 @@ class ProductDBCircuitBreaker:
             self._failure_script = client.register_script(_FAILURE_SCRIPT)
         # Capture once so the local deadline matches the open_until Redis computes.
         now = _now()
+        # Keep the open marker well past the cooldown so an idle, still-down product
+        # forces a single probe (not a connect-timeout stampede) when traffic resumes.
+        open_marker_ttl = max(config.cooldown_seconds * 10, _OPEN_MARKER_MIN_TTL_SECONDS)
         try:
             opened = self._failure_script(
                 keys=[fails_key, open_until_key, probe_key],
-                args=[now, config.failure_threshold, config.cooldown_seconds, config.window_seconds, int(was_probe)],
+                args=[
+                    now,
+                    config.failure_threshold,
+                    config.cooldown_seconds,
+                    config.window_seconds,
+                    int(was_probe),
+                    open_marker_ttl,
+                ],
                 client=client,
             )
         except Exception:

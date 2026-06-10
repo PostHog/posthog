@@ -256,7 +256,7 @@ Separate databases only isolate failures if your product's outage can't drag the
 
 Breaker state lives in Redis, so one worker tripping the breaker is seen by all pods at once. The breaker is **per product alias**: while it's open, only that product's endpoints fail (fast, with an `OperationalError`); everything else is unaffected. After a cooldown, a single probe request tests recovery and closes the breaker on success. If Redis itself is unavailable the breaker fails safe (stays closed) so it can never be what takes a healthy database offline.
 
-There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is *fast, contained failure*, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
+There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is _fast, contained failure_, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
 
 ## Running tests with Turbo
 

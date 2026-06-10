@@ -61,6 +61,16 @@ class TestProductDBCircuitBreaker(SimpleTestCase):
         # Caches the real Redis deadline (1030), not a fresh now+cooldown (1055).
         self.assertEqual(other_worker._local_open_until[ALIAS], 1030.0)
 
+    def test_open_marker_outlives_cooldown(self) -> None:
+        # The open marker must persist far longer than the cooldown so an idle,
+        # still-down product forces a probe (not a connect stampede) when traffic
+        # resumes. TTL uses fakeredis wall-clock, so assert right after opening.
+        self._open_breaker(ProductDBCircuitBreaker())
+
+        _, open_until_key, _ = ProductDBCircuitBreaker()._keys(ALIAS)
+        ttl = get_client().ttl(open_until_key)
+        self.assertGreater(ttl, BREAKER_SETTINGS["PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS"])
+
     def test_other_apps_unaffected_by_open_breaker(self) -> None:
         self._open_breaker(ProductDBCircuitBreaker())
 
