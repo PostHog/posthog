@@ -330,6 +330,52 @@ describe('SnapshotStore', () => {
         })
     })
 
+    describe('findNextFullSnapshot', () => {
+        it('returns null when no FullSnapshots exist', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            store.markLoaded(0, [makeSnapshot(1000)])
+
+            expect(store.findNextFullSnapshot(2000)).toBeNull()
+        })
+
+        it('finds the earliest FullSnapshot at or after the target', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(5))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
+            const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
+
+            store.markLoaded(1, [makeFullSnapshot(fs1)])
+            store.markLoaded(3, [makeFullSnapshot(fs3)])
+
+            const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
+            const result = store.findNextFullSnapshot(target)
+            expect(result).toEqual({ sourceIndex: 3, timestamp: fs3 })
+        })
+
+        it('includes a FullSnapshot exactly at the target timestamp', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
+            store.markLoaded(1, [makeFullSnapshot(fs1)])
+
+            expect(store.findNextFullSnapshot(fs1)).toEqual({ sourceIndex: 1, timestamp: fs1 })
+        })
+
+        it('returns null when all FullSnapshots are before the target', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
+            store.markLoaded(1, [makeFullSnapshot(fs1)])
+
+            const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
+            expect(store.findNextFullSnapshot(target)).toBeNull()
+        })
+    })
+
     describe('syncFullSnapshotTimestamps', () => {
         it('syncs synthetic full snapshot timestamps from processed results', () => {
             const store = new SnapshotStore()

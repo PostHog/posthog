@@ -143,6 +143,12 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
+// How many consecutive stuck-player skips to tolerate before trying to recover
+// by jumping to the next FullSnapshot (when the current position has none to
+// render from). Each skip fires roughly once per animation frame, so this is
+// well under a second of visible stuckness.
+const MAX_STUCK_SKIPS_BEFORE_RECOVERY = 10
+
 // weights should add up to 1
 const smoothingWeights = [
     0.07,
@@ -475,7 +481,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'isWaitingForPlayableFullSnapshot'],
+            [
+                'snapshotsLoaded',
+                'snapshotsLoading',
+                'snapshotSources',
+                'isWaitingForPlayableFullSnapshot',
+                'snapshotStore',
+                'allSourcesLoaded',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -1234,6 +1247,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.fingerprintReported(fingerprint)
         },
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
+            cache.consecutiveStuckSkips = (cache.consecutiveStuckSkips ?? 0) + 1
+
+            // If we keep getting stuck and there is no FullSnapshot at or before the
+            // current position, rrweb has nothing to render from and skipping a frame
+            // at a time will never recover (e.g. the initial full snapshot was lost at
+            // capture time). Jump to the next FullSnapshot instead, or give up with an
+            // error if the recording has none at all.
+            if (
+                cache.consecutiveStuckSkips >= MAX_STUCK_SKIPS_BEFORE_RECOVERY &&
+                values.currentTimestamp !== undefined
+            ) {
+                const hasRenderableBase = values.snapshotStore.findNearestFullSnapshot(values.currentTimestamp) !== null
+                if (!hasRenderableBase) {
+                    const nextFullSnapshot = values.snapshotStore.findNextFullSnapshot(values.currentTimestamp)
+                    if (nextFullSnapshot) {
+                        posthog.capture('stuck session player jumped to next full snapshot', {
+                            sessionId: values.sessionRecordingId,
+                            stuckTimestamp: values.currentTimestamp,
+                            jumpedToTimestamp: nextFullSnapshot.timestamp,
+                        })
+                        actions.seekToTimestamp(nextFullSnapshot.timestamp, true)
+                        return
+                    }
+                    if (values.allSourcesLoaded) {
+                        // Fully loaded and no FullSnapshot anywhere ahead — this part of
+                        // the recording can never play, so surface an error instead of
+                        // skipping forward forever.
+                        actions.setPlayerError('stuckWithNoPlayableFullSnapshot')
+                        return
+                    }
+                    // Data is still loading — a FullSnapshot may yet arrive, keep nudging.
+                }
+            }
+
             // if the player has got stuck on the same timestamp for several animation frames
             // then we skip ahead a little to get past the blockage
             // this is a KLUDGE to get around what might be a bug in rrweb
@@ -1692,6 +1739,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
             actions.pauseIframePlayback()
+            cache.consecutiveStuckSkips = 0
 
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
@@ -1879,6 +1927,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     cache._frameState ?? initialFrameState()
                 )
                 cache._frameState = frameResult.newState
+                if (frameResult.newState.stuckFrames === 0) {
+                    cache.consecutiveStuckSkips = 0
+                }
                 let newTimestamp = frameResult.resolvedTimestamp
 
                 // If we're beyond buffered position, set to buffering

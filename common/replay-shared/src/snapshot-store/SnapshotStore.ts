@@ -184,6 +184,30 @@ export class SnapshotStore {
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
     }
 
+    /**
+     * Returns the earliest loaded FullSnapshot at or after `ts`, or null if none.
+     * Used to recover playback when the data before `ts` has no FullSnapshot to
+     * render from (e.g. the initial full snapshot was lost at capture time).
+     */
+    findNextFullSnapshot(ts: number): { sourceIndex: number; timestamp: number } | null {
+        let bestTs = Infinity
+        let bestSourceIndex = -1
+
+        for (const entry of this.entries) {
+            for (const fullTs of entry.fullSnapshotTimestamps) {
+                if (fullTs >= ts && fullTs < bestTs) {
+                    bestTs = fullTs
+                    bestSourceIndex = entry.index
+                }
+            }
+        }
+
+        if (bestSourceIndex === -1) {
+            return null
+        }
+        return { sourceIndex: bestSourceIndex, timestamp: bestTs }
+    }
+
     syncFullSnapshotTimestamps(processedSnapshots: RecordingSnapshot[]): boolean {
         let changed = false
         for (const entry of this.entries) {

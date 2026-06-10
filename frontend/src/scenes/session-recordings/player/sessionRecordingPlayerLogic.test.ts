@@ -411,6 +411,114 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('stuck player recovery', () => {
+        // Mock recording: start=1682952380877
+        const START = 1682952380877
+        const LATE_FS_TS = START + 300000
+
+        const SOURCE_A = {
+            source: 'blob_v2',
+            blob_key: '0',
+            start_timestamp: new Date(START).toISOString(),
+            end_timestamp: new Date(START + 60000).toISOString(),
+        }
+        const SOURCE_B = {
+            source: 'blob_v2',
+            blob_key: '1',
+            start_timestamp: new Date(START + 60000).toISOString(),
+            end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
+        }
+
+        const makeSnapshot = (timestamp: number, type: EventType): eventWithTime =>
+            ({ timestamp, type, windowId: 1, data: {} }) as unknown as eventWithTime
+
+        const seedStore = ({
+            laterSnapshotType,
+            loadSecondSource,
+        }: {
+            laterSnapshotType: EventType
+            loadSecondSource: boolean
+        }): void => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            const store = dataLogic.cache.store
+            store.markLoaded(0, [
+                makeSnapshot(START, EventType.IncrementalSnapshot),
+                makeSnapshot(START + 1000, EventType.IncrementalSnapshot),
+            ])
+            if (loadSecondSource) {
+                store.markLoaded(1, [makeSnapshot(LATE_FS_TS, laterSnapshotType)])
+            }
+            dataLogic.actions.storeUpdated()
+        }
+
+        const skipRepeatedly = (times: number): void => {
+            for (let i = 0; i < times; i++) {
+                logic.actions.skipPlayerForward(0, 16)
+            }
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+        })
+
+        it('jumps to the next full snapshot when stuck with no renderable base', async () => {
+            seedStore({ laterSnapshotType: EventType.FullSnapshot, loadSecondSource: true })
+            logic.actions.setCurrentTimestamp(START + 1000)
+
+            await expectLogic(logic, () => {
+                skipRepeatedly(10)
+            }).toDispatchActions(['seekToTimestamp'])
+
+            expect(logic.values.currentTimestamp).toBe(LATE_FS_TS)
+            expect(logic.values.playerError).toBeNull()
+        })
+
+        it('errors when stuck, fully loaded, and no full snapshot exists anywhere ahead', async () => {
+            seedStore({ laterSnapshotType: EventType.IncrementalSnapshot, loadSecondSource: true })
+            logic.actions.setCurrentTimestamp(START + 1000)
+
+            await expectLogic(logic, () => {
+                skipRepeatedly(10)
+            }).toDispatchActions(['setPlayerError'])
+
+            expect(logic.values.playerError).toBe('stuckWithNoPlayableFullSnapshot')
+        })
+
+        it('keeps nudging while data is still loading', async () => {
+            seedStore({ laterSnapshotType: EventType.IncrementalSnapshot, loadSecondSource: false })
+            logic.actions.setCurrentTimestamp(START + 1000)
+            // drain unrelated mount/seeding listeners, and reset the recorded
+            // action history so only the skips below are asserted against
+            await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+            await expectLogic(logic, () => {
+                skipRepeatedly(10)
+            }).toNotHaveDispatchedActions(['seekToTimestamp', 'setPlayerError'])
+        })
+
+        it('does not interfere when a full snapshot exists before the current position', async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            dataLogic.cache.store.markLoaded(0, [
+                makeSnapshot(START, EventType.FullSnapshot),
+                makeSnapshot(START + 1000, EventType.IncrementalSnapshot),
+            ])
+            dataLogic.cache.store.markLoaded(1, [makeSnapshot(LATE_FS_TS, EventType.IncrementalSnapshot)])
+            dataLogic.actions.storeUpdated()
+            logic.actions.setCurrentTimestamp(START + 1000)
+            // drain unrelated mount/seeding listeners, and reset the recorded
+            // action history so only the skips below are asserted against
+            await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+            await expectLogic(logic, () => {
+                skipRepeatedly(20)
+            }).toNotHaveDispatchedActions(['seekToTimestamp', 'setPlayerError'])
+        })
+    })
+
     describe('delete session recording', () => {
         const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
 
