@@ -9,8 +9,10 @@ from posthog.temporal.data_imports.sources.delighted.delighted import (
     PAGE_SIZE,
     DelightedResumeConfig,
     DelightedRetryableError,
+    DelightedUnexpectedRedirectError,
     _build_params,
     _build_url,
+    _is_delighted_url,
     _next_page_url,
     _parse_retry_after,
     _retry_wait,
@@ -39,6 +41,8 @@ def _response(
     response.json.return_value = body
     response.status_code = status_code
     response.ok = status_code < 400
+    response.is_redirect = status_code in (301, 302, 303, 307, 308)
+    response.is_permanent_redirect = status_code in (301, 308)
     response.links = links or {}
     response.headers = headers or {}
     return response
@@ -125,6 +129,23 @@ class TestBuildUrl:
     def test_drops_none_values_and_encodes(self):
         url = _build_url("/people.json", {"per_page": 100, "since": None})
         assert url == "https://api.delighted.com/v1/people.json?per_page=100"
+
+
+class TestIsDelightedUrl:
+    @pytest.mark.parametrize(
+        "url, expected",
+        [
+            ("https://api.delighted.com/v1/people.json?page=2", True),
+            ("https://API.DELIGHTED.COM/v1/people.json", True),
+            ("http://api.delighted.com/v1/people.json", False),
+            ("https://evil.example.com/steal", False),
+            ("https://api.delighted.com.evil.example.com/steal", False),
+            ("not a url", False),
+            ("", False),
+        ],
+    )
+    def test_only_https_api_host_is_allowed(self, url, expected):
+        assert _is_delighted_url(url) is expected
 
 
 class TestNextPageUrl:
@@ -285,6 +306,45 @@ class TestGetRows:
         list(get_rows("key", "survey_responses", mock.MagicMock(), manager))
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
+
+    @mock.patch("posthog.temporal.data_imports.sources.delighted.delighted.make_tracked_session")
+    def test_fetch_page_disables_redirects(self, mock_session):
+        mock_session.return_value.get.return_value = _response([])
+
+        list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+
+        assert mock_session.return_value.get.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch("posthog.temporal.data_imports.sources.delighted.delighted.make_tracked_session")
+    def test_unexpected_redirect_is_rejected(self, mock_session):
+        mock_session.return_value.get.return_value = _response([], status_code=302)
+
+        with pytest.raises(DelightedUnexpectedRedirectError):
+            list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+
+    @mock.patch("posthog.temporal.data_imports.sources.delighted.delighted.make_tracked_session")
+    def test_offhost_link_header_is_not_followed(self, mock_session):
+        # A server-controlled Link header pointing off-host must not receive the API credentials.
+        full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
+        first = _response(full_page, links={"next": {"url": "https://evil.example.com/steal"}})
+        second = _response([])
+        mock_session.return_value.get.side_effect = [first, second]
+
+        list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+
+        # Falls back to page-number increment on the API host rather than the off-host URL.
+        second_url = mock_session.return_value.get.call_args_list[1].args[0]
+        assert second_url.startswith("https://api.delighted.com/")
+
+    @mock.patch("posthog.temporal.data_imports.sources.delighted.delighted.make_tracked_session")
+    def test_offhost_resume_url_is_ignored(self, mock_session):
+        mock_session.return_value.get.return_value = _response([])
+
+        manager = _make_manager(DelightedResumeConfig(next_url="https://evil.example.com/steal"))
+        list(get_rows("key", "survey_responses", mock.MagicMock(), manager))
+
+        first_url = mock_session.return_value.get.call_args_list[0].args[0]
+        assert first_url.startswith("https://api.delighted.com/")
 
     @mock.patch("posthog.temporal.data_imports.sources.delighted.delighted.make_tracked_session")
     def test_incremental_request_params_for_updated_at_cursor(self, mock_session):

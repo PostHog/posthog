@@ -73,11 +73,11 @@ You can find your API key in your Delighted account under **Settings → API**. 
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=(incremental_fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
+                supports_append=incremental_fields is not None,
+                incremental_fields=incremental_fields or [],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:

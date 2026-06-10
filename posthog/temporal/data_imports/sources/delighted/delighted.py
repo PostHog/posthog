@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,7 +14,8 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.delighted.settings import DELIGHTED_ENDPOINTS, DelightedEndpointConfig
 
-DELIGHTED_BASE_URL = "https://api.delighted.com/v1"
+DELIGHTED_HOST = "api.delighted.com"
+DELIGHTED_BASE_URL = f"https://{DELIGHTED_HOST}/v1"
 # Delighted caps list pages at 100 items.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -27,6 +28,10 @@ class DelightedRetryableError(Exception):
     def __init__(self, message: str, retry_after: Optional[float] = None):
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class DelightedUnexpectedRedirectError(Exception):
+    """Raised when the API host returns a redirect we refuse to follow (SSRF guard)."""
 
 
 @dataclasses.dataclass
@@ -66,6 +71,19 @@ def _to_epoch(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _is_delighted_url(url: str) -> bool:
+    """Whether ``url`` points at the Delighted API host over HTTPS.
+
+    Pagination/resume URLs are server-controlled (Link header / state store), so we pin them to
+    the API host to avoid forwarding the Authorization header to an arbitrary address (SSRF).
+    """
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme == "https" and (parsed.hostname or "").lower() == DELIGHTED_HOST
+    except Exception:
+        return False
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -119,7 +137,7 @@ def _next_url(
     # end of results only by returning a short page, so a final empty page may be fetched when
     # the row count is an exact multiple of the page size.
     link_next = response.links.get("next", {}).get("url")
-    if link_next:
+    if link_next and _is_delighted_url(link_next):
         return link_next
 
     if config.pagination == "page" and items_count == PAGE_SIZE:
@@ -180,12 +198,23 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> requests.Response:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        # Don't follow redirects: a 3xx from the API host could point at an internal address,
+        # bypassing the host validation done before the request and leaking the API key (SSRF).
+        response = make_tracked_session().get(
+            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise DelightedRetryableError(
                 f"Delighted API error (retryable): status={response.status_code}, url={page_url}",
                 retry_after=_parse_retry_after(response),
+            )
+
+        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
+        # silently parsing the redirect body as data.
+        if response.is_redirect or response.is_permanent_redirect:
+            raise DelightedUnexpectedRedirectError(
+                f"Delighted API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
             )
 
         if not response.ok:
@@ -202,10 +231,12 @@ def get_rows(
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
+    if resume_config is not None and _is_delighted_url(resume_config.next_url):
         url: str = resume_config.next_url
         logger.debug(f"Delighted: resuming from URL: {url}")
     else:
+        if resume_config is not None:
+            logger.warning("Delighted: ignoring resume URL whose host does not match the Delighted API host")
         url = _build_url(config.path, _build_params(config, cursor_field, since_value))
 
     while True:
