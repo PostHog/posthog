@@ -261,6 +261,7 @@ type ComponentTitleDisplay = {
 
 type RenderedListItem = NotebookListItem & {
     index: number
+    keyPath: string
     childrenItems: RenderedListItem[]
 }
 
@@ -4425,7 +4426,7 @@ function EditableListBlock({
         items.map((item) => {
             const itemOrdered = item.ordered ?? ordered
             return (
-                <li key={item.index}>
+                <li key={`${node.id}:${item.keyPath}`}>
                     <EditableListItemContent
                         node={node}
                         item={item}
@@ -7221,8 +7222,8 @@ function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
 }
 
-function isGroupedTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
-    return isTextBlockNode(node) && node.type !== 'blockquote'
+function isGroupedTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode | NotebookListBlockNode {
+    return (isTextBlockNode(node) && node.type !== 'blockquote') || node.type === 'list'
 }
 
 function isGroupedBlockquoteNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
@@ -7295,17 +7296,21 @@ function buildRenderedListItems(items: NotebookListItem[]): RenderedListItem[] {
     const stack: RenderedListItem[] = []
 
     items.forEach((item, index) => {
-        const renderedItem: RenderedListItem = {
-            ...item,
-            depth: Math.max(0, item.depth),
-            index,
-            childrenItems: [],
-        }
-        while (stack.length && renderedItem.depth <= stack[stack.length - 1].depth) {
+        const normalizedDepth = Math.max(0, item.depth)
+        while (stack.length && normalizedDepth <= stack[stack.length - 1].depth) {
             stack.pop()
         }
 
         const parent = stack[stack.length - 1]
+        const siblingIndex = parent ? parent.childrenItems.length : rootItems.length
+        const renderedItem: RenderedListItem = {
+            ...item,
+            depth: normalizedDepth,
+            index,
+            keyPath: parent ? `${parent.keyPath}.${String(siblingIndex)}` : String(siblingIndex),
+            childrenItems: [],
+        }
+
         if (parent) {
             parent.childrenItems.push(renderedItem)
         } else {

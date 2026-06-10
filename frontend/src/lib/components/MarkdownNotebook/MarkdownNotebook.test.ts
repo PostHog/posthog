@@ -311,6 +311,28 @@ function fireSelectAllShortcut(element: HTMLElement): void {
     fireEvent.keyDown(element, { key: 'a', metaKey: true })
 }
 
+function expectNoDuplicateKeyWarnings(callback: () => void): void {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    let thrownError: unknown
+
+    try {
+        callback()
+    } catch (error) {
+        thrownError = error
+    }
+
+    const duplicateKeyWarnings = consoleError.mock.calls.filter((call) =>
+        call.some((argument) => String(argument).includes('Each child in a list should have a unique "key" prop'))
+    )
+    consoleError.mockRestore()
+
+    if (thrownError) {
+        throw thrownError
+    }
+
+    expect(duplicateKeyWarnings).toEqual([])
+}
+
 function fireUndoShortcut(element: HTMLElement): void {
     fireEvent.keyDown(element, { key: 'z', metaKey: true })
 }
@@ -587,12 +609,16 @@ continued line
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
     })
 
-    it('groups consecutive text and heading rows into text surfaces', () => {
+    it('groups consecutive text, heading, and list rows into text surfaces', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: withNotebookTitle(
                     [
                         'Intro paragraph',
+                        '',
+                        '- Bullet item',
+                        '',
+                        '4. Numbered item',
                         '',
                         ' ',
                         '',
@@ -609,8 +635,13 @@ continued line
         const groups = Array.from(container.querySelectorAll('.MarkdownNotebook__text-group'))
         expect(groups).toHaveLength(2)
         expect(groups[0].querySelectorAll('.MarkdownNotebook__text-block')).toHaveLength(4)
+        expect(groups[0].querySelectorAll('.MarkdownNotebook__list-block')).toHaveLength(2)
+        expect(groups[0].querySelector('.MarkdownNotebook__list-block ul')).toBeInstanceOf(HTMLUListElement)
+        expect(groups[0].querySelector('.MarkdownNotebook__list-block ol')).toBeInstanceOf(HTMLOListElement)
         expect(groups[0].textContent).toContain(TEST_NOTEBOOK_TITLE)
         expect(groups[0].textContent).toContain('Intro paragraph')
+        expect(groups[0].textContent).toContain('Bullet item')
+        expect(groups[0].textContent).toContain('Numbered item')
         expect(groups[0].textContent).toContain('Section heading')
         expect(groups[1].textContent).toContain('Tail paragraph')
         expect(container.querySelector('.MarkdownNotebook__text-group .MarkdownNotebook__component-shell')).toBeNull()
@@ -4886,6 +4917,7 @@ Tail with **bold** text`)
         ) as HTMLElement[]
 
         expect(listBlock).toBeInstanceOf(HTMLElement)
+        expect(listBlock?.closest('.MarkdownNotebook__text-group')).toBeInstanceOf(HTMLElement)
         expect(listBlock?.querySelector('ul ul')).toBeInstanceOf(HTMLElement)
         expect(listItems).toHaveLength(3)
         expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
@@ -5422,6 +5454,175 @@ First
 - Parent
 
  `)
+    })
+
+    it('splits and indents list items without duplicate React keys', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(`- AlphaBeta
+- Sibling`),
+                    onChange,
+                })
+            )
+            let listItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+
+            selectTextInElement(listItems[0], 'Alpha'.length, 'Alpha'.length)
+            fireEvent.keyDown(listItems[0], { key: 'Enter' })
+
+            listItems = Array.from(container.querySelectorAll('.MarkdownNotebook__list-item-content')) as HTMLElement[]
+            expect(listItems.map((item) => item.textContent)).toEqual(['Alpha', 'Beta', 'Sibling'])
+            expect(document.activeElement).toEqual(listItems[1])
+            expect(window.getSelection()?.focusOffset).toEqual(0)
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Alpha
+- Beta
+- Sibling`)
+
+            fireEvent.keyDown(listItems[1], { key: 'Tab' })
+
+            listItems = Array.from(container.querySelectorAll('.MarkdownNotebook__list-item-content')) as HTMLElement[]
+            expect(listItems.map((item) => item.textContent)).toEqual(['Alpha', 'Beta', 'Sibling'])
+            expect(container.querySelector('.MarkdownNotebook__list-block ul ul')).toBeInstanceOf(HTMLElement)
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Alpha
+  - Beta
+- Sibling`)
+
+            fireEvent.keyDown(listItems[1], { key: 'Tab', shiftKey: true })
+
+            expect(container.querySelector('.MarkdownNotebook__list-block ul ul')).toBeNull()
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Alpha
+- Beta
+- Sibling`)
+        })
+    })
+
+    it('turns a middle list item into text without duplicate React keys', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(`- First
+- Second
+- Third`),
+                    onChange,
+                })
+            )
+            const listItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+
+            selectTextInElement(listItems[1], 0, 0)
+            fireEvent.keyDown(listItems[1], { key: 'Backspace' })
+
+            const editableBlocks = getEditableTextBlocks(container)
+            const remainingListItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+            expect(editableBlocks.map((block) => block.textContent)).toEqual([
+                TEST_NOTEBOOK_TITLE,
+                'First',
+                'Second',
+                'Third',
+            ])
+            expect(editableBlocks[2].tagName).toEqual('P')
+            expect(remainingListItems.map((item) => item.textContent)).toEqual(['First', 'Third'])
+            expect(container.querySelectorAll('.MarkdownNotebook__list-block')).toHaveLength(2)
+            expect(document.activeElement).toEqual(editableBlocks[2])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First
+
+Second
+
+- Third`)
+        })
+    })
+
+    it('exits an empty middle list item without duplicate React keys', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(`- First
+-
+- Third`),
+                    onChange,
+                })
+            )
+            const listItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+
+            placeCaretInElement(listItems[1])
+            fireEvent.keyDown(listItems[1], { key: 'Enter' })
+
+            const paragraph = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
+            const remainingListItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+            expect(paragraph).toBeInstanceOf(HTMLElement)
+            expect(paragraph.textContent).toEqual('')
+            expect(remainingListItems.map((item) => item.textContent)).toEqual(['First', 'Third'])
+            expect(container.querySelectorAll('.MarkdownNotebook__list-block')).toHaveLength(2)
+            expect(document.activeElement).toEqual(paragraph)
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First
+
+${' '}
+
+- Third`)
+        })
+    })
+
+    it('keeps ordered list starts stable through split and indent keyboard edits', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(`4. AlphaBeta
+5. Gamma`),
+                    onChange,
+                })
+            )
+            let listItems = Array.from(
+                container.querySelectorAll('.MarkdownNotebook__list-item-content')
+            ) as HTMLElement[]
+
+            selectTextInElement(listItems[0], 'Alpha'.length, 'Alpha'.length)
+            fireEvent.keyDown(listItems[0], { key: 'Enter' })
+
+            const orderedList = container.querySelector('.MarkdownNotebook__list-block ol') as HTMLOListElement
+            listItems = Array.from(container.querySelectorAll('.MarkdownNotebook__list-item-content')) as HTMLElement[]
+            expect(orderedList).toBeInstanceOf(HTMLOListElement)
+            expect(orderedList.getAttribute('start')).toEqual('4')
+            expect(listItems.map((item) => item.textContent)).toEqual(['Alpha', 'Beta', 'Gamma'])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+4. Alpha
+5. Beta
+6. Gamma`)
+
+            fireEvent.keyDown(listItems[1], { key: 'Tab' })
+
+            const nestedOrderedList = container.querySelector('.MarkdownNotebook__list-block ol ol') as HTMLOListElement
+            expect(nestedOrderedList).toBeInstanceOf(HTMLOListElement)
+            expect(nestedOrderedList.getAttribute('start')).toEqual('1')
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+4. Alpha
+  1. Beta
+5. Gamma`)
+        })
     })
 
     it('copies selected list items as markdown', () => {
