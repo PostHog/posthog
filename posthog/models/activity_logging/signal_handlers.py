@@ -1,9 +1,11 @@
+import time
 import inspect
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Literal, Optional
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in, user_logged_out
 from django.core.signing import TimestampSigner
@@ -14,9 +16,12 @@ from django.http import HttpRequest
 import structlog
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
+from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -727,3 +732,39 @@ def handle_project_secret_api_key_change(
 @receiver(pre_delete, sender=ProjectSecretAPIKey)
 def handle_project_secret_api_key_delete(sender, instance, **kwargs):
     log_project_secret_api_key_activity(instance, "deleted", get_current_user(), get_was_impersonated())
+
+
+# --- Login session/device bookkeeping, relocated from posthog.api.authentication ---------
+# user_logged_in fires wherever login happens; wiring this via the API module meant it only
+# connected once the URLconf had been imported — an ordering that web happens to satisfy but
+# nothing guarantees.
+
+USER_AUTH_METHOD_MISMATCH = Counter(
+    "user_auth_method_mismatches_sso_enforcement",
+    "A user successfully authenticated with a different method than the one they're required to use",
+    labelnames=["login_method", "sso_enforced_method", "user_uuid"],
+)
+
+
+@receiver(user_logged_in)
+def post_login(sender, user, request: HttpRequest, **kwargs):
+    """
+    Runs after every user login (including tests)
+    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
+    """
+
+    if hasattr(request, "backend"):
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
+        if sso_enforcement is not None and sso_enforcement != request.backend.name:
+            USER_AUTH_METHOD_MISMATCH.labels(
+                login_method=request.backend.name, sso_enforced_method=sso_enforcement, user_uuid=user.uuid
+            ).inc()
+
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+    # Cache device info on signup to skip login notification for this device
+    if user.last_login is None:
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+        check_and_cache_login_device(user.id, country, short_user_agent)

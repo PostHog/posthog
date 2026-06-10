@@ -84,7 +84,10 @@ def labels():
     return {f"{m._meta.app_label}.{m.__name__}" for m in apps.get_models()}
 
 before = labels()
-from posthog.api import rest_router  # noqa: F401 — building the aggregator imports ~200 viewsets
+# The full URLconf, not just rest_router: it builds the router AND imports the product url
+# modules urls.py pulls directly — the path where latent import cycles have twice detonated.
+import importlib
+importlib.import_module("posthog.urls")
 after = labels()
 print("\\n".join(sorted(after - before)))
 """
@@ -97,7 +100,10 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
         text=True,
         timeout=120,
     )
-    assert result.returncode == 0, f"snapshot failed:\n{result.stderr[-2000:]}"
+    assert result.returncode == 0, (
+        "django.setup() or the cold URLconf import failed — if the traceback shows a partially "
+        f"initialized module, an import cycle only ever resolved by import-order luck:\n{result.stderr[-2000:]}"
+    )
     late = [m for m in result.stdout.splitlines() if m]
     assert not late, (
         f"These models only registered once the API router imported their viewsets: {late}. "
@@ -124,6 +130,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
 
 django.setup()
+from django.contrib.auth import signals as auth_signals
 from django.db.models import signals
 from posthog.models.signals import model_activity_signal
 
@@ -131,7 +138,14 @@ _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed",
 # model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
 # `handle_*_change` receivers live in viewset modules, so they are exactly the kind that the eager
 # router used to wire as a side effect — include it or this whole class of regression is invisible.
-_CUSTOM_SIGNALS = {"model_activity": model_activity_signal}
+# Auth signals are included for parity with the setup-receivers baseline: an auth receiver wired
+# only via a viewset import would otherwise slip past both guards.
+_CUSTOM_SIGNALS = {
+    "model_activity": model_activity_signal,
+    "user_logged_in": auth_signals.user_logged_in,
+    "user_logged_out": auth_signals.user_logged_out,
+    "user_login_failed": auth_signals.user_login_failed,
+}
 
 
 def _resolve(entry):
@@ -158,7 +172,9 @@ def _connected():
 
 
 before = _connected()
-from posthog.api import rest_router  # noqa: F401 — building the aggregator imports ~200 viewsets
+# The full URLconf, not just rest_router — see the model-diff capture above.
+import importlib
+importlib.import_module("posthog.urls")
 after = _connected()
 print("\\n".join(sorted(after - before)))
 """
@@ -190,6 +206,9 @@ def test_signal_receivers_connect_at_setup_not_via_router() -> None:
 # ready()-wired receivers were never pinned). A receiver missing from the live set is silent audit/cache
 # loss; an unexpected one is a new wiring to record deliberately. Regenerate the file with:
 #   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match
+# Known granularity limit: receivers created in a loop share one qualname (e.g. the org-cache
+# _connect_invalidation closures), so the set can't see one of their senders being dropped —
+# Django stores sender identity as id(), which is not stable enough to snapshot.
 _RECEIVERS_BASELINE = Path(__file__).parent / "setup_receivers_baseline.txt"
 
 _SETUP_RECEIVERS_CAPTURE = """
@@ -379,6 +398,13 @@ def test_no_new_heavy_imports_at_setup() -> None:
     baseline = {
         line.split("#")[0].strip() for line in _IMPORT_BASELINE.read_text().splitlines() if line.split("#")[0].strip()
     }
+    contradictions = baseline & set(FORBIDDEN_AT_SETUP)
+    assert not contradictions, (
+        f"These names are in BOTH setup_import_baseline.txt and FORBIDDEN_AT_SETUP: {sorted(contradictions)}. "
+        "The baseline permits what the forbidden list bans — someone likely baselined a module to dodge the "
+        "new-import check while it remains deliberately evicted. Remove it from the baseline and defer the "
+        "import that pulled it back in."
+    )
     # Two captures, per-name minimum: the first boot on a cold machine pays page-cache misses
     # that can double a package's apparent cost (django measured 116ms cold vs ~67ms warm);
     # the minimum converges on the stable warm number, so the threshold compares like with like.

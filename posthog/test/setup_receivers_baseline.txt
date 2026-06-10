@@ -187,5 +187,6 @@ pre_save:products.customer_analytics.backend.models.account._enforce_account_gro
 pre_save:products.event_definitions.backend.models.event_definition._capture_event_definition_old_name
 pre_save:products.surveys.backend.models.pre_save_survey
 user_logged_in:posthog.models.activity_logging.signal_handlers.log_user_login_activity
+user_logged_in:posthog.models.activity_logging.signal_handlers.post_login
 user_logged_out:posthog.models.activity_logging.signal_handlers.log_user_logout_activity
 user_logged_out:posthog.models.oauth._revoke_impersonation_oauth_tokens
