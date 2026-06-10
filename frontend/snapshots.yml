@@ -644,6 +644,10 @@ snapshots:
         hash: v1.k794b7964.d7d7bf5c59f5331244fe1296a1fc8aa3f64b978932157cb721811f6d5a8ee7b9.RVzEH-awcLfkkPb9sGtmTTW71fFC0qjbnSk8TtFynq8
     components-hogcharts-linechart--stacked-area--light:
         hash: v1.k794b7964.81201734b8069950cb9b0765a487ace24ce480ac38f3244a93b283ab6a5d440a.CyG0hbIs0gRo4XJJwMiA6EVZ_CbqKgbNMETTujDXh5Y
+    components-hogcharts-linechart--triple-y-axis--dark:
+        hash: v1.k794b7964.8101b94f8627a2a4f9db787e1811da546e557d08f5cb2e1d26babd11f1e7821c.I8prrcLl2sRZrw0MttyFsFdYgSIK50FUv1nb5s1pKcQ
+    components-hogcharts-linechart--triple-y-axis--light:
+        hash: v1.k794b7964.c3d381e4abb5769e63c33e52e03aef90f6056b8abb94ca1a7fcf4213b47f18f6.6zmZr3ZLjZgr40OFrge5wiqFjZBErWZpBLFf1kZYN1Y
     components-hogcharts-linechart--visibility-flags--dark:
         hash: v1.k794b7964.2f7e324b0723e7e452601b86b6c3e27fe0b7a3a1c9236c652af244488b8dc67e.cJbINcSzaWfVAc-auv8Rnve9OVdIPKexGrLMW880UzI
     components-hogcharts-linechart--visibility-flags--light:
@@ -748,6 +752,10 @@ snapshots:
         hash: v1.k794b7964.e43f17182ff96d9f3bf99c4f43505215f9bda8bfc9cfbea0a205f52a5dff40d2.hi-taHZs3EIV72aJ9bMO_NjG-WuGgtL2lxr6iHAx7No
     components-hogcharts-timeseriesbarchart--grouped--light:
         hash: v1.k794b7964.c32979d833aead7e40f2c517f99b4507aea70c556637eb2775b22623cc22598c.2MT3W9PS7R1u4o-3ioE-sTrvINGzjw98B5CjlO00Kwg
+    components-hogcharts-timeseriesbarchart--grouped-multiple-y-axes--dark:
+        hash: v1.k794b7964.86d0101b7b8e35adeef827178134c31d771c61774f052434c733cea40d5096f9.ea3S4uhpKAjM1rxa_hhOfsR4yJvDDmhq9SEe-u7jdrQ
+    components-hogcharts-timeseriesbarchart--grouped-multiple-y-axes--light:
+        hash: v1.k794b7964.560aba051af54d6536a316d9435f8bf453e2f177f26255101fcd7633745757ef.DitSIG11N9IAP6AfBhXbP1P5NetsWhK-6lNET-ykH_E
     components-hogcharts-timeseriesbarchart--percent--dark:
         hash: v1.k794b7964.f93bc4e07e775e75bea135bc08913635c867b97368d82d1790646c4cf8beed60.6spfuVxBN-g51eHzBf1An1kY4adoOeHRkpZfPXWPLEw
     components-hogcharts-timeseriesbarchart--percent--light:
