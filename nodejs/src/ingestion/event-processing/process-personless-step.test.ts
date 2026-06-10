@@ -316,7 +316,7 @@ describe('createProcessPersonlessStep', () => {
             }
         })
 
-        it('skips the defaulting branch when person processing is force-disabled', async () => {
+        it('takes the generic personless path, not the defaulting branch, when already force-disabled', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
             const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
 

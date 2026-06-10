@@ -1520,8 +1520,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
-    // Returns undefined when no insert was attempted this batch, false when one was
-    // attempted and the row wasn't merged, true when the distinct ID was merged.
+    // Returns true when the distinct ID was merged this batch, undefined otherwise.
+    // Only merged results are cached (see processPersonlessDistinctIdsBatch), so a
+    // non-merged insert is indistinguishable from no insert at all.
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
         return this.personCache.getPersonlessBatchResult(teamId, distinctId)
     }

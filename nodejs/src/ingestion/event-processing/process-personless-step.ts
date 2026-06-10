@@ -59,7 +59,7 @@ function eventHasGroups(properties: PluginEvent['properties']): boolean {
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
     flagCalledPersonlessDefaultTeams: string = '*'
 ): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
-    const flagCalledDefaultEnabledForTeam = buildIntegerMatcher(flagCalledPersonlessDefaultTeams, true)
+    const flagCalledDefaultEnabledForTeam = buildIntegerMatcher(flagCalledPersonlessDefaultTeams.trim(), true)
 
     return async function processPersonlessStep(
         input: TInput
