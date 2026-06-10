@@ -106,6 +106,7 @@ tools:
                     "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
+        ui_app: experiment
         response:
             include:
                 - id
@@ -121,7 +122,6 @@ tools:
                 - parameters
                 - conclusion
                 - conclusion_comment
-        ui_app: experiment
     experiment-delete:
         operation: experiments_destroy
         enabled: true
@@ -278,6 +278,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment
         response:
             include:
                 - id
@@ -293,7 +294,6 @@ tools:
                 - parameters
                 - conclusion
                 - conclusion_comment
-        ui_app: experiment
     experiment-list:
         operation: experiments_list
         enabled: true
@@ -742,6 +742,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment
         response:
             include:
                 - id
@@ -759,7 +760,6 @@ tools:
                 - metrics_secondary
                 - conclusion
                 - conclusion_comment
-        ui_app: experiment
     experiments-copy-to-project-create:
         operation: experiments_copy_to_project_create
         enabled: false
