@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconApps, IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
 
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -142,7 +142,7 @@ export function PinnedFolder(): JSX.Element {
                         tooltipPlacement="top"
                         data-attr="browse-all-products-button"
                     >
-                        <IconPlusSmall className="size-4" />
+                        <IconApps className="size-4" />
                         Browse all products
                     </ButtonPrimitive>
                 ) : null}
