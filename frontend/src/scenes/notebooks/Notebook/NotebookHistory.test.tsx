@@ -193,7 +193,8 @@ describe('Notebook history revert flow', () => {
             content: updatedContent,
             text_content: '# Markdown v2\n\nStreamed update',
         }
-        let streamOnMessage: ((message: any) => void) | null = null
+        type StreamOnMessage = (message: any) => void
+        let streamOnMessage: StreamOnMessage | null = null
 
         jest.spyOn(api.notebooks, 'get')
             .mockResolvedValueOnce(streamNotebook as NotebookType)
@@ -207,8 +208,11 @@ describe('Notebook history revert flow', () => {
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
-        expect(streamOnMessage).not.toBeNull()
-        streamOnMessage?.({
+        if (!streamOnMessage) {
+            throw new Error('expected markdown notebook update stream to be connected')
+        }
+        const onMessage: StreamOnMessage = streamOnMessage
+        onMessage({
             id: '2-1',
             event: 'update',
             data: '{"type":"update","version":2}',

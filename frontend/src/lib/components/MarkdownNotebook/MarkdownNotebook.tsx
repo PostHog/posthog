@@ -4560,46 +4560,14 @@ function EditableListBlock({
         updateListItemChildren(details.itemIndex, details.itemId, htmlElementToInlineNodes(element))
     }
 
-    const syncListItemsFromDom = (rootElement: HTMLElement): void => {
-        const childrenByItemId = new Map<string, NotebookInlineNode[]>()
-        const childrenByIndex = new Map<number, NotebookInlineNode[]>()
-
-        rootElement.querySelectorAll<HTMLElement>('.MarkdownNotebook__list-item-content').forEach((element) => {
-            const itemIndex = Number(element.dataset.markdownNotebookListItemIndex)
-            const itemId = element.dataset.markdownNotebookListItemId
-            const children = htmlElementToInlineNodes(element)
-
-            if (itemId) {
-                childrenByItemId.set(itemId, children)
-            }
-            if (Number.isInteger(itemIndex)) {
-                childrenByIndex.set(itemIndex, children)
-            }
-        })
-
-        updateNode(node.id, (currentNode) => {
-            if (currentNode.type !== 'list') {
-                return currentNode
-            }
-
-            let changed = false
-            const items = currentNode.items.map((item, index) => {
-                const children = (item.id ? childrenByItemId.get(item.id) : undefined) ?? childrenByIndex.get(index)
-                if (!children || inlineNodesToHtml(children) === inlineNodesToHtml(item.children)) {
-                    return item
-                }
-
-                changed = true
-                return { ...item, children }
-            })
-
-            return changed ? { ...currentNode, items } : currentNode
-        })
-    }
-
     const handleListBlockInput = (event: FormEvent<HTMLDivElement>): void => {
         event.stopPropagation()
-        syncListItemsFromDom(event.currentTarget)
+        const element = getListItemContentElement(event.target) ?? getActiveListItemContentElement()
+        if (!element) {
+            return
+        }
+
+        updateListItemChildrenFromElement(element)
     }
 
     const handleListBlockPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
@@ -4811,7 +4779,7 @@ function EditableListItemContent({
         }
 
         element.innerHTML = renderedHtml
-    }, [renderedHtml])
+    })
 
     return (
         <div

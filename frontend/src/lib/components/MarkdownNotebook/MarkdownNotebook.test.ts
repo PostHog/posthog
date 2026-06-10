@@ -5241,6 +5241,34 @@ Tail with **bold** text`)
 3. bar`)
     })
 
+    it('does not let stale list host DOM overwrite previous items after Enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        updateContentEditableText(textBlock, '1. ')
+        updateActiveContentEditableText('asd')
+        pressEnterInListItem(document.activeElement as HTMLElement, 'asd'.length)
+
+        let listItems = getEditableListItems(container)
+        const listBlock = container.querySelector('.MarkdownNotebook__list-block') as HTMLElement
+        expect(listItems.map((item) => item.textContent)).toEqual(['asd', ''])
+
+        act(() => {
+            listItems[0].textContent = 'sdf'
+            listItems[1].textContent = 'sdf'
+        })
+        selectTextInElement(listItems[1], 'sdf'.length, 'sdf'.length)
+        fireEvent.input(listBlock)
+
+        listItems = getEditableListItems(container)
+        expect(listItems.map((item) => item.textContent)).toEqual(['asd', 'sdf'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. asd
+2. sdf`)
+    })
+
     it('updates only the selected ordered list item from root input events', () => {
         const onChange = jest.fn()
         const { container } = render(
