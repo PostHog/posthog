@@ -20,15 +20,22 @@ const UUIDV7_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-
 const CLOCK_SKEW_SLACK_DAYS = 3
 const MAX_SESSION_DURATION_DAYS = 1
 
-// Fallback window for session ids that don't parse as UUIDv7: wide enough to
-// cover any session whose recording could still be within retention.
+// Fallback window for session ids that don't parse as UUIDv7, or when the
+// bounded window returns no results (e.g. severe client clock skew): wide
+// enough to cover any session within the default retention period.
 const FALLBACK_LOOKBACK_DAYS = 90
+
+// UUIDv7 session ids were introduced after PostHog's GA; any embedded year
+// before this is implausible and indicates a corrupt or pre-epoch timestamp.
+const EARLIEST_PLAUSIBLE_SESSION_YEAR = 2020
 
 export function sessionIdTimestampBounds(sessionId: string, now: Dayjs = dayjs()): { from: Dayjs; to: Dayjs } {
     if (UUIDV7_SESSION_ID.test(sessionId)) {
         const sessionStart = dayjs(parseInt(sessionId.replaceAll('-', '').slice(0, 12), 16))
         const plausible =
-            sessionStart.isValid() && sessionStart.year() >= 2020 && sessionStart.isBefore(now.add(1, 'day'))
+            sessionStart.isValid() &&
+            sessionStart.year() >= EARLIEST_PLAUSIBLE_SESSION_YEAR &&
+            sessionStart.isBefore(now.add(1, 'day'))
         if (plausible) {
             return {
                 from: sessionStart.subtract(CLOCK_SKEW_SLACK_DAYS, 'day'),
@@ -36,6 +43,10 @@ export function sessionIdTimestampBounds(sessionId: string, now: Dayjs = dayjs()
             }
         }
     }
+    return { from: now.subtract(FALLBACK_LOOKBACK_DAYS, 'day'), to: now.add(1, 'day') }
+}
+
+export function fallbackSessionTimestampBounds(now: Dayjs = dayjs()): { from: Dayjs; to: Dayjs } {
     return { from: now.subtract(FALLBACK_LOOKBACK_DAYS, 'day'), to: now.add(1, 'day') }
 }
 
@@ -52,8 +63,14 @@ export const replayCaptureDiagnosticsPanelLogic = kea<replayCaptureDiagnosticsPa
                 // The timestamp bounds let the events sort key prune the scan;
                 // without them this single-session lookup reads the team's
                 // entire event history.
-                const { from, to } = sessionIdTimestampBounds(props.sessionId)
-                const query = hogql`
+                const fetchWithin = async ({
+                    from,
+                    to,
+                }: {
+                    from: Dayjs
+                    to: Dayjs
+                }): Promise<Record<string, any> | null> => {
+                    const query = hogql`
 SELECT properties
 FROM events
 WHERE $session_id = ${props.sessionId}
@@ -61,18 +78,35 @@ AND timestamp >= ${from}
 AND timestamp <= ${to}
 ORDER BY timestamp DESC
 LIMIT 1`
-                const result = await api.queryHogQL(query, {
-                    scene: 'ReplayCaptureDiagnostics',
-                    productKey: 'session_replay',
-                })
+                    const result = await api.queryHogQL(query, {
+                        scene: 'ReplayCaptureDiagnostics',
+                        productKey: 'session_replay',
+                    })
+                    breakpoint()
+                    const row = result?.results?.[0]?.[0]
+                    if (!row) {
+                        return null
+                    }
+                    return typeof row === 'string' ? JSON.parse(row) : row
+                }
 
-                breakpoint()
+                const bounds = sessionIdTimestampBounds(props.sessionId)
+                const properties = await fetchWithin(bounds)
+                if (properties !== null) {
+                    return properties
+                }
 
-                const row = result?.results?.[0]?.[0]
-                if (!row) {
+                // A UUIDv7-derived window comes from the client clock, so a badly
+                // skewed clock can place it outside the session's server-corrected
+                // timestamps and the tight query finds nothing. Widen to the
+                // retention fallback before giving up so a skewed clock degrades to
+                // slower-but-correct rather than fast-but-blank. Only worth retrying
+                // when the first window was actually narrower than the fallback.
+                const fallback = fallbackSessionTimestampBounds()
+                if (!bounds.from.isAfter(fallback.from)) {
                     return null
                 }
-                return typeof row === 'string' ? JSON.parse(row) : row
+                return fetchWithin(fallback)
             },
         },
     })),
