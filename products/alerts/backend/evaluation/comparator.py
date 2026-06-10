@@ -34,6 +34,8 @@ def _breach_messages(
             condition_text = "increased"
         case AlertConditionType.RELATIVE_DECREASE:
             condition_text = "decreased"
+        case _:
+            raise ValueError(f"Unsupported alert condition type: {condition_type}")
 
     # Framed (time-series trends): "(label) for current/previous interval". Unframed (e.g. SQL
     # insights): just the subject, since there is no series label or interval to reference.
@@ -124,6 +126,11 @@ def evaluate_threshold(
         if breaches:
             return AlertEvaluationResult(value=calculated, breaches=breaches)
 
-    # No breach: a non-breakdown query reports its computed value; a breakdown has no single
-    # representative value, so it reports None (matching the original).
-    return AlertEvaluationResult(value=(None if result.is_breakdown else calculated), breaches=[])
+    # No breach: an empty query result reports 0 regardless of breakdown (the metric is genuinely
+    # zero — matching the original _is_empty_query_result); otherwise a non-breakdown query reports
+    # its computed value and a breakdown has no single representative value, so it reports None.
+    if result.empty_query_result:
+        no_breach_value: float | None = 0
+    else:
+        no_breach_value = None if result.is_breakdown else calculated
+    return AlertEvaluationResult(value=no_breach_value, breaches=[])

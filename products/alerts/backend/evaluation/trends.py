@@ -56,7 +56,8 @@ class TrendsExtractor:
         condition = AlertCondition.model_validate(alert.condition)
         # Dispatcher short-circuits when threshold/bounds are missing, so both are present here.
         threshold = InsightThreshold.model_validate(alert.threshold.configuration)
-        assert threshold.bounds is not None
+        if threshold.bounds is None:
+            raise ValueError("TrendsExtractor requires threshold bounds — dispatcher invariant violated")
 
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
@@ -156,7 +157,12 @@ class TrendsExtractor:
                 current_index=1,
                 is_current_interval=False,
             )
-            return ExtractionResult(series=[sentinel], is_breakdown=has_breakdown, interval_type=interval_type)
+            return ExtractionResult(
+                series=[sentinel],
+                is_breakdown=has_breakdown,
+                interval_type=interval_type,
+                empty_query_result=True,
+            )
         return None
 
     def _to_series(

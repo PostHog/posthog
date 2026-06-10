@@ -15,9 +15,22 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
     return InsightThreshold(type=type_, bounds=InsightsThresholdBounds(lower=lower, upper=upper))
 
 
-def _result(series, *, is_breakdown=False, subject="The insight value", framed=True, interval_type=None):
+def _result(
+    series,
+    *,
+    is_breakdown=False,
+    subject="The insight value",
+    framed=True,
+    interval_type=None,
+    empty_query_result=False,
+):
     return ExtractionResult(
-        series=series, is_breakdown=is_breakdown, subject=subject, framed=framed, interval_type=interval_type
+        series=series,
+        is_breakdown=is_breakdown,
+        subject=subject,
+        framed=framed,
+        interval_type=interval_type,
+        empty_query_result=empty_query_result,
     )
 
 
@@ -105,6 +118,20 @@ def test_non_breakdown_no_breach_reports_value():
     result = evaluate_threshold(_single(50.0), ABSOLUTE, _threshold(lower=10))
     assert result.breaches == []
     assert result.value == 50.0
+
+
+def test_empty_query_result_reports_zero_even_for_breakdown():
+    # An empty query result reports value=0 regardless of breakdown (the metric is genuinely zero),
+    # matching the original _is_empty_query_result. Without the empty_query_result flag a breakdown
+    # would report None here.
+    sentinel = [
+        ComparableSeries(label="empty result", points=[SeriesPoint(None, 0.0), SeriesPoint(None, 0.0)], current_index=1)
+    ]
+    for is_breakdown in (False, True):
+        result = _result(sentinel, is_breakdown=is_breakdown, empty_query_result=True)
+        no_breach = evaluate_threshold(result, ABSOLUTE, _threshold(lower=-5))
+        assert no_breach.breaches == []
+        assert no_breach.value == 0
 
 
 def test_empty_result_sentinel_absolute_compares_zero():
