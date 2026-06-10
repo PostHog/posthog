@@ -37,18 +37,9 @@ const pluginJSON = require('./plugin.json')
 
 function buildMockMeta(partialConfig: Partial<PluginConfig> = {}): LocalMeta {
     const config: PluginConfig = { ...defaultConfig, ...partialConfig }
-    return {
-        global: {
-            ignoreCase: config.ignoreCase === 'true',
-            setAsInitialUserProperties: config.setAsInitialUserProperties === 'true',
-            setAsUserProperties: config.setAsUserProperties === 'true',
-            alwaysJson: config.alwaysJson === 'true',
-            parameters: new Set(
-                config.parameters ? config.parameters.split(',').map((parameter) => parameter.trim()) : null
-            ),
-        },
-        config: config,
-    } as LocalMeta
+    const meta = { global: {}, config: config } as LocalMeta
+    setupPlugin(meta)
+    return meta
 }
 
 describe('ParamsToPropertiesPlugin', () => {
@@ -131,6 +122,26 @@ describe('ParamsToPropertiesPlugin', () => {
 
             expect(meta.global.parameters.size).toBe(0)
         })
+
+        it('should add customNames keys to the parameters set', () => {
+            const config: PluginConfig = {
+                ...defaultConfig,
+                parameters: 'one_item',
+                customNames: { mapped_item: 'custom_name' },
+            }
+            const meta = {
+                global: {
+                    parameters: new Set(),
+                },
+                config,
+            } as LocalMeta
+
+            setupPlugin(meta)
+
+            expect(meta.global.parameters.size).toBe(2)
+            expect(meta.global.parameters.has('one_item')).toBeTruthy()
+            expect(meta.global.parameters.has('mapped_item')).toBeTruthy()
+        })
     })
 
     describe('plugin.json', () => {
@@ -149,7 +160,8 @@ describe('ParamsToPropertiesPlugin', () => {
                 expect(fields.has('suffix')).toBeTruthy()
                 expect(fields.has('parameters')).toBeTruthy()
                 expect(fields.has('alwaysJson')).toBeTruthy()
-                expect(fields.size).toEqual(7)
+                expect(fields.has('customNames')).toBeTruthy()
+                expect(fields.size).toEqual(8)
             }
         })
 
@@ -168,6 +180,7 @@ describe('ParamsToPropertiesPlugin', () => {
                 expect(fields.get('suffix')).toEqual('string')
                 expect(fields.get('parameters')).toEqual('string')
                 expect(fields.get('alwaysJson')).toEqual('choice')
+                expect(fields.get('customNames')).toEqual('dictionary')
             }
         })
     })
@@ -378,6 +391,107 @@ describe('ParamsToPropertiesPlugin', () => {
                 }
             } else {
                 expect(sourceEvent.properties).toBeDefined()
+            }
+        })
+
+        it('should store the property under its custom name', () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
+
+            const processedEvent = processEvent(
+                sourceEvent,
+                buildMockMeta({ customNames: { myUrlParameter: 'custom_name' } })
+            )
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['custom_name']).toEqual('1')
+                expect(processedEvent.properties['myUrlParameter']).not.toBeDefined()
+            } else {
+                expect(processedEvent.properties).toBeDefined()
+            }
+        })
+
+        it('should capture a parameter listed only in customNames', () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&fid=42')
+
+            const processedEvent = processEvent(sourceEvent, buildMockMeta({ customNames: { fid: 'follower_id' } }))
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['follower_id']).toEqual('42')
+                expect(processedEvent.properties['fid']).not.toBeDefined()
+            } else {
+                expect(processedEvent.properties).toBeDefined()
+            }
+        })
+
+        it("shouldn't apply prefix and suffix to custom names", () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1&fid=42')
+
+            const processedEvent = processEvent(
+                sourceEvent,
+                buildMockMeta({
+                    parameters: 'myUrlParameter, fid',
+                    prefix: 'prefix_',
+                    suffix: '_suffix',
+                    customNames: { fid: 'follower_id' },
+                })
+            )
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['follower_id']).toEqual('42')
+                expect(processedEvent.properties['prefix_myUrlParameter_suffix']).toEqual('1')
+            } else {
+                expect(processedEvent.properties).toBeDefined()
+            }
+        })
+
+        it('should fall back to prefix and suffix when the custom name is empty', () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
+
+            const processedEvent = processEvent(
+                sourceEvent,
+                buildMockMeta({ prefix: 'prefix_', suffix: '_suffix', customNames: { myUrlParameter: '' } })
+            )
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['prefix_myUrlParameter_suffix']).toEqual('1')
+            } else {
+                expect(processedEvent.properties).toBeDefined()
+            }
+        })
+
+        it('should use the custom name for $set and $set_once properties', () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
+
+            const processedEvent = processEvent(
+                sourceEvent,
+                buildMockMeta({
+                    setAsUserProperties: 'true',
+                    setAsInitialUserProperties: 'true',
+                    customNames: { myUrlParameter: 'custom_name' },
+                })
+            )
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['custom_name']).toEqual('1')
+                expect(processedEvent.properties.$set['custom_name']).toEqual('1')
+                expect(processedEvent.properties.$set_once['initial_custom_name']).toEqual('1')
+            } else {
+                expect(processedEvent.properties).toBeDefined()
+            }
+        })
+
+        it('should store the property under its custom name regardless of case', () => {
+            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&MyUrlParameter=1')
+
+            const processedEvent = processEvent(
+                sourceEvent,
+                buildMockMeta({ ignoreCase: 'true', customNames: { myUrlParameter: 'custom_name' } })
+            )
+
+            if (processedEvent.properties) {
+                expect(processedEvent.properties['custom_name']).toEqual('1')
+            } else {
+                expect(processedEvent.properties).toBeDefined()
             }
         })
 

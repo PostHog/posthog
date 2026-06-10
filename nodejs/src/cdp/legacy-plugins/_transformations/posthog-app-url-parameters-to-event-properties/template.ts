@@ -28,6 +28,15 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
                     'Comma separated list of URL query parameters to capture. Leaving this blank will capture nothing.',
             },
             {
+                key: 'customNames',
+                templating: false,
+                label: 'Custom property names',
+                type: 'dictionary',
+                default: {},
+                description:
+                    "Map a URL parameter to a custom property name e.g. map 'fid' to 'follower_id' to get fid -> follower_id. Parameters mapped here are captured automatically and stored under the custom name as-is, without the prefix and suffix.",
+            },
+            {
                 key: 'prefix',
                 templating: false,
                 label: 'Prefix',
