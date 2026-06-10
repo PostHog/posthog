@@ -1399,15 +1399,55 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
-def classify_message_is_agent_directed(event_text: str, task_title: str) -> bool:
-    """Classify whether a Slack thread reply is addressing the running PostHog
-    agent (instructions, corrections, questions) or side conversation between
-    humans (acknowledgements, off-topic chat).
+CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 
-    Defaults to ``False`` on any uncertainty — opposite of
-    ``classify_task_needs_repo``. A false positive here triggers an agent turn
-    on every "thanks", so we lean drop-by-default and let the user re-tag if a
-    real follow-up gets missed.
+# Feature flag that gates the untagged-thread followup path per org. Off by
+# default until rollout; turning it on for an org makes every message in a
+# tagged thread eligible for classification + forward, instead of requiring a
+# fresh ``@PostHog`` mention. Naming follows the ``posthog-slack-app-*`` prefix
+# the team uses for the Slack App's product flags.
+UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
+
+
+def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
+    """Return True if the integration's org has the untagged-thread followup
+    flag enabled. Fail-closed on any error — a transient PostHog API outage
+    must not silently enable the feature for everyone.
+    """
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            UNTAGGED_THREAD_FOLLOWUPS_FLAG,
+            f"slack_workspace:{slack_team_id}",
+            groups={"organization": str(integration.team.organization_id)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        return bool(enabled)
+    except Exception:
+        logger.exception(
+            "posthog_code_thread_message_feature_flag_check_failed",
+            slack_team_id=slack_team_id,
+            integration_id=integration.id,
+        )
+        return False
+
+
+def classify_message_is_agent_directed(
+    event_text: str,
+    task_title: str,
+    thread_history: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack thread reply is addressing the running PostHog
+    Slack App or side conversation between humans.
+
+    Default-deny: returns ``False`` for anything ambiguous. A false positive
+    here interrupts the Slack App's run on every "thanks"; a false negative
+    just means the user re-tags ``@PostHog`` — recoverable. The Haiku prompt
+    enumerates the narrow set of cases that count as agent-directed and
+    instructs it to return false on every other case, including uncertainty.
+
+    ``thread_history`` is the conversation so far (oldest first), as returned by
+    ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
     """
     stripped = event_text.strip()
     # Cheap pre-LLM filters. Emoji-only / reaction-only / one-word replies are
@@ -1420,22 +1460,47 @@ def classify_message_is_agent_directed(event_text: str, task_title: str) -> bool
     if word_count < 2:
         logger.info("classify_message_is_agent_directed_heuristic_one_word", event_text=event_text)
         return False
-    # ``:reaction_name:`` literals or pure-emoji lines.
     if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
         logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
         return False
 
+    # Render the tail of the thread for context. Bound the number of lines and
+    # the per-line length to keep the prompt small and predictable.
+    recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
+    history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
+
     prompt = (
-        "You are routing replies in a Slack thread where the PostHog AI agent is already "
-        "working on a task. Classify whether the latest message is *agent-directed* — "
-        "instructions, corrections, clarifications, follow-up asks, or context for the "
-        "task — versus *side conversation* between humans (acknowledgements like 'thanks' "
-        "or 'lgtm', off-topic chat, replies to other humans, status pings).\n\n"
-        "Lean conservative: when in doubt, return false. The agent will only see messages "
-        "you classify true, so a false negative is recoverable (the user re-tags) but a "
-        "false positive interrupts the agent's run.\n\n"
-        f"Task the agent is working on: {task_title}\n\n"
-        f"Latest message: {event_text}\n\n"
+        "You are a strict router deciding whether to wake the PostHog Slack App, which "
+        "is currently running a task in this Slack thread. The Slack App will only see "
+        "messages you classify as agent_directed=true. False positives interrupt its "
+        "run on every side comment; false negatives are recoverable because the human "
+        "can re-tag @PostHog. Default to false. Only return true when the evidence is "
+        "strong.\n\n"
+        "Return true ONLY when the latest message clearly meets at least one of:\n"
+        "  1. It directly addresses the bot/agent/PostHog by name (e.g. '@PostHog', "
+        "     'PostHog can you…', 'agent, please…', 'bot, …').\n"
+        "  2. It gives a concrete instruction or correction tied to the task the agent "
+        "     is working on (e.g. 'also scope it to org admins', 'use the new helper "
+        "     instead', 'the bug is in file X line Y', 'add a regression test for Z').\n"
+        "  3. It asks a question only the agent could answer about its current task or "
+        "     its just-posted progress update (e.g. 'why did you skip the migration?', "
+        "     'can you also handle the empty-list case?').\n"
+        "  4. It provides task-relevant context the agent clearly needs and is missing "
+        "     (e.g. the actual error message, the URL of the failing request, the "
+        "     repository or file path, the customer/team ID being investigated).\n\n"
+        "Return false (the safe default) for every other case, including:\n"
+        "  - Acknowledgements, social chat, reactions: 'thanks', 'lgtm', 'nice', "
+        "    'great', 'awesome', 'cool', 'lol', 'haha', emojis, GIFs, '+1'.\n"
+        "  - Messages clearly directed at another human (mentions another user, "
+        "    answers their question, refers to people in third person).\n"
+        "  - Status updates between humans: 'I'll take a look later', 'in a meeting', "
+        "    'pinging @X', 'fyi'.\n"
+        "  - Tangential discussion that's interesting but does not instruct the agent.\n"
+        "  - Speculative thinking out loud without an explicit ask.\n"
+        "  - Anything you are not confident about. Uncertainty ⇒ false.\n\n"
+        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
+        f"Thread so far (oldest first):\n{history_block}\n\n"
+        f"Latest message (from a human in this thread): {event_text}\n\n"
         'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
     )
     try:
@@ -2166,6 +2231,20 @@ def _route_thread_message(
     if mapping is None:
         return ROUTE_HANDLED_LOCALLY
 
+    # Feature-flag gate. Sits after the cheap mapping query — we only burn the
+    # PostHog API hit when there's an actual thread to consider — but before any
+    # user resolution or LLM call, so a workspace that hasn't been opted in to
+    # untagged followups pays nothing beyond one DB lookup per thread message.
+    if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
+        logger.info(
+            "posthog_code_thread_message_feature_flag_off",
+            slack_team_id=slack_team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            integration_id=mapping.integration_id,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
     # Resolve the user against the matched integration's workspace candidates.
     # On failure: silent drop — this code path is invoked for every message in
     # tagged threads, so posting a "couldn't identify you" reply per observer
@@ -2234,7 +2313,21 @@ def _route_thread_message(
         )
     else:
         task_title = mapping.task.title if mapping.task and mapping.task.title else ""
-        if not classify_message_is_agent_directed(event_text, task_title):
+        # Fetch the thread so far so the classifier can see what the agent last
+        # said and what humans are discussing. Best-effort: a Slack failure here
+        # downgrades us to classifying on text alone — better than dropping or
+        # crashing the webhook.
+        try:
+            thread_history = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
+        except Exception:
+            logger.exception(
+                "posthog_code_thread_message_history_fetch_failed",
+                slack_team_id=slack_team_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            thread_history = []
+        if not classify_message_is_agent_directed(event_text, task_title, thread_history):
             logger.info(
                 "posthog_code_thread_message_classified_chitchat",
                 slack_team_id=slack_team_id,

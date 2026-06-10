@@ -89,6 +89,13 @@ class TestRouteThreadMessage(TestCase):
             mentioning_slack_user_id="U_ALICE",
         )
 
+        # All the routing tests assume the per-org feature flag is rolled out to
+        # this workspace. The dedicated ``test_feature_flag_off_dropped`` test
+        # stops this patcher to exercise the off path.
+        self._ff_patcher = patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
     # --- Helpers -----------------------------------------------------------
 
     def _make_event(self, **overrides) -> dict:
@@ -195,6 +202,30 @@ class TestRouteThreadMessage(TestCase):
         mock_post_failure.assert_not_called()
         mock_start.assert_not_called()
 
+    # --- Feature flag gate ------------------------------------------------
+
+    def test_feature_flag_off_dropped(self):
+        """With the per-org untagged-thread-followups flag off, the routing must
+        drop after the mapping query — no user resolution, no classifier call,
+        no workflow start. This is the kill-switch the rollout depends on."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        # Override the setUp patcher so this test exercises the off branch.
+        self._ff_patcher.stop()
+        with (
+            patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=False),
+            patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
+            patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
+            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+        ):
+            result = self._route(self._make_event())
+        # Restart so addCleanup doesn't double-stop.
+        self._ff_patcher.start()
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_resolve.assert_not_called()
+        mock_classify.assert_not_called()
+        mock_start.assert_not_called()
+
     # --- Classifier bypass / decisions ------------------------------------
 
     @override_settings(DEBUG=False)
@@ -225,6 +256,50 @@ class TestRouteThreadMessage(TestCase):
 
         with (
             patch(
+                "products.slack_app.backend.api._collect_thread_messages",
+                return_value=[{"user": "Alice", "text": "@PostHog please fix X", "ts": "1000.0000"}],
+            ) as mock_collect,
+            patch(
+                "products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True
+            ) as mock_classify,
+            patch(
+                "products.slack_app.backend.api._start_thread_followup_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+        ):
+            result = self._route(self._make_event())
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_collect.assert_called_once()
+        mock_classify.assert_called_once()
+        # The classifier prompt should carry the task title and the thread history.
+        call_args = mock_classify.call_args[0]
+        assert call_args[1] == "Fix the broken dashboard export"
+        assert call_args[2] == [{"user": "Alice", "text": "@PostHog please fix X", "ts": "1000.0000"}]
+        mock_start.assert_called_once()
+
+    def test_other_user_chitchat_dropped(self):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        with (
+            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.api.classify_message_is_agent_directed", return_value=False),
+            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+        ):
+            result = self._route(self._make_event(text="lol thanks for that"))
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_start.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    def test_thread_history_fetch_failure_does_not_crash(self):
+        """If Slack hiccups on ``conversations_replies``, classify with empty
+        history rather than dropping the event silently or 5xx-ing the webhook."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        with (
+            patch(
+                "products.slack_app.backend.api._collect_thread_messages",
+                side_effect=RuntimeError("slack hiccup"),
+            ),
+            patch(
                 "products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True
             ) as mock_classify,
             patch(
@@ -234,21 +309,9 @@ class TestRouteThreadMessage(TestCase):
             result = self._route(self._make_event())
         assert result == ROUTE_HANDLED_LOCALLY
         mock_classify.assert_called_once()
-        # The classifier prompt should carry the task title so Haiku has context.
-        call_args = mock_classify.call_args[0]
-        assert call_args[1] == "Fix the broken dashboard export"
+        # Empty history passed through on failure.
+        assert mock_classify.call_args[0][2] == []
         mock_start.assert_called_once()
-
-    def test_other_user_chitchat_dropped(self):
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
-
-        with (
-            patch("products.slack_app.backend.api.classify_message_is_agent_directed", return_value=False),
-            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
-        ):
-            result = self._route(self._make_event(text="lol thanks for that"))
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_start.assert_not_called()
 
 
 class TestClassifyMessageIsAgentDirected(TestCase):
@@ -258,22 +321,22 @@ class TestClassifyMessageIsAgentDirected(TestCase):
         from products.slack_app.backend.api import classify_message_is_agent_directed
 
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed("ok", "do thing") is False
-            assert classify_message_is_agent_directed("k", "do thing") is False
+            assert classify_message_is_agent_directed("ok", "do thing", []) is False
+            assert classify_message_is_agent_directed("k", "do thing", []) is False
         mock_client.assert_not_called()
 
     def test_one_word_dropped_without_llm(self):
         from products.slack_app.backend.api import classify_message_is_agent_directed
 
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed("thanksverymuch", "do thing") is False
+            assert classify_message_is_agent_directed("thanksverymuch", "do thing", []) is False
         mock_client.assert_not_called()
 
     def test_emoji_only_dropped_without_llm(self):
         from products.slack_app.backend.api import classify_message_is_agent_directed
 
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed(":thumbsup: :tada:", "do thing") is False
+            assert classify_message_is_agent_directed(":thumbsup: :tada:", "do thing", []) is False
         mock_client.assert_not_called()
 
     def test_haiku_directed_true(self):
@@ -294,7 +357,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
         )()
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.return_value = fake_response
-            result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug")
+            result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug", [])
         assert result is True
 
     def test_haiku_directed_false(self):
@@ -315,7 +378,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
         )()
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.return_value = fake_response
-            result = classify_message_is_agent_directed("nice work team, going to lunch now", "fix the bug")
+            result = classify_message_is_agent_directed("nice work team, going to lunch now", "fix the bug", [])
         assert result is False
 
     def test_haiku_failure_defaults_to_drop(self):
@@ -326,5 +389,5 @@ class TestClassifyMessageIsAgentDirected(TestCase):
 
         with patch("products.slack_app.backend.api.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.side_effect = RuntimeError("boom")
-            result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug")
+            result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug", [])
         assert result is False
