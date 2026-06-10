@@ -29,6 +29,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     failureKindDescription,
     ineligibleKindDescription,
@@ -181,6 +182,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 name={scannerName}
                 description={`Observation of session ${observation.session_id}`}
                 resourceType={{ type: 'replay_vision' }}
+                actions={<ReplayVisionFeedbackButton />}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -215,7 +217,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </div>
                         <div>
                             <div className="text-xs text-muted mb-0.5">Session</div>
-                            <Link to={urls.sessionProfile(observation.session_id)}>{observation.session_id}</Link>
+                            <Link
+                                to={urls.sessionProfile(observation.session_id)}
+                                data-attr="vision-observation-session-link"
+                            >
+                                {observation.session_id}
+                            </Link>
                         </div>
                     </div>
                 </LemonCard>
@@ -465,6 +472,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             e.stopPropagation()
                             setRecordingExpanded(!recordingExpanded)
                         }}
+                        data-attr="vision-observation-recording-toggle"
                     />
                     <IconVideoCamera className="text-muted-alt" />
                     <h3 className="text-lg font-semibold m-0">Recording</h3>

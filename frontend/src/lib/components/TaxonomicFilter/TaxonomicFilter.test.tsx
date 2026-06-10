@@ -1115,6 +1115,79 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('promoted properties float to position 0 on search', () => {
+        // The API deliberately returns the promoted property *last* (after the decoys)
+        // so a passing assertion can only mean promotion reordered it, not the server order.
+        // Rows render the property's display label, while the decoys render their raw names.
+        const promotedFixtures: Record<string, { label: string; name: string; decoys: string[] }> = {
+            url: { label: 'Current URL', name: '$current_url', decoys: ['referrer_url', 'initial_url'] },
+            path: { label: 'Path name', name: '$pathname', decoys: ['file_path', 'initial_path'] },
+        }
+
+        beforeEach(() => {
+            // Recents persist to localStorage across tests; a leftover promoted property
+            // from an earlier test would otherwise render before our mock response loads.
+            localStorage.clear()
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': (req: { url: URL }) => {
+                        const search = req.url.searchParams.get('search') ?? ''
+                        const fixture = promotedFixtures[search]
+                        const names = fixture ? [...fixture.decoys, fixture.name] : []
+                        return [
+                            200,
+                            {
+                                results: names.map((name, index) => ({
+                                    ...mockEventPropertyDefinition,
+                                    id: `promoted-fixture-${index}`,
+                                    name,
+                                })),
+                                count: names.length,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+        })
+
+        const rowIndexFor = (text: string): number =>
+            parseInt(
+                (Array.from(document.querySelectorAll('[data-attr^="prop-filter-event_properties-"]'))
+                    .find((el) => el.textContent?.includes(text))
+                    ?.getAttribute('data-attr')
+                    ?.split('-')
+                    .pop() as string) ?? 'NaN'
+            )
+
+        it.each([['url'], ['path']])('searching %p floats the promoted property to row 0', async (searchTerm) => {
+            const { label, decoys } = promotedFixtures[searchTerm]
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), searchTerm)
+
+            // Activate the event-properties list so we assert on its rows, not the
+            // aggregated Suggested-filters tab that may be active by default.
+            await userEvent.click(screen.getByTestId('taxonomic-tab-event_properties'))
+
+            // Wait on a decoy (only present in our mock response) so we assert order
+            // after the real fetch rendered, not on a leftover/top-match promoted row.
+            await waitFor(() => {
+                expect(rowIndexFor(decoys[0])).toBeGreaterThan(-1)
+            })
+
+            expect(rowIndexFor(label)).toBe(0)
+            // the decoys the API returned first are pushed below the promoted row
+            for (const decoy of decoys) {
+                expect(rowIndexFor(decoy)).toBeGreaterThan(0)
+            }
+        })
+    })
+
     describe('log attribute value-match indicator', () => {
         const mockLogAttributes = {
             results: [

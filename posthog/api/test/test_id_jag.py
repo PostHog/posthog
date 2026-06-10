@@ -35,6 +35,7 @@ from posthog.api.id_jag import (
     issue_access_token,
 )
 from posthog.auth import IDJagAccessTokenAuthentication
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
@@ -122,6 +123,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         super().setUpTestData()
         cls.user.email = "user@example.com"
         cls.user.save()
+        cls.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        cls.organization.save()
         OrganizationDomain.objects.create(
             organization=cls.organization,
             domain=_VERIFIED_DOMAIN,
@@ -177,6 +182,29 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(header["alg"], "RS256")
         # kid matches the JWKS thumbprint so resource servers can select the key during rotation
         self.assertEqual(header["kid"], jwk_from_pem(_AS_PRIVATE_KEY_PEM).thumbprint())
+
+    def test_rejects_when_org_lacks_xaa_billing_feature(self) -> None:
+        # XAA is billing-gated: even a fully valid ID-JAG must be rejected when
+        # the organization that owns the verified domain is not entitled. The
+        # check runs after signature + membership verification, so the failure
+        # surfaces as access_denied (403) rather than the generic rejection.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        assertion = _make_id_jag()
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json()["error"], "access_denied")
+
+    def test_issue_access_token_helper_rejects_without_billing_feature(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        from posthog.api.id_jag import AccessDeniedError
+
+        assertion = _make_id_jag()
+        with self.assertRaises(AccessDeniedError):
+            issue_access_token(assertion, requested_scope=None, request_client_id=None)
 
     def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
         # IdPs are not required to put an email in `sub` — it may be an opaque
@@ -756,6 +784,10 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         super().setUp()
         self.user.email = "user@example.com"
         self.user.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        self.organization.save()
 
     def _mint_access_token(
         self,
@@ -802,6 +834,17 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["email"], self.user.email)
+
+    def test_rejects_when_org_loses_xaa_billing_feature(self) -> None:
+        # Entitlement is re-checked on every request, mirroring the membership
+        # re-validation: a token minted while the org was entitled must stop
+        # authenticating once the XAA billing feature is removed.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        token = self._mint_access_token(scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_scope_claim_drives_permission(self) -> None:
         # `user:read` is the scope needed for /api/users/@me/.

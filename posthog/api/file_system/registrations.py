@@ -448,7 +448,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "cohort",
-        "posthog",
+        "cohorts",
         "Cohort",
         undo_message="Send PATCH /api/projects/@current/cohorts/{id} with deleted=false.",
     )
