@@ -14,6 +14,7 @@ with workflow.unsafe.imports_passed_through():
         RecommendationsRefreshInputs,
         RecommendationsRefreshResult,
         RefreshBatchInputs,
+        RefreshBatchResult,
     )
 
 WORKFLOW_NAME = "error-tracking-recommendations-refresh"
@@ -50,32 +51,31 @@ class ErrorTrackingRecommendationsRefreshWorkflow(PostHogWorkflow):
 
         kicked = 0
         batches_failed = 0
-        # Process batches in concurrency-limited waves. Each wave runs up to
-        # max_concurrent_batches activities at once, capping in-flight CH/PG load.
-        for wave_start in range(0, len(batches), inputs.max_concurrent_batches):
-            wave = batches[wave_start : wave_start + inputs.max_concurrent_batches]
-            results = await asyncio.gather(
-                *[
-                    workflow.execute_activity(
-                        refresh_recommendations_batch_activity,
-                        RefreshBatchInputs(team_ids=batch),
-                        start_to_close_timeout=BATCH_START_TO_CLOSE_TIMEOUT,
-                        heartbeat_timeout=BATCH_HEARTBEAT_TIMEOUT,
-                        retry_policy=BATCH_RETRY_POLICY,
-                    )
-                    for batch in wave
-                ],
-                return_exceptions=True,
-            )
-            for result in results:
-                if isinstance(result, BaseException):
-                    batches_failed += 1
-                    workflow.logger.warning(
-                        "error_tracking.recommendations_refresh.batch_failed",
-                        extra={"error": str(result)},
-                    )
-                    continue
-                kicked += result.recommendations_kicked
+        # Keep up to max_concurrent_batches activities in flight at all times: the
+        # semaphore releases the moment one finishes, so the next batch starts
+        # immediately rather than waiting for a whole wave to drain.
+        semaphore = asyncio.Semaphore(inputs.max_concurrent_batches)
+
+        async def run_batch(batch: list[int]) -> RefreshBatchResult:
+            async with semaphore:
+                return await workflow.execute_activity(
+                    refresh_recommendations_batch_activity,
+                    RefreshBatchInputs(team_ids=batch),
+                    start_to_close_timeout=BATCH_START_TO_CLOSE_TIMEOUT,
+                    heartbeat_timeout=BATCH_HEARTBEAT_TIMEOUT,
+                    retry_policy=BATCH_RETRY_POLICY,
+                )
+
+        results = await asyncio.gather(*[run_batch(batch) for batch in batches], return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                batches_failed += 1
+                workflow.logger.warning(
+                    "error_tracking.recommendations_refresh.batch_failed",
+                    extra={"error": str(result)},
+                )
+                continue
+            kicked += result.recommendations_kicked
 
         return RecommendationsRefreshResult(
             teams_total=len(team_ids),

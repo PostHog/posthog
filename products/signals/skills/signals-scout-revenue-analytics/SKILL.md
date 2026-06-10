@@ -7,15 +7,12 @@ description: >
   broken Stripe↔person joins, deferred-revenue gaps), and goal-miss escalations.
   Emits findings only when they clear the confidence bar; otherwise writes durable
   memory and closes out empty. Self-contained peer in the signals-scout-* fleet —
-  no dependencies on other skills. Picked uniformly at random by the coordinator
-  alongside `signals-scout-general` and other specialists.
+  no dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  warehouse + analytics tools (external-data-sources-list, external-data-sync-logs,
-  query-trends, execute-sql, read-data-schema, dashboards-get-all,
-  data-warehouse-data-health-issues-retrieve).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the warehouse and analytics tools listed in the
+  body's MCP tools section.
 metadata:
   owner_team: signals
   scope: revenue_analytics
@@ -220,7 +217,7 @@ regresses, the finding lands with the right context already attached.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete dashboard ids,
+  Strong scout findings: confidence ≥ 0.85, with concrete dashboard ids,
   source labels, view names, and quantified impact in the evidence.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`

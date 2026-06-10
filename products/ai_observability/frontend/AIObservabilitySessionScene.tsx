@@ -43,16 +43,16 @@ export const scene: SceneExport = {
     logic: aiObservabilitySessionLogic,
 }
 
-export function AIObservabilitySessionScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sessionLogic = aiObservabilitySessionLogic({ tabId })
+export function AIObservabilitySessionScene(): JSX.Element {
+    const sessionLogic = aiObservabilitySessionLogic()
     const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query, tabId })
+    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query })
 
     useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={aiObservabilitySessionLogic} props={{ tabId }}>
-            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query, tabId }}>
+        <BindLogic logic={aiObservabilitySessionLogic} props={{}}>
+            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query }}>
                 <SessionSceneWrapper />
             </BindLogic>
         </BindLogic>
