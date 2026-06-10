@@ -1,5 +1,4 @@
 import uuid
-import asyncio
 from datetime import timedelta
 
 import pytest
@@ -59,6 +58,10 @@ def _batch_meta(meta: dict):
     return lambda team_ids: dict.fromkeys(team_ids, meta)
 
 
+def _run_batch_activity(inputs: RefreshBatchInputs) -> RefreshBatchResult:
+    return ActivityEnvironment().run(refresh_recommendations_batch_activity, inputs)
+
+
 class TestGetTeamBatchesActivity(ClickhouseTestMixin, APIBaseTest):
     def test_returns_only_teams_with_recent_exceptions(self):
         team_pageview_only = Team.objects.create(organization=self.organization, name="Pageviews")
@@ -106,11 +109,7 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
     def test_computes_recommendations_for_all_teams(self, _alerts, _long, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
-        result = asyncio.run(
-            ActivityEnvironment().run(
-                refresh_recommendations_batch_activity, RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
-            )
-        )
+        result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
         assert result.teams_processed == 2
         assert result.recommendations_kicked == 8
@@ -129,10 +128,10 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
-        first = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
+        first = _run_batch_activity(batch)
         assert first.recommendations_kicked == 8
 
-        second = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
+        second = _run_batch_activity(batch)
         # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
         # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 4
@@ -144,11 +143,7 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
     def test_failing_recommendation_reverts_claims_and_spares_others(self, _alerts, _long, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
-        result = asyncio.run(
-            ActivityEnvironment().run(
-                refresh_recommendations_batch_activity, RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
-            )
-        )
+        result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
         assert result.recommendations_kicked == 6
         alerts_rows = ErrorTrackingRecommendation.objects.filter(type="alerts")
@@ -162,11 +157,7 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=lambda team_ids: {})
     def test_missing_meta_reverts_claim(self, _alerts, _long, _source, _rate_limits):
-        result = asyncio.run(
-            ActivityEnvironment().run(
-                refresh_recommendations_batch_activity, RefreshBatchInputs(team_ids=[self.team.id])
-            )
-        )
+        result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id]))
 
         assert result.recommendations_kicked == 3
         alerts_row = ErrorTrackingRecommendation.objects.get(team_id=self.team.id, type="alerts")

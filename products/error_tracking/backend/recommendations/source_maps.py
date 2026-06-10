@@ -4,8 +4,6 @@ from typing import Any
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from posthog.models.team.team import Team
-
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
 
 from .base import Recommendation
@@ -23,9 +21,6 @@ LOOKBACK_HOURS = 24
 class SourceMapsRecommendation(Recommendation):
     type = "source_maps"
     refresh_interval = timedelta(hours=6)
-
-    def compute(self, team: Team) -> dict[str, Any]:
-        return self.compute_batch([team.id])[team.id]
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
         # `lang` is set on the resolved frame contents by cymbal — both browser JS

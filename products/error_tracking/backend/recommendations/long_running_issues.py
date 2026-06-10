@@ -15,40 +15,39 @@ from .base import Recommendation
 
 ISSUE_LIMIT = 5
 
-# Cross-team variant of the per-team HogQL query, on the offline cluster. The issue
-# state join carries only issue_id/first_seen/issue_status — pulling issue_name and
-# issue_description strings through the argMax states and join hash table blows query
-# memory once a few high-volume teams share a batch; names and descriptions come from
-# Postgres afterwards. Unlike the HogQL version this does not apply per-team test
-# account filters (impossible to express cross-team, acceptable for a recommendation
-# card).
 BATCH_QUERY = """
     SELECT
         events.team_id AS team_id,
-        events__state.issue_id AS issue_id,
-        any(events__state.first_seen) AS first_seen,
+        issue_state.issue_id AS issue_id,
+        any(issue_state.first_seen) AS first_seen,
         count() AS occurrences
     FROM events
     INNER JOIN (
         SELECT
             team_id,
-            cityHash64(fingerprint) AS fp_hash,
-            tupleElement(argMax(tuple(issue_id), version), 1) AS issue_id,
-            tupleElement(argMax(tuple(first_seen), version), 1) AS first_seen,
-            tupleElement(argMax(tuple(issue_status), version), 1) AS issue_status
-        FROM error_tracking_fingerprint_issue_state
-        WHERE team_id IN %(team_ids)s
-        GROUP BY team_id, fp_hash
-        HAVING argMax(is_deleted, version) = 0
-        SETTINGS optimize_aggregation_in_order=1
-    ) AS events__state
-        ON events.team_id = events__state.team_id
-        AND cityHash64({fingerprint_expr}) = events__state.fp_hash
+            fp_hash,
+            tupleElement(state, 1) AS issue_id,
+            tupleElement(state, 2) AS first_seen,
+            tupleElement(state, 3) AS issue_status
+        FROM (
+            SELECT
+                team_id,
+                cityHash64(fingerprint) AS fp_hash,
+                argMax((issue_id, first_seen, issue_status), version) AS state
+            FROM error_tracking_fingerprint_issue_state
+            WHERE team_id IN %(team_ids)s
+            GROUP BY team_id, fp_hash
+            HAVING argMax(is_deleted, version) = 0
+            SETTINGS optimize_aggregation_in_order=1
+        )
+    ) AS issue_state
+        ON events.team_id = issue_state.team_id
+        AND cityHash64({fingerprint_expr}) = issue_state.fp_hash
     WHERE events.team_id IN %(team_ids)s
         AND events.event = '$exception'
         AND events.timestamp >= now() - INTERVAL 7 DAY
-        AND events__state.issue_status = 'active'
-        AND events__state.first_seen < now() - INTERVAL 7 DAY
+        AND issue_state.issue_status = 'active'
+        AND issue_state.first_seen < now() - INTERVAL 7 DAY
     GROUP BY team_id, issue_id
     ORDER BY team_id ASC, first_seen ASC
     LIMIT %(issue_limit)s BY team_id
@@ -68,9 +67,6 @@ class LongRunningIssuesRecommendation(Recommendation):
     type = "long_running_issues"
     refresh_interval = timedelta(hours=6)
 
-    def compute(self, team: Team) -> dict[str, Any]:
-        return self.compute_batch([team.id])[team.id]
-
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
         tag_queries(
             product=ProductKey.ERROR_TRACKING,
@@ -86,6 +82,7 @@ class LongRunningIssuesRecommendation(Recommendation):
 
         issues_by_id = {
             issue.id: issue
+            # nosemgrep: idor-lookup-without-team (team_id__in scopes the lookup; background sweep, not user input)
             for issue in ErrorTrackingIssue.objects.filter(
                 team_id__in=team_ids, id__in=[issue_id for _, issue_id, _, _ in rows]
             ).only("id", "name", "description", "status")

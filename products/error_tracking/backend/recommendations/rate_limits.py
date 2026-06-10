@@ -1,7 +1,5 @@
 from typing import Any
 
-from posthog.models.team.team import Team
-
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
 from .base import Recommendation
@@ -19,9 +17,6 @@ class RateLimitsRecommendation(Recommendation):
     def is_completed(self, meta: dict[str, Any]) -> bool:
         rate_limits = meta.get("rate_limits") or []
         return bool(rate_limits) and all(r.get("enabled") for r in rate_limits)
-
-    def compute(self, team: Team) -> dict[str, Any]:
-        return self.compute_batch([team.id])[team.id]
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
         fields = [rate_limit["field"] for rate_limit in RATE_LIMITS]

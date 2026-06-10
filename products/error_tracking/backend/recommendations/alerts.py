@@ -5,8 +5,6 @@ from typing import Any
 
 from django.db.models import Q
 
-from posthog.models.team.team import Team
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 from .base import Recommendation
@@ -25,9 +23,6 @@ class AlertsRecommendation(Recommendation):
     def is_completed(self, meta: dict[str, Any]) -> bool:
         alerts = meta.get("alerts") or []
         return bool(alerts) and all(a.get("enabled") for a in alerts)
-
-    def compute(self, team: Team) -> dict[str, Any]:
-        return self.compute_batch([team.id])[team.id]
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
         event_filter = reduce(

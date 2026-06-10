@@ -183,6 +183,7 @@ def _refresh_rec_for_teams(
 
     claim_ts = timezone.now()
     stuck_threshold = claim_ts - COMPUTING_STUCK_AFTER
+    # nosemgrep: idor-lookup-without-team (team_id__in scopes the update; background sweep, not user input)
     ErrorTrackingRecommendation.objects.filter(team_id__in=team_ids, id__in=stale_ids).filter(
         Q(status=ErrorTrackingRecommendation.Status.READY)
         | Q(status=ErrorTrackingRecommendation.Status.COMPUTING, status_changed_at__lt=stuck_threshold)
@@ -191,6 +192,7 @@ def _refresh_rec_for_teams(
     # carry it, so rows owned by a concurrent worker (e.g. the on-demand API path)
     # are excluded here.
     claimed = dict(
+        # nosemgrep: idor-lookup-without-team (team_id__in scopes the lookup; background sweep, not user input)
         ErrorTrackingRecommendation.objects.filter(
             team_id__in=team_ids,
             id__in=stale_ids,
@@ -241,6 +243,7 @@ def _refresh_rec_for_teams(
 
 
 def _bulk_revert_to_ready(obj_ids: list) -> None:
+    # nosemgrep: idor-lookup-without-team (ids come from a prior team-scoped query)
     ErrorTrackingRecommendation.objects.filter(
         id__in=obj_ids,
         status=ErrorTrackingRecommendation.Status.COMPUTING,
