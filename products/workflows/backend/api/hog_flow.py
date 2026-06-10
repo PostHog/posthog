@@ -645,6 +645,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
+            # Forward guard for the legacy bad shape (see migration 0009): an event-based conversion
+            # goal stored as an object in `conversion.filters` (e.g. {"events": [...], "source": "events"})
+            # belongs in `conversion.events`. `conversion.filters` is an array of property filters, so the
+            # object both crashes the property picker and is invisible to the matcher. Relocate it here so
+            # no client (web UI, API, MCP) can persist the malformed shape; it then compiles through the
+            # conversion.events path below.
+            if isinstance(filters, dict) and filters.get("events"):
+                data["conversion"]["events"] = [*(conversion.get("events") or []), {"filters": filters}]
+                data["conversion"]["filters"] = []
+                filters = []
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
                 if self.context.get("is_draft"):

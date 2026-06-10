@@ -186,13 +186,17 @@ def test_load_deletion_request_rejects_property_removal():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "execution_mode, expected_status",
+    "execution_mode, start_status, expected_status",
     [
-        (ExecutionMode.IMMEDIATE, RequestStatus.COMPLETED),
-        (ExecutionMode.DEFERRED, RequestStatus.QUEUED),
+        (ExecutionMode.IMMEDIATE, RequestStatus.IN_PROGRESS, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.IN_PROGRESS, RequestStatus.QUEUED),
+        # A Dagster re-run after a mid-job failure starts from FAILED (the failure hook flipped it);
+        # finalize must still be able to complete/queue it.
+        (ExecutionMode.IMMEDIATE, RequestStatus.FAILED, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.FAILED, RequestStatus.QUEUED),
     ],
 )
-def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
+def test_finalize_deletion_request_transitions_status(execution_mode, start_status, expected_status):
     start_time = datetime.now() - timedelta(days=7)
     end_time = datetime.now()
     request = DataDeletionRequest.objects.create(
@@ -201,7 +205,7 @@ def test_finalize_deletion_request_transitions_status(execution_mode, expected_s
         events=["$pageview"],
         start_time=start_time,
         end_time=end_time,
-        status=RequestStatus.IN_PROGRESS,
+        status=start_status,
         execution_mode=execution_mode,
     )
 
