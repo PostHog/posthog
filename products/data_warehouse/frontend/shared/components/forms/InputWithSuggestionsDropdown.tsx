@@ -94,6 +94,7 @@ export function InputWithSuggestionsDropdown({
                                         icon={isCurrent ? <IconCheck /> : undefined}
                                         onClick={() => {
                                             onChange(suggestion)
+                                            setSearchTerm('')
                                             setOpen(false)
                                         }}
                                     >
