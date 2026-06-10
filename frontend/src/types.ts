@@ -149,6 +149,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
+    XAA_AUTHENTICATION = 'xaa_authentication',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
     DEDICATED_SUPPORT = 'dedicated_support',

@@ -3221,21 +3221,34 @@ export const projectSecretApiKeysCreateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysCreateBodyLabelMax),
-    scopes: zod.array(zod.string()),
+    scopes: zod
+        .array(zod.string())
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const projectSecretApiKeysUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysUpdateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysUpdateBodyLabelMax),
-    scopes: zod.array(zod.string()),
+    scopes: zod
+        .array(zod.string())
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const projectSecretApiKeysPartialUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysPartialUpdateBodyLabelMax).optional(),
-    scopes: zod.array(zod.string()).optional(),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
