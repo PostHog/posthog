@@ -96,28 +96,17 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                 closeSharedMetricModal: () => [],
             },
         ],
-        // The active tag(s) used both to filter the table and to drive tag-based selection.
-        // Clicking a tag activates it (replacing any previous one); clicking it again clears it.
+        // The active tags used both to filter the table and to drive tag-based selection.
+        // Tags are additive toggles: clicking a tag activates it, clicking it again deactivates it.
         filterTags: [
             [] as string[],
             {
-                selectByTag: (state, { tag }) => (state.length === 1 && state[0] === tag ? [] : [tag]),
+                selectByTag: (state, { tag }) =>
+                    state.includes(tag) ? state.filter((existingTag) => existingTag !== tag) : [...state, tag],
                 clearFilterTags: () => [],
                 setSearchTerm: () => [],
                 openSharedMetricModal: () => [],
                 closeSharedMetricModal: () => [],
-            },
-        ],
-        // The tag selection waiting to be applied once every page has loaded.
-        pendingTagSelection: [
-            null as { tag: string; alreadyAddedIds: SharedMetric['id'][] } | null,
-            {
-                selectByTag: (_, { tag, alreadyAddedIds }) => ({ tag, alreadyAddedIds }),
-                setSelectedMetricIds: () => null,
-                clearSelectedMetricIds: () => null,
-                clearFilterTags: () => null,
-                openSharedMetricModal: () => null,
-                closeSharedMetricModal: () => null,
             },
         ],
     }),
@@ -199,57 +188,47 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
 
-    listeners(({ actions, values }) => {
-        // Select every (still-addable) metric carrying the pending tag. Runs once all pages are loaded.
-        const applyPendingTagSelection = (): void => {
-            const pending = values.pendingTagSelection
-            if (!pending) {
+    listeners(({ actions, values }) => ({
+        openSharedMetricModal: () => {
+            actions.loadSharedMetrics()
+        },
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSharedMetrics()
+        },
+        loadSharedMetricsSuccess: () => {
+            // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
+            if (!values.searchTerm) {
+                actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
+            }
+            // Eagerly pull in the rest of the pages so the tag list and tag selection cover every metric.
+            if (values.sharedMetricsResponse?.next) {
+                actions.loadAllSharedMetrics(null)
+            }
+        },
+        // Additive toggle: clicking a tag selects its metrics, clicking it again deselects them.
+        // The tag buttons stay disabled until the full load finishes, so every page is available here.
+        selectByTag: ({ tag, alreadyAddedIds }) => {
+            const alreadyAdded = new Set(alreadyAddedIds)
+            const tagMetricIds = values.compatibleSharedMetrics
+                .filter((metric) => !alreadyAdded.has(metric.id) && metric.tags?.includes(tag))
+                .map((metric) => metric.id)
+
+            // filterTags already reflects the toggle: present → just activated, absent → just deactivated.
+            if (values.filterTags.includes(tag)) {
+                actions.setSelectedMetricIds(Array.from(new Set([...values.selectedMetricIds, ...tagMetricIds])))
                 return
             }
-            const alreadyAdded = new Set(pending.alreadyAddedIds)
-            const matching = values.compatibleSharedMetrics.filter(
-                (metric) => !alreadyAdded.has(metric.id) && metric.tags?.includes(pending.tag)
+            // Deactivated: drop this tag's metrics unless another active tag still covers them.
+            const activeTags = new Set(values.filterTags)
+            const removableIds = new Set(
+                values.compatibleSharedMetrics
+                    .filter(
+                        (metric) => metric.tags?.includes(tag) && !metric.tags?.some((other) => activeTags.has(other))
+                    )
+                    .map((metric) => metric.id)
             )
-            actions.setSelectedMetricIds(matching.map((metric) => metric.id))
-        }
-        return {
-            openSharedMetricModal: () => {
-                actions.loadSharedMetrics()
-            },
-            setSearchTerm: async (_, breakpoint) => {
-                await breakpoint(300)
-                actions.loadSharedMetrics()
-            },
-            loadSharedMetricsSuccess: () => {
-                // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
-                if (!values.searchTerm) {
-                    actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
-                }
-                // Eagerly pull in the rest of the pages so tag selection covers every metric.
-                if (values.sharedMetricsResponse?.next) {
-                    actions.loadAllSharedMetrics(null)
-                }
-            },
-            selectByTag: () => {
-                // Clicking the active tag again clears the filter and its selection.
-                if (values.filterTags.length === 0) {
-                    actions.clearSelectedMetricIds()
-                    return
-                }
-                // Wait for any in-flight (or still-needed) full load before selecting, so the
-                // selection includes metrics that have not been rendered yet.
-                if (values.sharedMetricsResponseLoading) {
-                    return
-                }
-                if (values.sharedMetricsResponse?.next) {
-                    actions.loadAllSharedMetrics(null)
-                    return
-                }
-                applyPendingTagSelection()
-            },
-            loadAllSharedMetricsSuccess: () => {
-                applyPendingTagSelection()
-            },
-        }
-    }),
+            actions.setSelectedMetricIds(values.selectedMetricIds.filter((id) => !removableIds.has(id)))
+        },
+    })),
 ])

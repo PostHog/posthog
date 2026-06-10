@@ -160,9 +160,13 @@ export function SharedMetricModal({
                                         size="xsmall"
                                         type="secondary"
                                         active={filterTags.includes(tag)}
-                                        loading={isLoadingAllSharedMetrics && filterTags.includes(tag)}
+                                        // Wait for every page so clicking a tag selects all of its metrics.
+                                        disabledReason={
+                                            isLoadingAllSharedMetrics ? 'Loading all metrics…' : undefined
+                                        }
                                         onClick={() => {
-                                            // Selects (and shows) every metric carrying this tag, across all pages.
+                                            // Toggle this tag: selects (and shows) every metric carrying it, across
+                                            // all pages — or deselects them if it was already active.
                                             selectByTag(tag, alreadyAddedIdsList)
                                         }}
                                     >

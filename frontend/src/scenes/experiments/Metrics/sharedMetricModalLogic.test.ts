@@ -86,7 +86,7 @@ describe('sharedMetricModalLogic', () => {
         await expectLogic(logic).toMatchValues({ availableTags: ['main', 'secondary'] })
     })
 
-    it('selectByTag selects matching metrics across pages and shows them', async () => {
+    it('selectByTag selects a tag-matching metric from a page that was not first rendered', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         }).toDispatchActions(['loadAllSharedMetricsSuccess'])
@@ -98,6 +98,89 @@ describe('sharedMetricModalLogic', () => {
             filterTags: ['secondary'],
             selectedMetricIds: [3],
             displayedMetrics: [expect.objectContaining({ id: 3 })],
+        })
+    })
+
+    it('tags are additive — clicking multiple tags accumulates the selection', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('main', [])
+        }).toMatchValues({ filterTags: ['main'], selectedMetricIds: [1] })
+
+        // a second tag adds to the selection rather than replacing it
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('secondary', [])
+        }).toMatchValues({
+            filterTags: ['main', 'secondary'],
+            selectedMetricIds: [1, 3],
+        })
+    })
+
+    it('clicking an active tag again deselects only that tag’s metrics', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+
+        logic.actions.selectByTag('main', [])
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('secondary', [])
+        }).toMatchValues({ selectedMetricIds: [1, 3] })
+
+        // toggling "main" back off removes metric 1 but leaves metric 3 (still under "secondary")
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('main', [])
+        }).toMatchValues({
+            filterTags: ['secondary'],
+            selectedMetricIds: [3],
+        })
+    })
+
+    it('a metric covered by another active tag stays selected when one tag is toggled off', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
+                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
+                    if (offset === 0) {
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}`,
+                                previous: null,
+                                results: [metric(1, NodeKind.ExperimentMetric, ['main', 'shared'])],
+                            },
+                        ]
+                    }
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            next: null,
+                            previous: null,
+                            results: [metric(3, NodeKind.ExperimentMetric, ['secondary', 'shared'])],
+                        },
+                    ]
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+
+        logic.actions.selectByTag('shared', []) // selects metrics 1 and 3 (both carry "shared")
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('main', []) // metric 1 also carries "main"
+        }).toMatchValues({ selectedMetricIds: [1, 3] })
+
+        // toggling "shared" off: metric 1 stays (still under "main"), metric 3 drops
+        await expectLogic(logic, () => {
+            logic.actions.selectByTag('shared', [])
+        }).toMatchValues({
+            filterTags: ['main'],
+            selectedMetricIds: [1],
         })
     })
 
@@ -115,33 +198,7 @@ describe('sharedMetricModalLogic', () => {
         })
     })
 
-    it('clicking the active tag again clears its selection and filter', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
-
-        await expectLogic(logic, () => {
-            logic.actions.selectByTag('secondary', [])
-        }).toMatchValues({ filterTags: ['secondary'], selectedMetricIds: [3] })
-
-        await expectLogic(logic, () => {
-            logic.actions.selectByTag('secondary', [])
-        }).toMatchValues({ filterTags: [], selectedMetricIds: [] })
-    })
-
-    it('selectByTag triggers a load when more pages remain, then selects across them', async () => {
-        // load only the first page, without waiting for the eager background load to finish
-        await expectLogic(logic, () => {
-            logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
-
-        // metric 3 ("secondary") came from the second page — selecting its tag picks it up
-        await expectLogic(logic, () => {
-            logic.actions.selectByTag('secondary', [])
-        }).toMatchValues({ selectedMetricIds: [3] })
-    })
-
-    it('setSearchTerm reloads with the search term and clears any active tag selection', async () => {
+    it('setSearchTerm reloads with the search term and clears any active tag filter', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         }).toDispatchActions(['loadAllSharedMetricsSuccess'])
