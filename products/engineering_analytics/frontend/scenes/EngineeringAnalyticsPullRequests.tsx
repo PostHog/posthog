@@ -74,11 +74,13 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         {
             title: 'CI',
             key: 'ci',
+            width: 190,
             render: (_, row) => <CIStatusTag rollup={row} />,
         },
         {
             title: 'Author',
             key: 'author',
+            width: 190,
             render: (_, row) => (
                 <div className="flex items-center gap-1.5">
                     {row.authorAvatarUrl && (
@@ -92,6 +94,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         {
             title: 'Opened',
             key: 'age',
+            width: 130,
             align: 'right',
             sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
             render: (_, row) => (
@@ -100,22 +103,18 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 </span>
             ),
         },
-        // Only merged PRs carry an open→merge duration, so the column is pure noise on the open-PRs view.
-        ...(stateFilter === 'open'
-            ? []
-            : ([
-                  {
-                      title: 'Open→merge',
-                      key: 'openToMerge',
-                      align: 'right',
-                      sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
-                      render: (_, row) => (
-                          <span className="text-xs whitespace-nowrap text-secondary">
-                              {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
-                          </span>
-                      ),
-                  },
-              ] satisfies LemonTableColumns<PullRequestRow>)),
+        {
+            title: 'Open→merge',
+            key: 'openToMerge',
+            width: 130,
+            align: 'right',
+            sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
+            render: (_, row) => (
+                <span className="text-xs whitespace-nowrap text-secondary">
+                    {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
+                </span>
+            ),
+        },
     ]
 
     return (
