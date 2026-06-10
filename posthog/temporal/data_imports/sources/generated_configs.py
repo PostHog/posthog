@@ -578,6 +578,7 @@ class MondaySourceConfig(config.Config):
 @config.config
 class MongoDBSourceConfig(config.Config):
     connection_string: str
+    database_name: str | None = None
 
 
 @config.config
