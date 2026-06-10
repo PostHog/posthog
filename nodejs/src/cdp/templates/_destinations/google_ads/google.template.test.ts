@@ -59,7 +59,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"},"conversionValue":100,"currency":"USD","transactionId":"1234567890"}]}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventSource":"WEB","eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"},"conversionValue":100,"currency":"USD","transactionId":"1234567890"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -96,7 +96,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventSource":"WEB","eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -134,7 +134,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventSource":"WEB","eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",

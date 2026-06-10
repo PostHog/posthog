@@ -101,6 +101,7 @@ let body := {
     ],
     'events': [
         {
+            'eventSource': 'WEB',
             'eventTimestamp': inputs.conversionDateTime,
             'adIdentifiers': {
                 'gclid': inputs.gclid
