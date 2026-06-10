@@ -45,7 +45,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration, Integration, _is_safe_github_ref
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
@@ -1322,6 +1322,20 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # These reach the GitHub API URL path (the repo also via `first_for_team_repository`'s
+        # access check, before `get_branch_diff` runs its own validation). Validate here too so a
+        # crafted artefact value can't redirect the authenticated request (path traversal / query
+        # injection). The same charset/anti-traversal rule covers a bare name or `owner/repo`.
+        if (
+            not _is_safe_github_ref(repository)
+            or not _is_safe_github_ref(branch)
+            or (base_branch and not _is_safe_github_ref(base_branch))
+        ):
+            return Response(
+                {"error": "Invalid repository or branch."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
         if github is None:
             return Response(
@@ -1368,7 +1382,13 @@ class SignalReportArtefactViewSet(
                 {"error": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({"diff": result["diff"], "base_branch": result["base_branch"]})
+        return Response(
+            {
+                "diff": result["diff"],
+                "base_branch": result["base_branch"],
+                "truncated": result.get("truncated", False),
+            }
+        )
 
 
 @extend_schema_view(list=extend_schema(exclude=True))

@@ -509,7 +509,10 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     content = serializers.JSONField(read_only=True, help_text="The artefact payload, parsed from storage.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the artefact was created.")
     updated_at = serializers.DateTimeField(
-        read_only=True, allow_null=True, help_text="When the artefact was last updated (null if never)."
+        read_only=True,
+        allow_null=True,
+        help_text="When the artefact was last written — set on creation and refreshed on each edit. "
+        "Null only for rows created before this field existed.",
     )
 
 
@@ -523,4 +526,8 @@ class PushedBranchDiffResponseSerializer(serializers.Serializer):
     base_branch = serializers.CharField(
         read_only=True,
         help_text="The base branch the diff was computed against (resolved to the repo default when the artefact omits one).",
+    )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the diff was too large to return in full and has been truncated.",
     )

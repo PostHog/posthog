@@ -1102,8 +1102,28 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
             result = github.get_branch_diff("PostHog/posthog", "feature/nested-branch", "master")
-            assert result == {"success": True, "diff": "diff --git a b", "base_branch": "master"}
+            assert result == {
+                "success": True,
+                "diff": "diff --git a b",
+                "base_branch": "master",
+                "truncated": False,
+            }
             mock_get.assert_called_once()
+
+    def test_get_branch_diff_truncates_oversized_diff(self):
+        from posthog.models.integration import _MAX_BRANCH_DIFF_CHARS
+
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        oversized = "x" * (_MAX_BRANCH_DIFF_CHARS + 100)
+        mock_response = MagicMock(status_code=200, text=oversized)
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_branch_diff("PostHog/posthog", "feature/huge", "master")
+        assert result["success"] is True
+        assert result["truncated"] is True
+        assert len(result["diff"]) < len(oversized)
+        assert result["diff"].startswith("x" * 100)
+        assert "truncated" in result["diff"]
 
     @parameterized.expand(
         [

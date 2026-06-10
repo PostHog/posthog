@@ -36695,6 +36695,8 @@ export namespace Schemas {
       readonly diff: string;
       /** The base branch the diff was computed against (resolved to the repo default when the artefact omits one). */
       readonly base_branch: string;
+      /** True when the diff was too large to return in full and has been truncated. */
+      readonly truncated: boolean;
     }
 
     export interface QuarantineInput {
@@ -39702,7 +39704,7 @@ export namespace Schemas {
       /** When the artefact was created. */
       readonly created_at: string;
       /**
-         * When the artefact was last updated (null if never).
+         * When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.
          * @nullable
          */
       readonly updated_at: string | null;

@@ -89,8 +89,16 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
-                finding = SignalFinding.model_validate_json(artefact.content)
-                findings_by_signal[finding.signal_id] = finding
+                try:
+                    finding = SignalFinding.model_validate_json(artefact.content)
+                except ValidationError:
+                    logger.warning(
+                        "Ignoring signal_finding artefact with incompatible schema (likely written by the legacy path)",
+                        report_id=report_id,
+                        artefact_id=artefact.id,
+                    )
+                else:
+                    findings_by_signal[finding.signal_id] = finding
             case SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
                 try:
                     actionability = ActionabilityAssessment.model_validate_json(artefact.content)
@@ -101,7 +109,14 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
                         artefact_id=artefact.id,
                     )
             case SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                priority = PriorityAssessment.model_validate_json(artefact.content)
+                try:
+                    priority = PriorityAssessment.model_validate_json(artefact.content)
+                except ValidationError:
+                    logger.warning(
+                        "Ignoring priority artefact with incompatible schema (likely written by the legacy path)",
+                        report_id=report_id,
+                        artefact_id=artefact.id,
+                    )
 
     findings = list(findings_by_signal.values())
     if not findings or actionability is None:

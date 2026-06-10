@@ -92,6 +92,10 @@ GITHUB_API_VERSION = "2022-11-28"
 _GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
+# Upper bound on the branch-diff text we return, to keep a pathological diff (generated/vendored
+# files) from bloating the JSON response and worker memory. ~1 MB of text.
+_MAX_BRANCH_DIFF_CHARS = 1_000_000
+
 
 def _is_safe_github_ref(ref: str) -> bool:
     """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
@@ -2637,7 +2641,14 @@ class GitHubIntegration(GitHubIntegrationBase):
             return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
             return {"success": False, "error": response.text, "status_code": response.status_code}
-        return {"success": True, "diff": response.text, "base_branch": base_branch}
+        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
+        # the consumer can tell the diff was cut rather than silently showing a partial diff.
+        diff_text = response.text
+        truncated = len(diff_text) > _MAX_BRANCH_DIFF_CHARS
+        if truncated:
+            diff_text = diff_text[:_MAX_BRANCH_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "base_branch": base_branch, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

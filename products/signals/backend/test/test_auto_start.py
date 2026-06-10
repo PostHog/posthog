@@ -1,13 +1,20 @@
 import pytest
+from unittest.mock import patch
 
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.auto_start import ReviewerContent, _resolve_autostart_assignee
-from products.signals.backend.models import SignalUserAutonomyConfig
+from products.signals.backend import auto_start
+from products.signals.backend.auto_start import (
+    ReviewerContent,
+    _create_implementation_task_if_absent,
+    _resolve_autostart_assignee,
+)
+from products.signals.backend.models import SignalReport, SignalReportTask, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import Priority
+from products.tasks.backend.models import Task
 
 
 @pytest.fixture
@@ -57,3 +64,45 @@ def test_resolve_autostart_assignee(organization, team, autostart_priority, repo
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_if_absent_is_idempotent(organization, team):
+    # The locked create guards against duplicate auto-start tasks: a second evaluation that
+    # observes the link row must no-op rather than spawn another Task / draft PR.
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    def _fake_create_and_run(**kwargs):
+        return Task.objects.create(
+            team=team,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            created_by=user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    kwargs = {
+        "team_id": team.id,
+        "report_id": str(report.id),
+        "title": "t",
+        "description": "d",
+        "user_id": user.id,
+        "repository": "owner/repo",
+        "base_branch": None,
+    }
+    with patch.object(auto_start.Task, "create_and_run", side_effect=_fake_create_and_run) as mock_create:
+        first = _create_implementation_task_if_absent(**kwargs)
+        second = _create_implementation_task_if_absent(**kwargs)
+
+    assert first is not None
+    assert second is None
+    assert mock_create.call_count == 1
+    assert (
+        SignalReportTask.objects.filter(
+            report=report, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        ).count()
+        == 1
+    )

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import TypedDict, TypeVar
 
+from django.db import transaction
+
 import structlog
 from pydantic import BaseModel, ValidationError
 
@@ -79,6 +81,56 @@ def _build_autostart_task_description(
         f"from [an inbox report]({report_deep_link}).' - "
         "so the human reviewer can jump straight to it."
     )
+
+
+def _create_implementation_task_if_absent(
+    *,
+    team_id: int,
+    report_id: str,
+    title: str,
+    description: str,
+    user_id: int,
+    repository: str,
+    base_branch: str | None,
+) -> Task | None:
+    """Create the implementation task + its `SignalReportTask` link, serialized per report.
+
+    Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
+    the agentic pipeline, and custom agents — so two evaluations can race. A bare check-then-create
+    would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
+    workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
+    inside the lock makes the decision atomic: the second evaluation blocks, then sees the link row
+    and returns ``None``. Returns the created ``Task``, or ``None`` if one already exists / the
+    report is gone.
+    """
+    with transaction.atomic():
+        if SignalReport.objects.select_for_update().filter(id=report_id).first() is None:
+            return None
+        already_started = SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        ).exists()
+        if already_started:
+            return None
+        team = Team.objects.select_related("organization").get(id=team_id)
+        task = Task.create_and_run(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            user_id=user_id,
+            repository=repository,
+            branch=base_branch,
+            signal_report_id=report_id,
+            posthog_mcp_scopes="read_only",
+            interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+        )
+        SignalReportTask.objects.create(
+            team_id=team_id,
+            report_id=report_id,
+            task=task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        return task
 
 
 def _resolve_autostart_assignee(
@@ -158,13 +210,17 @@ async def maybe_autostart_implementation_task(
     Idempotent: skipped if an IMPLEMENTATION task already exists for the report,
     if the report is not immediately actionable, if it's already addressed, if
     priority is missing, if there are no suggested reviewers, or if no reviewer's
-    autonomy threshold is met.
+    autonomy threshold is met. The "already exists" check is enforced atomically
+    under a row lock in `_create_implementation_task_if_absent`, so concurrent
+    evaluations (reviewer-edit hook, pipeline, custom agent) can't double-start.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
     their report and artefacts. Callers should wrap this in try/except so an
     autostart failure does not fail the report itself.
     """
+    # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
+    # the authoritative, race-free check happens under the lock below.
     task_exists = await SignalReportTask.objects.filter(
         team_id=team_id, report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
     ).aexists()
@@ -177,7 +233,6 @@ async def maybe_autostart_implementation_task(
     ):
         return
 
-    team = await Team.objects.select_related("organization").aget(id=team_id)
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
 
@@ -191,30 +246,24 @@ async def maybe_autostart_implementation_task(
     if repository and team_config:
         base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
 
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
-        team=team,
+    task = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
+        team_id=team_id,
+        report_id=report_id,
         title=title,
         description=_build_autostart_task_description(
             report_id=report_id, summary=summary, repository=repository, priority=priority
         ),
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
-        branch=base_branch,
-        signal_report_id=report_id,
-        posthog_mcp_scopes="read_only",
-        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+        base_branch=base_branch,
     )
+    if task is None:
+        # Another evaluation won the race and already created the implementation task.
+        return
     task_run = await task.runs.order_by("-created_at").afirst()
     if task_run is None:
         raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
 
-    await SignalReportTask.objects.acreate(
-        team_id=team_id,
-        report_id=report_id,
-        task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-    )
     await aappend_task_run_artefact(
         team_id=team_id,
         report_id=report_id,
