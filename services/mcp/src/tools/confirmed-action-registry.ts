@@ -27,8 +27,9 @@ export function setConfirmedActionRuntime(runtime: ConfirmedActionRuntime | unde
 export function getConfirmedActionRuntime(): ConfirmedActionRuntime {
     if (!installed) {
         throw new Error(
-            'ConfirmedActionRuntime not installed. Call setConfirmedActionRuntime({codec, ledger}) at startup ' +
-                'before any tool handler with a `confirmed_action` declaration runs.'
+            'ConfirmedActionRuntime not installed. The confirmed_action paradigm is disabled on this server — ' +
+                'set MCP_SIGNED_STATE_KEY to at least 32 bytes and restart. ' +
+                '(In tests, call setConfirmedActionRuntime({codec, ledger}) before exercising prepare/execute handlers.)'
         )
     }
     return installed

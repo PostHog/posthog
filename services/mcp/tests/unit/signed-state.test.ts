@@ -100,24 +100,21 @@ describe('SignedStateCodec', () => {
 })
 
 describe('loadSigningKeyFromEnv', () => {
-    it('throws in production when key is missing or too short', () => {
+    it('throws when the key is missing, regardless of NODE_ENV', () => {
+        expect(() => loadSigningKeyFromEnv({})).toThrow(/must be set/)
+        expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'development' })).toThrow(/must be set/)
         expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'production' })).toThrow(/must be set/)
-        expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'production', MCP_SIGNED_STATE_KEY: 'short' })).toThrow(
-            /must be set/
-        )
+        expect(() => loadSigningKeyFromEnv({ NODE_ENV: 'staging' })).toThrow(/must be set/)
     })
 
-    it('returns a dev placeholder outside production', () => {
-        const key = loadSigningKeyFromEnv({ NODE_ENV: 'development' })
-        expect(key.length).toBeGreaterThan(0)
+    it('throws when the key is shorter than 32 bytes', () => {
+        expect(() => loadSigningKeyFromEnv({ MCP_SIGNED_STATE_KEY: 'short' })).toThrow(/must be set/)
+        expect(() => loadSigningKeyFromEnv({ MCP_SIGNED_STATE_KEY: 'a'.repeat(31) })).toThrow(/must be set/)
     })
 
-    it('returns the configured key when present', () => {
+    it('returns the configured key when long enough', () => {
         const longKey = 'a'.repeat(32)
-        const key = loadSigningKeyFromEnv({
-            NODE_ENV: 'production',
-            MCP_SIGNED_STATE_KEY: longKey,
-        })
+        const key = loadSigningKeyFromEnv({ MCP_SIGNED_STATE_KEY: longKey })
         expect(key.toString()).toBe(longKey)
     })
 })

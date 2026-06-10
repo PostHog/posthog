@@ -143,23 +143,19 @@ export class SignedStateCodec {
 }
 
 /**
- * Load the signing key from the environment. In production, refuses to
- * start without a key of sufficient length (mirrors Django `SECRET_KEY`
- * guard). In dev/test, falls back to a loud-warning placeholder.
+ * Load the signing key from the environment. Throws unconditionally if
+ * the key is missing or under `SIGNING_KEY_MIN_BYTES`. No NODE_ENV gate
+ * and no dev fallback — a deterministic placeholder would be publicly
+ * known via this source file, so a leaked key would let any
+ * authenticated user (or prompt-injected model) forge tokens for any
+ * other user. Callers that want to boot without the paradigm available
+ * should catch and continue (see `createApp` for the canonical pattern).
  */
 export function loadSigningKeyFromEnv(env: NodeJS.ProcessEnv = process.env): Buffer {
     const raw = env[SIGNING_KEY_ENV_VAR] ?? ''
     const key = Buffer.from(raw, 'utf8')
     if (key.length < SIGNING_KEY_MIN_BYTES) {
-        if (env.NODE_ENV === 'production') {
-            throw new Error(
-                `${SIGNING_KEY_ENV_VAR} must be set to at least ${SIGNING_KEY_MIN_BYTES} bytes in production`
-            )
-        }
-        console.warn(
-            `[signed-state] ${SIGNING_KEY_ENV_VAR} not set or too short; using insecure dev placeholder. Never deploy this.`
-        )
-        return Buffer.from('dev-placeholder-signing-key-do-not-use-in-prod', 'utf8')
+        throw new Error(`${SIGNING_KEY_ENV_VAR} must be set to at least ${SIGNING_KEY_MIN_BYTES} bytes`)
     }
     return key
 }

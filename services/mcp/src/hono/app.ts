@@ -33,10 +33,23 @@ export function createApp(redis: RedisWithPing): App {
     // tool dispatch. createApp may be invoked multiple times (e.g. tests
     // creating fresh app instances) — each call overwrites the singleton;
     // that's intentional, the latest installation wins.
-    setConfirmedActionRuntime({
-        codec: new SignedStateCodec(loadSigningKeyFromEnv()),
-        ledger: new NonceLedger(redis),
-    })
+    //
+    // No MCP_SIGNED_STATE_KEY → skip install. Tools without confirmed_action
+    // keep working; -prepare/-execute calls throw at request time with a
+    // message pointing at the missing env var. Log loudly so ops sees the
+    // misconfig before a real confirmed_action tool lands.
+    try {
+        setConfirmedActionRuntime({
+            codec: new SignedStateCodec(loadSigningKeyFromEnv()),
+            ledger: new NonceLedger(redis),
+        })
+    } catch (err) {
+        setConfirmedActionRuntime(undefined)
+        console.error(
+            `[mcp] CRITICAL: confirmed-action paradigm disabled — ${(err as Error).message}. ` +
+                `Any -prepare/-execute tool call will fail until this is fixed.`
+        )
+    }
 
     app.use('*', securityHeaders)
     app.use('*', httpMetrics)
