@@ -185,20 +185,6 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
-export type ExternalDataSchemaApiRowFiltersItemOperator =
-    (typeof ExternalDataSchemaApiRowFiltersItemOperator)[keyof typeof ExternalDataSchemaApiRowFiltersItemOperator]
-
-export const ExternalDataSchemaApiRowFiltersItemOperator = {
-    '': '>',
-    '': '>=',
-    '': '<',
-    '': '<=',
-    '': '=',
-    '': '!=',
-    In: 'IN',
-    NotIn: 'NOT IN',
-} as const
-
 /**
  * @nullable
  */
@@ -206,7 +192,8 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
 export type ExternalDataSchemaApiRowFiltersItem = {
     column: string
-    operator: ExternalDataSchemaApiRowFiltersItemOperator
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
     /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
@@ -334,23 +321,10 @@ export interface PaginatedExternalDataSchemaListApi {
  */
 export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
-export type PatchedExternalDataSchemaApiRowFiltersItemOperator =
-    (typeof PatchedExternalDataSchemaApiRowFiltersItemOperator)[keyof typeof PatchedExternalDataSchemaApiRowFiltersItemOperator]
-
-export const PatchedExternalDataSchemaApiRowFiltersItemOperator = {
-    '': '>',
-    '': '>=',
-    '': '<',
-    '': '<=',
-    '': '=',
-    '': '!=',
-    In: 'IN',
-    NotIn: 'NOT IN',
-} as const
-
 export type PatchedExternalDataSchemaApiRowFiltersItem = {
     column: string
-    operator: PatchedExternalDataSchemaApiRowFiltersItemOperator
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
     /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
@@ -1344,23 +1318,10 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_column_selection?: boolean
 }
 
-export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator =
-    (typeof ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator)[keyof typeof ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator]
-
-export const ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator = {
-    '': '>',
-    '': '>=',
-    '': '<',
-    '': '<=',
-    '': '=',
-    '': '!=',
-    In: 'IN',
-    NotIn: 'NOT IN',
-} as const
-
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
     column: string
-    operator: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
     /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
