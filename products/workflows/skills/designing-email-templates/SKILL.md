@@ -9,10 +9,8 @@ Use this skill when creating or editing email templates for PostHog workflows �
 
 ## Two ways to produce a template
 
-- **Author the HTML yourself** (`workflows-create-email-template`) — full control over markup and copy. The template stores exactly what you write; you remain its editor, round-tripping changes over MCP.
-- **Have PostHog generate it** (`workflows-generate-email-template`) — one prompt (optionally with a brand URL) produces a complete template with an Unlayer design, so humans can edit it visually in the PostHog editor afterwards.
-
-Pick based on who edits next: hand-off to humans in the visual editor → generate; precise control or programmatic iteration → author.
+- **Author the HTML yourself** (`workflows-create-email-template`) — the default and the high-quality path. You control every pixel and remain the template's editor, round-tripping changes over MCP. Read [references/design-guidelines.md](references/design-guidelines.md) before writing markup — it covers committing to a design direction, typography, color, and the patterns that make an email look designed rather than generated.
+- **Have PostHog generate it** (`workflows-generate-email-template`) — one prompt (optionally with a brand URL) produces a complete template with an Unlayer design. Use when the next editor is a human who needs the visual editor; the block-based output trades design control for that editability.
 
 ## Authoring email-client-safe HTML
 
@@ -65,6 +63,17 @@ Call `workflows-create-email-template` with:
 - `subject` is required for email templates.
 - Always provide `text` — it's the fallback for clients that block HTML and improves deliverability.
 - The tool result renders an inline preview and returns an edit link into the PostHog library.
+
+### Sending HTML in a tool call
+
+Pass the HTML directly as the `content.email.html` string in the tool call — drafting it in a scratch file first is only useful if you want a local preview. Liquid tags (`{{ }}`, `{% %}`) and CSS braces are ordinary characters inside a JSON string; only standard JSON escaping applies (`"` → `\"`, newlines → `\n`). Emitting the document as compact single-line HTML keeps the escaping surface small. If the tool call is rejected as malformed, fix the JSON string escaping and resend the same call.
+
+### Braces and templating engines
+
+PostHog has two templating engines, and `hog` treats `{` as syntax — HTML run through it fails to compile. Keep authored HTML on `liquid` everywhere it travels:
+
+- `content.templating` defaults to `liquid` on templates created via the API.
+- When wiring HTML into a workflow's `function_email` action inputs directly, set `"templating": "liquid"` on the email input so the braces are preserved verbatim.
 
 ## Editing a template (read–modify–write)
 
