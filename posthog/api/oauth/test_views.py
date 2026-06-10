@@ -2705,6 +2705,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("code=", response.json()["redirect_to"])
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
         # An existing token covering the (optional-only) request must not auto-approve
         # below the required floor; the consent screen handles granting the full set.
