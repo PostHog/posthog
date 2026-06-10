@@ -131,6 +131,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             with self.timings.measure("error_tracking_query_event_fetch"):
                 event_result = execute_hogql_query(
                     query=parse_select(
+                        # The explicit LIMIT matters: without one, execute_hogql_query applies
+                        # the default 100-row limit and silently drops payloads beyond it.
                         """
                         SELECT uuid, distinct_id, timestamp, properties
                         FROM events
@@ -138,11 +140,13 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             AND uuid IN {uuids}
                             AND timestamp >= {date_from}
                             AND timestamp <= {date_to}
+                        LIMIT {event_limit}
                         """,
                         placeholders={
                             "uuids": ast.Constant(value=sorted(uuids)),
                             "date_from": ast.Constant(value=self.date_from),
                             "date_to": ast.Constant(value=self.date_to),
+                            "event_limit": ast.Constant(value=len(uuids)),
                         },
                     ),
                     team=self.team,
