@@ -105,32 +105,30 @@ export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string =>
     return `[Action:${action.id}]`
 }
 
-// An empty wait condition compiles to always-true bytecode (op TRUE), which would match on entry and
-// wake the job on every event. We detect that exact compiled program and treat such a condition as
-// absent. Keying on the bytecode rather than the presence of `properties` keeps a real condition that
-// is expressed through events/actions filters (and so has no top-level `properties`) evaluable. Both
-// the versioned `_H` and the legacy `_h` compilers emit TRUE (29) as the whole program for an empty
-// filter.
-const ALWAYS_TRUE_BYTECODES: readonly unknown[][] = [
-    ['_H', 1, 29],
-    ['_h', 29],
-]
-
-function isAlwaysTrueBytecode(bytecode: unknown): boolean {
+// A wait condition that targets nothing compiles to always-true bytecode (Python's filter compiler
+// returns `Constant(true)` for an empty filter), which would match on entry and wake the job on every
+// event. We detect that structurally — the same way the compiler decides: a filter is empty when it
+// has no properties, no events, no actions, and no test-account filtering. Checking the structure
+// rather than the compiled bytecode is robust to bytecode/version changes (no need to enumerate the
+// always-true forms) and keeps a real condition expressed through any of those fields evaluable.
+export function isEvaluableCondition(condition?: {
+    filters?: {
+        properties?: unknown[]
+        events?: unknown[]
+        actions?: unknown[]
+        filter_test_accounts?: boolean
+    }
+}): boolean {
+    const filters = condition?.filters
+    if (!filters) {
+        return false
+    }
     return (
-        Array.isArray(bytecode) &&
-        ALWAYS_TRUE_BYTECODES.some(
-            (pattern) => pattern.length === bytecode.length && pattern.every((op, i) => op === bytecode[i])
-        )
+        (filters.properties?.length ?? 0) > 0 ||
+        (filters.events?.length ?? 0) > 0 ||
+        (filters.actions?.length ?? 0) > 0 ||
+        Boolean(filters.filter_test_accounts)
     )
-}
-
-// A wait condition is only worth evaluating when it has a real compiled filter: a non-empty bytecode
-// that isn't the always-true program. Empty, missing, or always-true conditions are treated as absent
-// so the wait relies on its `events` / the step timeout instead.
-export function isEvaluableCondition(condition?: { filters?: { bytecode?: unknown } }): boolean {
-    const bytecode = condition?.filters?.bytecode
-    return Array.isArray(bytecode) && bytecode.length > 0 && !isAlwaysTrueBytecode(bytecode)
 }
 
 const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']

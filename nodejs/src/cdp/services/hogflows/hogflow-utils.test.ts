@@ -1,27 +1,23 @@
 import { isEvaluableCondition } from './hogflow-utils'
 
 describe('isEvaluableCondition', () => {
-    it('treats an always-true condition as absent (versioned and legacy compiler forms)', () => {
-        // Empty filters compile to the TRUE op as the whole program. Both forms must be caught.
-        expect(isEvaluableCondition({ filters: { bytecode: ['_H', 1, 29] } })).toBe(false)
-        expect(isEvaluableCondition({ filters: { bytecode: ['_h', 29] } })).toBe(false)
-    })
-
-    it('treats a missing, empty, or non-array bytecode as absent', () => {
+    it('treats a filter that targets nothing as absent (compiles to always-true)', () => {
+        // These are exactly the shapes the compiler turns into always-true bytecode.
         expect(isEvaluableCondition(undefined)).toBe(false)
         expect(isEvaluableCondition({})).toBe(false)
         expect(isEvaluableCondition({ filters: {} })).toBe(false)
-        expect(isEvaluableCondition({ filters: { bytecode: [] } })).toBe(false)
-        expect(isEvaluableCondition({ filters: { bytecode: undefined } })).toBe(false)
+        expect(isEvaluableCondition({ filters: { properties: [] } })).toBe(false)
+        expect(isEvaluableCondition({ filters: { properties: [], events: [], actions: [] } })).toBe(false)
+        // A compiled empty condition still carries always-true bytecode, but it targets nothing.
+        expect(isEvaluableCondition({ filters: { properties: [], bytecode: ['_H', 1, 29] } } as any)).toBe(false)
     })
 
-    it('evaluates a real condition regardless of how the filter is expressed', () => {
-        // A property condition carries a real comparison program.
-        expect(isEvaluableCondition({ filters: { bytecode: ['_H', 1, 32, 'x', 1, 1, 11] } })).toBe(true)
-        // The guard must NOT key on a top-level `properties` array: a real condition expressed
-        // through events/actions filters has no `properties` but still has real bytecode.
-        expect(isEvaluableCondition({ filters: { bytecode: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11] } })).toBe(
-            true
-        )
+    it('evaluates a real condition regardless of which filter field expresses it', () => {
+        expect(isEvaluableCondition({ filters: { properties: [{ key: 'plan' }] } } as any)).toBe(true)
+        // Expressed through events/actions (no top-level `properties`) — must still be evaluable.
+        expect(isEvaluableCondition({ filters: { events: [{ id: '$pageview' }] } } as any)).toBe(true)
+        expect(isEvaluableCondition({ filters: { actions: [{ id: 3 }] } } as any)).toBe(true)
+        // Test-account filtering alone is a real filter (compiler emits team test-account predicates).
+        expect(isEvaluableCondition({ filters: { filter_test_accounts: true } })).toBe(true)
     })
 })
