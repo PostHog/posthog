@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import (
@@ -23,7 +24,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -57,6 +58,50 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def _ticket_with_tags(self, *tag_names):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="-".join(tag_names) or "untagged",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+        for name in tag_names:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            ticket.tagged_items.create(tag=tag)
+        return ticket
+
+    def _list_ids(self, **params):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["id"] for r in response.json()["results"]}
+
+    @parameterized.expand(
+        [
+            ("tags_matches_any", {"tags": '["alpha", "beta"]'}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("tags_all_matches_every", {"tags_all": '["alpha", "beta"]'}, {"alpha_beta"}),
+            ("tags_exclude_drops_tagged", {"tags_exclude": '["gamma"]'}, {"alpha_beta", "alpha"}),
+            (
+                "tags_all_composes_with_tags_exclude",
+                {"tags_all": '["alpha"]', "tags_exclude": '["beta"]'},
+                {"alpha"},
+            ),
+            ("malformed_json_ignored", {"tags_all": "not-json"}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("oversized_list_capped_not_500", {"tags_all": json.dumps([f"t{i}" for i in range(200)])}, set()),
+        ]
+    )
+    def test_filter_tags(self, mock_on_commit, _name, params, expected_keys):
+        # Expectations are fixture keys rather than ids (tickets don't exist at decorator
+        # time); the response is projected onto the fixture, which also keeps the untagged
+        # setUp ticket out of the comparison.
+        fixture = {
+            "alpha_beta": self._ticket_with_tags("alpha", "beta"),
+            "alpha": self._ticket_with_tags("alpha"),
+            "beta_gamma": self._ticket_with_tags("beta", "gamma"),
+        }
+        ids = self._list_ids(**params)
+        self.assertEqual({key for key, ticket in fixture.items() if str(ticket.id) in ids}, expected_keys)
 
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(

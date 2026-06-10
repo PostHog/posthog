@@ -9,15 +9,12 @@ description: >
   weights by real blast radius (cross-referencing actual event volume and reach), and
   prioritizes issues an agent can resolve via the MCP. Emits only above the confidence
   bar; otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet — picked uniformly at random by the coordinator alongside
-  `signals-scout-general` and other specialists.
+  signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus the health
-  issues read tools (health-issues-summary, health-issues-list, health-issues-get) and
-  standard analytics tools (read-data-schema, query-trends, execute-sql, inbox-reports-list).
+  the signals-scout MCP tool family plus the health-issues read tools and analytics tools
+  listed in the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: health_checks

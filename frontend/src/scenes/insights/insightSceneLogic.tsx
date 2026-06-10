@@ -610,7 +610,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
             | undefined => {
             if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
-                return [urls.insightNew(), undefined, undefined]
+                // Preserve search + hash (e.g. the `#q=` query) so post-load URL sync doesn't strip the drill-down query
+                return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
