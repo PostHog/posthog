@@ -67,7 +67,7 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
         # module-level env reads are non-deterministic across workflow replay.
         batches = [
             EvaluateCohortBatchInput(manifests=list(chunk))
-            for chunk in batched(discovery.manifests, discovery.batch_size)
+            for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
         # `return_exceptions=True` isolates per-batch retry-exhaustion: one
@@ -112,7 +112,7 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
         # Off the eval critical path. Best-effort: signal emission must never fail
         # the alert cycle, so retry-exhaustion is swallowed. Chunked because the
         # input crosses the workflow->activity boundary as a single Temporal payload.
-        for chunk in batched(notified, EMIT_SIGNAL_BATCH_SIZE):
+        for chunk in batched(notified, EMIT_SIGNAL_BATCH_SIZE, strict=False):
             try:
                 await workflow.execute_activity(
                     emit_alert_signals_activity,

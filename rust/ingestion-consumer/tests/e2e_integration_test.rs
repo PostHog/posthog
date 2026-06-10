@@ -259,6 +259,7 @@ impl Harness {
             IngestionConsumerOptions {
                 batch_size: 50,
                 batch_timeout: Duration::from_millis(100),
+                max_in_flight_batches: 1,
                 group_id: "e2e-test".to_string(),
             },
             handle,

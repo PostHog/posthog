@@ -83,6 +83,8 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     DashboardWidgetConfigField,
+    PatchedDashboardOpenApiSerializer,
+    WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -100,6 +102,7 @@ from products.dashboards.backend.widget_layouts import (
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -160,7 +163,7 @@ RUN_WIDGETS_QUERY_CONCURRENCY = 4
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
-    + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
+    + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
 )
 
 
@@ -197,7 +200,13 @@ def _run_widget_query(
         },
     ) as slo:
         try:
-            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            query_fn = work_item["query_fn"]
+            result = query_fn(
+                team,
+                work_item["config"],
+                user=work_item["user"],
+                include_total_count=False,
+            )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
@@ -504,7 +513,7 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -526,7 +535,7 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
     config = DashboardWidgetConfigField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -571,29 +580,6 @@ class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
         min_length=1,
         max_length=MAX_WIDGETS_BATCH_SIZE,
         help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
-    )
-
-
-class WidgetCatalogEntrySerializer(serializers.Serializer):
-    widget_type = serializers.CharField(help_text="Stable widget type identifier used in API requests.")
-    group_id = serializers.CharField(help_text="Product area key for grouping related widget variants.")
-    group_label = serializers.CharField(help_text="Human-readable product area label.")
-    label = serializers.CharField(help_text="Widget variant label within the product area.")  # type: ignore[assignment]
-    description = serializers.CharField(help_text="Short description of what the widget shows.")
-    config_schema_hints = serializers.JSONField(
-        help_text="JSON schema hints for config fields (types, choices, bounds). Not a strict validator.",
-    )
-    required_product_access = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Product access resource required to view or run this widget, if any.",
-    )
-
-
-class WidgetCatalogResponseSerializer(serializers.Serializer):
-    results = WidgetCatalogEntrySerializer(
-        many=True,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
     )
 
 
@@ -804,7 +790,12 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     )
     result = serializers.JSONField(
         allow_null=True,
-        help_text="Live widget query result payload.",
+        help_text=(
+            "Live widget query result payload. List widgets return results (array), limit (configured page size), "
+            "hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount "
+            "hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are "
+            "issue summaries; session_replay_list results are recording metadata."
+        ),
     )
     error = serializers.CharField(
         allow_null=True,
@@ -1424,7 +1415,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"], team_id=widget.team_id)
+            widget.config = validate_widget_config(
+                widget.widget_type,
+                widget_data["config"],
+            )
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -1802,6 +1796,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ),
         ],
     ),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -2046,7 +2041,7 @@ class DashboardsViewSet(
         )
 
         # Async generator that handles progressive tile serialization and streaming
-        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
 
             try:
@@ -2564,14 +2559,24 @@ class DashboardsViewSet(
                 }
                 continue
 
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            if widget_throttle_error:
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": widget_throttle_error,
+                }
+                continue
+
             if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-                throttle_error = get_replay_listing_throttle_error(request, self)
-                if throttle_error:
+                replay_throttle_error = get_replay_listing_throttle_error(request, self)
+                if replay_throttle_error:
                     results_by_id[tile_id] = {
                         "tile_id": tile_id,
                         "widget_type": widget.widget_type,
                         "result": None,
-                        "error": throttle_error,
+                        "error": replay_throttle_error,
                     }
                     continue
 
@@ -2609,7 +2614,7 @@ class DashboardsViewSet(
     @extend_schema(responses={200: WidgetCatalogResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List registered dashboard widget types and config hints for agents."""
+        """List registered dashboard widget types and per-type config_schema documentation for agents."""
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(

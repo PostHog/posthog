@@ -52,7 +52,6 @@ const INITIAL_DATE_TO = null as string | null
 
 export interface AIObservabilitySharedLogicProps {
     logicKey?: string
-    tabId?: string
     personId?: string
     group?: {
         groupKey: string
@@ -105,10 +104,7 @@ export function buildApplyUrlStatePayload({
 export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     path(['products', 'ai_observability', 'frontend', 'aiObservabilitySharedLogic']),
     props({} as AIObservabilitySharedLogicProps),
-    key(
-        (props: AIObservabilitySharedLogicProps) =>
-            `${props?.personId || 'aiObservabilityScene'}::${props?.tabId || ''}`
-    ),
+    key((props: AIObservabilitySharedLogicProps) => `${props?.personId || 'aiObservabilityScene'}`),
     connect(() => ({
         // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
         // normalizer on any AI observability page, not just the settings scene.

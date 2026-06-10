@@ -35,7 +35,6 @@ export interface SkillLogicProps {
     skillName: string | 'new'
     mode?: SkillMode
     selectedVersion?: number | null
-    tabId?: string
 }
 
 export interface SkillFormFileValues {
@@ -124,10 +123,7 @@ function findExistingSkill(skillName: string): LLMSkillListApi | undefined {
 export const llmSkillLogic = kea<llmSkillLogicType>([
     path(['scenes', 'ai-observability', 'llmSkillLogic']),
     props({ skillName: 'new' } as SkillLogicProps),
-    key(
-        ({ skillName, selectedVersion, tabId }) =>
-            `skill-${skillName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
-    ),
+    key(({ skillName, selectedVersion }) => `skill-${skillName}:${selectedVersion ?? 'latest'}`),
     actions({
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
@@ -557,7 +553,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '/prompt-management/skills/:name': (_, __, ___, { method }) => {
+        '/skills/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewSkill) {
                 actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
                 actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)

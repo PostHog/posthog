@@ -11,7 +11,6 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
@@ -75,6 +74,7 @@ from .models import (
     TaskPresence,
     TaskRun,
 )
+from .redis import get_tasks_cache, run_uses_dedicated_stream
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -153,6 +153,7 @@ from .temporal.client import (
     signal_task_followup_message,
 )
 from .temporal.process_task.utils import (
+    GitHubCredentialSource,
     PrAuthorshipMode,
     RunSource,
     cache_github_user_token,
@@ -224,6 +225,31 @@ def _resolve_cloud_pr_authorship_mode(
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _github_credential_source_extra_state(
+    pr_authorship_mode: PrAuthorshipMode | str | None, github_user_token: str | None
+) -> dict[str, str]:
+    """Durable marker of which GitHub identity a run is pinned to, decided once at creation.
+
+    A caller-supplied token is owned by the caller and un-refreshable by us, so the refresh
+    loop must never swap it for the task creator's server integration. Persisting the source
+    in run state keeps that decision durable (the per-run token cache only lives ~6h).
+    """
+    if pr_authorship_mode != PrAuthorshipMode.USER:
+        return {}
+    source = GitHubCredentialSource.CALLER_TOKEN if github_user_token else GitHubCredentialSource.SERVER_INTEGRATION
+    return {"github_credential_source": source.value}
+
+
+# Run-state keys that are server-owned and must never be mutable through the PATCH endpoint:
+#   - github_credential_source / pr_authorship_mode fix the run's GitHub identity at creation;
+#     a caller could otherwise flip a caller-token run to ``server_integration`` and have the
+#     task creator's server-side token injected into their sandbox.
+#   - sandbox_id is the credential-propagation target; a caller could otherwise repoint a visible
+#     run at a sandbox they control and capture the run owner's token on the next rotation.
+# All three are written only server-side (run creation + the temporal workflow), never via PATCH.
+_PROTECTED_RUN_STATE_KEYS = frozenset({"github_credential_source", "pr_authorship_mode", "sandbox_id"})
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -1102,6 +1128,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
             )
 
+        if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
+            extra_state = extra_state or {}
+            extra_state.update(credential_source)
+
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
@@ -1152,7 +1182,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save(update_fields=["artifacts", "updated_at"])
 
             for artifact_id in pending_user_artifact_ids:
-                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+                get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
@@ -1392,6 +1422,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
             )
 
+        if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
+            extra_state = extra_state or {}
+            extra_state.update(credential_source)
+
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
@@ -1543,7 +1577,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = cast(TaskRun, self.get_object())
         has_output_merge = "output" in request.validated_data and isinstance(request.validated_data["output"], dict)
         has_state_merge = "state" in request.validated_data and isinstance(request.validated_data["state"], dict)
-        state_remove_keys = request.validated_data.get("state_remove_keys") or []
+        # Protected keys fix the run's GitHub identity at creation — callers cannot change or remove them.
+        if has_state_merge:
+            request.validated_data["state"] = {
+                k: v for k, v in request.validated_data["state"].items() if k not in _PROTECTED_RUN_STATE_KEYS
+            }
+        state_remove_keys = [
+            k for k in (request.validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
+        ]
         has_state_mutation = has_state_merge or bool(state_remove_keys)
         update_fields: set[str] = set()
 
@@ -2787,13 +2828,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        use_dedicated_stream = run_uses_dedicated_stream(task_run.state)
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
         origin_product = origin_product_label(task_run)
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
-            redis_stream = TaskRunRedisStream(stream_key)
+        async def async_stream() -> AsyncGenerator[bytes]:
+            redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit
             # completion/error/unavailable is the client (or proxy) going away.
