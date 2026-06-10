@@ -23,6 +23,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -143,9 +144,13 @@ export function InsightDisplayConfig(): JSX.Element {
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        showValuesOnSeries,
+        showPercentagesOnSeries,
+        mightContainFractionalNumbers,
+        showConfidenceIntervals,
+        showMovingAverage,
+    } = useValues(trendsDataLogic(insightProps))
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
@@ -211,6 +216,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           : [
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
@@ -387,6 +393,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const advancedOptionsCount: number =
         (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
+        (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
         isTrends &&

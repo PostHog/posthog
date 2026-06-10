@@ -53,7 +53,7 @@ export const getConversationsListUrl = (projectId: string, params?: Conversation
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -81,9 +81,9 @@ export const getConversationsCreateUrl = (projectId: string) => {
 
 /**
  * Unified endpoint that handles both conversation creation and streaming.
-
-- If message is provided: Start new conversation processing
-- If no message: Stream from existing conversation
+ *
+ * - If message is provided: Start new conversation processing
+ * - If no message: Stream from existing conversation
  */
 export const conversationsCreate = async (
     projectId: string,
@@ -137,8 +137,8 @@ export const getConversationsAppendMessageCreateUrl = (projectId: string, conver
 
 /**
  * Appends a message to an existing conversation without triggering AI processing.
-This is used for client-side generated messages that need to be persisted
-(e.g., support ticket confirmation messages).
+ * This is used for client-side generated messages that need to be persisted
+ * (e.g., support ticket confirmation messages).
  */
 export const conversationsAppendMessageCreate = async (
     projectId: string,
@@ -263,7 +263,7 @@ export const getConversationsTicketsListUrl = (projectId: string, params?: Conve
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -398,9 +398,9 @@ export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: stri
 
 /**
  * Update the status of multiple tickets in a single request.
-
-Only tickets belonging to the current team are affected; other-team UUIDs
-are silently ignored.  Tickets already in the requested status are skipped.
+ *
+ * Only tickets belonging to the current team are affected; other-team UUIDs
+ * are silently ignored.  Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreate = async (
     projectId: string,
@@ -421,22 +421,22 @@ export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const conversationsTicketsBulkUpdateTagsCreate = async (
     projectId: string,
@@ -477,9 +477,9 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 
 /**
  * Get total unread ticket count for the team.
-
-Returns the sum of unread_team_count for all non-resolved tickets.
-Cached in Redis for 30 seconds, invalidated on changes.
+ *
+ * Returns the sum of unread_team_count for all non-resolved tickets.
+ * Cached in Redis for 30 seconds, invalidated on changes.
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
@@ -496,7 +496,7 @@ export const getConversationsViewsListUrl = (projectId: string, params?: Convers
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

@@ -16,15 +16,17 @@ query PaginatedCustomers($first: Int!, $after: String, $filter: CustomersFilter)
                     iso8601
                 }
                 assignedToUser {
-                    id
-                    fullName
-                    email
+                    user {
+                        id
+                        fullName
+                        email
+                    }
                 }
                 createdAt {
                     iso8601
                 }
                 createdBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                     ... on MachineUserActor { machineUserId }
                     ... on SystemActor { systemId }
@@ -33,7 +35,7 @@ query PaginatedCustomers($first: Int!, $after: String, $filter: CustomersFilter)
                     iso8601
                 }
                 updatedBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                     ... on MachineUserActor { machineUserId }
                     ... on SystemActor { systemId }
@@ -42,7 +44,7 @@ query PaginatedCustomers($first: Int!, $after: String, $filter: CustomersFilter)
                     iso8601
                 }
                 markedAsSpamBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                 }
                 company {
@@ -80,15 +82,25 @@ query PaginatedThreads($first: Int!, $after: String, $filter: ThreadsFilter) {
                     iso8601
                 }
                 statusChangedBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                     ... on MachineUserActor { machineUserId }
                     ... on SystemActor { systemId }
                 }
-                assignedToUser {
-                    id
-                    fullName
-                    email
+                assignedToUser: assignedTo {
+                    __typename
+                    ... on User {
+                        id
+                        fullName
+                        email
+                    }
+                    ... on MachineUser {
+                        id
+                        fullName
+                    }
+                    ... on System {
+                        id
+                    }
                 }
                 labels {
                     id
@@ -122,7 +134,7 @@ query PaginatedThreads($first: Int!, $after: String, $filter: ThreadsFilter) {
                     iso8601
                 }
                 createdBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                     ... on MachineUserActor { machineUserId }
                     ... on SystemActor { systemId }
@@ -131,7 +143,7 @@ query PaginatedThreads($first: Int!, $after: String, $filter: ThreadsFilter) {
                     iso8601
                 }
                 updatedBy {
-                    actorType
+                    actorType: __typename
                     ... on UserActor { userId }
                     ... on MachineUserActor { machineUserId }
                     ... on SystemActor { systemId }
@@ -156,7 +168,7 @@ query ThreadTimelineEntries($threadId: ID!, $first: Int!, $after: String) {
                         iso8601
                     }
                     actor {
-                        actorType
+                        actorType: __typename
                         ... on UserActor { userId }
                         ... on MachineUserActor { machineUserId }
                         ... on CustomerActor { customerId }
@@ -183,10 +195,9 @@ query ThreadTimelineEntries($threadId: ID!, $first: Int!, $after: String) {
                         }
                         ... on NoteEntry {
                             noteId
-                            text
+                            noteText: text
                         }
-                        ... on CustomTimelineEntry {
-                            customTimelineEntryId
+                        ... on CustomEntry {
                             title
                             externalId
                         }

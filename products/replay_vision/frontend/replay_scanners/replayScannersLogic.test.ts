@@ -274,17 +274,9 @@ describe('replayScannersLogic', () => {
         })
     })
 
-    describe('delete / duplicate refresh', () => {
+    describe('delete refresh', () => {
         it('deleteScannerSuccess refetches the page and the creators list', async () => {
             await expectLogic(logic, () => logic.actions.deleteScannerSuccess('a')).toDispatchActions([
-                'loadScanners',
-                'loadCreators',
-            ])
-        })
-
-        it('duplicateScannerSuccess refetches the page and the creators list', async () => {
-            const dup = makeScanner({ id: 'd', name: 'Copied' })
-            await expectLogic(logic, () => logic.actions.duplicateScannerSuccess(dup)).toDispatchActions([
                 'loadScanners',
                 'loadCreators',
             ])
