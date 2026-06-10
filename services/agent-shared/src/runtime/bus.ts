@@ -47,6 +47,23 @@ export type SessionEventKind =
      */
     | 'client_tool_result'
     /**
+     * Inbound stop signal: ingress `/cancel` publishes this on the session
+     * channel when a user hits the chat stop button. The runner is already
+     * subscribed (same path it consumes `client_tool_result` on) and aborts
+     * the in-flight provider call for that turn. Distinct from a worker
+     * shutdown — a cancelled run reopens as `completed` (the conversation
+     * stays live), it is NOT re-queued. Carries no data.
+     */
+    | 'cancel'
+    /**
+     * Outbound acknowledgement that a `cancel` interrupted the in-flight
+     * turn. Lets live SSE consumers drop the streaming spinner immediately
+     * and reconcile against the partial assistant message the runner
+     * persisted. The session state lands `completed` (open), so the user
+     * can keep chatting — this event is the UI signal, not a terminal one.
+     */
+    | 'interrupted'
+    /**
      * Default end-of-turn event. Fires for natural stop and meta-end-turn.
      * Session state is `completed` (open). Asking a question is just
      * "respond with text, end the turn" — no separate event.
