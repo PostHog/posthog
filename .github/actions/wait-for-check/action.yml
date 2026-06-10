@@ -55,9 +55,14 @@ runs:
                 # re-checks the name so a filter regression can't select the wrong
                 # check, and only GitHub Actions' own check counts — other apps
                 # (e.g. CI mirrors) may report checks under the same name.
+                # filter=latest dedupes re-runs only within a check suite, and the
+                # same SHA can carry same-name runs from several suites (one per
+                # workflow run), so take the newest run (check run IDs are
+                # monotonic) and report it only once it completes — an older
+                # completed run must not mask a newer one still in flight.
                 if conclusion=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
                     -f check_name="$CHECK_NAME" -f filter=latest \
-                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions" and .status == "completed")][0].conclusion // empty'); then
+                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions")] | max_by(.id) | select(.status == "completed") | .conclusion // empty'); then
                   if [ -n "$conclusion" ]; then
                     break
                   fi
