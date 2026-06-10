@@ -631,7 +631,68 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-list": {
+        "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge sources",
+        "title": "List business knowledge sources",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-retrieve": {
+        "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get business knowledge source",
+        "title": "Get business knowledge source",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-text-create": {
+        "description": "Create a text-based business knowledge source. Provide a short name and the raw text to index (capped at 1 MB). The text is chunked, embedded, and made searchable. Returns the created source with its processing status.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create text business knowledge source",
+        "title": "Create text business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-url-create": {
+        "description": "Create a URL-based business knowledge source. Provide a name and a public HTTP(S) URL to fetch and index. The page content is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is re-fetched automatically. Returns the created source with its processing status (initially \"processing\" while the URL is being fetched in the background).",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create URL business knowledge source",
+        "title": "Create URL business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
     },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
