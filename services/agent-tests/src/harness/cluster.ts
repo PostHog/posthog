@@ -31,7 +31,7 @@ import request from 'supertest'
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
-import type { IdentityStore, LogEntry } from '@posthog/agent-shared'
+import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
     AgentRevision,
@@ -41,6 +41,7 @@ import {
     CredentialBroker,
     InProcessSandboxPool,
     KafkaLogSink,
+    RoutingAnalyticsSink,
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgCredentialBroker,
@@ -86,6 +87,28 @@ export interface CollectingLogSink {
     clear(): void
 }
 
+/** One tapped `$ai_*` capture — the wire shape the routing sink would POST. */
+export interface AnalyticsTapEntry {
+    /** Destination project key the sink resolved for this event (`phc_team_<id>` in the harness). */
+    apiKey: string | null
+    /** `$ai_generation` | `$ai_span` | `$ai_trace`. */
+    eventName: string
+    event: AnalyticsEvent
+    properties: Record<string, unknown>
+}
+
+/**
+ * Test-side analytics collector. The harness wires a real `RoutingAnalyticsSink`
+ * with a stub per-team resolver (`team_id → phc_team_<id>`) + a no-op client, so
+ * tests assert the routing + `$ai_*` event shapes without a real PostHog. Mirrors
+ * `CollectingLogSink`.
+ */
+export interface CollectingAnalyticsSink {
+    readonly entries: AnalyticsTapEntry[]
+    forSession(sessionId: string): AnalyticsTapEntry[]
+    clear(): void
+}
+
 /** Deterministic 32-byte salt for the harness's `EncryptedFields`. Same key
  *  drives the credential broker and the Slack signing-secret resolver, so the
  *  encrypt/decrypt round-trip is exercised end-to-end on every test. */
@@ -119,6 +142,8 @@ export interface Cluster {
     bus: SessionEventBus
     identities: IdentityStore
     logs: CollectingLogSink
+    /** Tapped `$ai_generation` / `$ai_span` / `$ai_trace` the runner emitted, with the resolved per-team key. */
+    analytics: CollectingAnalyticsSink
     sandboxes: InProcessSandboxPool
     credentialBroker: CredentialBroker
     sandboxInstances: PgSandboxInstanceStore
@@ -314,6 +339,29 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bucketPrefix: `${memoryStorePrefix}/tables`,
     })
 
+    // Real RoutingAnalyticsSink with a stub per-team resolver + no-op client.
+    // The tap captures the `$ai_*` wire shape as the runner emits it, so tests
+    // assert per-team routing + event shapes without a real PostHog (the route
+    // a team's events would take is `phc_team_<id>`).
+    const analyticsCaptured: AnalyticsTapEntry[] = []
+    const analyticsSink = new RoutingAnalyticsSink({
+        resolveApiKey: async (teamId) => `phc_team_${teamId}`,
+        createClient: () => ({ capture: () => undefined, shutdown: async () => undefined }),
+        tap: (e) => analyticsCaptured.push(e),
+        logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    })
+    const analytics: CollectingAnalyticsSink = {
+        get entries(): AnalyticsTapEntry[] {
+            return analyticsCaptured
+        },
+        forSession(sessionId: string): AnalyticsTapEntry[] {
+            return analyticsCaptured.filter((e) => e.event.session_id === sessionId)
+        },
+        clear(): void {
+            analyticsCaptured.length = 0
+        },
+    }
+
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
     // resolveModel ignores spec.model and always returns the harness's Model —
     // tests don't exercise per-agent model selection (that's covered in
@@ -340,6 +388,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         credentialBroker,
         bus,
         logs: logSink,
+        analytics: analyticsSink,
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
@@ -411,6 +460,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         identities,
         sandboxInstances,
         logs,
+        analytics,
         sandboxes,
         broker,
         credentialBroker,

@@ -123,6 +123,8 @@ export interface RunSessionDeps {
     bus: SessionEventBus
     logs: LogSink
     analytics?: AnalyticsSink
+    /** Agent display name, used to name the `$ai_trace`. Falls back to the slug, then the app id. */
+    applicationName?: string
     /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
     useGatewayCost?: boolean
     /** Approval-gated tool store. MANDATORY — gated tools queue instead of
@@ -389,6 +391,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let lastControl: MetaControl | undefined
         let controlThisTurn: MetaControl | undefined
         let lastTurnContinued = false
+        // Trace-level summary state — the input that opened the session and the
+        // last assistant output, used to name + populate the `$ai_trace` event.
+        const traceInput: ConversationMessage[] = [...session.conversation]
+        let lastOutput: unknown = null
         const toolStarts = new Map<string, { args: Record<string, unknown>; t0: number }>()
 
         // Keep each tool's real execute, then swap gated tools for the queue path.
@@ -567,6 +573,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     const msg = event.message as AssistantMessage
                     lastStopReason = msg.stopReason
                     lastError = msg.errorMessage
+                    lastOutput = msg.content
                     const hasToolCalls = msg.content.some((b) => b.type === 'toolCall')
                     lastTurnContinued = hasToolCalls && !controlThisTurn
 
@@ -923,28 +930,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'failed', reason: e.message ?? 'loop_error', turns: turn }
         }
 
-        // Outcome derivation — order matters (shutdown beats a stale terminal state).
-        if (deps.shutdownSignal?.aborted || lastStopReason === 'aborted') {
-            return { state: 'suspended', reason: 'shutdown', turns: turn }
-        }
-        if (lastControl?.kind === 'close') {
-            await emit('closed', { turns: turn, summary: lastControl.summary })
-            return { state: 'closed', summary: lastControl.summary, turns: turn }
-        }
-        if (lastStopReason === 'error') {
-            runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
-            await emitFailure(lastError ?? 'model_error', { turns: turn, ...errorContext() })
-            return { state: 'failed', reason: lastError ?? 'model_error', turns: turn }
-        }
-        if (lastStopReason === 'length') {
-            await emitFailure('output_truncated', { turns: turn, ...errorContext() })
-            return { state: 'failed', reason: 'output_truncated', turns: turn }
-        }
-
         // Stamps the failure source (gateway vs direct provider) + model id on
         // every error log/event so operators can tell at a glance whether a
         // mystery `400 status code (no body)` came from the gateway or the
-        // upstream provider. Defined inline so it closes over `deps`.
+        // upstream provider. A hoisted declaration so the loop's catch block
+        // above can call it too. Closes over `deps`.
         function errorContext(): Record<string, unknown> {
             return {
                 source: deps.gatewayHeaders ? 'ai_gateway' : 'provider',
@@ -953,12 +943,55 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 api: deps.model.api,
             }
         }
-        if (stoppedByCap && lastTurnContinued) {
-            await emitFailure('max_turns_exceeded', { turns: turn })
-            return { state: 'failed', reason: 'max_turns_exceeded', turns: turn }
+
+        // One `$ai_trace` per session at terminal outcome — gives LLM Analytics a
+        // named trace (agent name) + input/output state on top of the per-turn
+        // generations/spans that already share this `$ai_trace_id`. Skipped on
+        // `suspended` (the session resumes and ends for real later). Best-effort.
+        const writeTrace = async (): Promise<void> => {
+            await analytics.write([
+                {
+                    kind: 'trace',
+                    ts: new Date().toISOString(),
+                    team_id: session.team_id,
+                    application_id: session.application_id,
+                    revision_id: rev.id,
+                    session_id: session.id,
+                    turn,
+                    span_id: session.id,
+                    distinct_id: distinctId,
+                    trace_name: deps.applicationName ?? `agent:${session.application_id}`,
+                    input_state: traceInput,
+                    output_state: lastOutput,
+                },
+            ])
         }
-        await emit('completed', { turns: turn })
-        return { state: 'completed', turns: turn }
+
+        // Outcome derivation — order matters (shutdown beats a stale terminal state).
+        let outcome: RunOutcome
+        if (deps.shutdownSignal?.aborted || lastStopReason === 'aborted') {
+            outcome = { state: 'suspended', reason: 'shutdown', turns: turn }
+        } else if (lastControl?.kind === 'close') {
+            await emit('closed', { turns: turn, summary: lastControl.summary })
+            outcome = { state: 'closed', summary: lastControl.summary, turns: turn }
+        } else if (lastStopReason === 'error') {
+            runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
+            await emitFailure(lastError ?? 'model_error', { turns: turn, ...errorContext() })
+            outcome = { state: 'failed', reason: lastError ?? 'model_error', turns: turn }
+        } else if (lastStopReason === 'length') {
+            await emitFailure('output_truncated', { turns: turn, ...errorContext() })
+            outcome = { state: 'failed', reason: 'output_truncated', turns: turn }
+        } else if (stoppedByCap && lastTurnContinued) {
+            await emitFailure('max_turns_exceeded', { turns: turn })
+            outcome = { state: 'failed', reason: 'max_turns_exceeded', turns: turn }
+        } else {
+            await emit('completed', { turns: turn })
+            outcome = { state: 'completed', turns: turn }
+        }
+        if (outcome.state !== 'suspended') {
+            await writeTrace()
+        }
+        return outcome
     } finally {
         tearDownClientDispatch()
     }

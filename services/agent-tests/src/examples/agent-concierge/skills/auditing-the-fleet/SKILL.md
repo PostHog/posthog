@@ -79,6 +79,14 @@ cheap signal is bad:
 Cite session ids for every claim. A finding with no session id
 behind it is a guess, and guesses are how this report loses trust.
 
+For the population view — failure-rate, cost, and p95 latency rolled
+up per agent, or "which sessions tripped up this week" in one query —
+load `skills/querying-ai-observability` and HogQL the `$ai_*` events
+the runner captured into this team's project. It's cheaper than
+retrieving every session and surfaces systemic patterns (one root
+cause across many sessions) the per-session view misses; use it to
+pick _which_ sessions are worth a deep `sessions-retrieve`.
+
 ### 4. Turn a root cause into a proposal
 
 Only when you can name a **specific, concrete** change. Vague

@@ -387,6 +387,9 @@ export class Worker {
                 await this.deps.queue.update(session.id, { state: 'failed' })
                 return
             }
+            // Friendly name for the session's `$ai_trace` (LLM Analytics). Best-
+            // effort — a missing app just falls back to the id in the driver.
+            const application = await this.deps.revisions.getApplication(session.application_id).catch(() => null)
             const integrations = await this.deps.resolveIntegrations(session)
             const secrets = await this.deps.resolveSecrets(session)
             const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
@@ -505,6 +508,7 @@ export class Worker {
                 bus: this.deps.bus,
                 logs: this.deps.logs,
                 analytics: this.deps.analytics,
+                applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
                 useGatewayCost: this.deps.useGatewayCost,
                 gatewayHeaders,

@@ -99,7 +99,23 @@ export interface AnalyticsSpanEvent extends AnalyticsEventBase {
     latency_ms: number
 }
 
-export type AnalyticsEvent = AnalyticsGenerationEvent | AnalyticsSpanEvent
+/**
+ * One `$ai_trace` per session, emitted at terminal outcome. Gives the LLM
+ * Analytics trace list a friendly name + input/output state instead of a bare
+ * session UUID — the generations + spans already group under the same
+ * `$ai_trace_id`. Best-effort, like the other events.
+ */
+export interface AnalyticsTraceEvent extends AnalyticsEventBase {
+    kind: 'trace'
+    /** Friendly trace name — the agent's display name (`name` then `slug`). */
+    trace_name: string
+    /** The input that opened the session (first user message / cron prompt). */
+    input_state: unknown
+    /** The final assistant output at session end. */
+    output_state: unknown
+}
+
+export type AnalyticsEvent = AnalyticsGenerationEvent | AnalyticsSpanEvent | AnalyticsTraceEvent
 
 export interface AnalyticsSink {
     write(events: AnalyticsEvent[]): Promise<void>
@@ -193,18 +209,26 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
         }
-    } else {
+    } else if (event.kind === 'span') {
         base.$ai_span_name = event.tool_name
         base.$ai_tool_call_id = event.tool_call_id
         base.$ai_input_state = event.input
         base.$ai_output_state = event.output
         base.$ai_latency = event.latency_ms / 1000
+    } else {
+        // $ai_trace — the trace-level summary the LLM Analytics list keys on.
+        base.$ai_span_name = event.trace_name
+        base.$ai_input_state = event.input_state
+        base.$ai_output_state = event.output_state
     }
     return base
 }
 
-export function eventNameFor(event: AnalyticsEvent): '$ai_generation' | '$ai_span' {
-    return event.kind === 'generation' ? '$ai_generation' : '$ai_span'
+export function eventNameFor(event: AnalyticsEvent): '$ai_generation' | '$ai_span' | '$ai_trace' {
+    if (event.kind === 'generation') {
+        return '$ai_generation'
+    }
+    return event.kind === 'span' ? '$ai_span' : '$ai_trace'
 }
 
 /* -------------------------------------------------------------------------- */
@@ -324,5 +348,191 @@ export class CaptureAnalyticsSink implements AnalyticsSink {
             this.log.error('capture shutdown failed', { error: String(err) })
         }
         this.client = null
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Routing capture sink — per-team destination (the native, zero-config path). */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Minimal `posthog-node` surface the routing sink needs. Lets tests inject a
+ * stub instead of a real client (no network, deterministic assertions).
+ */
+export interface PostHogLike {
+    capture(payload: {
+        distinctId: string
+        event: string
+        properties?: Record<string, unknown>
+        timestamp?: Date
+    }): void
+    shutdown(): Promise<void>
+}
+
+type AnalyticsLogger = NonNullable<CaptureAnalyticsSinkOptions['logger']>
+
+export interface RoutingAnalyticsSinkOptions {
+    /**
+     * Resolve a team's destination project key (`phc_…`). The runner wires
+     * `PgTeamApiKeyResolver.resolve` here so each agent's events land in its
+     * own team's project — native LLM Analytics with zero per-agent config.
+     * Return `null` (or throw) to fall back to `fallbackApiKey`.
+     */
+    resolveApiKey: (teamId: number) => Promise<string | null>
+    /**
+     * Destination when `resolveApiKey` yields nothing (team has no api_token,
+     * resolver error). Unset → such events are dropped (warned, never thrown —
+     * analytics is best-effort). Wire `POSTHOG_ANALYTICS_API_KEY` here.
+     */
+    fallbackApiKey?: string
+    host?: string
+    flushAt?: number
+    flushInterval?: number
+    /**
+     * Cap on distinct destination clients kept alive at once. A runner serving
+     * many teams would otherwise accumulate one `posthog-node` client per team;
+     * past this we LRU-evict (and drain) the least-recently-used. Default 64.
+     */
+    maxClients?: number
+    /** Test seam — build a client for a key. Defaults to real `posthog-node`. */
+    createClient?: (apiKey: string, opts: { host?: string; flushAt?: number; flushInterval?: number }) => PostHogLike
+    /** Test seam — fired for every event before capture with the resolved key (`null` = dropped). */
+    tap?: (entry: {
+        apiKey: string | null
+        eventName: string
+        event: AnalyticsEvent
+        properties: Record<string, unknown>
+    }) => void
+    logger?: AnalyticsLogger
+}
+
+const DEFAULT_MAX_CLIENTS = 64
+
+/**
+ * Production analytics sink. Resolves each event's destination project key from
+ * its `team_id` and captures into that team's own PostHog project, so agent
+ * traffic shows up natively in the owning team's LLM Analytics. Holds a bounded
+ * LRU of `posthog-node` clients (one per distinct key); `shutdown()` drains all.
+ *
+ * Best-effort throughout: resolver errors and capture failures are logged, not
+ * thrown — analytics must never break a session.
+ */
+export class RoutingAnalyticsSink implements AnalyticsSink {
+    private readonly opts: RoutingAnalyticsSinkOptions
+    private readonly log: AnalyticsLogger
+    private readonly maxClients: number
+    private readonly createClient: NonNullable<RoutingAnalyticsSinkOptions['createClient']>
+    /** Insertion-ordered → front is least-recently-used. Re-inserted on access. */
+    private readonly clients = new Map<string, PostHogLike>()
+
+    constructor(opts: RoutingAnalyticsSinkOptions) {
+        this.opts = opts
+        this.maxClients = opts.maxClients ?? DEFAULT_MAX_CLIENTS
+        this.createClient =
+            opts.createClient ??
+            ((apiKey, clientOpts) =>
+                new PostHog(apiKey, {
+                    host: clientOpts.host,
+                    flushAt: clientOpts.flushAt ?? 20,
+                    flushInterval: clientOpts.flushInterval ?? 10_000,
+                }))
+        if (opts.logger) {
+            this.log = opts.logger
+        } else {
+            const pino = createLogger('analytics-routing')
+            this.log = {
+                info: (m, meta) => pino.info(meta ?? {}, m),
+                warn: (m, meta) => pino.warn(meta ?? {}, m),
+                error: (m, meta) => pino.error(meta ?? {}, m),
+            }
+        }
+    }
+
+    async write(events: AnalyticsEvent[]): Promise<void> {
+        if (events.length === 0) {
+            return
+        }
+        // Resolve one key per distinct team in the batch (the resolver caches,
+        // but de-duping here avoids redundant awaits when a turn emits several).
+        const keyByTeam = new Map<number, string | null>()
+        for (const teamId of new Set(events.map((e) => e.team_id))) {
+            keyByTeam.set(teamId, await this.resolveTeamKey(teamId))
+        }
+
+        let dropped = 0
+        for (const event of events) {
+            const resolved = keyByTeam.get(event.team_id) ?? null
+            const apiKey = resolved ?? this.opts.fallbackApiKey ?? null
+            const eventName = eventNameFor(event)
+            const properties = buildAnalyticsProperties(event)
+            this.opts.tap?.({ apiKey, eventName, event, properties })
+            if (!apiKey) {
+                dropped++
+                continue
+            }
+            try {
+                this.clientFor(apiKey).capture({
+                    distinctId: event.distinct_id,
+                    event: eventName,
+                    properties,
+                    timestamp: new Date(event.ts),
+                })
+            } catch (err) {
+                this.log.error('capture failed', { event: eventName, error: String(err) })
+            }
+        }
+        if (dropped > 0) {
+            this.log.warn('dropped analytics events (no destination key)', { count: dropped })
+        }
+    }
+
+    private async resolveTeamKey(teamId: number): Promise<string | null> {
+        try {
+            return await this.opts.resolveApiKey(teamId)
+        } catch (err) {
+            this.log.warn('resolve destination key failed', { team_id: teamId, error: String(err) })
+            return null
+        }
+    }
+
+    /** Get-or-create the client for a key, refreshing its LRU recency. */
+    private clientFor(apiKey: string): PostHogLike {
+        const existing = this.clients.get(apiKey)
+        if (existing) {
+            // Re-insert so it moves to the most-recently-used end.
+            this.clients.delete(apiKey)
+            this.clients.set(apiKey, existing)
+            return existing
+        }
+        const client = this.createClient(apiKey, {
+            host: this.opts.host,
+            flushAt: this.opts.flushAt,
+            flushInterval: this.opts.flushInterval,
+        })
+        this.clients.set(apiKey, client)
+        this.evictIfNeeded()
+        return client
+    }
+
+    private evictIfNeeded(): void {
+        while (this.clients.size > this.maxClients) {
+            const oldestKey = this.clients.keys().next().value
+            if (oldestKey === undefined) {
+                return
+            }
+            const victim = this.clients.get(oldestKey)
+            this.clients.delete(oldestKey)
+            // Drain in the background so a slow flush doesn't block the hot path.
+            victim?.shutdown().catch((err) => this.log.error('evicted client shutdown failed', { error: String(err) }))
+        }
+    }
+
+    /** Drains every live client. Wire into the runner's SIGTERM handler. */
+    async shutdown(): Promise<void> {
+        const clients = [...this.clients.values()]
+        this.clients.clear()
+        await Promise.all(
+            clients.map((c) => c.shutdown().catch((err) => this.log.error('shutdown failed', { error: String(err) })))
+        )
     }
 }

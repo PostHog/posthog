@@ -79,17 +79,19 @@ agent-concierge/
     ├── using-the-console-ui/SKILL.md        # focus_* + toast etiquette
     ├── working-outside-the-console/SKILL.md # MCP / IDE mode; no client tools
     ├── cost-and-quota-analysis/SKILL.md     # LLM analytics views
+    ├── querying-ai-observability/SKILL.md   # $ai_* event contract + debug/improve queries
     ├── auditing-the-fleet/SKILL.md          # the unattended nightly cron sweep
     └── safety-and-boundaries/SKILL.md       # hard rules
 ```
 
 ## Tool surface
 
-| Class              | Tool                                                                                                                     | Class semantics                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation. |
-| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of the unattended `nightly-fleet-audit` cron — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).     |
-| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console (time out under the cron trigger).                                          |
+| Class              | Tool                                                                                                                     | Class semantics                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation.                                     |
+| Native (telemetry) | `@posthog/query`                                                                                                         | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence — see `querying-ai-observability`. |
+| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of the unattended `nightly-fleet-audit` cron — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).                                         |
+| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console (time out under the cron trigger).                                                                              |
 
 ## Auth model
 

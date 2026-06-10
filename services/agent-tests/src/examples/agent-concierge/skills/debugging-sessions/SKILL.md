@@ -41,6 +41,14 @@ Then pick the matching branch below.
 6. **Produce a structured report** — see the report shape at the
    bottom.
 
+For evidence beyond the conversation JSON — what the model actually
+saw, per-turn latency/cost, which tool span errored — load
+`querying-ai-observability` and HogQL the session's trace
+(`$ai_trace_id` = the session id). The `$ai_generation` / `$ai_span`
+events the runner captured into the team's project are the ground
+truth for "where did the turn go wrong", and let you cite a specific
+turn + error rather than inferring from prose.
+
 ## Failure taxonomy
 
 The failure modes that account for almost every broken session.

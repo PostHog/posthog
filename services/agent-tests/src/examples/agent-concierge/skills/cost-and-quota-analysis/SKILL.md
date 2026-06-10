@@ -4,6 +4,16 @@ How to use `@posthog/query` to answer "how much does this agent
 cost?" / "where is it slow?" / "what's the failure rate?". Load
 when the user asks about cost, performance, usage, or limits.
 
+> **Event contract:** the runner emits `$ai_generation` / `$ai_span`
+> / `$ai_trace` into the agent's own team project — the authoritative
+> property names live in `querying-ai-observability` (e.g.
+> `$agent_application_id`, `$ai_total_cost_usd`, `$ai_trace_id` = the
+> session id). Some queries below use older/aspirational names
+> (`agent_session_ended`, `properties.agent_application_id`,
+> `$ai_cost_usd`); when one returns nothing, load
+> `querying-ai-observability` and use the shipped names. Probe with a
+> `DISTINCT event` query first if unsure.
+
 ## The data model
 
 PostHog's LLM analytics auto-captures events tagged with

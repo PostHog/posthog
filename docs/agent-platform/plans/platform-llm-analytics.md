@@ -1,6 +1,35 @@
 # Design — platform LLM analytics emission
 
-**Status:** v0 (runner captures via standard PostHog ingestion) ✅ shipped; v1 (signed origin marker for billing exclusion) not yet built. **Owner:** ben.
+**Status:** v0 (runner captures via standard PostHog ingestion) ✅ shipped; v0.1 (per-team routing + `$ai_trace` + console deep-link) ✅ shipped; v1 (signed origin marker for billing exclusion) not yet built. **Owner:** ben.
+
+> **v0.1 — native, zero-config per-team routing.** v0 captured every
+> agent's `$ai_*` events into a single global project
+> (`POSTHOG_ANALYTICS_API_KEY`). v0.1 makes it native: the runner now
+> resolves each session's `team_id → phc_` (via `PgTeamApiKeyResolver`,
+> the same resolver the ai-gateway path uses) and captures into **the
+> owning team's own project**, so a team sees its agent's traffic in its
+> own LLM Analytics with nothing to configure. The global key is now only
+> a fallback for teams without an `api_token`.
+>
+> - `RoutingAnalyticsSink` ([`analytics-sink.ts`](../../../services/agent-shared/src/runtime/analytics-sink.ts))
+>   holds a bounded LRU of `posthog-node` clients keyed by destination
+>   `phc_`; `write()` resolves per-team and routes; `shutdown()` drains
+>   all. Best-effort: resolver/capture failures are logged, never thrown.
+> - Wired in [`index.ts`](../../../services/agent-runner/src/index.ts) —
+>   `teamApiKeys` lifted out of the gateway-only gate; the sink is enabled
+>   whenever `POSTHOG_ANALYTICS_HOST` or `…_API_KEY` is set.
+> - A per-session **`$ai_trace`** event now fires at terminal outcome,
+>   named after the agent (`$ai_span_name = application.name`) with
+>   input/output state — so the trace list shows a friendly name, not a
+>   bare session UUID. Emitted from `driver.ts`; the agent name is loaded
+>   once per session in the worker.
+> - The agent console links from a session to its trace
+>   (`$ai_trace_id = session.id`) — "View in LLM analytics".
+> - Coverage: `analytics-sink.test.ts` (routing / fallback / drop / LRU /
+>   trace shape) + `cases/llm-analytics.test.ts` (e2e: generation + span +
+>   trace, per-team key).
+> - The concierge can now HogQL these events when debugging / improving an
+>   agent — see its `querying-ai-observability` skill.
 
 This is `self-healing-agents.md` §3.1 broken out into its own plan
 because the emitter is shipping ahead of the rest of self-healing —

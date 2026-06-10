@@ -23,7 +23,6 @@ import { createServer } from 'node:http'
 import {
     AnalyticsSink,
     analyticsDistinctId,
-    CaptureAnalyticsSink,
     createAgentPool,
     createLogger,
     DirectHttpClient,
@@ -47,6 +46,7 @@ import {
     PgSessionQueue,
     PgTeamApiKeyResolver,
     RedisSessionEventBus,
+    RoutingAnalyticsSink,
     S3BundleStore,
     S3MemoryStore,
     SecretBroker,
@@ -174,20 +174,27 @@ async function main(): Promise<void> {
     })
     await logSink.connect()
 
-    // LLM analytics sink. Captures `$ai_generation` per pi-ai call and
-    // `$ai_span` per tool dispatch via PostHog's standard ingestion path
-    // (posthog-node /capture) — events land directly in `ai_events` with
-    // no new infra. Every event carries `$ai_origin: 'agent_platform_runner'`
-    // as the marker the future signed-origin billing filter will key on.
-    // See docs/agent-platform/plans/platform-llm-analytics.md.
+    // Resolves a team's `phc_` project key from the main PostHog DB (cached per
+    // team). Two consumers: the ai-gateway bearer (below) and the LLM-analytics
+    // sink (next). Constructed unconditionally so analytics can route per-team
+    // even when the gateway is off. See ai-gateway-integration.md §3 (W1).
+    const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
+
+    // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
+    // per tool dispatch, and one `$ai_trace` per session via PostHog's standard
+    // ingestion path (posthog-node /capture). Routes each event to the owning
+    // team's OWN project (`team_id → phc_`), so agent traffic shows up natively
+    // in that team's LLM Analytics with zero per-agent config; `phc_`-less teams
+    // fall back to the global key. Every event carries
+    // `$ai_origin: 'agent_platform_runner'` for the future signed-origin billing
+    // filter. See docs/agent-platform/plans/platform-llm-analytics.md.
     let analytics: AnalyticsSink = new NoopAnalyticsSink()
-    if (config.posthogAnalyticsApiKey) {
-        const capture = new CaptureAnalyticsSink({
-            apiKey: config.posthogAnalyticsApiKey,
+    if (config.posthogAnalyticsHost || config.posthogAnalyticsApiKey) {
+        analytics = new RoutingAnalyticsSink({
+            resolveApiKey: (teamId) => teamApiKeys.resolve(teamId),
+            fallbackApiKey: config.posthogAnalyticsApiKey,
             host: config.posthogAnalyticsHost,
         })
-        await capture.connect()
-        analytics = capture
     }
 
     // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
@@ -198,11 +205,6 @@ async function main(): Promise<void> {
     // pre-queue check in build-agent-tools.
     const identities = new PgIdentityStore(agentDb)
     const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
-
-    // On the gateway path the bearer is the owning team's phc_ project key.
-    // The resolver caches per team so the hot path is a hash lookup.
-    // See docs/agent-platform/plans/ai-gateway-integration.md §3 (W1).
-    const teamApiKeys = config.useAiGateway ? new PgTeamApiKeyResolver(posthogDb) : null
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     // ai-gateway is a cluster-internal service — use the direct client so the
     // call doesn't hit smokescreen (which would refuse it as RFC1918). The
@@ -325,17 +327,16 @@ async function main(): Promise<void> {
         // API key flows in here (no more client-level default). Gateway path
         // → resolve the owning team's `phc_`; direct path → fall back to the
         // boot-time default (ANTHROPIC_API_KEY / OPENAI_API_KEY / etc).
-        resolveApiKey: teamApiKeys ? (session) => teamApiKeys.resolve(session.team_id) : () => defaultApiKey,
+        resolveApiKey: config.useAiGateway ? (session) => teamApiKeys.resolve(session.team_id) : () => defaultApiKey,
         resolveGatewayHeaders: config.useAiGateway
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
               })
             : undefined,
-        resolveGatewayUsage:
-            gatewayClient && teamApiKeys
-                ? async (session) => ({ client: gatewayClient, phc: await teamApiKeys.resolve(session.team_id) })
-                : undefined,
+        resolveGatewayUsage: gatewayClient
+            ? async (session) => ({ client: gatewayClient, phc: await teamApiKeys.resolve(session.team_id) })
+            : undefined,
         // On the gateway path pi-ai's cost numbers are client-side estimates;
         // the gateway itself owns billing. We keep token counts. Cost is
         // recovered post-turn via /v1/usage/{request_id} (see resolveGatewayUsage).
@@ -393,7 +394,7 @@ async function main(): Promise<void> {
     await worker.loop()
     // Drain the analytics buffer BEFORE closing pools so the final batch of
     // `$ai_*` events lands in PostHog even on a rolling deploy.
-    if (analytics instanceof CaptureAnalyticsSink) {
+    if (analytics instanceof RoutingAnalyticsSink) {
         await analytics.shutdown()
     }
     await logSink.disconnect()

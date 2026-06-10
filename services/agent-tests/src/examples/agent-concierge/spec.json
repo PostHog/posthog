@@ -91,6 +91,10 @@
         },
         {
             "kind": "native",
+            "id": "@posthog/query"
+        },
+        {
+            "kind": "native",
             "id": "@posthog/memory-search"
         },
         {
@@ -387,7 +391,12 @@
         {
             "id": "cost-and-quota-analysis",
             "path": "skills/cost-and-quota-analysis/SKILL.md",
-            "description": "Running cost / token / failure-rate queries against PostHog LLM analytics \u2014 which event names to query, which properties to aggregate, the standard rollups. Load when the user asks about cost, performance, usage, or limits."
+            "description": "Running cost / token / failure-rate queries against PostHog LLM analytics \u2014 which event names to query, which properties to aggregate, the standard rollups. Load when the user asks about cost, performance, usage, or limits. For the authoritative emitted-event contract use querying-ai-observability."
+        },
+        {
+            "id": "querying-ai-observability",
+            "path": "skills/querying-ai-observability/SKILL.md",
+            "description": "The authoritative contract for the LLM-observability events the runner emits into each team's own project (`$ai_generation` / `$ai_span` / `$ai_trace`) and how to HogQL them with `@posthog/query` \u2014 reconstruct a single session's trace, find which sessions tripped up, break down tool errors, and roll up cost / latency / failure-rate per agent. Load whenever you're DEBUGGING a session or IMPROVING an agent and want evidence from real model + tool telemetry, not just the conversation JSON. Pairs with debugging-sessions (per-session triage) and auditing-the-fleet (the nightly sweep)."
         },
         {
             "id": "auditing-the-fleet",
