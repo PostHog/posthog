@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+import html
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -1723,11 +1724,127 @@ class _Approver:
     is_github_login: bool
 
 
+# A reviewer should be able to eyeball the approved snapshots straight from the PR.
+# GitHub can't render base64 data URIs (its markdown sanitizer strips them) and the
+# user-attachments upload path needs a browser session we don't have, so we embed
+# presigned object-storage URLs and let GitHub's image proxy (camo) fetch + cache
+# them. That proxy fetch can happen well after the comment is posted, so the URL
+# must outlive the default hour — use the S3 SigV4 maximum.
+_COMMENT_IMAGE_URL_EXPIRATION = 60 * 60 * 24 * 7  # 7 days
+_COMMENT_IMAGE_WIDTH = 320
+# Keep the comment readable: show the first N snapshots and link out for the rest.
+_MAX_COMMENT_IMAGES = 8
+
+
+def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
+    """Presigned URL for embedding a snapshot image in a PR comment.
+
+    Prefers the thumbnail to keep the comment lightweight. Returns None when the
+    artifact is missing or object storage is disabled — the caller renders an
+    empty cell in that case.
+    """
+    if artifact is None:
+        return None
+    display = artifact.thumbnail or artifact
+    storage = ArtifactStorage(str(repo.id))
+    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+
+
+def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
+    """Render a snapshot identifier as a table cell (code span, pipe-safe)."""
+    safe = identifier.replace("`", "").replace("|", "\\|")
+    return f"`{safe}`{suffix}"
+
+
+def _image_cell(url: str | None, alt: str) -> str:
+    """Render an image (or an empty placeholder) for a before/after table cell."""
+    if not url:
+        return "_(none)_"
+    return f'<img src="{url}" width="{_COMMENT_IMAGE_WIDTH}" alt="{html.escape(alt, quote=True)}">'
+
+
+_IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
+
+
+def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
+    """Before/after image tables for the approved snapshots.
+
+    Changed and removed snapshots share one table (removed ones leave the *after*
+    cell empty); new snapshots get their own table (empty *before* cell). Capped
+    at ``_MAX_COMMENT_IMAGES`` rows total, prioritizing changed/removed diffs;
+    anything beyond links back to PostHog. Returns "" when no image could be
+    resolved (e.g. object storage disabled) so the comment stays text-only.
+    """
+    from django.conf import settings
+
+    snapshots = list(
+        run.snapshots.using(READER_DB)
+        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+        .select_related(
+            "current_artifact",
+            "current_artifact__thumbnail",
+            "baseline_artifact",
+            "baseline_artifact__thumbnail",
+        )
+        .order_by("identifier")
+    )
+    if not snapshots:
+        return ""
+
+    # Changed/removed first — they carry a baseline diff a reviewer most needs to
+    # see — then new snapshots fill whatever's left of the image budget.
+    changed = [s for s in snapshots if s.result in (SnapshotResult.CHANGED, SnapshotResult.REMOVED)]
+    new = [s for s in snapshots if s.result == SnapshotResult.NEW]
+
+    total = len(changed) + len(new)
+    shown_changed = changed[:_MAX_COMMENT_IMAGES]
+    shown_new = new[: max(0, _MAX_COMMENT_IMAGES - len(shown_changed))]
+    shown = len(shown_changed) + len(shown_new)
+
+    any_image = False
+
+    def cell(artifact: Artifact | None, alt: str) -> str:
+        nonlocal any_image
+        url = _comment_image_url(repo, artifact)
+        if url:
+            any_image = True
+        return _image_cell(url, alt)
+
+    changed_rows = [
+        f"| {_snapshot_name_cell(s.identifier, ' _(removed)_' if s.result == SnapshotResult.REMOVED else '')} "
+        f"| {cell(s.baseline_artifact, 'before')} "
+        f"| {cell(s.current_artifact, 'after')} |"
+        for s in shown_changed
+    ]
+    new_rows = [
+        f"| {_snapshot_name_cell(s.identifier)} | {cell(None, 'before')} | {cell(s.current_artifact, 'after')} |"
+        for s in shown_new
+    ]
+
+    if not any_image:
+        return ""
+
+    sections: list[str] = []
+    if changed_rows:
+        sections.append("**Changed**\n\n" + _IMAGE_TABLE_HEADER + "\n" + "\n".join(changed_rows))
+    if new_rows:
+        sections.append("**New**\n\n" + _IMAGE_TABLE_HEADER + "\n" + "\n".join(new_rows))
+
+    body = "\n\n".join(sections)
+
+    if shown < total:
+        run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+        body += f"\n\n…and {total - shown} more — [view all in PostHog]({run_url})."
+
+    return body
+
+
 def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
     """Build the markdown body of the post-approval PR comment.
 
-    A short textual summary of what changed — reviewers go to PostHog to see
-    the actual snapshots.
+    A textual summary of what changed, followed by a before/after table of the
+    approved snapshot images so another reviewer can eyeball them without leaving
+    the PR. Falls back to the summary alone when no images can be embedded.
     """
     from django.conf import settings
 
@@ -1758,10 +1875,15 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
         if counts.get(result):
             parts.append(f"{counts[result]} {label}")
 
-    if not parts:
-        return header
+    body = header
+    if parts:
+        body += f"\n{', '.join(parts)}.\n"
 
-    return header + f"\n{', '.join(parts)}.\n"
+    tables = _build_snapshot_image_tables(run, repo)
+    if tables:
+        body += f"\n{tables}\n"
+
+    return body
 
 
 def _resolve_approver(user_id: int | None) -> _Approver | None:
