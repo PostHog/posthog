@@ -11,33 +11,33 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
     if context.team_id is None:
         raise QueryError("action() can only be used in a query with a team_id", node=arg)
 
-    from posthog.hogql.property import action_to_expr
-
-    from products.actions.backend.models.action import Action
-
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        actions = Action.objects.filter(id=int(arg.value), team__project_id=context.project_id).all()
-        if len(actions) == 1:
+        matches = context.data.actions(int(arg.value), scope="project")
+        if len(matches) == 1:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Action #{actions[0].pk} can also be specified as {escape_clickhouse_string(actions[0].name)}",
-                fix=escape_clickhouse_string(actions[0].name),
+                message=f"Action #{matches[0].id} can also be specified as {escape_clickhouse_string(matches[0].name)}",
+                fix=escape_clickhouse_string(matches[0].name),
             )
-            return action_to_expr(actions[0], events_alias=events_alias)
+            expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
+            if expr is not None:
+                return expr
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        actions = Action.objects.filter(name=arg.value, team__project_id=context.project_id).all()
-        if len(actions) == 1:
+        matches = context.data.actions(arg.value, scope="project")
+        if len(matches) == 1:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Searching for action by name. Replace with numeric ID {actions[0].pk} to protect against renaming.",
-                fix=str(actions[0].pk),
+                message=f"Searching for action by name. Replace with numeric ID {matches[0].id} to protect against renaming.",
+                fix=str(matches[0].id),
             )
-            return action_to_expr(actions[0], events_alias=events_alias)
-        elif len(actions) > 1:
+            expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
+            if expr is not None:
+                return expr
+        elif len(matches) > 1:
             raise QueryError(f"Found multiple actions with name '{arg.value}'", node=arg)
         raise QueryError(f"Could not find an action with the name '{arg.value}'", node=arg)
 

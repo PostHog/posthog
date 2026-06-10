@@ -1366,11 +1366,10 @@ def entity_to_expr_core(entity: RetentionEntity, data: DataProvider) -> ast.Expr
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
         action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
-        try:
-            action = Action.objects.get(pk=action_id, team_id=data.team_context.team_id)
-        except Action.DoesNotExist:
+        matches = data.actions(action_id, scope="team")
+        event_expr = data.action_expr(matches[0].id) if matches else None
+        if event_expr is None:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
-        event_expr = action_to_expr(action)
     elif entity.id is None:
         # all events
         event_expr = ast.Constant(value=True)

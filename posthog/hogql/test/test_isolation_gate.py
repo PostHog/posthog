@@ -6,19 +6,27 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, PropertyOperator
+from posthog.schema import (
+    HogQLQueryModifiers,
+    HogQLVariable,
+    MaterializationMode,
+    PersonsOnEventsMode,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import PropertyTypes, StaticDataProvider
+from posthog.hogql.data_provider import ActionRef, InsightVariableInfo, PropertyTypes, StaticDataProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import apply_path_cleaning_core, property_to_expr_core
+from posthog.hogql.property import apply_path_cleaning_core, entity_to_expr_core, property_to_expr_core
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.team_context import HogQLTeamContext
 from posthog.hogql.transforms.property_types import build_property_swapper
+from posthog.hogql.variables import replace_variables_core
 
 from posthog.models import Property
 
@@ -153,6 +161,29 @@ class TestEngineIsolationGate(SimpleTestCase):
         )
         assert isinstance(expr, ast.CompareOperation)
         self.assertEqual(expr.right, ast.Constant(value=True))
+
+    def test_retention_action_entity_via_provider(self) -> None:
+        pageview = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value="$pageview"),
+        )
+        provider = _provider(
+            action_refs={("team", 5): [ActionRef(id=5, name="five")]},
+            action_exprs={5: pageview},
+        )
+        self.assertEqual(entity_to_expr_core(RetentionEntity(id=5, type="actions"), provider), pageview)
+
+    def test_variables_substituted_via_provider(self) -> None:
+        provider = _provider(
+            insight_variables_by_id={"vid-1": InsightVariableInfo(code_name="my_var", default_value=42)}
+        )
+        node = parse_select("SELECT {variables.my_var} AS v")
+        replaced = replace_variables_core(node, [HogQLVariable(variableId="vid-1", code_name="my_var")], provider)
+        assert isinstance(replaced, ast.SelectQuery)
+        alias = replaced.select[0]
+        assert isinstance(alias, ast.Alias)
+        self.assertEqual(alias.expr, ast.Constant(value=42))
 
     def test_relative_date_resolves_against_team_context_timezone(self) -> None:
         expr = property_to_expr_core(

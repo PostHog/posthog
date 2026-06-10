@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import models
 from django.db.models import Prefetch, Q
@@ -6,15 +6,20 @@ from django.db.models.functions.comparison import Coalesce
 
 import posthoganalytics
 
-from posthog.hogql.data_provider import PropertyKind, PropertyTypes
+from posthog.hogql.data_provider import ActionRef, ActionScope, InsightVariableInfo, PropertyKind, PropertyTypes
 from posthog.hogql.team_context import HogQLTeamContext
 
 from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX
 from posthog.models import PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
+from products.actions.backend.models.action import Action
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+
+if TYPE_CHECKING:
+    from posthog.hogql import ast
 
 
 def _property_definitions_for_project(project_id: int):
@@ -36,6 +41,9 @@ class DjangoDataProvider:
         self._team = team
         self._team_id = team_id if team_id is not None else (team.id if team is not None else None)
         self._team_context: Optional[HogQLTeamContext] = None
+        # Action rows fetched by actions() are kept so a following action_expr() call
+        # converts the already-loaded row instead of re-querying.
+        self._action_rows: dict[int, Action] = {}
 
     @property
     def team(self) -> Team:
@@ -184,3 +192,33 @@ class DjangoDataProvider:
             )
 
         return PropertyTypes(event=event, person=person, group=group)
+
+    def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
+        if scope == "team":
+            rows = Action.objects.filter(pk=ref, team_id=self.team.id).all()
+        elif isinstance(ref, str):
+            rows = Action.objects.filter(name=ref, team__project_id=self.team.project_id).all()
+        else:
+            rows = Action.objects.filter(id=ref, team__project_id=self.team.project_id).all()
+
+        refs = []
+        for row in rows:
+            self._action_rows[row.pk] = row
+            refs.append(ActionRef(id=row.pk, name=row.name))
+        return refs
+
+    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
+        # Deferred import: property.py itself imports this module for its boundary shims.
+        from posthog.hogql.property import action_to_expr  # noqa: PLC0415
+
+        row = self._action_rows.get(action_id)
+        if row is None:
+            row = Action.objects.filter(pk=action_id, team__project_id=self.team.project_id).first()
+            if row is None:
+                return None
+            self._action_rows[action_id] = row
+        return action_to_expr(row, events_alias=events_alias)
+
+    def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
+        rows = InsightVariable.objects.filter(team_id=self.team.id, id__in=variable_ids).all()
+        return [InsightVariableInfo(code_name=row.code_name, default_value=row.default_value) for row in rows]

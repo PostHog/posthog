@@ -1,9 +1,27 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Protocol
+from typing import Any, Literal, Optional, Protocol
 
+from posthog.hogql import ast
 from posthog.hogql.team_context import HogQLTeamContext
 
 PropertyKind = Literal["event", "person", "group"]
+ActionScope = Literal["team", "project"]
+
+
+@dataclass(frozen=True)
+class ActionRef:
+    """Plain identity of an action, for engine-side notices and error messages."""
+
+    id: int
+    name: Optional[str]
+
+
+@dataclass(frozen=True)
+class InsightVariableInfo:
+    """The two fields of an insight variable the engine reads when substituting placeholders."""
+
+    code_name: Optional[str]
+    default_value: Any
 
 
 @dataclass(frozen=True)
@@ -69,6 +87,23 @@ class DataProvider(Protocol):
         """Batched property-type lookup for everything a query references."""
         ...
 
+    def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
+        """Actions matching ``ref`` — an id, or a name when ``scope`` is ``"project"``.
+
+        ``"team"`` scope matches the requesting team only (retention entities);
+        ``"project"`` scope matches any team in the project (the ``action()`` function).
+        The list lets the engine keep its existing not-found and ambiguity errors.
+        """
+        ...
+
+    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional[ast.Expr]:
+        """The action's step filters converted to an expression, or ``None`` if it doesn't exist."""
+        ...
+
+    def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
+        """The requesting team's insight variables among ``variable_ids``."""
+        ...
+
 
 @dataclass
 class StaticDataProvider:
@@ -85,6 +120,9 @@ class StaticDataProvider:
     # Full property-type catalog; lookups return the subset a query asks for. A property
     # absent from the catalog is simply untyped — a legitimate state, not an error.
     property_type_catalog: PropertyTypes = field(default_factory=PropertyTypes)
+    action_refs: dict[tuple[ActionScope, int | str], list[ActionRef]] = field(default_factory=dict)
+    action_exprs: dict[int, ast.Expr] = field(default_factory=dict)
+    insight_variables_by_id: dict[str, InsightVariableInfo] = field(default_factory=dict)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
@@ -115,3 +153,16 @@ class StaticDataProvider:
             person={k: v for k, v in self.property_type_catalog.person.items() if k in requested_persons},
             group={k: v for k, v in self.property_type_catalog.group.items() if k in group_keys},
         )
+
+    def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
+        return self.action_refs.get((scope, ref), [])
+
+    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional[ast.Expr]:
+        return self.action_exprs.get(action_id)
+
+    def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
+        return [
+            self.insight_variables_by_id[variable_id]
+            for variable_id in variable_ids
+            if variable_id in self.insight_variables_by_id
+        ]
