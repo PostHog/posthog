@@ -69,6 +69,15 @@ logger = structlog.get_logger(__name__)
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
+def _event_config_has_event_or_action(event_config: dict) -> bool:
+    # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+    # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
+    # actions set) are real and kept. Shared by the wait_until_condition and conversion strips so the
+    # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
+    filters = event_config.get("filters") or {}
+    return bool(filters.get("events") or filters.get("actions"))
+
+
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
@@ -331,6 +340,13 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
+            # Drop "events to wait for" entries that target neither events nor actions. An empty
+            # event filter compiles to always-true bytecode, which would wake the job on every
+            # incoming event and bypass the property condition. The UI can leave such an entry
+            # behind when the last event is removed; "nothing targeted" must mean "nothing wakes
+            # this", not "everything". Action-based entries (events empty, actions set) are kept.
+            wait_events = [ec for ec in wait_events if _event_config_has_event_or_action(ec)]
+            data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
                 if filters is not None:
@@ -450,10 +466,10 @@ class HogFlowConversionSerializer(serializers.Serializer):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
         if isinstance(data, dict) and "bytecode" in data:
             data = {k: v for k, v in data.items() if k != "bytecode"}
-        # Legacy shape guard: some clients sent an event-based goal as an object in 'filters'
-        # (e.g. {"events": [...], "source": "events"}). That belongs in 'events' — relocate it before
-        # field validation so the old shape is still accepted and compiled (filters only takes an
-        # array of property conditions) instead of returning a 400.
+        # Legacy shape guard (mirrors the one-time backfill in migration 0009): some clients sent an
+        # event-based goal as an object in 'filters' (e.g. {"events": [...], "source": "events"}).
+        # That belongs in 'events' — relocate it before field validation so the old shape is still
+        # accepted and compiled (filters only takes an array of property conditions) instead of 400ing.
         if isinstance(data, dict) and isinstance(data.get("filters"), dict) and data["filters"].get("events"):
             data = {**data, "events": [*(data.get("events") or []), {"filters": data["filters"]}], "filters": []}
         return super().to_internal_value(data)
@@ -711,7 +727,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
-            for event_config in conversion.get("events") or []:
+            # Drop conversion "events" entries that target neither events nor actions, for the same
+            # always-true reason as the wait_until_condition guard above: an empty entry would mark
+            # every incoming event as a conversion. Action-based entries (events empty, actions set)
+            # are kept.
+            conversion_events = [ec for ec in (conversion.get("events") or []) if _event_config_has_event_or_action(ec)]
+            data["conversion"]["events"] = conversion_events
+            for event_config in conversion_events:
                 event_filters = event_config.get("filters")
                 if event_filters is not None:
                     event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)

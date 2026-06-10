@@ -230,6 +230,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // event, which is what makes property-based waits event-driven rather than polled.
         const context = { hogFlowId: hogflowId, actionId: action.id }
         for (const eventConfig of action.config.events ?? []) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
@@ -241,6 +244,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
@@ -440,6 +446,15 @@ type IndexedBatch = {
     personIds: string[]
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
+}
+
+// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
+// it would match every incoming event. Action-based entries (events empty, actions set) are real
+// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
+// in one place.
+function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; actions?: unknown[] } }): boolean {
+    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
 }
 
 // Skip teams whose hogflows have no wait_until_condition step and no event-based
