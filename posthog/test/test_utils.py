@@ -836,27 +836,27 @@ class TestGetShortUserAgent(TestCase):
 
 
 class TestInstanceAvailableSSOProviders(TestCase):
-    @override_settings(
-        SOCIAL_AUTH_GITHUB_KEY="key",
-        SOCIAL_AUTH_GITHUB_SECRET="secret",
-        SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS=[],
-        SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS=[],
+    @parameterized.expand(
+        [
+            ("unrestricted", [], [], True),
+            ("domain_whitelist", [], ["posthog.com"], False),
+            ("email_whitelist", ["someone@posthog.com"], [], False),
+            ("both_whitelists", ["someone@posthog.com"], ["posthog.com"], False),
+        ]
     )
-    def test_github_offered_for_login_when_configured_and_unrestricted(self):
-        assert get_instance_available_sso_providers()["github"] is True
-        assert get_instance_available_sso_providers(for_login=True)["github"] is True
-
-    @override_settings(
-        SOCIAL_AUTH_GITHUB_KEY="key",
-        SOCIAL_AUTH_GITHUB_SECRET="secret",
-        SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS=[],
-        SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS=["posthog.com"],
-    )
-    def test_github_hidden_from_login_when_whitelist_restricts_it(self):
-        # Still "available" for the profile-linking flow / SSO enforcement checks...
-        assert get_instance_available_sso_providers()["github"] is True
-        # ...but not offered as a primary login button.
-        assert get_instance_available_sso_providers(for_login=True)["github"] is False
+    def test_github_login_button_respects_whitelist_restriction(
+        self, _name, whitelisted_emails, whitelisted_domains, expected_for_login
+    ):
+        with override_settings(
+            SOCIAL_AUTH_GITHUB_KEY="key",
+            SOCIAL_AUTH_GITHUB_SECRET="secret",
+            SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS=whitelisted_emails,
+            SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS=whitelisted_domains,
+        ):
+            # GitHub stays "available" config-only for the profile-linking flow / SSO enforcement...
+            assert get_instance_available_sso_providers()["github"] is True
+            # ...but is only offered as a primary login button when login isn't whitelist-restricted.
+            assert get_instance_available_sso_providers(for_login=True)["github"] is expected_for_login
 
 
 class TestFlatten(TestCase):
