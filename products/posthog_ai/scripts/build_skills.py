@@ -413,60 +413,13 @@ class SkillBuilder:
                 except ValueError as e:
                     errors.append(str(e))
 
-        repo_skill_count = self._lint_repo_skills(set(seen), errors)
-
         if errors:
             for err in errors:
                 print(f"ERROR: {err}", file=sys.stderr)
             return False
 
-        print(f"OK: {len(skills)} product skill(s) and {repo_skill_count} repo skill(s) passed lint checks.")
+        print(f"OK: {len(skills)} skill(s) passed lint checks.")
         return True
-
-    def _lint_repo_skills(self, product_skill_names: set[str], errors: list[str]) -> int:
-        """Validate committed repo skills in .agents/skills/ (synced product skill copies are skipped).
-
-        Checks: SKILL.md present, valid frontmatter (name, description), frontmatter
-        name matching the directory name, and no name collision with a product skill
-        (a collision would let ``hogli sync:skill`` overwrite the committed skill).
-        """
-        agents_skills_dir = self.repo_root / ".agents" / "skills"
-        if not agents_skills_dir.exists():
-            return 0
-
-        synced = self._synced_skill_names(agents_skills_dir / ".gitignore")
-        count = 0
-        for entry in sorted(agents_skills_dir.iterdir()):
-            if not entry.is_dir() or entry.name in synced:
-                continue
-            count += 1
-            skill_md = entry / "SKILL.md"
-            source_label = str(skill_md.relative_to(self.repo_root))
-            if not skill_md.exists():
-                errors.append(f"Missing SKILL.md in {entry.relative_to(self.repo_root)}/")
-                continue
-            try:
-                frontmatter = validate_frontmatter(skill_md.read_text(), source_label)
-            except ValueError as e:
-                errors.append(str(e))
-                continue
-            if frontmatter.name != entry.name:
-                errors.append(
-                    f"Frontmatter name '{frontmatter.name}' does not match directory name '{entry.name}' in {source_label}"
-                )
-            if entry.name in product_skill_names:
-                errors.append(
-                    f"Repo skill '{entry.name}' collides with a product skill of the same name "
-                    f"({source_label} would be overwritten by hogli sync:skill)"
-                )
-        return count
-
-    @staticmethod
-    def _synced_skill_names(gitignore_path: Path) -> set[str]:
-        """Names of product skills synced into .agents/skills/ (managed by hogli sync:skill)."""
-        if not gitignore_path.exists():
-            return set()
-        return {line.removeprefix("/") for line in gitignore_path.read_text().splitlines() if line.startswith("/")}
 
     def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
         """Scaffold a new skill directory with SKILL.md boilerplate.
