@@ -35,9 +35,16 @@ describe('database-guard', () => {
             )
         })
 
-        it('allows non-test databases when the escape hatch is set', () => {
-            const env = { [UNSAFE_DATABASE_RESET_ENV_VAR]: '1' }
+        it.each(['1', 'true', 'TRUE', 'yes'])('allows non-test databases when the escape hatch is %s', (value) => {
+            const env = { [UNSAFE_DATABASE_RESET_ENV_VAR]: value }
             expect(() => assertTestDatabaseName('posthog', 'unit test', env)).not.toThrow()
+        })
+
+        it.each(['0', 'false', 'no', ''])('keeps the guard active when the escape hatch is %s', (value) => {
+            const env = { [UNSAFE_DATABASE_RESET_ENV_VAR]: value }
+            expect(() => assertTestDatabaseName('posthog', 'unit test', env)).toThrow(
+                /Refusing to run a destructive test helper/
+            )
         })
     })
 

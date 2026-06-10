@@ -76,11 +76,17 @@ export class Clickhouse {
         this.client.close()
     }
 
-    // Memoized so repeated truncates don't re-query the database name.
+    // Memoized so repeated truncates don't re-query the database name. Reset
+    // on failure so a transient connection error doesn't get cached as a
+    // permanently rejected promise.
     private databaseGuard?: Promise<void>
     private ensureTestDatabase(): Promise<void> {
-        this.databaseGuard ??= this.query<{ name: string }>('SELECT currentDatabase() AS name').then((rows) =>
-            assertTestDatabaseName(rows[0].name, 'ClickHouse')
+        this.databaseGuard ??= this.query<{ name: string }>('SELECT currentDatabase() AS name').then(
+            (rows) => assertTestDatabaseName(rows[0].name, 'ClickHouse'),
+            (error) => {
+                this.databaseGuard = undefined
+                throw error
+            }
         )
         return this.databaseGuard
     }

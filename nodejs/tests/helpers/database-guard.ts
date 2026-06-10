@@ -2,11 +2,13 @@ import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 
 /**
  * Escape hatch for environments whose test database legitimately doesn't have
- * "test" in its name. Set to a truthy value to skip the guard.
+ * "test" in its name. Set to `1`, `true`, or `yes` to skip the guard; any
+ * other value (including `0` and `false`) keeps it active.
  */
 export const UNSAFE_DATABASE_RESET_ENV_VAR = 'ALLOW_NON_TEST_DATABASE_RESET'
 
 const TEST_DATABASE_NAME_PATTERN = /test/i
+const ESCAPE_HATCH_VALUES = new Set(['1', 'true', 'yes'])
 
 /**
  * Throws unless `databaseName` looks like a test database (contains "test").
@@ -21,7 +23,7 @@ export function assertTestDatabaseName(
     source: string,
     env: Record<string, string | undefined> = process.env
 ): void {
-    if (env[UNSAFE_DATABASE_RESET_ENV_VAR]) {
+    if (ESCAPE_HATCH_VALUES.has((env[UNSAFE_DATABASE_RESET_ENV_VAR] ?? '').toLowerCase())) {
         return
     }
     if (TEST_DATABASE_NAME_PATTERN.test(databaseName)) {
