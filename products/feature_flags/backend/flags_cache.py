@@ -45,8 +45,6 @@ import structlog
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.cohort.dependencies import extract_cohort_dependencies
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
@@ -59,6 +57,8 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats as get_cache_stats_generic,
 )
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
 

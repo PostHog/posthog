@@ -234,26 +234,104 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_config")
 
-    def test_patch_scanner_type_validates_against_existing_config(self) -> None:
-        # Existing monitor scanner has {"prompt": "..."}; switching to classifier without tags must 400.
-        scanner = self._create_scanner()
-        resp = self.client.patch(
-            f"{self.scanners_url}{scanner.id}/",
-            data={"scanner_type": ScannerType.CLASSIFIER},
+    @parameterized.expand(
+        [
+            (
+                "classifier_empty_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": []},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_missing_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p"},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_blank_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["bug", "   "]},
+                "Tags can't be blank.",
+            ),
+            (
+                "classifier_duplicate_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["Bug", "bug"]},
+                "Tags must be unique.",
+            ),
+            (
+                "monitor_missing_prompt",
+                ScannerType.MONITOR,
+                {},
+                "Prompt is required.",
+            ),
+            (
+                "monitor_explicit_null_prompt",
+                ScannerType.MONITOR,
+                {"prompt": None},
+                "Prompt is required.",
+            ),
+            (
+                "scorer_inverted_scale",
+                ScannerType.SCORER,
+                {"prompt": "p", "scale": {"min": 10, "max": 0}},
+                "Scale max must be greater than min.",
+            ),
+            (
+                "scorer_missing_scale",
+                ScannerType.SCORER,
+                {"prompt": "p"},
+                "Scale is required.",
+            ),
+            (
+                "not_a_dict",
+                ScannerType.MONITOR,
+                "just a string",
+                "Scanner configuration must be a JSON object.",
+            ),
+        ]
+    )
+    def test_validation_returns_specific_message_per_invalid_config(
+        self, label: str, scanner_type: ScannerType, scanner_config: Any, expected_detail: str
+    ) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": f"invalid-{label}",
+                "scanner_type": scanner_type,
+                "scanner_config": scanner_config,
+                "model": ScannerModel.GEMINI_3_FLASH,
+            },
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_config")
+        body = resp.json()
+        detail = body.get("detail", "")
+        self.assertNotIn("validation error for", detail)
+        self.assertNotIn("errors.pydantic.dev", detail)
+        self.assertNotIn("input_value=", detail)
+        self.assertEqual(detail, expected_detail)
 
-    def test_patch_can_change_scanner_type_with_matching_config(self) -> None:
+    def test_patch_rejects_scanner_type_change(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
             data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
+        self.assertIn("fixed after creation", resp.json()["detail"])
+
+    def test_patch_accepts_same_scanner_type(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": scanner.scanner_type, "scanner_config": {"prompt": "still a monitor"}},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["scanner_type"], ScannerType.CLASSIFIER)
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(

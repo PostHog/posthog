@@ -10,7 +10,7 @@ import * as zod from 'zod'
 
 /**
  * Returns failed/disabled data pipeline items for the Pipeline status side panel.
-Includes: materializations, syncs, sources, destinations, and transformations.
+ * Includes: materializations, syncs, sources, destinations, and transformations.
  */
 export const DataWarehouseDataHealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -912,9 +912,9 @@ export const ExternalDataSourcesWebhookInfoRetrieveParams = /* @__PURE__ */ zod.
 
 /**
  * Validate CDC prerequisites against a live Postgres connection.
-
-Used by the source wizard to surface ✅/❌ checks before source creation,
-and by the self-managed setup popup to verify user-created publications.
+ *
+ * Used by the source wizard to surface ✅/❌ checks before source creation,
+ * and by the self-managed setup popup to verify user-created publications.
  */
 export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1196,7 +1196,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
 
 /**
  * Undo materialization, revert back to the original view.
-(i.e. delete the materialized table and the schedule)
+ * (i.e. delete the materialized table and the schedule)
  */
 export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),

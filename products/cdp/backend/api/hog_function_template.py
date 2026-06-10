@@ -145,8 +145,14 @@ class PublicHogFunctionTemplateViewSet(
             if self.request.GET.get("template_id"):
                 queryset = queryset.filter(template_id=self.request.GET["template_id"])
 
-            # Don't include deprecated or hidden templates when listing, regardless of mount
-            queryset = queryset.exclude(status="deprecated").exclude(status="hidden")
+            queryset = queryset.exclude(status="deprecated")
+
+            # Hidden templates (e.g. template-posthog-capture, template-posthog-update-person-properties,
+            # email, twilio, webhook) are internal building blocks. The workflow editor needs them on
+            # the authenticated project mount to render action configuration; the frontend hides them
+            # from the destinations chooser separately. Only strip them from the anonymous catalog.
+            if self.request.path.startswith("/api/public_hog_function_templates"):
+                queryset = queryset.exclude(status="hidden")
 
         return queryset
 

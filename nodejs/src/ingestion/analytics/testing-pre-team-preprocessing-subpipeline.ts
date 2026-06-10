@@ -4,8 +4,8 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { TeamManager } from '~/utils/team-manager'
 
 import { EventHeaders, Team } from '../../types'
+import { createDenyEventsStep } from '../common/steps/deny-events'
 import {
-    createDropExceptionEventsStep,
     createEnrichSurveyPersonPropertiesStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -40,8 +40,8 @@ export function createTestingPreTeamPreprocessingSubpipeline<
 
     return builder
         .pipe(createParseHeadersStep())
+        .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
         .pipe(createParseKafkaMessageStep())
-        .pipe(createDropExceptionEventsStep())
         .pipe(createResolveTeamStep(teamManager))
         .pipe(createValidateHistoricalMigrationStep())
         .pipe(createValidateAiEventTokensStep())

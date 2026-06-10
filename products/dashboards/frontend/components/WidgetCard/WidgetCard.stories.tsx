@@ -10,6 +10,7 @@ import {
     dashboardTileTopHeading,
     mockMoreOverlay,
     sampleListBody,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
 } from './widgetCardStoryFixtures'
 
@@ -69,6 +70,7 @@ const meta: Meta<typeof WidgetCardStory> = {
     component: WidgetCardStory,
     parameters: {
         layout: 'padded',
+        ...widgetStorybookParameters,
     },
     decorators: widgetTileFrameDecorator,
     args: {

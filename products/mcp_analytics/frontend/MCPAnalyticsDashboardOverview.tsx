@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
@@ -202,12 +202,9 @@ function BrandingStrip(): JSX.Element {
                     <IconBolt className="h-3 w-3" />
                 </span>
                 <span className="text-[13px] font-medium">PostHog for Agents</span>
-                <span
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{ background: '#E6F1FB', color: '#0C447C' }}
-                >
-                    Preview
-                </span>
+                <LemonTag type="completion" size="small">
+                    Alpha
+                </LemonTag>
             </div>
             <span className="text-[11px] text-tertiary">Last 7 days</span>
         </div>
@@ -249,9 +246,9 @@ function errorBucket(pct: number): ErrorBucket {
 }
 
 const ERROR_PILL_CLASS: Record<ErrorBucket, string> = {
-    green: 'text-[#27500A] bg-[#EAF3DE]',
-    amber: 'text-[#633806] bg-[#FAEEDA]',
-    red: 'text-[#791F1F] bg-[#FCEBEB]',
+    green: 'text-success bg-fill-success-highlight',
+    amber: 'text-warning bg-fill-warning-highlight',
+    red: 'text-error bg-fill-error-highlight',
 }
 
 function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
@@ -265,11 +262,28 @@ function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
     )
 }
 
+const VOLUME_COLOR = 'var(--data-color-1)'
+const ERROR_COLOR = 'var(--data-color-5)'
+
+function VolumeBar({ totalPct, errorPct, title }: { totalPct: number; errorPct: number; title: string }): JSX.Element {
+    const errorStartPct = (Math.max(totalPct - errorPct, 0) / (totalPct || 1)) * 100
+    return (
+        <div className="relative h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary" title={title}>
+            <div
+                className="h-full opacity-40"
+                style={{
+                    width: `${totalPct}%`,
+                    background: `linear-gradient(to right, ${VOLUME_COLOR} ${errorStartPct}%, ${ERROR_COLOR} ${errorStartPct}%)`,
+                }}
+            />
+        </div>
+    )
+}
+
 function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: number; isLast: boolean }): JSX.Element {
     const callsPct = maxVolume ? (row.total_calls / maxVolume) * 100 : 0
     const errorsPct = maxVolume ? (row.errors / maxVolume) * 100 : 0
-    const successPct = Math.max(callsPct - errorsPct, 0)
-    const nameClass = row.error_rate_pct > 5 ? 'text-[#791F1F]' : 'text-primary'
+    const nameClass = row.error_rate_pct > 5 ? 'text-error' : 'text-primary'
     return (
         <div
             className="grid items-center gap-2.5 py-1.5"
@@ -285,13 +299,11 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
             >
                 {row.tool}
             </Link>
-            <div
-                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+            <VolumeBar
+                totalPct={callsPct}
+                errorPct={errorsPct}
                 title={`${row.total_calls} calls · ${row.errors} errors`}
-            >
-                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-            </div>
+            />
             <ErrorRatePill pct={row.error_rate_pct} />
             <span className="text-right font-mono text-xs text-primary">
                 {row.p95_duration_ms ? `${Math.round(row.p95_duration_ms)}ms` : '—'}
@@ -322,9 +334,9 @@ function ToolReliabilityMatrix({
             >
                 <span>Tool</span>
                 <span>
-                    <span className="text-[#185FA5]">Calls</span>
+                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
                     <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
+                    <span style={{ color: ERROR_COLOR }}>errors</span>
                 </span>
                 <span>Err</span>
                 <span className="text-right">p95</span>
@@ -370,9 +382,9 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
             >
                 <span>Harness</span>
                 <span>
-                    <span className="text-[#185FA5]">Calls</span>
+                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
                     <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
+                    <span style={{ color: ERROR_COLOR }}>errors</span>
                 </span>
                 <span>Err</span>
                 <span className="text-right">Share</span>
@@ -389,7 +401,6 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
                 rows.map((row, i) => {
                     const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
                     const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
-                    const successPct = Math.max(callsPct - errorsPct, 0)
                     const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
                     const tooltip = row.raw_clients.slice(0, 8).join(', ')
                     return (
@@ -403,13 +414,11 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
                             }}
                         >
                             <HarnessPill category={row.category} title={tooltip} />
-                            <div
-                                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+                            <VolumeBar
+                                totalPct={callsPct}
+                                errorPct={errorsPct}
                                 title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
-                            >
-                                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-                            </div>
+                            />
                             <ErrorRatePill pct={row.error_rate_pct} />
                             <span className="text-right font-mono text-xs text-primary">
                                 {share.toFixed(share >= 10 ? 0 : 1)}%
@@ -442,7 +451,7 @@ function formatDuration(seconds: number): string {
 function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     if (errorRatePct >= 100) {
         return (
-            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#FCEBEB] px-1.5 text-[10px] font-medium text-[#791F1F]">
+            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-error-highlight px-1.5 text-[10px] font-medium text-error">
                 100% err
             </span>
         )
@@ -458,7 +467,7 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
         )
     }
     return (
-        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#EAF3DE] px-1.5 text-[10px] font-medium text-[#27500A]">
+        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-success-highlight px-1.5 text-[10px] font-medium text-success">
             Success
         </span>
     )

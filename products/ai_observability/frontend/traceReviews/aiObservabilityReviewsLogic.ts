@@ -1,6 +1,6 @@
-import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -10,8 +10,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
@@ -58,14 +57,11 @@ function getUrlFilters(filters: TraceReviewFilters): Record<string, unknown> {
     }
 }
 
-export interface AIObservabilityReviewsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityReviewsLogicProps = Record<string, never>
 
 export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'traceReviews', 'aiObservabilityReviewsLogic']),
     props({} as AIObservabilityReviewsLogicProps),
-    key((props: AIObservabilityReviewsLogicProps) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<TraceReviewFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -208,7 +204,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'reviews' }
             const urlValues = {
@@ -222,7 +218,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
 
