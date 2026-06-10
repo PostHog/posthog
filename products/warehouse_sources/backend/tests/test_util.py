@@ -1,10 +1,91 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.models.util import (
+    columns_in_position_order,
+    get_view_or_table_by_name,
+    stamp_column_positions,
+)
+
+
+class TestColumnPositions(BaseTest):
+    def test_stamp_assigns_positions_in_insertion_order(self):
+        columns = {
+            "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+            "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+            "source_product": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+        }
+
+        stamp_column_positions(columns)
+
+        assert {name: value["position"] for name, value in columns.items()} == {
+            "content": 0,
+            "id": 1,
+            "source_product": 2,
+        }
+
+    def test_stamp_preserves_existing_positions_and_appends_new(self):
+        columns = {
+            "new_column": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+            "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 1},
+            "content": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 0},
+        }
+
+        stamp_column_positions(columns)
+
+        assert columns["content"]["position"] == 0
+        assert columns["id"]["position"] == 1
+        assert columns["new_column"]["position"] == 2
+
+    def test_stamp_leaves_old_style_string_columns_untouched(self):
+        columns = {
+            "id": "String",
+            "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+        }
+
+        stamp_column_positions(columns)
+
+        assert columns["id"] == "String"
+        assert columns["content"]["position"] == 0
+
+    @parameterized.expand(
+        [
+            (
+                "scrambled_positions",
+                {
+                    "id": {"clickhouse": "String", "position": 1},
+                    "content": {"clickhouse": "String", "position": 0},
+                    "source_product": {"clickhouse": "String", "position": 2},
+                },
+                ["content", "id", "source_product"],
+            ),
+            (
+                "no_positions_keeps_dict_order",
+                {
+                    "id": "String",
+                    "content": {"clickhouse": "String"},
+                    "source_product": "String",
+                },
+                ["id", "content", "source_product"],
+            ),
+            (
+                "partially_stamped_keeps_dict_order",
+                {
+                    "legacy": "String",
+                    "id": {"clickhouse": "String", "position": 1},
+                    "content": {"clickhouse": "String", "position": 0},
+                },
+                ["legacy", "id", "content"],
+            ),
+        ]
+    )
+    def test_columns_in_position_order(self, _name, columns, expected_order):
+        assert [name for name, _ in columns_in_position_order(columns)] == expected_order
 
 
 class TestGetViewOrTableByName(BaseTest):
