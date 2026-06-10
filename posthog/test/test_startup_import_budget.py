@@ -22,6 +22,9 @@ FORBIDDEN_AT_SETUP = [
     "dlt",  # data-load-tool — only the warehouse import pipelines need it (deferred in pipeline typings)
     "products.revenue_analytics.backend.views.sources.stripe",  # revenue view builders (pandas-heavy)
     "user_agents",  # UA parser — only the request-time UA-summary path needs it (deferred in posthog.utils)
+    "products.batch_exports.backend.temporal",  # batch export workflows + every destination's vendor SDK
+    "databricks",  # Databricks SDK — only the databricks batch export destination needs it
+    "snowflake",  # Snowflake SDK — only the snowflake batch export destination needs it
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
@@ -184,7 +187,7 @@ _RELOCATED_RECEIVERS = [
     "products.data_warehouse.backend.activity_logging.handle_external_data_source_change",
     "products.data_warehouse.backend.activity_logging.handle_external_data_schema_change",
     "products.ai_observability.backend.activity_logging.handle_evaluation_change",
-    "products.batch_exports.backend.api.batch_export.handle_batch_export_change",
+    "products.batch_exports.backend.activity_logging.handle_batch_export_change",
     "products.managed_migrations.backend.api.batch_imports.handle_batch_import_change",
     "products.actions.backend.api.action.handle_action_change",
     "products.annotations.backend.api.annotation.handle_annotation_change",

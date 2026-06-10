@@ -8,9 +8,9 @@ class BatchExportsConfig(AppConfig):
     label = "batch_exports"
 
     def ready(self) -> None:
-        # batch_export.py holds the BatchExport activity-log receiver (handle_batch_export_change),
-        # which used to wire in via the viewset import. The lazy API router no longer pulls that, and
-        # the Temporal batch-export service mutates BatchExport directly (pause/unpause), so without
-        # wiring here its audit-log entries are silently dropped in the worker. The module is light
-        # (its only heavy import, the batch-export Temporal framework, is deferred).
-        from products.batch_exports.backend.api import batch_export  # noqa: F401, PLC0415
+        # The BatchExport activity-log receiver (handle_batch_export_change) used to wire in via the
+        # viewset import. The lazy API router no longer pulls that, and the Temporal batch-export
+        # service mutates BatchExport directly (pause/unpause), so without wiring here its audit-log
+        # entries are silently dropped in the worker. It lives in its own module because the API
+        # module is heavy (DRF, service layer, Temporal client) — see activity_logging's docstring.
+        from products.batch_exports.backend import activity_logging  # noqa: F401, PLC0415
