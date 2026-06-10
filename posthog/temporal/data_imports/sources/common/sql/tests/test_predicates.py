@@ -34,7 +34,22 @@ class TestNormalizeOperator:
     def test_whitespace_is_stripped(self) -> None:
         assert normalize_operator("  >=  ") == ">="
 
-    @pytest.mark.parametrize("operator", ["LIKE", "=;DROP", "", "IN", "OR 1=1", ">>"])
+    @pytest.mark.parametrize(
+        "operator,expected",
+        [
+            ("IN", "IN"),
+            ("in", "IN"),
+            ("In", "IN"),
+            ("  in  ", "IN"),
+            ("NOT IN", "NOT IN"),
+            ("not in", "NOT IN"),
+            ("Not  In", "NOT IN"),  # collapsed internal whitespace
+        ],
+    )
+    def test_in_operators_are_normalized(self, operator: str, expected: str) -> None:
+        assert normalize_operator(operator) == expected
+
+    @pytest.mark.parametrize("operator", ["LIKE", "=;DROP", "", "OR 1=1", ">>", "NOTIN", "IN;DROP"])
     def test_disallowed_operators_raise(self, operator: str) -> None:
         with pytest.raises(RowFilterValidationError):
             normalize_operator(operator)
@@ -237,6 +252,82 @@ class TestValidateAndCoerce:
         )
         assert result[0].operator == "="
 
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("1,2,3", [1, 2, 3]),
+            ("1, 2, 3", [1, 2, 3]),
+            ("  1 ,  2 ,3 ", [1, 2, 3]),
+            ("42", [42]),
+        ],
+    )
+    def test_in_integer_list_coercion(self, raw: str, expected: list[int]) -> None:
+        result = validate_and_coerce_row_filters(
+            [{"column": "id", "operator": "IN", "value": raw}], _metadata([("id", "integer")])
+        )
+        assert result[0].operator == "IN"
+        assert result[0].value == expected
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("'abc','cde'", ["abc", "cde"]),
+            ("'abc', 'cde'", ["abc", "cde"]),
+            ("abc,cde", ["abc", "cde"]),  # quotes are optional when there's no embedded comma
+            ("'a,b','c'", ["a,b", "c"]),  # commas inside quotes are preserved
+            ("'o''brien'", ["o'brien"]),  # doubled quote escapes
+        ],
+    )
+    def test_in_string_list_coercion(self, raw: str, expected: list[str]) -> None:
+        result = validate_and_coerce_row_filters(
+            [{"column": "name", "operator": "IN", "value": raw}], _metadata([("name", "text")])
+        )
+        assert result[0].value == expected
+
+    def test_not_in_operator(self) -> None:
+        result = validate_and_coerce_row_filters(
+            [{"column": "id", "operator": "not in", "value": "1,2"}], _metadata([("id", "integer")])
+        )
+        assert result[0].operator == "NOT IN"
+        assert result[0].value == [1, 2]
+
+    def test_in_accepts_structured_list(self) -> None:
+        result = validate_and_coerce_row_filters(
+            [{"column": "id", "operator": "IN", "value": [1, "2", 3]}], _metadata([("id", "integer")])
+        )
+        assert result[0].value == [1, 2, 3]
+
+    def test_in_empty_list_raises(self) -> None:
+        with pytest.raises(RowFilterValidationError, match="at least one value"):
+            validate_and_coerce_row_filters(
+                [{"column": "id", "operator": "IN", "value": ""}], _metadata([("id", "integer")])
+            )
+
+    def test_in_blank_element_raises(self) -> None:
+        with pytest.raises(RowFilterValidationError, match="empty value"):
+            validate_and_coerce_row_filters(
+                [{"column": "id", "operator": "IN", "value": "1,,2"}], _metadata([("id", "integer")])
+            )
+
+    def test_in_bad_element_type_raises(self) -> None:
+        with pytest.raises(RowFilterValidationError):
+            validate_and_coerce_row_filters(
+                [{"column": "id", "operator": "IN", "value": "1,abc,3"}], _metadata([("id", "integer")])
+            )
+
+    def test_in_unterminated_quote_raises(self) -> None:
+        with pytest.raises(RowFilterValidationError, match="Unterminated quote"):
+            validate_and_coerce_row_filters(
+                [{"column": "name", "operator": "IN", "value": "'abc"}], _metadata([("name", "text")])
+            )
+
+    def test_in_too_many_values_raises(self) -> None:
+        raw = ",".join(str(n) for n in range(1001))
+        with pytest.raises(RowFilterValidationError, match="Too many values"):
+            validate_and_coerce_row_filters(
+                [{"column": "id", "operator": "IN", "value": raw}], _metadata([("id", "integer")])
+            )
+
     def test_no_metadata_columns_skips_existence_check(self) -> None:
         # With no discovered columns we can't classify the type, so it fails the type rail
         # rather than the column-existence rail.
@@ -272,6 +363,22 @@ class TestRenderNamedConditions:
         assert conditions == ["`id` > %(rf_0)s"]
         assert "rf_0" in params
 
+    def test_in_expands_to_one_placeholder_per_value(self) -> None:
+        filters = [
+            ValidatedRowFilter(column="id", operator="IN", value=[1, 2, 3], category=ColumnTypeCategory.INTEGER),
+        ]
+        conditions, params = render_named_conditions(filters, self.quoter)
+        assert conditions == ["`id` IN (%(row_filter_0_0)s, %(row_filter_0_1)s, %(row_filter_0_2)s)"]
+        assert params == {"row_filter_0_0": 1, "row_filter_0_1": 2, "row_filter_0_2": 3}
+
+    def test_not_in_renders_operator(self) -> None:
+        filters = [
+            ValidatedRowFilter(column="name", operator="NOT IN", value=["a", "b"], category=ColumnTypeCategory.STRING),
+        ]
+        conditions, params = render_named_conditions(filters, self.quoter)
+        assert conditions == ["`name` NOT IN (%(row_filter_0_0)s, %(row_filter_0_1)s)"]
+        assert params == {"row_filter_0_0": "a", "row_filter_0_1": "b"}
+
 
 class TestRenderPositionalConditions:
     quoter = AnsiIdentifierQuoter()
@@ -294,6 +401,30 @@ class TestRenderPositionalConditions:
         conditions, values = render_positional_conditions(filters, self.quoter)
         assert "DROP TABLE" not in conditions[0]
         assert values == ["'; DROP TABLE y; --"]
+
+    def test_in_expands_in_order(self) -> None:
+        filters = [
+            ValidatedRowFilter(column="id", operator="IN", value=[10, 20], category=ColumnTypeCategory.INTEGER),
+            ValidatedRowFilter(column="name", operator="=", value="bob", category=ColumnTypeCategory.STRING),
+        ]
+        conditions, values = render_positional_conditions(filters, self.quoter)
+        assert conditions == ['"id" IN (%s, %s)', '"name" = %s']
+        assert values == [10, 20, "bob"]
+
+    def test_in_injection_value_stays_a_bound_param(self) -> None:
+        # A malicious element survives as data only — it's one bound value, never SQL.
+        filters = [
+            ValidatedRowFilter(
+                column="name",
+                operator="IN",
+                value=["ok", "'); DROP SCHEMA s CASCADE; --"],
+                category=ColumnTypeCategory.STRING,
+            )
+        ]
+        conditions, values = render_positional_conditions(filters, self.quoter)
+        assert conditions == ['"name" IN (%s, %s)']
+        assert "DROP SCHEMA" not in conditions[0]
+        assert values == ["ok", "'); DROP SCHEMA s CASCADE; --"]
 
 
 class TestInjectionGuards:

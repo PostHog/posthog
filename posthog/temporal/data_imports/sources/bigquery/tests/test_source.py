@@ -208,6 +208,24 @@ def test_bigquery_get_query_binds_row_filters_as_parameters():
     ]
 
 
+def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    query, params = _get_query(
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        row_filters=[
+            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+        ],
+    )
+    assert "WHERE `age` IN (@row_filter_0_0, @row_filter_0_1)" in query
+    assert [(p.name, p.type_, p.value) for p in params] == [
+        ("row_filter_0_0", "INT64", 21),
+        ("row_filter_0_1", "INT64", 30),
+    ]
+
+
 def test_bigquery_get_query_row_filters_compose_with_incremental():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]

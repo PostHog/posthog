@@ -192,6 +192,21 @@ class TestBuildQueryRowFilters:
         assert "DROP TABLE" not in sql
         assert params == ("DB.PUBLIC.t", "x'; DROP TABLE y; --")
 
+    def test_in_filter_positional_values_in_order(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            row_filters=[self._filter("AGE", "IN", [21, 30, 40])],
+        )
+        assert 'WHERE "created_at" > %s AND "AGE" IN (%s, %s, %s)' in sql
+        # table_ref, incremental_value, then each IN element in order.
+        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 30, 40)
+
 
 class TestBuildQueryEnabledColumns:
     def test_full_refresh_none_uses_select_star(self):

@@ -139,8 +139,13 @@ CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
             "type": "object",
             "properties": {
                 "column": {"type": "string"},
-                "operator": {"type": "string", "enum": [">", ">=", "<", "<=", "=", "!="]},
-                "value": {"description": "Comparison value; must match the column's type."},
+                "operator": {"type": "string", "enum": [">", ">=", "<", "<=", "=", "!=", "IN", "NOT IN"]},
+                "value": {
+                    "description": (
+                        "Comparison value; must match the column's type. For `IN` / `NOT IN`, a "
+                        "comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    )
+                },
             },
             "required": ["column", "operator", "value"],
         },
@@ -218,7 +223,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         help_text=(
             "Predicates ANDed onto the source query so only matching rows sync. Each is "
             "`{column, operator, value}`; `null`/empty (default) syncs all rows. The operator "
-            "must be one of `> >= < <= = !=` and the value must match the column's type. "
+            'must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column\'s '
+            "type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). "
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )

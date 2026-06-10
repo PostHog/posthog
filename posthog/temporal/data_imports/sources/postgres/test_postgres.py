@@ -1058,6 +1058,22 @@ class TestBuildQuery:
         assert 'AND "age" > 21' in rendered
         assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
 
+    def test_row_filter_in_list_renders_parenthesized(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30, 40], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
     def test_row_filter_composes_with_windowed_upper_bound(self):
         query = _build_query(
             "public",

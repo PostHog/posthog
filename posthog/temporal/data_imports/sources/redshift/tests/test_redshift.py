@@ -177,6 +177,36 @@ class TestBuildQueryRowFilters:
         rendered = composed.as_string()
         assert '"age"' not in rendered
 
+    def test_in_filter_renders_parenthesized_list(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("age", "IN", [21, 30, 40])],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_not_in_string_list_values_are_escaped_literals(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                self._filter("name", "NOT IN", ["a", "'; DROP TABLE y; --"], category=ColumnTypeCategory.STRING)
+            ],
+        )
+        rendered = composed.as_string()
+        assert "\"name\" NOT IN ('a', '''; DROP TABLE y; --')" in rendered
+
     def test_string_value_is_escaped_literal_not_injectable(self):
         # psycopg's sql.Literal inlines values, but escapes them: the `;` stays inside a quoted
         # literal (single quote doubled), so it can't break out into executable SQL.

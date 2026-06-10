@@ -124,6 +124,21 @@ class TestBuildQuery:
         assert "WHERE [age] > %(row_filter_0)s" in query
         assert args == {"row_filter_0": 21}
 
+    def test_in_filter_expands_to_named_placeholders(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE [age] IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert args == {"row_filter_0_0": 21, "row_filter_0_1": 30}
+
     def test_row_filters_compose_with_incremental(self):
         query, args = _build_query(
             schema="dbo",
