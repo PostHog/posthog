@@ -1477,9 +1477,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID)
     }
 
-    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
+    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string, batchId: number): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId', distinctId)
-        return await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        const isMerged = await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        // Cache the result so later events for this distinct ID in the same batch skip the insert.
+        this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, isMerged)
+        return isMerged
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -1517,6 +1520,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
+    // Returns undefined when no insert was attempted this batch, false when one was
+    // attempted and the row wasn't merged, true when the distinct ID was merged.
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
         return this.personCache.getPersonlessBatchResult(teamId, distinctId)
     }

@@ -121,7 +121,7 @@ export interface PersonsStore extends BatchWritingStore {
     /**
      * Adds a personless distinct ID
      */
-    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
+    addPersonlessDistinctId(teamId: number, distinctId: string, batchId: number): Promise<boolean>
 
     /**
      * Adds a personless distinct ID during merge

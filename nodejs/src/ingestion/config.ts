@@ -160,6 +160,8 @@ export type IngestionConsumerConfig = {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
@@ -271,6 +273,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
