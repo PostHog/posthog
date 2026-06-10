@@ -24,12 +24,7 @@ import dagster
 
 from posthog.dags.common import JobOwners
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team.production_event_activation import (
-    DISTINCT_USERS_THRESHOLD,
-    SWEEP_BATCH_SIZE,
-    WINDOW_DAYS,
-    evaluate_and_mark_team_batch,
-)
+from posthog.models.team.production_event_activation import SWEEP_BATCH_SIZE, WINDOW_DAYS, evaluate_and_mark_team_batch
 from posthog.models.team.team import Team
 
 
@@ -112,7 +107,6 @@ def summarize_run_op(
             "teams_qualifying": dagster.MetadataValue.int(teams_qualifying),
             "teams_marked": dagster.MetadataValue.int(teams_marked),
             "batches": dagster.MetadataValue.int(len(results)),
-            "distinct_users_threshold": dagster.MetadataValue.int(DISTINCT_USERS_THRESHOLD),
             "window_days": dagster.MetadataValue.int(WINDOW_DAYS),
         }
     )

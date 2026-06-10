@@ -6,9 +6,6 @@ class Migration(migrations.Migration):
         ("posthog", "1217_project_is_pending_deletion"),
     ]
 
-    # Additive, metadata-only. Nullable timestamp — no Postgres-level DEFAULT needed
-    # because INSERTs that omit the column get NULL automatically. The daily sweep
-    # stamps it via the ORM; existing rows start NULL until first checked.
     operations = [
         migrations.AddField(
             model_name="team",

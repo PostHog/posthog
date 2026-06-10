@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.models.team.production_event_activation import DISTINCT_USERS_THRESHOLD
 from posthog.models.team.team import Team
 
 from products.growth.dags.team_production_event_activation import detect_first_team_production_event_job
@@ -21,15 +20,14 @@ def _mock_capture():
         yield capture_fn
 
 
-def _seed_events_for_team(team_id: int, distinct_id_count: int, days_ago: float = 1) -> None:
-    timestamp = datetime.now(tz=UTC) - timedelta(days=days_ago)
-    for i in range(distinct_id_count):
-        _create_event(
-            team=Team.objects.get(id=team_id),
-            event="$pageview",
-            distinct_id=f"user-{i}",
-            timestamp=timestamp,
-        )
+def _seed_event(team_id: int, host: str, days_ago: float = 1) -> None:
+    _create_event(
+        team=Team.objects.get(id=team_id),
+        event="$pageview",
+        distinct_id="user-0",
+        timestamp=datetime.now(tz=UTC) - timedelta(days=days_ago),
+        properties={"$host": host},
+    )
     flush_persons_and_events()
 
 
@@ -45,7 +43,7 @@ class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
         mock_criterion.assert_not_called()
 
     def test_qualifying_team_is_flagged(self) -> None:
-        _seed_events_for_team(self.team.id, distinct_id_count=DISTINCT_USERS_THRESHOLD)
+        _seed_event(self.team.id, host="app.example.com")
 
         with freeze_time("2026-06-05T12:00:00Z"), _mock_capture():
             result = detect_first_team_production_event_job.execute_in_process()
@@ -59,7 +57,7 @@ class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
         )
 
     def test_non_qualifying_team_only_gets_last_checked_at_bumped(self) -> None:
-        _seed_events_for_team(self.team.id, distinct_id_count=DISTINCT_USERS_THRESHOLD - 1)
+        _seed_event(self.team.id, host="localhost:3000")
 
         with freeze_time("2026-06-05T12:00:00Z"):
             result = detect_first_team_production_event_job.execute_in_process()
