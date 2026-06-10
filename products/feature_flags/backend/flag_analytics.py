@@ -235,12 +235,16 @@ def _enriched_flag_key_expr_sql() -> str:
 
     This query spans all teams so it can't go through the HogQL printer; the
     materialized-column lookup has to be done by hand, with a JSONExtractString
-    fallback for instances where the property isn't materialized.
+    fallback for instances where the property isn't materialized. Nullable
+    columns are coalesced to '' to match JSONExtractString's missing-property
+    behavior.
     """
     column = get_materialized_column_for_property("events", "properties", "feature_flag")
-    if column is not None:
-        return column.name
-    return "JSONExtractString(properties, 'feature_flag')"
+    if column is None:
+        return "JSONExtractString(properties, 'feature_flag')"
+    if column.is_nullable:
+        return f"ifNull(`{column.name}`, '')"
+    return f"`{column.name}`"
 
 
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
@@ -286,7 +290,10 @@ def _flag_key_filter_sql() -> str:
     """
     column = get_materialized_column_for_property("events", "properties", "$feature_flag")
     if column is not None:
-        return f"{column.name} = %(flag_key)s"
+        # No ifNull for nullable columns: NULL never equals a real flag key,
+        # matching the JSONExtractString('') behavior, and the bare column
+        # keeps any skip index usable.
+        return f"`{column.name}` = %(flag_key)s"
     return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
 
 
