@@ -33,6 +33,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -648,21 +649,25 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             # a token from authenticating as another user that happens to share
             # the email, and re-validates membership at every request (the user
             # may have been removed from the org after the token was issued).
-            user_qs = User.objects.filter(
-                is_active=True,
-                email__iexact=token_email,
-                organization_membership__organization_id=organization_id,
-            ).distinct()
-            users = list(user_qs[:2])
-            if not users:
+            membership = (
+                OrganizationMembership.objects.filter(
+                    organization_id=organization_id,
+                    user__is_active=True,
+                    user__email__iexact=token_email,
+                )
+                .select_related("user", "organization")
+                .first()
+            )
+            if not membership:
                 raise AuthenticationFailed(
                     detail="No active PostHog user matches the ID-JAG access token subject for this organization."
                 )
-            if len(users) > 1:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token resolves to multiple users; refusing to authenticate."
-                )
-            user = users[0]
+
+            user = membership.user
+            organization = membership.organization
+
+            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+                raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
 
             self.id_jag_claims = claims
             self.scopes = str(claims.get("scope") or "").split()
