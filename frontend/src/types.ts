@@ -283,6 +283,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -4164,7 +4165,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    experiment_set_metadata: { id: number; name: string }[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
