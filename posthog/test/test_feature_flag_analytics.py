@@ -611,6 +611,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-java",
             "posthog-dotnet",
             "posthog-elixir",
+            "posthog-rs",
             "posthog-android",
             "posthog-ios",
             "posthog-react-native",

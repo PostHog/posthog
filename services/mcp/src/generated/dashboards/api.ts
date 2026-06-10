@@ -24,7 +24,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.'
+            "Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
         ),
 })
 
@@ -114,6 +114,20 @@ export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 25
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderByDefault = `occurrences`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneStatusDefault = `active`
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderByDefault = `start_time`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
+
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -121,17 +135,276 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         pinned: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .optional()
-            .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            ),
+        tags: zod.array(zod.string()).optional(),
+        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
-            .describe('List of quick filter IDs associated with this dashboard'),
+            .describe('List of quick filter IDs associated with this dashboard.'),
+        tiles: zod
+            .array(
+                zod.object({
+                    id: zod.number().optional().describe('Dashboard tile ID to update.'),
+                    widget: zod
+                        .object({
+                            id: zod
+                                .string()
+                                .optional()
+                                .describe('Existing widget row ID when updating a widget tile via dashboard PATCH.'),
+                            widget_type: zod
+                                .enum(['error_tracking_list', 'session_replay_list'])
+                                .describe(
+                                    '* `error_tracking_list` - error_tracking_list\n* `session_replay_list` - session_replay_list'
+                                )
+                                .optional()
+                                .describe(
+                                    'Widget type identifier (cannot be changed on update).\n\n* `error_tracking_list` - error_tracking_list\n* `session_replay_list` - session_replay_list'
+                                ),
+                            config: zod
+                                .union([
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        widgetFilters: zod
+                                            .union([
+                                                zod.record(
+                                                    zod.string(),
+                                                    zod.object({
+                                                        filterId: zod.string().min(1),
+                                                        propertyName: zod.string().min(1),
+                                                        optionId: zod.string().min(1),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        value: zod
+                                                            .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault
+                                            )
+                                            .describe('Maximum number of issues to return.'),
+                                        orderBy: zod
+                                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderByDefault
+                                            )
+                                            .describe('Issue ranking column.'),
+                                        orderDirection: zod
+                                            .enum(['ASC', 'DESC'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderDirectionDefault
+                                            )
+                                            .describe('Sort direction for orderBy.'),
+                                        status: zod
+                                            .enum([
+                                                'archived',
+                                                'active',
+                                                'resolved',
+                                                'pending_release',
+                                                'suppressed',
+                                                'all',
+                                            ])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneStatusDefault
+                                            )
+                                            .describe('Issue status filter.'),
+                                        assignee: zod
+                                            .union([
+                                                zod.object({
+                                                    id: zod.union([zod.string(), zod.number()]),
+                                                    type: zod.enum(['user', 'role']),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Filter by assignee ({type: user|role, id}). Omit for any assignee.'
+                                            ),
+                                    }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        widgetFilters: zod
+                                            .union([
+                                                zod.record(
+                                                    zod.string(),
+                                                    zod.object({
+                                                        filterId: zod.string().min(1),
+                                                        propertyName: zod.string().min(1),
+                                                        optionId: zod.string().min(1),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        value: zod
+                                                            .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault
+                                            )
+                                            .describe('Maximum number of recordings to return.'),
+                                        orderBy: zod
+                                            .enum([
+                                                'start_time',
+                                                'activity_score',
+                                                'recording_duration',
+                                                'duration',
+                                                'click_count',
+                                                'console_error_count',
+                                            ])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderByDefault
+                                            )
+                                            .describe('Recording ranking column.'),
+                                        orderDirection: zod
+                                            .enum(['ASC', 'DESC'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoOrderDirectionDefault
+                                            )
+                                            .describe('Sort direction for orderBy.'),
+                                    }),
+                                ])
+                                .optional()
+                                .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
+                            name: zod
+                                .string()
+                                .max(dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax)
+                                .nullish()
+                                .describe('Optional custom display name for the widget tile.'),
+                            description: zod
+                                .string()
+                                .optional()
+                                .describe('Optional markdown description shown when show_description is enabled.'),
+                        })
+                        .optional()
+                        .describe('Nested widget row updates.'),
+                })
+            )
+            .optional()
+            .describe('Dashboard tiles to update. Widget tiles accept nested widget.config patches.'),
         use_template: zod
             .string()
             .optional()
@@ -142,7 +415,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe(
+        'OpenAPI-only PATCH body for dashboards (agents/MCP).\n\nMust be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``\nreplaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.'
+    )
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -530,109 +805,104 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                         widget_type: zod.enum(['error_tracking_list']),
                         config: zod
                             .object({
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
-                                    .describe('Maximum number of issues to return (page size).'),
-                                orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-                                    .describe(
-                                        '* `last_seen` - last_seen\n* `first_seen` - first_seen\n* `occurrences` - occurrences\n* `users` - users\n* `sessions` - sessions'
-                                    )
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneOrderByDefault)
-                                    .describe(
-                                        'Issue ranking column.\n\n* `first_seen` - first_seen\n* `last_seen` - last_seen\n* `occurrences` - occurrences\n* `sessions` - sessions\n* `users` - users'
-                                    ),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .describe('* `ASC` - ASC\n* `DESC` - DESC')
-                                    .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.\n\n* `ASC` - ASC\n* `DESC` - DESC'),
-                                status: zod
-                                    .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
-                                    .describe(
-                                        '* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
-                                    )
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneStatusDefault)
-                                    .describe(
-                                        'Issue status filter.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
-                                    ),
-                                assignee: zod
-                                    .union([
-                                        zod.object({
-                                            id: zod
-                                                .union([zod.string(), zod.number(), zod.null()])
-                                                .describe('User ID or role UUID to filter by.'),
-                                            type: zod
-                                                .enum(['user', 'role'])
-                                                .describe('* `user` - user\n* `role` - role')
-                                                .describe(
-                                                    'Assignee target type: user or role.\n\n* `user` - user\n* `role` - role'
-                                                ),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
-                                widgetFilters: zod
-                                    .record(
-                                        zod.string(),
-                                        zod.object({
-                                            filterId: zod
-                                                .string()
-                                                .describe('Filter UUID; must match the widgetFilters map key.'),
-                                            propertyName: zod
-                                                .string()
-                                                .describe('Event property key (for example $environment).'),
-                                            optionId: zod
-                                                .string()
-                                                .describe('Selected option id from the filter definition.'),
-                                            operator: zod
-                                                .string()
-                                                .describe(
-                                                    'Property filter operator (for example exact, is_not, icontains).'
-                                                ),
-                                            value: zod
-                                                .unknown()
-                                                .optional()
-                                                .describe('Filter value as a string, list of strings, or null.'),
-                                        })
-                                    )
-                                    .optional()
-                                    .describe(
-                                        "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here."
-                                    ),
                                 dateRange: zod
                                     .union([
                                         zod.object({
                                             date_from: zod
                                                 .union([
-                                                    zod
-                                                        .enum(['-14d', '-1h', '-24h', '-30d', '-3h', '-7d', '-90d'])
-                                                        .describe(
-                                                            '* `-14d` - -14d\n* `-1h` - -1h\n* `-24h` - -24h\n* `-30d` - -30d\n* `-3h` - -3h\n* `-7d` - -7d\n* `-90d` - -90d'
-                                                        ),
+                                                    zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']),
                                                     zod.null(),
                                                 ])
-                                                .optional()
-                                                .describe(
-                                                    "Relative lookback window (for example '-7d'). Omit to use the project default range.\n\n* `-14d` - -14d\n* `-1h` - -1h\n* `-24h` - -24h\n* `-30d` - -30d\n* `-3h` - -3h\n* `-7d` - -7d\n* `-90d` - -90d"
-                                                ),
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                widgetFilters: zod
+                                    .union([
+                                        zod.record(
+                                            zod.string(),
+                                            zod.object({
+                                                filterId: zod.string().min(1),
+                                                propertyName: zod.string().min(1),
+                                                optionId: zod.string().min(1),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                value: zod
+                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                    .optional(),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
+                                    .describe('Maximum number of issues to return.'),
+                                orderBy: zod
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneOrderByDefault)
+                                    .describe('Issue ranking column.'),
+                                orderDirection: zod
+                                    .enum(['ASC', 'DESC'])
+                                    .default(
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneOrderDirectionDefault
+                                    )
+                                    .describe('Sort direction for orderBy.'),
+                                status: zod
+                                    .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneStatusDefault)
+                                    .describe('Issue status filter.'),
+                                assignee: zod
+                                    .union([
+                                        zod.object({
+                                            id: zod.union([zod.string(), zod.number()]),
+                                            type: zod.enum(['user', 'role']),
                                         }),
                                         zod.null(),
                                     ])
                                     .optional()
-                                    .describe('Relative date range for issues (date_from only on widgets).'),
-                                filterTestAccounts: zod
-                                    .boolean()
-                                    .optional()
-                                    .describe('When omitted, follows the project default for filtering test accounts.'),
+                                    .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
                             })
-                            .describe('Configuration for the error tracking list widget.'),
+                            .describe('Configuration for the top issues widget.'),
                     }),
                     zod.object({
                         name: zod
@@ -694,6 +964,72 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                         widget_type: zod.enum(['session_replay_list']),
                         config: zod
                             .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                widgetFilters: zod
+                                    .union([
+                                        zod.record(
+                                            zod.string(),
+                                            zod.object({
+                                                filterId: zod.string().min(1),
+                                                propertyName: zod.string().min(1),
+                                                optionId: zod.string().min(1),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                value: zod
+                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                    .optional(),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
                                 limit: zod
                                     .number()
                                     .min(1)
@@ -702,95 +1038,36 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .describe('Maximum number of recordings to return.'),
                                 orderBy: zod
                                     .enum([
+                                        'start_time',
                                         'activity_score',
+                                        'recording_duration',
+                                        'duration',
                                         'click_count',
                                         'console_error_count',
-                                        'duration',
-                                        'recording_duration',
-                                        'start_time',
                                     ])
-                                    .describe(
-                                        '* `activity_score` - activity_score\n* `click_count` - click_count\n* `console_error_count` - console_error_count\n* `duration` - duration\n* `recording_duration` - recording_duration\n* `start_time` - start_time'
-                                    )
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderByDefault)
-                                    .describe(
-                                        'Recording ranking column.\n\n* `activity_score` - activity_score\n* `click_count` - click_count\n* `console_error_count` - console_error_count\n* `duration` - duration\n* `recording_duration` - recording_duration\n* `start_time` - start_time'
-                                    ),
+                                    .describe('Recording ranking column.'),
                                 orderDirection: zod
                                     .enum(['ASC', 'DESC'])
-                                    .describe('* `ASC` - ASC\n* `DESC` - DESC')
                                     .default(
                                         dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneOrderDirectionDefault
                                     )
-                                    .describe('Sort direction for orderBy.\n\n* `ASC` - ASC\n* `DESC` - DESC'),
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod
-                                                        .enum(['-14d', '-1h', '-24h', '-30d', '-3h', '-7d', '-90d'])
-                                                        .describe(
-                                                            '* `-14d` - -14d\n* `-1h` - -1h\n* `-24h` - -24h\n* `-30d` - -30d\n* `-3h` - -3h\n* `-7d` - -7d\n* `-90d` - -90d'
-                                                        ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Relative lookback window (for example '-7d'). Omit to use the project default range.\n\n* `-14d` - -14d\n* `-1h` - -1h\n* `-24h` - -24h\n* `-30d` - -30d\n* `-3h` - -3h\n* `-7d` - -7d\n* `-90d` - -90d"
-                                                ),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Optional relative date range override.'),
-                                widgetFilters: zod
-                                    .record(
-                                        zod.string(),
-                                        zod.object({
-                                            filterId: zod
-                                                .string()
-                                                .describe('Filter UUID; must match the widgetFilters map key.'),
-                                            propertyName: zod
-                                                .string()
-                                                .describe('Event property key (for example $environment).'),
-                                            optionId: zod
-                                                .string()
-                                                .describe('Selected option id from the filter definition.'),
-                                            operator: zod
-                                                .string()
-                                                .describe(
-                                                    'Property filter operator (for example exact, is_not, icontains).'
-                                                ),
-                                            value: zod
-                                                .unknown()
-                                                .optional()
-                                                .describe('Filter value as a string, list of strings, or null.'),
-                                        })
-                                    )
-                                    .optional()
-                                    .describe(
-                                        "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here."
-                                    ),
-                                filterTestAccounts: zod
-                                    .boolean()
-                                    .optional()
-                                    .describe('When omitted, follows the project default for filtering test accounts.'),
+                                    .describe('Sort direction for orderBy.'),
                             })
-                            .describe('Configuration for the session replay list widget.'),
+                            .describe('Configuration for the recent recordings widget.'),
                     }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
 
 /**
- * List registered dashboard widget types and config hints for agents.
+ * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
 export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

@@ -101,9 +101,12 @@ tools:
             config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort
             references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or
             a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is
-            a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did
-            event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule
-            is attached (workflows-schedule-create).
+            a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the
+            event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not
+            behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days')
+            are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on
+            enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with
+            workflows-schedule-create.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -263,7 +266,10 @@ tools:
             already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable
             / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or
             cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a
-            static frozen-list cohort; behavioral (event-based) cohorts are rejected.
+            static frozen-list cohort. An event trigger fires on every occurrence matching the event and the trigger's
+            filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering).
+            Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the
+            user requests one, reject it and explain why.
         exclude_params:
             - status
         ui_app: workflow
