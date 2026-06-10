@@ -85,7 +85,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'registerWindowId',
                 ],
                 eventsLogic,
-                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
+                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess', 'loadFullEventDataSuccess'],
                 commentsLogic,
                 [
                     'loadRecordingComments',
@@ -175,6 +175,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadEventsSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        // loadFullEventData shares the sessionEventsData loader, so while it is in flight
+        // fullyLoaded is false — re-check once it settles or the loaded report can be skipped
+        loadFullEventDataSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
 

@@ -816,7 +816,7 @@ async def execute_summarize_session_video_stream(
     custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     force_restart: bool = False,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Start the video-based summarization workflow and stream progress events.
 
     Yields SSE-formatted ``session-summary-progress`` events every few seconds
