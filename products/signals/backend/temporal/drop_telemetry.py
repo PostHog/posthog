@@ -44,7 +44,11 @@ def _summarize_drop_error(error: BaseException) -> tuple[str, str]:
     """
     cause = getattr(error, "cause", None) or error.__cause__ or error
     error_type = getattr(cause, "type", None) or type(cause).__name__
-    return error_type, str(cause)[:_MAX_ERROR_LENGTH]
+    # First line only: multi-line messages (pydantic validation errors, LLM response
+    # dumps) carry customer-derived values on continuation lines that must not reach
+    # product analytics. Infra failures (DB, timeout) are single-line and unaffected.
+    message = str(cause).partition("\n")[0][:_MAX_ERROR_LENGTH]
+    return error_type, message
 
 
 @activity.defn
@@ -100,7 +104,9 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
                 stage=stage,
                 error_type=error_type,
                 error=error_message,
-                extra=signal.extra,
+                # Flatten before scheduling: the raw `extra` can nest large customer-derived
+                # payloads, and the activity input is recorded verbatim in workflow history.
+                extra=_telemetry_props_from_extra(signal.extra),
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=2),

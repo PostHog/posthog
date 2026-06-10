@@ -22,7 +22,7 @@ def _make_signal(team_id: int = 1) -> EmitSignalInputs:
         source_id="run:abc:finding:def",
         description="a finding",
         weight=0.7,
-        extra={"skill_name": "error-tracking"},
+        extra={"skill_name": "error-tracking", "evidence": [{"nested": "customer content"}]},
     )
 
 
@@ -130,6 +130,9 @@ async def test_helper_schedules_capture_activity():
     assert activity_input.stage == "grouping_parallel"
     assert activity_input.error_type == "ValueError"
     assert activity_input.error == "boom"
+    # extra is flattened before scheduling so nested customer-derived payloads
+    # never enter workflow history via the activity input
+    assert activity_input.extra == {"skill_name": "error-tracking"}
 
 
 @pytest.mark.asyncio
@@ -160,9 +163,22 @@ async def test_helper_swallows_activity_failure():
             "untyped failure",
         ),
         (ValueError("x" * 2000), "ValueError", "x" * 500),
+        (
+            # Pydantic-style multi-line validation error: continuation lines carry
+            # customer-derived input values and must not be forwarded
+            _make_activity_error(
+                ApplicationError(
+                    "1 validation error for SignalMatchResult\nreport_id\n  Input should be a valid string [input_value={'customer': 'secret'}]",
+                    type="ValidationError",
+                )
+            ),
+            "ValidationError",
+            "1 validation error for SignalMatchResult",
+        ),
     ],
 )
 def test_summarize_drop_error(error, expected_type, expected_message):
     error_type, message = _summarize_drop_error(error)
     assert error_type == expected_type
     assert expected_message in message
+    assert "\n" not in message
