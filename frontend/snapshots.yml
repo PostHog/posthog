@@ -6394,22 +6394,10 @@ snapshots:
         hash: v1.k794b7964.98c8c237be42cdff687a4d0e17288cf9b87c0ecfd0d45f6fb7038b1c08343afc._0bNgtLiKO3hf65SU97DiFQ1mjUjgeIIbWy7qQl3MwY
     scenes-other-onboarding-product-selection--base--light:
         hash: v1.k794b7964.b06b552dc3c53616de4d809c892e49843271347fcd2445900585a20a925b47b8.S8Ik2YI5dGrmmDbVIIZsLSquFs8o8GpM38j9XBe6vrM
-    scenes-other-onboarding-wizard-progress-fab--analyzing--light:
-        hash: v1.k794b7964.0342c0f7da10d702ee9073f2609e7a603a1ff395a484fc711648f8402a5f0428.xGAu2Giu_Yk7eE6J-zYPiCrVM9rrUcw_SuFMdLLgD9A
-    scenes-other-onboarding-wizard-progress-fab--completed--light:
-        hash: v1.k794b7964.8d480e0ed6fe7fcb9ca4c0caf120e6195d6c3cf26a2b66e7bfe1a68f01b1ab94.wJsrj9rnN-kIzROTvzHwgITzouvpbue-gF6IFI2nHQM
-    scenes-other-onboarding-wizard-progress-fab--connecting--light:
-        hash: v1.k794b7964.7b512e1fad20562c3be7fa4bc104961b8ee45d144232725ed45c2615a73ee745.uKVRWYVNjBggJthfBS9vUs1dI9hzK7-TD1Pj9dGCdxI
-    scenes-other-onboarding-wizard-progress-fab--errored--light:
-        hash: v1.k794b7964.8b696b3b54d920fef56be716a252bafee50e38258dfa1ef84cf65a0b30411256.oRkYtC0t82WqRBzi18OaMnjVeu5ZJwuPTrbS0qWPqxM
     scenes-other-onboarding-wizard-progress-fab--hidden--light:
         hash: v1.k794b7964.c06f06ae162e22a589f803b9d9a5baa371aeebafd575a9d69e011e6206500860.3rowYlzZnYCn9bzH6opctCBkugd16afRX5gcTh-YYE4
     scenes-other-onboarding-wizard-progress-fab--hidden-by-panel--light:
         hash: v1.k794b7964.bce4ea4c026085a402c53ad582f4c29f640cf0472b011878a51261de2a247409.kyUehJPyu4sqg6_N0z_MTrusU9oaOpXDqtt4cIiBLso
-    scenes-other-onboarding-wizard-progress-fab--running-early--light:
-        hash: v1.k794b7964.3149cca33c1fae454e99d1c1d5c6786bcb208b5ae63ff4752937b3951e64de77.C6EVrewvXaPEPev0zBBCqPlDm8iKrQk3gYOfzZ-XajE
-    scenes-other-onboarding-wizard-progress-fab--running-late--light:
-        hash: v1.k794b7964.19efdd2918ec498dd888007dbb0bfac27d518dfa8b91931319a300317fa110ab.GCfTwDcKp9gVFMFMZ-Smj0JC5h2XzqKTxHRIuCZXQi0
     scenes-other-onboarding-wizard-progress-tracker--completed--dark:
         hash: v1.k794b7964.eeb4245fab7cc4f2bb28fc13e2d51ea1d1eb08329bc89704fe83dd5528f57490.V8dWsfh2YTHfLO7ZY2tNWSj4CCzljRem7Yo5Nhi9qQg
     scenes-other-onboarding-wizard-progress-tracker--completed--light:
