@@ -94,6 +94,16 @@ export interface ErrorTrackingSymbolSet {
     release: ErrorTrackingRelease | null
 }
 
+export interface ErrorTrackingSigningKey {
+    id: string
+    key_id: string
+    public_key: string
+    label: string | null
+    revoked: boolean
+    created_at: string
+    last_used_at: string | null
+}
+
 interface FingerprintFrame {
     type: 'frame'
     raw_id: string

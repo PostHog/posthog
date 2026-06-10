@@ -42,24 +42,26 @@ class ErrorTrackingSigningKeySerializer(serializers.ModelSerializer):
         # key_id is derived server-side; public_key is write-once at creation.
         read_only_fields = ["id", "key_id", "created_at", "last_used_at"]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        # The key itself is immutable: make public_key read-only on update so DRF skips both its
+        # validation and population, instead of silently accepting then dropping it.
+        if self.instance is not None:
+            fields["public_key"].read_only = True
+        return fields
+
     def validate_public_key(self, value: str) -> str:
-        # Reject obviously-wrong keys early and consistently with cymbal's expectations.
-        _validate_ed25519_public_key_pem(value)
+        # Validate once and stash the raw bytes for create() to derive the key_id from.
+        self._public_key_raw = _validate_ed25519_public_key_pem(value)
         return value
 
     def create(self, validated_data):
-        raw = _validate_ed25519_public_key_pem(validated_data["public_key"])
-        validated_data["key_id"] = derive_key_id(raw)
+        validated_data["key_id"] = derive_key_id(self._public_key_raw)
         validated_data["team_id"] = self.context["get_team"]().id
         request = self.context.get("request")
         if request is not None and getattr(request, "user", None) and request.user.is_authenticated:
             validated_data["created_by"] = request.user
         return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        # Only `label` and `revoked` are mutable; the key itself is immutable.
-        validated_data.pop("public_key", None)
-        return super().update(instance, validated_data)
 
 
 class ErrorTrackingSigningKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

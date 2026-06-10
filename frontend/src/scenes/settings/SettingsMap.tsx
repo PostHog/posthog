@@ -7,6 +7,7 @@ import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
+import { SigningKeys } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/signing_keys/SigningKeys'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
@@ -518,6 +519,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
                 component: <SymbolSets />,
                 keywords: ['source map', 'sourcemap', 'debug', 'minified', 'stack trace'],
+            },
+            {
+                id: 'error-tracking-signing-keys',
+                title: 'Signing keys',
+                description: 'Register Ed25519 public keys to verify that exceptions came from your backend.',
+                component: <SigningKeys />,
+                keywords: ['signing', 'key', 'verify', 'verified', 'ed25519', 'public key', 'authenticity'],
             },
             {
                 id: 'error-tracking-releases',

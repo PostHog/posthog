@@ -14,9 +14,7 @@ PARITY_KEY_ID = "Vkdap1RjR0wChd9d"
 
 def _public_key_pem(seed=SEED) -> str:
     pub = Ed25519PrivateKey.from_private_bytes(seed).public_key()
-    return pub.public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode()
+    return pub.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
 
 
 class TestSigningKeyAPI(APIBaseTest):
@@ -25,9 +23,7 @@ class TestSigningKeyAPI(APIBaseTest):
         return f"{base}{key_id}/" if key_id else base
 
     def test_create_derives_key_id_matching_the_sdk(self) -> None:
-        response = self.client.post(
-            self._url(), data={"public_key": _public_key_pem(), "label": "prod backend"}
-        )
+        response = self.client.post(self._url(), data={"public_key": _public_key_pem(), "label": "prod backend"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         body = response.json()
         # The server-derived key_id must equal what the SDK stamps on signed events.
@@ -40,8 +36,10 @@ class TestSigningKeyAPI(APIBaseTest):
         self.assertEqual(row.created_by, self.user)
 
     def test_key_id_derivation_matches_helper(self) -> None:
-        raw = Ed25519PrivateKey.from_private_bytes(SEED).public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        raw = (
+            Ed25519PrivateKey.from_private_bytes(SEED)
+            .public_key()
+            .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         )
         self.assertEqual(derive_key_id(raw), PARITY_KEY_ID)
 
@@ -67,9 +65,7 @@ class TestSigningKeyAPI(APIBaseTest):
             team=self.team, key_id="aaaa", public_key=_public_key_pem(), label="mine"
         )
         other = self.create_team_with_organization(self.organization)
-        ErrorTrackingSigningKey.objects.create(
-            team=other, key_id="bbbb", public_key=_public_key_pem(), label="theirs"
-        )
+        ErrorTrackingSigningKey.objects.create(team=other, key_id="bbbb", public_key=_public_key_pem(), label="theirs")
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         labels = {k["label"] for k in response.json()["results"]}
@@ -84,7 +80,12 @@ class TestSigningKeyAPI(APIBaseTest):
     def test_public_key_is_immutable_on_update(self) -> None:
         created = self.client.post(self._url(), data={"public_key": _public_key_pem()}).json()
         original = created["public_key"]
-        self.client.patch(self._url(created["id"]), data={"public_key": "tampered"})
-        self.assertEqual(
-            ErrorTrackingSigningKey.objects.get(id=created["id"]).public_key, original
-        )
+        original_key_id = created["key_id"]
+        # A *valid but different* key is silently ignored on update (read-only), not applied.
+        different = _public_key_pem(seed=bytes(reversed(range(32))))
+        self.assertNotEqual(different, original)
+        response = self.client.patch(self._url(created["id"]), data={"public_key": different})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = ErrorTrackingSigningKey.objects.get(id=created["id"])
+        self.assertEqual(row.public_key, original)
+        self.assertEqual(row.key_id, original_key_id)

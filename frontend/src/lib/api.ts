@@ -257,6 +257,7 @@ import {
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
+    ErrorTrackingSigningKey,
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
@@ -1289,6 +1290,14 @@ export class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public errorTrackingSigningKeys(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('signing_keys')
+    }
+
+    public errorTrackingSigningKey(id: ErrorTrackingSigningKey['id']): ApiRequest {
+        return this.errorTrackingSigningKeys().addPathComponent(id)
     }
 
     public errorTrackingReleases(teamId?: TeamType['id']): ApiRequest {
@@ -4134,6 +4143,27 @@ const api = {
                     .withQueryString(toParams({ issue_id: issueId }))
                     .assembleFullUrl()
                 return await api.loadPaginatedResults<ErrorTrackingFingerprint>(url)
+            },
+        },
+
+        signingKeys: {
+            async list(): Promise<CountedPaginatedResponse<ErrorTrackingSigningKey>> {
+                return await new ApiRequest()
+                    .errorTrackingSigningKeys()
+                    .withQueryString(toParams({ order_by: '-created_at' }))
+                    .get()
+            },
+
+            async create(data: { label?: string; public_key: string }): Promise<ErrorTrackingSigningKey> {
+                return await new ApiRequest().errorTrackingSigningKeys().create({ data })
+            },
+
+            async revoke(id: ErrorTrackingSigningKey['id']): Promise<ErrorTrackingSigningKey> {
+                return await new ApiRequest().errorTrackingSigningKey(id).update({ data: { revoked: true } })
+            },
+
+            async delete(id: ErrorTrackingSigningKey['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingSigningKey(id).delete()
             },
         },
 
