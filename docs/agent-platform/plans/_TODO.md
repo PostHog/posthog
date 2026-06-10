@@ -109,6 +109,15 @@ file (and out of this list) once the design lands.
       `$ai_origin: 'agent_platform_runner'` so the property slot
       exists from day one.
 
+- [x] ~~**Ingress decision logs, available to the agent**~~ — see
+      [`ingress-logs-to-agent.md`](ingress-logs-to-agent.md). Plan written,
+      not started. Wire ingress into the runner's existing
+      `KafkaLogSink → log_entries` pipeline, but emit curated decision events
+      (rejections / drops / enqueues) keyed by `application_id` so they surface
+      in the console's per-agent log view and any `logs`-domain reader the agent
+      itself uses. Curate, don't firehose the raw access log; stdout→Loki stays
+      the SRE path.
+
 - [x] ~~**Typed config loader for env vars**~~ — see
       [`typed-config-loader.md`](typed-config-loader.md). One zod
       schema per service; `process.env.*` outside `config.ts` blocked
