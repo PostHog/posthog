@@ -196,6 +196,7 @@ class GenerateSearchQueriesOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
@@ -489,6 +490,7 @@ class MatchSignalToReportInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
@@ -612,6 +614,7 @@ async def verify_match_specificity(
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
