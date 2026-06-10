@@ -49,6 +49,8 @@ export interface ToolInvocation {
     innerInput?: Record<string, unknown>
     /** rawOutput on the final `tool_call_update`. */
     output?: unknown
+    /** Error carried by a failed `tool_call_update` (from the update or its notification envelope). */
+    error?: { message?: string } | null
     /** Partial result from intermediate updates. */
     progress?: unknown
     status: ToolInvocationStatus
@@ -60,17 +62,17 @@ export interface ToolInvocation {
     contentBlocks: unknown[]
 }
 
-export type ThreadItemType = 'assistant_message' | 'tool_invocation' | 'turn_separator' | 'error'
+export type ThreadItemType = 'human_message' | 'assistant_message' | 'tool_invocation' | 'turn_separator' | 'error'
 
 /**
- * An ordered, append-only entry the renderer consumes. Text chunks, tool-invocation
- * references, run-lifecycle markers, and inline errors all flow through this list.
+ * An ordered, append-only entry the renderer consumes. Human messages, text chunks,
+ * tool-invocation references, run-lifecycle markers, and inline errors all flow through this list.
  */
 export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
     id: string
     type: ThreadItemType
-    /** For `assistant_message` items. */
+    /** For `human_message` and `assistant_message` items. */
     text?: string
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean

@@ -186,7 +186,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // the logic as a dependency, so its listeners actually run. SandboxThread only mounts it
             // while a sandbox conversation is rendered — too late for the first message of a new one.
             sandboxStreamLogic,
-            ['openSseForRun as openSandboxSse'],
+            [
+                'openSseForRun as openSandboxSse',
+                'pushHumanMessage as pushSandboxHumanMessage',
+                'pushErrorItem as pushSandboxError',
+            ],
         ],
     })),
 
@@ -649,6 +653,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // IDs as JSON (both endpoints return the identical { task_id, run_id, just_created_run }).
             const isExistingSandboxConversation = values.conversation?.agent_runtime === 'sandbox'
             if (isExistingSandboxConversation || isSandbox) {
+                // SandboxThread renders sandboxStreamLogic's threadItems, not this logic's thread,
+                // so the human message must be echoed there too to show up in the UI.
+                if (generationAttempt === 0 && streamData.content && addToThread) {
+                    actions.pushSandboxHumanMessage(streamData.content)
+                }
                 try {
                     const conversationId = values.conversation?.id || values.conversationId
                     if (conversationId && streamData.content) {
@@ -670,13 +679,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             // Fresh runs need everything from the top; follow-ups resume from latest.
                             startLatest: !just_created_run,
                         })
+                        // The streaming lock must span the whole SSE stream so the input stays
+                        // guarded until `_posthog/turn_complete` or a terminal/error event —
+                        // mirrors the LangGraph path holding the lock for its entire stream.
+                        // Released exactly once by the sandboxStreamLogic listeners below; the
+                        // closure nulls itself so a second terminal event is a no-op.
+                        cache.sandboxStreamRelease = (): void => {
+                            cache.sandboxStreamRelease = null
+                            actions.decrActiveStreamingThreads()
+                            releaseStreamingLock()
+                        }
+                        return
                     }
                 } catch (e) {
                     posthog.captureException(e)
-                } finally {
-                    actions.decrActiveStreamingThreads()
-                    releaseStreamingLock()
+                    actions.pushSandboxError('Failed to send your message. Please try again.')
                 }
+                // The POST failed or no run was started — nothing will stream, release the lock now.
+                actions.decrActiveStreamingThreads()
+                releaseStreamingLock()
                 return
             }
 
@@ -696,10 +717,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (agentMode) {
                     apiData.agent_mode = agentMode
-                }
-
-                if (isSandbox) {
-                    apiData.is_sandbox = true
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -896,6 +913,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             cache.generationController = undefined
             releaseStreamingLock() // release the lock
+        },
+        // Sandbox runs stream through sandboxStreamLogic, so the streaming lock taken in
+        // streamConversation can only be released when that logic signals the turn ended —
+        // on turn completion, a terminal run status, or a stream error.
+        [sandboxStreamLogic.actionTypes.markTurnComplete]: () => {
+            const { cache } = logic as BuiltLogic<maxThreadLogicType>
+            cache.sandboxStreamRelease?.()
+        },
+        [sandboxStreamLogic.actionTypes.handleTerminalStatus]: () => {
+            const { cache } = logic as BuiltLogic<maxThreadLogicType>
+            cache.sandboxStreamRelease?.()
+        },
+        [sandboxStreamLogic.actionTypes.handleStreamError]: () => {
+            const { cache } = logic as BuiltLogic<maxThreadLogicType>
+            cache.sandboxStreamRelease?.()
         },
     })),
     listeners(({ actions, values, cache, props }) => ({

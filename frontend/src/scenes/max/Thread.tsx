@@ -137,6 +137,7 @@ function toolInvocationToMessage(
         status: invocation.status,
         title: invocation.title,
         kind: invocation.kind,
+        error: invocation.error,
     }
 }
 
@@ -153,6 +154,13 @@ function SandboxThread(): JSX.Element {
     return (
         <>
             {threadItems.map((item) => {
+                if (item.type === 'human_message') {
+                    return (
+                        <MessageTemplate key={item.id} type="human">
+                            <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                        </MessageTemplate>
+                    )
+                }
                 if (item.type === 'assistant_message') {
                     return (
                         <MessageTemplate key={item.id} type="ai">

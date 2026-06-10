@@ -65,6 +65,24 @@ export function resolveToolKey(serverName: string, toolName: string, input: Reco
     return { resolvedKey: toolName }
 }
 
+/**
+ * Finds the last assistant-message buffer for a wire message id, also matching the derived
+ * `${id}@<n>` ids minted when the wire omits `messageId` and every message shares the fallback id.
+ */
+function findLastAssistantMessageIndex(state: ThreadItem[], id: string, incompleteOnly: boolean): number {
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (
+            item.type === 'assistant_message' &&
+            (item.id === id || item.id.startsWith(`${id}@`)) &&
+            (!incompleteOnly || !item.complete)
+        ) {
+            return i
+        }
+    }
+    return -1
+}
+
 function mapAcpStatus(status: unknown): ToolInvocationStatus {
     switch (status) {
         case 'in_progress':
@@ -111,6 +129,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         setCurrentProgress: (progress: string) => ({ progress }),
         markRunStarted: true,
         markTurnComplete: true,
+        /** Echoes the user's own message into the thread — the sandbox wire never replays it. */
+        pushHumanMessage: (content: string) => ({ content }),
         pushErrorItem: (errorMessage: string) => ({ errorMessage }),
         reset: true,
     }),
@@ -157,16 +177,24 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             [] as ThreadItem[],
             {
                 appendAssistantChunk: (state, { id, delta }) => {
-                    const idx = state.findIndex((item) => item.type === 'assistant_message' && item.id === id)
+                    const idx = findLastAssistantMessageIndex(state, id, false)
                     if (idx === -1) {
                         return [...state, { id, type: 'assistant_message', text: delta, complete: false }]
+                    }
+                    if (state[idx].complete) {
+                        // Never reopen a finalized buffer — a post-finalize chunk is a new message
+                        // (the wire may omit messageId), so start a fresh bubble with a unique id.
+                        return [
+                            ...state,
+                            { id: `${id}@${state.length}`, type: 'assistant_message', text: delta, complete: false },
+                        ]
                     }
                     const next = [...state]
                     next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
                     return next
                 },
                 finalizeAssistantMessage: (state, { id, text }) => {
-                    const idx = state.findIndex((item) => item.type === 'assistant_message' && item.id === id)
+                    const idx = findLastAssistantMessageIndex(state, id, true)
                     if (idx === -1) {
                         return [...state, { id, type: 'assistant_message', text, complete: true }]
                     }
@@ -187,6 +215,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         { id: invocation.toolCallId, type: 'tool_invocation', toolCallId: invocation.toolCallId },
                     ]
                 },
+                pushHumanMessage: (state, { content }) => [
+                    ...state,
+                    { id: `human-${state.length}`, type: 'human_message', text: content, complete: true },
+                ],
                 markTurnComplete: (state) => [...state, { id: `turn-${state.length}`, type: 'turn_separator' }],
                 pushErrorItem: (state, { errorMessage }) => [
                     ...state,
@@ -245,53 +277,59 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             // Replace any prior connection — I2.6 layers reconnect/backoff on top of this.
             cache.disposables.dispose('event-source')
-            cache.disposables.add((): (() => void) => {
-                const start = startLatest ? '?start=latest' : ''
-                const url = `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/stream/${start}`
-                const eventSource = new EventSource(url, { withCredentials: true })
+            // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
+            // setup on show would replay the stream from the top and duplicate thread state.
+            cache.disposables.add(
+                (): (() => void) => {
+                    const start = startLatest ? '?start=latest' : ''
+                    const url = `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/stream/${start}`
+                    const eventSource = new EventSource(url, { withCredentials: true })
 
-                eventSource.onopen = (): void => actions.sseOpened()
-                eventSource.onmessage = (event: MessageEvent<string>): void => {
-                    let data: { type?: string } & Record<string, unknown>
-                    try {
-                        data = JSON.parse(event.data)
-                    } catch {
-                        return
-                    }
-                    switch (data.type) {
-                        case 'notification':
-                            actions.ingestAcpFrame(data as unknown as StoredLogEntry)
-                            break
-                        case 'task_run_state':
-                            actions.handleTerminalStatus({
-                                status: data.status as SandboxRunStatus,
-                                errorMessage: (data.errorMessage as string | null) ?? null,
-                            })
-                            break
-                        case 'keepalive':
-                            break
-                        default:
-                            break
-                    }
-                }
-                // Named `event: error` frames (02_CORE.md § 4.1).
-                eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
-                    if (typeof event.data === 'string' && event.data.length > 0) {
+                    eventSource.onopen = (): void => actions.sseOpened()
+                    eventSource.onmessage = (event: MessageEvent<string>): void => {
+                        let data: { type?: string } & Record<string, unknown>
                         try {
-                            const envelope = JSON.parse(event.data)
-                            actions.handleStreamError({
-                                errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
-                                errorMessage: envelope.errorMessage,
-                                retryable: envelope.retryable ?? true,
-                            })
+                            data = JSON.parse(event.data)
                         } catch {
-                            actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                            return
+                        }
+                        switch (data.type) {
+                            case 'notification':
+                                actions.ingestAcpFrame(data as unknown as StoredLogEntry)
+                                break
+                            case 'task_run_state':
+                                actions.handleTerminalStatus({
+                                    status: data.status as SandboxRunStatus,
+                                    errorMessage: (data.errorMessage as string | null) ?? null,
+                                })
+                                break
+                            case 'keepalive':
+                                break
+                            default:
+                                break
                         }
                     }
-                })
+                    // Named `event: error` frames (02_CORE.md § 4.1).
+                    eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
+                        if (typeof event.data === 'string' && event.data.length > 0) {
+                            try {
+                                const envelope = JSON.parse(event.data)
+                                actions.handleStreamError({
+                                    errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
+                                    errorMessage: envelope.errorMessage,
+                                    retryable: envelope.retryable ?? true,
+                                })
+                            } catch {
+                                actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                            }
+                        }
+                    })
 
-                return () => eventSource.close()
-            }, 'event-source')
+                    return () => eventSource.close()
+                },
+                'event-source',
+                { pauseOnPageHidden: false }
+            )
         },
         closeSse: () => {
             cache.disposables.dispose('event-source')
@@ -383,14 +421,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         : Array.isArray(update.content)
                           ? update.content
                           : []
+                    const status = mapAcpStatus(update.status ?? existing?.status)
+                    const errorMessage =
+                        (update.error?.message as string | undefined) ??
+                        (status === 'failed' ? notification.error?.message : undefined)
                     actions.updateToolInvocation(toolCallId, {
-                        status: mapAcpStatus(update.status ?? existing?.status),
+                        status,
                         title: (update.title as string | undefined) ?? existing?.title,
                         progress: update.progress ?? existing?.progress,
                         output: update.rawOutput ?? existing?.output,
                         locations:
                             (update.locations as { path: string; line?: number }[] | undefined) ?? existing?.locations,
                         contentBlocks: mergedContent,
+                        error: errorMessage !== undefined ? { message: errorMessage } : existing?.error,
                     })
                     break
                 }
