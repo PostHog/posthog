@@ -2206,7 +2206,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const remainingMetrics = (values.experiment[sourceField] || []).filter((m) => m.uuid !== metric.uuid)
             const targetMetrics = [...(values.experiment[targetField] || []), movedMetric]
 
-            actions.updateExperiment({
+            await asyncActions.updateExperiment({
                 [sourceField]: remainingMetrics,
                 [targetField]: targetMetrics,
                 update_feature_flag_params: false,
