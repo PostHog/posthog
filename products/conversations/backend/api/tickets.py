@@ -1144,19 +1144,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             item_context={"author_type": "support", "is_private": is_private},
         )
 
-        author_name = request.user.first_name or request.user.email
-
-        response_data = {
-            "id": comment.id,
-            "content": comment.content,
-            "rich_content": comment.rich_content,
-            "author_type": "support",
-            "author_name": author_name,
-            "is_private": is_private,
-            "created_at": comment.created_at,
-        }
-
-        return Response(TicketMessageSerializer(response_data).data, status=drf_status.HTTP_201_CREATED)
+        return Response(
+            TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
+            status=drf_status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         request=ComposeTicketSerializer,

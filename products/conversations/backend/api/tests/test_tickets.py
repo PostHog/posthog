@@ -1705,15 +1705,15 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("messages_with_read", "messages", "get", True, ["ticket:read"], status.HTTP_200_OK),
-            ("messages_with_write", "messages", "get", True, ["ticket:write"], status.HTTP_200_OK),
-            ("messages_wrong_scope", "messages", "get", True, ["insight:read"], status.HTTP_403_FORBIDDEN),
-            ("reply_with_write", "reply", "post", True, ["ticket:write"], status.HTTP_201_CREATED),
-            ("reply_with_read_only", "reply", "post", True, ["ticket:read"], status.HTTP_403_FORBIDDEN),
-            ("reply_wrong_scope", "reply", "post", True, ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("messages_with_read", "messages", "get", ["ticket:read"], status.HTTP_200_OK),
+            ("messages_with_write", "messages", "get", ["ticket:write"], status.HTTP_200_OK),
+            ("messages_wrong_scope", "messages", "get", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
+            ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_messages_and_reply_scopes(self, _name, action, method, use_detail, scopes, expected_status):
+    def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):
         self._auth_with_pak(scopes)
 
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/{action}/"
