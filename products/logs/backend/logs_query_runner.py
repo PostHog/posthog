@@ -182,48 +182,70 @@ def _get_property_type(value) -> str:
 
 def _multikey_log_attribute_to_expr(filter: LogPropertyFilter) -> ast.Expr:
     """Compile a `LogPropertyFilter` whose `keys` field is set to a HogQL expression
-    matching `coalesce(attributes[k1__suffix], attributes[k2__suffix], ...) <op> value`.
+    matching the configured keys against `value` across the per-type attribute maps.
 
     Priority-ordered fallback: on each log row, the first non-null configured key's value
-    is matched against `value`. Used by the person profile Logs tab to scope by any of
-    the team's configured `logs_distinct_id_attribute_keys` without needing the runner
+    is matched (via SQL `coalesce`). Used by the person profile Logs tab to scope by any
+    of the team's configured `logs_distinct_id_attribute_keys` without needing the runner
     to grow nested OR-group support.
+
+    Person distinct_ids are strings, but a log may emit the same identifier as a number
+    (`5`, `5.0`) rather than a string (`"5"`). Every emitted value lands in the `__str`
+    attribute map, and additionally in the `__float` map when it parses as a number
+    (`__float` ⊆ `__str`). To link regardless of how the value was emitted, we match BOTH
+    maps and OR the results: a person whose distinct_id is "5" links to a log whose
+    `posthogDistinctId` is `"5"`, `5`, `5.0`, or `"05"`. This permissiveness — including the
+    `"5"`/`"05"` numeric collision — is deliberately scoped to the pivot; the general
+    single-key log filter keeps strict per-type routing.
 
     Supports `Exact` and `IsNot` operators — sufficient for the pivot use case. Extend
     here when new operators are needed.
     """
     assert filter.keys, "multikey filter must have non-empty keys list"
 
-    # Detect the per-type attribute map suffix the same way the single-key path does.
-    # Distinct_id values are strings, so the `__str` map is the default.
-    type_suffix = "str"
-    if isinstance(filter.value, list) and filter.value:
-        detected = {_get_property_type(v) for v in filter.value}
-        if len(detected) == 1:
-            type_suffix = detected.pop()
-    elif filter.value is not None and not isinstance(filter.value, list):
-        type_suffix = _get_property_type(filter.value)
+    is_negative = filter.operator == PropertyOperator.IS_NOT
 
-    coalesce_args: list[ast.Expr] = [ast.Field(chain=["attributes", f"{key}__{type_suffix}"]) for key in filter.keys]
-    attr_expr: ast.Expr = ast.Call(name="coalesce", args=coalesce_args) if len(coalesce_args) > 1 else coalesce_args[0]
+    def coalesce(suffix: str) -> ast.Expr:
+        # Mirrors the single-key path's `attributes[key__suffix]` field-access shape, which
+        # the query layer rewrites onto the matching `attributes_map_<suffix>` column.
+        args: list[ast.Expr] = [ast.Field(chain=["attributes", f"{key}__{suffix}"]) for key in filter.keys]
+        return ast.Call(name="coalesce", args=args) if len(args) > 1 else args[0]
 
-    if isinstance(filter.value, list):
-        values_tuple = ast.Tuple(exprs=[ast.Constant(value=str(v)) for v in filter.value])
-        op = ast.CompareOperationOp.NotIn if filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.In
-        return ast.CompareOperation(op=op, left=attr_expr, right=values_tuple)
-
+    # IS_SET / IS_NOT_SET — value omitted. A key present in `__float` is also present in
+    # `__str` (float ⊆ str), so the str map alone answers "is any configured key set".
     if filter.value is None:
-        # Treat as IS_SET / IS_NOT_SET — log row matches if any configured key has a non-null value.
         return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq
-            if filter.operator == PropertyOperator.IS_NOT
-            else ast.CompareOperationOp.Eq,
-            left=attr_expr,
+            op=ast.CompareOperationOp.NotEq if is_negative else ast.CompareOperationOp.Eq,
+            left=coalesce("str"),
             right=ast.Constant(value=None),
         )
 
-    op = ast.CompareOperationOp.NotEq if filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.Eq
-    return ast.CompareOperation(op=op, left=attr_expr, right=ast.Constant(value=str(filter.value)))
+    is_list = isinstance(filter.value, list)
+    values = filter.value if is_list else [filter.value]
+    numeric_values: list[float] = []
+    for v in values:
+        try:
+            numeric_values.append(float(v))
+        except (TypeError, ValueError):
+            pass
+
+    def compare(suffix: str, consts: list[ast.Expr]) -> ast.CompareOperation:
+        if is_list:
+            op = ast.CompareOperationOp.NotIn if is_negative else ast.CompareOperationOp.In
+            return ast.CompareOperation(op=op, left=coalesce(suffix), right=ast.Tuple(exprs=consts))
+        op = ast.CompareOperationOp.NotEq if is_negative else ast.CompareOperationOp.Eq
+        return ast.CompareOperation(op=op, left=coalesce(suffix), right=consts[0])
+
+    str_clause = compare("str", [ast.Constant(value=str(v)) for v in values])
+
+    # No numeric-parseable values (e.g. UUID distinct_ids) — the str map is sufficient.
+    if not numeric_values:
+        return str_clause
+
+    float_clause = compare("float", [ast.Constant(value=n) for n in numeric_values])
+
+    # Positive: value is in the str map OR the float map. Negative (De Morgan): in NEITHER.
+    return ast.And(exprs=[str_clause, float_clause]) if is_negative else ast.Or(exprs=[str_clause, float_clause])
 
 
 class LogsFilterBuilder:

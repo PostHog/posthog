@@ -23,6 +23,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models.utils import UUIDT
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 
@@ -151,6 +152,60 @@ class TestAttributeFilters(APIBaseTest):
         expr = _multikey_log_attribute_to_expr(filter)
         self.assertIsInstance(expr, hogql_ast.CompareOperation)
         self.assertEqual(expr.op, hogql_ast.CompareOperationOp.NotIn)  # type: ignore[union-attr]
+
+    def test_log_attribute_multikey_filter_numeric_value_matches_str_or_float(self):
+        """A distinct_id that parses as a number must link whether the log emitted it as a
+        string ("5"), an int (5), a float (5.0), or zero-padded ("05"). The compiled
+        expression ORs a str-map match (exact) with a float-map match (numeric-equal); the
+        float clause only carries the numeric-parseable values.
+        """
+        from posthog.hogql import ast as hogql_ast
+
+        from products.logs.backend.logs_query_runner import _multikey_log_attribute_to_expr
+
+        filter = LogPropertyFilter(
+            key="posthogDistinctId",
+            keys=["posthogDistinctId", "user.id"],
+            operator=PropertyOperator.EXACT,
+            type=LogPropertyFilterType.LOG_ATTRIBUTE,
+            value=["5", "abc-uuid"],
+        )
+
+        expr = _multikey_log_attribute_to_expr(filter)
+
+        self.assertIsInstance(expr, hogql_ast.Or)
+        str_clause, float_clause = expr.exprs  # type: ignore[union-attr]
+
+        # str clause: coalesce over the __str maps, IN every value as a string.
+        self.assertEqual(str_clause.op, hogql_ast.CompareOperationOp.In)
+        self.assertEqual(str_clause.left.args[0].chain, ["attributes", "posthogDistinctId__str"])
+        self.assertEqual([c.value for c in str_clause.right.exprs], ["5", "abc-uuid"])
+
+        # float clause: coalesce over the __float maps, IN only the numeric-parseable values.
+        self.assertEqual(float_clause.op, hogql_ast.CompareOperationOp.In)
+        self.assertEqual(float_clause.left.args[0].chain, ["attributes", "posthogDistinctId__float"])
+        self.assertEqual([c.value for c in float_clause.right.exprs], [5.0])
+
+    def test_log_attribute_multikey_filter_is_not_numeric_uses_and_of_not_in(self):
+        """`IsNot` with numeric values negates the positive match (De Morgan): the value must
+        be absent from BOTH the str and float maps, so the clauses are ANDed."""
+        from posthog.hogql import ast as hogql_ast
+
+        from products.logs.backend.logs_query_runner import _multikey_log_attribute_to_expr
+
+        filter = LogPropertyFilter(
+            key="posthogDistinctId",
+            keys=["posthogDistinctId", "user.id"],
+            operator=PropertyOperator.IS_NOT,
+            type=LogPropertyFilterType.LOG_ATTRIBUTE,
+            value=["5", "abc-uuid"],
+        )
+
+        expr = _multikey_log_attribute_to_expr(filter)
+
+        self.assertIsInstance(expr, hogql_ast.And)
+        for clause in expr.exprs:  # type: ignore[union-attr]
+            self.assertEqual(clause.op, hogql_ast.CompareOperationOp.NotIn)
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
@@ -1004,3 +1059,70 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+
+class TestMultikeyPivotNumericLinking(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end proof that the person-profile pivot links a numeric distinct_id to logs
+    regardless of how the identifier was emitted. Reproduces the Circleback scenario — a
+    person whose distinct_id is numeric ("5") — and asserts the str-OR-float pivot match
+    links the string, int, float, and zero-padded forms while excluding non-matches.
+
+    Inserts only `attributes_map_str`; the logs table materializes `attributes_map_float`
+    from it via `toFloat64OrNull`, exactly as production does (float ⊆ str). So "05" lands
+    in __str as "05" and in __float as 5.0 — the case the pre-fix str-only routing dropped.
+    """
+
+    def _insert_pivot_log(self, body: str, posthog_distinct_id: str) -> None:
+        row = {
+            "uuid": str(UUIDT()),
+            "team_id": self.team.id,
+            "timestamp": "2025-12-16 10:00:00.000000",
+            "observed_timestamp": "2025-12-16 10:00:00.000000",
+            "body": body,
+            "severity_text": "info",
+            "severity_number": 9,
+            "service_name": "pivot-test",
+            "attributes_map_str": {"posthogDistinctId__str": posthog_distinct_id},
+        }
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{json.dumps(row)}\n")
+
+    def _bodies_for_pivot(self, distinct_ids: list[str]) -> set[str]:
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:00:00", "date_to": "2025-12-16 11:00:00"},
+            "limit": 100,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "posthogDistinctId",
+                                "keys": ["posthogDistinctId"],
+                                "operator": "exact",
+                                "type": "log_attribute",
+                                "value": distinct_ids,
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["body"] for r in response.json()["results"]}
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_numeric_distinct_id_links_across_emitted_forms(self):
+        self._insert_pivot_log("string-5", "5")  # str-exact match
+        self._insert_pivot_log("zero-padded", "05")  # float-only match (5.0); pre-fix this was dropped
+        self._insert_pivot_log("decimal", "5.0")  # float-only match (5.0); pre-fix this was dropped
+        self._insert_pivot_log("uuid", "abc-uuid")  # str-exact match (the person's other distinct_id)
+        self._insert_pivot_log("other-numeric", "6")  # must NOT match — different number
+        self._insert_pivot_log("other-string", "nope")  # must NOT match — non-numeric, not a distinct_id
+
+        # Person has a numeric distinct_id AND a uuid — the realistic mixed case where the
+        # pre-fix str-only routing matched only the exact "5" and the uuid, dropping "05"/"5.0".
+        matched = self._bodies_for_pivot(["5", "abc-uuid"])
+
+        self.assertEqual(matched, {"string-5", "zero-padded", "decimal", "uuid"})
