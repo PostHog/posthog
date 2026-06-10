@@ -270,11 +270,25 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
     }
 }
 
+/**
+ * Normalized lowercase insight type for analytics (e.g. "trends", "funnels", "hogql").
+ * Mirrors the backend `Insight.get_analytics_type()` so web and server events agree on a single field,
+ * and resolves to the same value whether the query is wrapped (InsightVizNode/DataVisualizationNode) or not.
+ */
+function normalizedInsightType(query: Node | null | undefined): string | undefined {
+    if (!query) {
+        return undefined
+    }
+    const kind = isNodeWithSource(query) ? query.source.kind : query.kind
+    return kind ? kind.replace(/Query/g, '').toLowerCase() : undefined
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+        insight_type: normalizedInsightType(query),
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -1186,8 +1200,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
                 insight: sanitizeInsight(insight),
+                insight_short_id: insight?.short_id,
                 is_new_insight: isNewInsight,
                 save_type: saveType,
+                source: 'web',
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
@@ -1518,6 +1534,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
+                insight_type: normalizedInsightType(insight?.query),
                 dashboard_id: dashboardId,
             })
         },

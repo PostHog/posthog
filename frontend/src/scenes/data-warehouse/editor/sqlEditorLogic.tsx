@@ -32,6 +32,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, slugify } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
@@ -436,6 +437,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
             ['setConnection', 'loadDatabase'],
+            eventUsageLogic,
+            ['reportInsightSaved'],
         ],
     })),
     actions(() => ({
@@ -1563,6 +1566,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: sourceQueryToSave,
                     saved: true,
                 })
+                // SQL-editor insights skip the standard insight editor, so report the save here to keep
+                // `insight saved` consistent across surfaces (carries insight_type + source).
+                actions.reportInsightSaved(insight, sourceQueryToSave, true, 'save')
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
                     doNotLoad: true,
@@ -1692,6 +1698,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     throw e
                 }
                 actions.setInsightLoading(false)
+                actions.reportInsightSaved(savedInsight, currentVisualizationQuery, false, 'save')
 
                 if (values.activeTab) {
                     actions.updateTab({

@@ -153,6 +153,16 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 capture_exception(e)
         super().save(*args, **kwargs)
 
+    def get_analytics_type(self) -> str:
+        """Return a normalized lowercase insight type for analytics (e.g. "trends", "funnels", "hogql")."""
+        if self.query:
+            # Query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", "HogQLQuery", etc.
+            source = self.query.get("source", self.query)
+            kind = source.get("kind", "") if isinstance(source, dict) else ""
+            return kind.replace("Query", "").lower() if kind else "json"
+        # Legacy filter-based insight
+        return str(self.filters.get("insight", "TRENDS")).lower()
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Insight"]:
         base_qs = cls.objects.filter(team=team, deleted=False, saved=True)

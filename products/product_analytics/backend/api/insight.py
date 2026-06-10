@@ -150,13 +150,7 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 
 def _get_insight_type(insight: Insight) -> str:
     """Return a normalized lowercase insight type string for analytics."""
-    if insight.query:
-        # New query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", etc.
-        source = insight.query.get("source", insight.query)
-        kind = source.get("kind", "")
-        return kind.replace("Query", "").lower() if kind else "json"
-    # Legacy filter-based insight
-    return str(insight.filters.get("insight", "TRENDS")).lower()
+    return insight.get_analytics_type()
 
 
 def log_and_report_insight_activity(
@@ -195,7 +189,7 @@ def log_and_report_insight_activity(
             report_user_action(
                 user,
                 f"insight {activity}",
-                {"insight_id": insight_short_id},
+                {"insight_id": insight_short_id, "insight_type": insight.get_analytics_type()},
                 team=team,
                 organization=organization,
                 request=request,
