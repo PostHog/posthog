@@ -18,6 +18,9 @@ const createMockService = (
     claimKeys: jest.fn(),
 })
 
+// Callers pass an explicit `undefined` for `properties` to reach `overrides`;
+// a defaulted parameter accepts `undefined` (and applies the default) even
+// under strict mode.
 const createInput = (
     properties: Record<string, unknown> = { $feature_flag: 'my-flag', $feature_flag_response: true },
     overrides: { event?: string; distinctId?: string; teamId?: number; uuid?: string } = {}

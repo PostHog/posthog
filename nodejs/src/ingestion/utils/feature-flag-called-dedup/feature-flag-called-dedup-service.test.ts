@@ -74,6 +74,13 @@ describe('RedisFeatureFlagCalledDedupService', () => {
             expect(config.excludedTeams).toEqual([])
         })
 
+        it('recognizes whitespace-padded wildcards', () => {
+            const config = parseFeatureFlagCalledDedupConfig('drop', ' * ', ' * ', 600)
+
+            expect(config.mode).toBe('disabled')
+            expect(config.teams).toBe('*')
+        })
+
         it.each([[0], [-5], [NaN]])('falls back to disabled on invalid ttl %p', (ttlSeconds) => {
             const config = parseFeatureFlagCalledDedupConfig('drop', '*', '', ttlSeconds)
 
