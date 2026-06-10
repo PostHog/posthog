@@ -815,8 +815,10 @@ class TestHogFlowAPI(APIBaseTest):
                 "events": [
                     {
                         "filters": {
-                            # Invalid source fails serializer validation, so the draft branch
+                            # A real event target so the entry survives the empty-entry strip. The
+                            # invalid source still fails serializer validation, so the draft branch
                             # keeps the raw filters - which must not retain the injected bytecode.
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                             "source": "not-a-valid-source",
                             "bytecode": ["_H", 1, 32, "injected"],
                         },
