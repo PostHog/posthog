@@ -32,11 +32,15 @@ from posthog.temporal.delete_teams.types import (
 )
 
 # The bulky deletes are idempotent ("delete next N rows for this team until empty"), so they
-# can retry indefinitely — the data only ever shrinks, and a restarted activity just resumes.
+# can retry indefinitely on transient DB errors — the data only ever shrinks, and a restarted
+# activity just resumes. Deterministic failures (e.g. a ProtectedError from a PROTECT FK the
+# phase ordering doesn't account for) are non-retryable so the workflow fails fast and surfaces
+# instead of retrying forever unnoticed.
 DELETE_RETRY_POLICY = temporalio.common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=10),
     maximum_interval=dt.timedelta(seconds=360),
     maximum_attempts=0,
+    non_retryable_error_types=["ProtectedError"],
 )
 # Bounded retries for the lighter orchestration / side-effect activities.
 SIDE_EFFECT_RETRY_POLICY = temporalio.common.RetryPolicy(

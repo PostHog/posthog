@@ -4,6 +4,7 @@ import pytest
 
 import temporalio.worker
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -145,3 +146,66 @@ async def test_organization_workflow_deletes_record_then_emails():
         "delete_organization_record_activity",
         "send_organization_deleted_email_activity",
     ]
+
+
+def _core_activities_with(target_name: str, target_fn) -> list:
+    """Core activity set where target_name uses target_fn and the rest are no-ops."""
+    activities = [activity.defn(name=target_name)(target_fn)]
+    for name in CORE_ACTIVITY_ORDER:
+        if name == target_name:
+            continue
+
+        @activity.defn(name=name)
+        async def _noop(inputs: TeamDataActivityInputs) -> None:
+            pass
+
+        activities.append(_noop)
+    return activities
+
+
+async def _run_core_with(activities: list) -> None:
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=activities,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteTeamsDataWorkflow.run,
+                DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+
+async def test_protected_error_fails_fast_without_retry():
+    from django.db.models.deletion import ProtectedError
+
+    attempts: list[str] = []
+
+    async def raises_protected(inputs: TeamDataActivityInputs) -> None:
+        attempts.append("attempt")
+        raise ProtectedError("blocked by a PROTECT foreign key", [])
+
+    activities = _core_activities_with("delete_misc_small_tables_activity", raises_protected)
+    with pytest.raises(WorkflowFailureError):
+        await _run_core_with(activities)
+
+    assert len(attempts) == 1  # non-retryable: the workflow fails on the first attempt
+
+
+async def test_transient_error_is_retried():
+    attempts: list[str] = []
+
+    async def fails_once(inputs: TeamDataActivityInputs) -> None:
+        attempts.append("attempt")
+        if len(attempts) == 1:
+            raise RuntimeError("transient database hiccup")
+
+    activities = _core_activities_with("delete_misc_small_tables_activity", fails_once)
+    await _run_core_with(activities)  # completes despite the first failure
+
+    assert len(attempts) == 2  # retried once, then succeeded
