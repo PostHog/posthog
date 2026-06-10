@@ -2557,6 +2557,30 @@ ${queryMarkdown}`)
         expect(editableTextBlock.value).toEqual('Summarize this notebook')
     })
 
+    it('collapses a persisted Ask AI prompt from the title button', () => {
+        const persistedPromptMarkdown = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="Summarize this notebook" />`
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: persistedPromptMarkdown, onChange }))
+        const titleButton = container.querySelector('.MarkdownNotebook__ai-prompt-heading') as HTMLButtonElement
+
+        expect(titleButton).toBeInstanceOf(HTMLButtonElement)
+        expect(titleButton.textContent).toContain('PostHog AI')
+        expect(titleButton.getAttribute('aria-expanded')).toEqual('true')
+        expect(getAIPromptInput(container)).toBeInstanceOf(HTMLTextAreaElement)
+
+        fireEvent.click(titleButton)
+
+        expect(titleButton.getAttribute('aria-expanded')).toEqual('false')
+        expect(container.querySelector('.MarkdownNotebook__text-block--ai-prompt')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
+
+        fireEvent.click(titleButton)
+
+        expect(titleButton.getAttribute('aria-expanded')).toEqual('true')
+        expect(getAIPromptInput(container).value).toEqual('Summarize this notebook')
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('persists Ask AI prompts in markdown until they are submitted', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
@@ -3169,7 +3193,7 @@ aXbc
         expect(onChange).toHaveBeenLastCalledWith('# First paragraph\n\nSecond paragraph')
     })
 
-    it('selects the notebook contents with Cmd+A and applies a formatting shortcut', () => {
+    it('selects the notebook contents with a repeated Cmd+A and applies a formatting shortcut', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -3180,6 +3204,7 @@ aXbc
         const textBlocks = getEditableTextBlocks(container)
 
         fireEvent.keyDown(textBlocks[1], { key: 'a', metaKey: true })
+        fireEvent.keyDown(textBlocks[1], { key: 'a', metaKey: true })
         fireEvent.keyDown(textBlocks[1], { key: 'b', metaKey: true })
 
         expect(onChange).toHaveBeenLastCalledWith(
@@ -3187,7 +3212,7 @@ aXbc
         )
     })
 
-    it('selects only the focused text group with Cmd+A inside grouped text rows', () => {
+    it('selects only the focused text block with Cmd+A inside grouped text rows', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -3209,7 +3234,7 @@ Second after row`),
         expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
         expect(window.getSelection()?.toString()).not.toContain('Before component')
         expect(window.getSelection()?.toString()).toContain('After component')
-        expect(window.getSelection()?.toString()).toContain('Second after row')
+        expect(window.getSelection()?.toString()).not.toContain('Second after row')
 
         fireEvent.keyDown(textBlocks[2], { key: 'b', metaKey: true })
 
@@ -3221,10 +3246,10 @@ Before component
 
 **After component**
 
-**Second after row**`)
+Second after row`)
     })
 
-    it('promotes a scoped text group Cmd+A selection to the whole notebook on the second press', () => {
+    it('toggles between scoped text block and whole notebook selections with repeated Cmd+A', () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'Embed',
@@ -3253,7 +3278,7 @@ Second after row`),
         expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
         expect(window.getSelection()?.toString()).not.toContain('Before component')
         expect(window.getSelection()?.toString()).toContain('After component')
-        expect(window.getSelection()?.toString()).toContain('Second after row')
+        expect(window.getSelection()?.toString()).not.toContain('Second after row')
         expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(false)
 
         fireSelectAllShortcut(textBlocks[2])
@@ -3263,6 +3288,14 @@ Second after row`),
         expect(window.getSelection()?.toString()).toContain('After component')
         expect(window.getSelection()?.toString()).toContain('Second after row')
         expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(true)
+
+        fireSelectAllShortcut(textBlocks[2])
+
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Before component')
+        expect(window.getSelection()?.toString()).toContain('After component')
+        expect(window.getSelection()?.toString()).not.toContain('Second after row')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(false)
     })
 
     it('selects only code block text with Cmd+A inside code blocks', () => {
@@ -3287,7 +3320,7 @@ Tail paragraph`),
         expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
     })
 
-    it('promotes a scoped code block Cmd+A selection to the whole notebook on the second press', () => {
+    it('toggles between scoped code block and whole notebook selections with repeated Cmd+A', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: withNotebookTitle(`Intro paragraph
@@ -3311,6 +3344,13 @@ Tail paragraph`),
         expect(window.getSelection()?.toString()).toContain('Intro paragraph')
         expect(window.getSelection()?.toString()).toContain('print("hello")')
         expect(window.getSelection()?.toString()).toContain('Tail paragraph')
+
+        fireSelectAllShortcut(codeBlock)
+
+        expect(window.getSelection()?.toString()).toEqual('print("hello")')
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Intro paragraph')
+        expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
     })
 
     it('selects text and components with Cmd+A from a focused component', () => {
@@ -3389,6 +3429,7 @@ After paragraph`
         const textBlocks = getEditableTextBlocks(container)
 
         fireEvent.keyDown(textBlocks[1], { key: 'a', metaKey: true })
+        fireEvent.keyDown(textBlocks[1], { key: 'a', metaKey: true })
         fireEvent.keyDown(textBlocks[1], { key: 'b', metaKey: true })
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN.replace(
@@ -3420,7 +3461,7 @@ Second mixed row`)
 **Second mixed row**`)
     })
 
-    it('supports Ctrl+A as the non-Apple select-all shortcut', () => {
+    it('supports repeated Ctrl+A as the non-Apple notebook select-all shortcut', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -3429,6 +3470,12 @@ Second mixed row`)
             })
         )
         const textBlocks = getEditableTextBlocks(container)
+
+        fireEvent.keyDown(textBlocks[1], { key: 'a', ctrlKey: true })
+
+        expect(window.getSelection()?.toString()).toEqual('First paragraph')
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Second paragraph')
 
         fireEvent.keyDown(textBlocks[1], { key: 'a', ctrlKey: true })
         fireEvent.keyDown(textBlocks[1], { key: 'u', ctrlKey: true })
@@ -3651,7 +3698,7 @@ First paragraph
         const textBlock = getBodyTextBlock(container)
 
         selectTextNode(getFirstTextNode(textBlock), 0, 5, true)
-        fireEvent.click(container.querySelector('button[aria-label="Code"]') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('button[aria-label="Inline code"]') as HTMLButtonElement)
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`First\` paragraph`)
     })

@@ -4,6 +4,7 @@
     --markdown-notebook-text-group-background: var(--color-bg-surface-primary);
     --markdown-notebook-text-group-border: color-mix(in sRGB, var(--color-border-primary) 86%, white);
     --markdown-notebook-text-group-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 4%), inset 0 1px 0 rgb(255 255 255 / 70%);
+    --markdown-notebook-text-block-gutter: color-mix(in sRGB, var(--color-text-primary) 68%, transparent);
     --markdown-notebook-code-background: color-mix(in sRGB, var(--color-bg-surface-primary) 92%, white);
     --markdown-notebook-code-border: color-mix(in sRGB, var(--color-border-primary) 82%, var(--color-text-primary));
     --markdown-notebook-code-gutter: var(--data-color-10);
@@ -28,6 +29,7 @@
     --markdown-notebook-text-group-background: var(--markdown-notebook-component-background);
     --markdown-notebook-text-group-border: var(--color-border-primary);
     --markdown-notebook-text-group-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+    --markdown-notebook-text-block-gutter: color-mix(in sRGB, white 72%, transparent);
     --markdown-notebook-code-background: var(--markdown-notebook-component-background);
     --markdown-notebook-code-border: var(--color-border-primary);
     --markdown-notebook-code-gutter: var(--data-color-10);
@@ -294,7 +296,10 @@
     margin: 0;
     line-height: 1.55;
     word-break: break-word;
+    border-left: 2px solid var(--markdown-notebook-text-block-gutter);
     border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
     outline: none;
 }
 
@@ -326,6 +331,18 @@
     gap: 0.5rem;
     align-items: center;
     min-width: 0;
+    padding: 0;
+    text-align: left;
+    appearance: none;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 0.375rem;
+}
+
+.MarkdownNotebook__ai-prompt-heading:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .MarkdownNotebook__ai-prompt-title {

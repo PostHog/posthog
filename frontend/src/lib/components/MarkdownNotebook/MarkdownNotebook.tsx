@@ -2739,37 +2739,27 @@ export function MarkdownNotebook({
         return true
     }
 
-    const selectTextGroupContents = (target: EventTarget | null): boolean => {
+    const selectTextBlockContents = (target: EventTarget | null): boolean => {
         if (!(target instanceof HTMLElement)) {
             return false
         }
 
         const activeTextBlockElement = target.closest('.MarkdownNotebook__text-block')
-        if (!(activeTextBlockElement instanceof HTMLElement)) {
-            return false
-        }
-
-        const textGroupElement = activeTextBlockElement.closest('.MarkdownNotebook__text-group')
-        if (!(textGroupElement instanceof HTMLElement) || !canvasRef.current?.contains(textGroupElement)) {
-            return false
-        }
-
-        const textBlockElements = Array.from(
-            textGroupElement.querySelectorAll('.MarkdownNotebook__text-block')
-        ) as HTMLElement[]
-        const firstTextBlockElement = textBlockElements[0]
-        const lastTextBlockElement = textBlockElements[textBlockElements.length - 1]
         const selection = window.getSelection()
-        if (!firstTextBlockElement || !lastTextBlockElement || !selection) {
+        if (!(activeTextBlockElement instanceof HTMLElement) || !canvasRef.current?.contains(activeTextBlockElement)) {
             return false
         }
 
-        const range = textGroupElement.ownerDocument.createRange()
-        const startPosition = findTextPosition(firstTextBlockElement, 0)
-        const endPosition = findTextPosition(lastTextBlockElement, lastTextBlockElement.textContent?.length ?? 0)
+        if (!selection) {
+            return false
+        }
+
+        const range = activeTextBlockElement.ownerDocument.createRange()
+        const startPosition = findTextPosition(activeTextBlockElement, 0)
+        const endPosition = findTextPosition(activeTextBlockElement, activeTextBlockElement.textContent?.length ?? 0)
         range.setStart(startPosition.node, startPosition.offset)
         range.setEnd(endPosition.node, endPosition.offset)
-        if (selectionCoversRange(selection, range)) {
+        if (selectionMatchesRange(selection, range)) {
             return false
         }
 
@@ -2801,7 +2791,7 @@ export function MarkdownNotebook({
         const endPosition = findTextPosition(codeBlockElement, codeBlockElement.textContent?.length ?? 0)
         range.setStart(startPosition.node, startPosition.offset)
         range.setEnd(endPosition.node, endPosition.offset)
-        if (selectionCoversRange(selection, range)) {
+        if (selectionMatchesRange(selection, range)) {
             return false
         }
 
@@ -2859,7 +2849,7 @@ export function MarkdownNotebook({
                 return
             }
 
-            if (selectTextGroupContents(event.target) || selectCodeBlockContents(event.target)) {
+            if (selectTextBlockContents(event.target) || selectCodeBlockContents(event.target)) {
                 event.preventDefault()
                 event.stopPropagation()
                 return
@@ -4043,6 +4033,7 @@ function EditablePromptComponent({
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLTextAreaElement | null>(null)
+    const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
     const isEmpty = question.length === 0
 
@@ -4053,6 +4044,12 @@ function EditablePromptComponent({
         },
         [setBlockRef]
     )
+
+    useEffect(() => {
+        if (isActive) {
+            setIsCollapsed(false)
+        }
+    }, [isActive])
 
     useEffect(() => {
         const element = elementRef.current
@@ -4139,13 +4136,18 @@ function EditablePromptComponent({
                 data-markdown-notebook-node-id={node.id}
             >
                 <div className="MarkdownNotebook__ai-prompt-header">
-                    <div className="MarkdownNotebook__ai-prompt-heading">
+                    <button
+                        type="button"
+                        className="MarkdownNotebook__ai-prompt-heading"
+                        aria-expanded={!isCollapsed}
+                        onClick={() => setIsCollapsed((currentValue) => !currentValue)}
+                    >
                         <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask AI prompt">
                             <IconSparkles />
                             Ask AI
                         </span>
                         <span className="MarkdownNotebook__ai-prompt-title">PostHog AI</span>
-                    </div>
+                    </button>
                     <LemonButton
                         size="xsmall"
                         type="tertiary"
@@ -4156,31 +4158,33 @@ function EditablePromptComponent({
                         onClick={deletePrompt}
                     />
                 </div>
-                <div className="MarkdownNotebook__ai-chat-reply MarkdownNotebook__ai-prompt-form">
-                    <LemonTextArea
-                        ref={setElementRef}
-                        className="MarkdownNotebook__ai-chat-reply-input MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
-                        data-attr="markdown-notebook-ai-prompt"
-                        value={question}
-                        onChange={updateQuestion}
-                        onPressEnter={submitPrompt}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Ask PostHog AI..."
-                        minRows={2}
-                        maxRows={6}
-                        autoFocus={isActive}
-                        disabled={mode !== 'edit'}
-                    />
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconSend />}
-                        onClick={() => submitPrompt()}
-                        disabledReason={question.trim() ? undefined : 'Write a prompt first'}
-                    >
-                        Send
-                    </LemonButton>
-                </div>
+                {isCollapsed ? null : (
+                    <div className="MarkdownNotebook__ai-chat-reply MarkdownNotebook__ai-prompt-form">
+                        <LemonTextArea
+                            ref={setElementRef}
+                            className="MarkdownNotebook__ai-chat-reply-input MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
+                            data-attr="markdown-notebook-ai-prompt"
+                            value={question}
+                            onChange={updateQuestion}
+                            onPressEnter={submitPrompt}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Ask PostHog AI..."
+                            minRows={2}
+                            maxRows={6}
+                            autoFocus={isActive}
+                            disabled={mode !== 'edit'}
+                        />
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconSend />}
+                            onClick={() => submitPrompt()}
+                            disabledReason={question.trim() ? undefined : 'Write a prompt first'}
+                        >
+                            Send
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -6128,8 +6132,8 @@ function FormattingToolbar({
                     <LemonButton
                         size="xsmall"
                         icon={<IconCode />}
-                        tooltip="Code"
-                        aria-label="Code"
+                        tooltip="Inline code"
+                        aria-label="Inline code"
                         onClick={() => applyInlineMark('code')}
                     />
                     <LemonButton
@@ -8121,7 +8125,7 @@ function isSelectionInsideElement(selection: Selection | null, element: HTMLElem
     return element.contains(range.startContainer) && element.contains(range.endContainer)
 }
 
-function selectionCoversRange(selection: Selection | null, expectedRange: Range): boolean {
+function selectionMatchesRange(selection: Selection | null, expectedRange: Range): boolean {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         return false
     }
@@ -8129,8 +8133,8 @@ function selectionCoversRange(selection: Selection | null, expectedRange: Range)
     try {
         const range = selection.getRangeAt(0)
         return (
-            range.compareBoundaryPoints(Range.START_TO_START, expectedRange) <= 0 &&
-            range.compareBoundaryPoints(Range.END_TO_END, expectedRange) >= 0
+            range.compareBoundaryPoints(Range.START_TO_START, expectedRange) === 0 &&
+            range.compareBoundaryPoints(Range.END_TO_END, expectedRange) === 0
         )
     } catch {
         return false
