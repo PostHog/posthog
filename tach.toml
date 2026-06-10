@@ -555,6 +555,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.notebooks",
+    "products.notifications",
     "products.product_analytics",
 ]
 layer = "modules"
