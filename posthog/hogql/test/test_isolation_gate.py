@@ -174,6 +174,18 @@ class TestEngineIsolationGate(SimpleTestCase):
         )
         self.assertEqual(entity_to_expr_core(RetentionEntity(id=5, type="actions"), provider), pageview)
 
+    def test_hogqlx_tag_expanded_via_provider(self) -> None:
+        from posthog.schema import HogQLQuery
+
+        expansion = parse_select("SELECT event FROM events")
+        provider = _provider(query_expansions=[(HogQLQuery(query="SELECT event FROM events"), expansion)])
+        printed, _ = prepare_and_print_ast(
+            parse_select("SELECT * FROM <HogQLQuery query='SELECT event FROM events' />"),
+            self._print_context(provider),
+            dialect="hogql",
+        )
+        self.assertIn("SELECT event FROM events", printed)
+
     def test_variables_substituted_via_provider(self) -> None:
         provider = _provider(
             insight_variables_by_id={"vid-1": InsightVariableInfo(code_name="my_var", default_value=42)}

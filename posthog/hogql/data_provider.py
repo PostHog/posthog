@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
-from posthog.hogql import ast
 from posthog.hogql.team_context import HogQLTeamContext
+
+if TYPE_CHECKING:
+    # Type-only: ast.py transitively imports this module (via resolver_utils),
+    # so a runtime import would be circular.
+    from posthog.hogql import ast
 
 PropertyKind = Literal["event", "person", "group"]
 ActionScope = Literal["team", "project"]
@@ -96,12 +100,20 @@ class DataProvider(Protocol):
         """
         ...
 
-    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional[ast.Expr]:
+    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
         """The action's step filters converted to an expression, or ``None`` if it doesn't exist."""
         ...
 
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
         """The requesting team's insight variables among ``variable_ids``."""
+        ...
+
+    def expand_query(self, query_node: Any) -> "ast.SelectQuery | ast.SelectSetQuery":
+        """Expand a query-schema node (from a HogQLX tag like ``<RetentionQuery/>``) to a select query.
+
+        ``query_node`` is a pydantic node from ``posthog.schema``; the Django
+        implementation instantiates the matching query runner and returns its query.
+        """
         ...
 
 
@@ -121,8 +133,10 @@ class StaticDataProvider:
     # absent from the catalog is simply untyped — a legitimate state, not an error.
     property_type_catalog: PropertyTypes = field(default_factory=PropertyTypes)
     action_refs: dict[tuple[ActionScope, int | str], list[ActionRef]] = field(default_factory=dict)
-    action_exprs: dict[int, ast.Expr] = field(default_factory=dict)
+    action_exprs: dict[int, "ast.Expr"] = field(default_factory=dict)
     insight_variables_by_id: dict[str, InsightVariableInfo] = field(default_factory=dict)
+    # (query node, expansion) pairs — query nodes compare by value, so a plain list works.
+    query_expansions: list[tuple[Any, "ast.SelectQuery | ast.SelectSetQuery"]] = field(default_factory=list)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
@@ -157,7 +171,7 @@ class StaticDataProvider:
     def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
         return self.action_refs.get((scope, ref), [])
 
-    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional[ast.Expr]:
+    def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
         return self.action_exprs.get(action_id)
 
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
@@ -166,3 +180,9 @@ class StaticDataProvider:
             for variable_id in variable_ids
             if variable_id in self.insight_variables_by_id
         ]
+
+    def expand_query(self, query_node: Any) -> "ast.SelectQuery | ast.SelectSetQuery":
+        for candidate, expansion in self.query_expansions:
+            if candidate == query_node:
+                return expansion
+        raise KeyError(f"No expansion provided for query node {type(query_node).__name__}")

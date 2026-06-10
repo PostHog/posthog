@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 from django.db.models import Prefetch, Q
@@ -222,3 +222,9 @@ class DjangoDataProvider:
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
         rows = InsightVariable.objects.filter(team_id=self.team.id, id__in=variable_ids).all()
         return [InsightVariableInfo(code_name=row.code_name, default_value=row.default_value) for row in rows]
+
+    def expand_query(self, query_node: Any) -> "ast.SelectQuery | ast.SelectSetQuery":
+        # Deferred: pulls in the whole query-runner universe; keep it off the import path.
+        from posthog.hogql_queries.query_runner import get_query_runner  # noqa: PLC0415
+
+        return get_query_runner(query_node, self.team).to_query()
