@@ -12,6 +12,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
     getPublicBaseUrl,
+    isLocalApi,
     MCP_SERVER_NAME,
     MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
@@ -897,6 +898,17 @@ export class MCP extends McpAgent<Env> {
             const flagKeys = getRequiredFeatureFlags()
             if (flagKeys.length === 0) {
                 return undefined
+            }
+            // Local dev runs against the locally-running project, where the
+            // dev-only surfaces these flags gate (e.g. the agent-platform
+            // product DB) actually exist. The flags exist only to hide those
+            // surfaces on prod until GA — so treat them all as enabled locally.
+            // Otherwise the analytics flag-eval client (disabled unless the
+            // POSTHOG_ANALYTICS_* vars are set, and pointed at the analytics
+            // instance rather than the local project) would hide tools that are
+            // valid to use against the local stack.
+            if (isLocalApi()) {
+                return Object.fromEntries(flagKeys.map((key) => [key, true]))
             }
             const distinctId = await this.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
