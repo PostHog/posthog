@@ -1,8 +1,8 @@
 /**
- * LLM analytics emission: the runner captures one `$ai_generation` per model
+ * AI observability emission: the runner captures one `$ai_generation` per model
  * call, one `$ai_span` per tool dispatch, and one `$ai_trace` per session — and
  * routes every event to the OWNING TEAM's own project key (`team_id → phc_`), so
- * agent traffic shows up natively in that team's LLM Analytics with zero config.
+ * agent traffic shows up natively in that team's AI observability with zero config.
  *
  * The harness wires a real `RoutingAnalyticsSink` with a stub per-team resolver
  * (`team_id → phc_team_<id>`); `c.analytics` taps the wire shape it would POST.
@@ -12,7 +12,7 @@ import request from 'supertest'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
-describe('llm analytics: real e2e', () => {
+describe('ai observability: real e2e', () => {
     let c: Cluster
 
     beforeEach(async () => {

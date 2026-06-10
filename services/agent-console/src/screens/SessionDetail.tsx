@@ -16,7 +16,7 @@
 
 'use client'
 
-import { XIcon } from 'lucide-react'
+import { LineChartIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
@@ -34,9 +34,20 @@ export interface SessionDetailProps {
     logs: LogEntry[]
     /** Optional close button (clears the host's `?session=` param). */
     onClose?: () => void
+    /**
+     * Absolute deep link to this session's trace in the team's AI observability
+     * product (`$ai_trace_id` === the session id). Renders a "View in AI
+     * observability" affordance; omitted when the PostHog app URL isn't resolved.
+     */
+    aiObservabilityTraceUrl?: string
 }
 
-export function SessionDetail({ session, logs, onClose }: SessionDetailProps): React.ReactElement {
+export function SessionDetail({
+    session,
+    logs,
+    onClose,
+    aiObservabilityTraceUrl,
+}: SessionDetailProps): React.ReactElement {
     const [activePane, setActivePane] = useState<Pane>('conversation')
 
     const tiles = buildTiles(session, logs)
@@ -45,6 +56,24 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
         <div className="flex h-full min-h-0 flex-col">
             <div className="flex shrink-0 items-center gap-1.5 px-4 pt-4">
                 <StatStrip tiles={tiles} size="sm" className="flex-1" />
+                {aiObservabilityTraceUrl ? (
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <a
+                                    href={aiObservabilityTraceUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="View trace in AI observability"
+                                    className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                                >
+                                    <LineChartIcon className="h-4 w-4" />
+                                </a>
+                            }
+                        />
+                        <TooltipContent side="left">View in AI observability ↗</TooltipContent>
+                    </Tooltip>
+                ) : null}
                 {onClose ? (
                     <Tooltip>
                         <TooltipTrigger

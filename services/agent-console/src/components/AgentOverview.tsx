@@ -11,7 +11,15 @@
  * minimal-row layout) so the visual language stays consistent.
  */
 
-import { CalendarClockIcon, ChevronRightIcon, GlobeIcon, HashIcon, MessageSquareIcon, WebhookIcon } from 'lucide-react'
+import {
+    CalendarClockIcon,
+    ChevronRightIcon,
+    GlobeIcon,
+    HashIcon,
+    LineChartIcon,
+    MessageSquareIcon,
+    WebhookIcon,
+} from 'lucide-react'
 import { useMemo } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
@@ -27,6 +35,13 @@ export interface AgentOverviewProps {
     onOpenSession?: (sessionId: string) => void
     onOpenConfiguration?: () => void
     onOpenSessions?: () => void
+    /**
+     * Absolute deep link to this team's AI observability product (the agent's
+     * `$ai_*` events land in the team's own project). Renders a "View in AI
+     * observability" affordance above the stats; omitted when the PostHog app
+     * URL or team isn't resolved yet.
+     */
+    aiObservabilityUrl?: string
 }
 
 export function AgentOverview({
@@ -36,6 +51,7 @@ export function AgentOverview({
     onOpenSession,
     onOpenConfiguration,
     onOpenSessions,
+    aiObservabilityUrl,
 }: AgentOverviewProps): React.ReactElement {
     // `agent` is on the props type for future use (e.g. surfacing per-agent
     // archived state inline) — header above the tabs already shows
@@ -80,7 +96,25 @@ export function AgentOverview({
 
     return (
         <div className="space-y-4">
-            <StatStrip tiles={tiles} />
+            <div className="space-y-1.5">
+                {aiObservabilityUrl ? (
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Analytics · 24h
+                        </h3>
+                        <a
+                            href={aiObservabilityUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                            <LineChartIcon className="h-3 w-3" aria-hidden />
+                            View in AI observability ↗
+                        </a>
+                    </div>
+                ) : null}
+                <StatStrip tiles={tiles} />
+            </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <OverviewCard

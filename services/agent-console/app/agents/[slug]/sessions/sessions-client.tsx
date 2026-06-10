@@ -7,9 +7,10 @@ import type { LogEntry } from '@posthog/agent-chat/fixtures'
 
 import { useAgent } from '@/components/agent-context'
 import { useSetDockPage } from '@/components/dock-context'
-import { useSessionTeamId } from '@/components/session-context'
+import { usePosthogBaseUrl, useSessionTeamId } from '@/components/session-context'
 import { SessionsList } from '@/components/SessionsList'
 import { getSession, listLogsForSession, listSessionsForAgent } from '@/lib/apiClient'
+import { aiObservabilityTraceUrl } from '@/lib/posthogLinks'
 import { useResource } from '@/lib/useResource'
 import { SessionDetail } from '@/screens/SessionDetail'
 
@@ -18,6 +19,7 @@ const PAGE_SIZE = 20
 export function SessionsSegment(): React.ReactElement {
     const agent = useAgent()
     const teamId = useSessionTeamId()!
+    const posthogBaseUrl = usePosthogBaseUrl()
     const router = useRouter()
     const searchParams = useSearchParams()
     const selectedSessionId = searchParams?.get('session') ?? null
@@ -137,6 +139,11 @@ export function SessionsSegment(): React.ReactElement {
                         session={selectedSession.data}
                         logs={selectedLogs.data ?? []}
                         onClose={() => select(null)}
+                        aiObservabilityTraceUrl={
+                            posthogBaseUrl && selectedSessionId
+                                ? aiObservabilityTraceUrl(posthogBaseUrl, teamId, selectedSessionId)
+                                : undefined
+                        }
                     />
                 ) : selectedSession.loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

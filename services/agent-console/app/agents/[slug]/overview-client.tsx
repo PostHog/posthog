@@ -6,14 +6,16 @@ import { useMemo } from 'react'
 import { useAgent, useRevisions } from '@/components/agent-context'
 import { AgentOverview } from '@/components/AgentOverview'
 import { useSetDockPage } from '@/components/dock-context'
-import { useSessionTeamId } from '@/components/session-context'
+import { usePosthogBaseUrl, useSessionTeamId } from '@/components/session-context'
 import { getAgentStats, listSessionsForAgent } from '@/lib/apiClient'
+import { aiObservabilityTracesUrl } from '@/lib/posthogLinks'
 import { useResource } from '@/lib/useResource'
 
 export function OverviewSegment(): React.ReactElement {
     const agent = useAgent()
     const revisions = useRevisions()
     const teamId = useSessionTeamId()!
+    const posthogBaseUrl = usePosthogBaseUrl()
     const router = useRouter()
 
     useSetDockPage({ kind: 'agent', agent: { id: agent.id, name: agent.name, slug: agent.slug } })
@@ -55,6 +57,7 @@ export function OverviewSegment(): React.ReactElement {
                 liveRevision={liveRevision}
                 stats={effectiveStats}
                 recentSessions={recentSessions}
+                aiObservabilityUrl={posthogBaseUrl ? aiObservabilityTracesUrl(posthogBaseUrl, teamId) : undefined}
                 onOpenSession={(id) => router.push(`/agents/${agent.slug}/sessions?session=${encodeURIComponent(id)}`)}
                 onOpenConfiguration={() => router.push(`/agents/${agent.slug}/configuration`)}
                 onOpenSessions={() => router.push(`/agents/${agent.slug}/sessions`)}
