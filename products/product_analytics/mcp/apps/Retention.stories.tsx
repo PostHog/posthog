@@ -3,13 +3,11 @@ import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { ChartTheme } from '@posthog/quill-charts'
+import type { ChartTheme, TooltipConfig } from '@posthog/quill-charts'
 
 import {
-    buildRetentionBarChartConfig,
-    buildRetentionLineChartConfig,
-    buildRetentionSeries,
-    type RetentionTrendSeriesEntry,
+    buildRetentionChartModel,
+    type RetentionCohortLike,
 } from '../../frontend/insights/retention/shared/retentionChartTransforms'
 
 // PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
@@ -25,32 +23,16 @@ const CHART_THEME: ChartTheme = {
     tooltipColor: '#111827',
 }
 
-// Three cohorts measured over five intervals — each `data` value is a retention percentage (0..100).
-const COHORTS: RetentionTrendSeriesEntry[] = [
-    {
-        count: 100,
-        data: [100, 64, 48, 39, 30],
-        labels: ['Day 0', 'Day 1', 'Day 2', 'Day 3', 'Day 4'],
-        index: 0,
-        label: 'Cohort 1 (May 26)',
-    },
-    {
-        count: 120,
-        data: [100, 71, 55, 44, 36],
-        labels: ['Day 0', 'Day 1', 'Day 2', 'Day 3', 'Day 4'],
-        index: 1,
-        label: 'Cohort 2 (May 27)',
-    },
-    {
-        count: 90,
-        data: [100, 58, 41, 33, 25],
-        labels: ['Day 0', 'Day 1', 'Day 2', 'Day 3', 'Day 4'],
-        index: 2,
-        label: 'Cohort 3 (May 28)',
-    },
-]
+// Matches the config RetentionVisualizer passes, so the snapshot reflects the real component.
+const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
-const LABELS = ['Day 0', 'Day 1', 'Day 2', 'Day 3', 'Day 4']
+// Raw per-interval counts per cohort; buildRetentionChartModel derives the retention percentages,
+// labels, and y-axis exactly as the visualizer does.
+const COHORTS: RetentionCohortLike[] = [
+    { date: '2024-05-26', values: [100, 64, 48, 39, 30].map((count) => ({ count })) },
+    { date: '2024-05-27', values: [120, 85, 66, 53, 43].map((count) => ({ count })) },
+    { date: '2024-05-28', values: [90, 52, 37, 30, 23].map((count) => ({ count })) },
+]
 
 const meta: Meta = {
     title: 'MCP Apps/Retention',
@@ -65,17 +47,15 @@ export default meta
 
 type Story = StoryObj<{}>
 
-function RetentionChartDemo({
-    entries,
-    mode,
-}: {
-    entries: RetentionTrendSeriesEntry[]
-    mode: 'line' | 'bar'
-}): ReactElement {
-    const series = buildRetentionSeries(entries, { isIntervalView: false }).map((s, i) => ({
-        ...s,
-        color: CHART_COLORS[i % CHART_COLORS.length]!,
-    }))
+function RetentionChartDemo({ cohorts, mode }: { cohorts: RetentionCohortLike[]; mode: 'line' | 'bar' }): ReactElement {
+    const model = buildRetentionChartModel(cohorts, {
+        aggregationType: 'count',
+        reference: 'total',
+        period: 'Day',
+        getColor: (i) => CHART_COLORS[i % CHART_COLORS.length]!,
+        tooltip: TOOLTIP_CONFIG,
+        maxCohorts: CHART_COLORS.length,
+    })
     return (
         // Fixed pixel size, not width:100% — the chart sizes its canvas off a ResizeObserver, which
         // measures 0 for a percentage width at mount in the headless snapshot runner and draws nothing.
@@ -83,17 +63,17 @@ function RetentionChartDemo({
         <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 320 }}>
             {mode === 'bar' ? (
                 <TimeSeriesBarChart
-                    series={series}
-                    labels={LABELS}
+                    series={model.series}
+                    labels={model.labels}
                     theme={CHART_THEME}
-                    config={buildRetentionBarChartConfig({ isPercentage: true, series })}
+                    config={model.barConfig}
                 />
             ) : (
                 <TimeSeriesLineChart
-                    series={series}
-                    labels={LABELS}
+                    series={model.series}
+                    labels={model.labels}
                     theme={CHART_THEME}
-                    config={buildRetentionLineChartConfig({ isPercentage: true, series })}
+                    config={model.lineConfig}
                 />
             )}
         </div>
@@ -101,16 +81,16 @@ function RetentionChartDemo({
 }
 
 export const LineChart: Story = {
-    render: () => <RetentionChartDemo entries={COHORTS} mode="line" />,
+    render: () => <RetentionChartDemo cohorts={COHORTS} mode="line" />,
     name: 'Line chart',
 }
 
 export const BarChart: Story = {
-    render: () => <RetentionChartDemo entries={COHORTS} mode="bar" />,
+    render: () => <RetentionChartDemo cohorts={COHORTS} mode="bar" />,
     name: 'Bar chart',
 }
 
 export const SingleCohort: Story = {
-    render: () => <RetentionChartDemo entries={[COHORTS[0]!]} mode="line" />,
+    render: () => <RetentionChartDemo cohorts={[COHORTS[0]!]} mode="line" />,
     name: 'Single cohort',
 }
