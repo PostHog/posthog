@@ -837,9 +837,7 @@ export const QueryDatabase = ({
                 // Render the custom "add source of type" button (no dropdown) for external source folders
                 if (
                     item.record?.type === 'source-folder' &&
-                    externalDataSources.includes(
-                        item.record?.sourceType as (typeof externalDataSources)[number]
-                    )
+                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
                 ) {
                     return null
                 }
