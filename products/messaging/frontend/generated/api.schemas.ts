@@ -91,15 +91,29 @@ export const HogFunctionTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
+/**
+ * Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.
+ */
+export type EmailTemplateApiDesign = { [key: string]: unknown }
+
 export interface EmailTemplateApi {
+    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
+    /** Plain-text fallback body, sent alongside the HTML. */
     text?: string
+    /** Full HTML document sent verbatim as the email body. Supports Liquid templating. */
     html?: string
-    design?: unknown
+    /** Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates. */
+    design?: EmailTemplateApiDesign
 }
 
 export interface MessageTemplateContentApi {
+    /** Templating language for subject/html/text. Use 'liquid' for new templates.
+
+  * `hog` - hog
+  * `liquid` - liquid */
     templating?: HogFunctionTemplatingEnumApi
+    /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
 }
 
@@ -160,17 +174,29 @@ export interface UserBasicApi {
 
 export interface MessageTemplateApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
     name: string
+    /** What the template is for and when to use it. */
     description?: string
     readonly created_at: string
     readonly updated_at: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
     content?: MessageTemplateContentApi
     readonly created_by: UserBasicApi
-    /** @maxLength 24 */
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
     type?: string
-    /** @nullable */
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
     message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
 }
 
@@ -185,17 +211,29 @@ export interface PaginatedMessageTemplateListApi {
 
 export interface PatchedMessageTemplateApi {
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
     name?: string
+    /** What the template is for and when to use it. */
     description?: string
     readonly created_at?: string
     readonly updated_at?: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
     content?: MessageTemplateContentApi
     readonly created_by?: UserBasicApi
-    /** @maxLength 24 */
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
     type?: string
-    /** @nullable */
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
     message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
 }
 

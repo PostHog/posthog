@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -597,4 +597,166 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.obje
             "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
         ),
     before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
+})
+
+export const MessagingTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const MessagingTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const MessagingTemplatesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const messagingTemplatesCreateBodyNameMax = 400
+
+export const messagingTemplatesCreateBodyTypeMax = 24
+
+export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesCreateBodyNameMax)
+        .describe('Human-readable template name shown in the library.'),
+    description: zod.string().optional().describe('What the template is for and when to use it.'),
+    content: zod
+        .object({
+            templating: zod
+                .enum(['hog', 'liquid'])
+                .describe('* `hog` - hog\n* `liquid` - liquid')
+                .optional()
+                .describe(
+                    "Templating language for subject/html/text. Use 'liquid' for new templates.\n\n* `hog` - hog\n* `liquid` - liquid"
+                ),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                            ),
+                        text: zod.string().optional().describe('Plain-text fallback body, sent alongside the HTML.'),
+                        html: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                            ),
+                        design: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+        })
+        .optional()
+        .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
+    type: zod
+        .string()
+        .max(messagingTemplatesCreateBodyTypeMax)
+        .optional()
+        .describe("Message channel of the template. Currently 'email'."),
+    message_category: zod
+        .uuid()
+        .nullish()
+        .describe('Message category ID to file the template under. Must belong to the same project.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+})
+
+export const MessagingTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this message template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const MessagingTemplatesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this message template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const messagingTemplatesPartialUpdateBodyNameMax = 400
+
+export const messagingTemplatesPartialUpdateBodyTypeMax = 24
+
+export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable template name shown in the library.'),
+    description: zod.string().optional().describe('What the template is for and when to use it.'),
+    content: zod
+        .object({
+            templating: zod
+                .enum(['hog', 'liquid'])
+                .describe('* `hog` - hog\n* `liquid` - liquid')
+                .optional()
+                .describe(
+                    "Templating language for subject/html/text. Use 'liquid' for new templates.\n\n* `hog` - hog\n* `liquid` - liquid"
+                ),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                            ),
+                        text: zod.string().optional().describe('Plain-text fallback body, sent alongside the HTML.'),
+                        html: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                            ),
+                        design: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+        })
+        .optional()
+        .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
+    type: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyTypeMax)
+        .optional()
+        .describe("Message channel of the template. Currently 'email'."),
+    message_category: zod
+        .uuid()
+        .nullish()
+        .describe('Message category ID to file the template under. Must belong to the same project.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })

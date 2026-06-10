@@ -22,9 +22,14 @@ import {
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
     MaxToolsCreateMessageTemplateCreateBody,
+    MessagingTemplatesCreateBody,
+    MessagingTemplatesListQueryParams,
+    MessagingTemplatesPartialUpdateBody,
+    MessagingTemplatesPartialUpdateParams,
+    MessagingTemplatesRetrieveParams,
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
@@ -72,6 +77,45 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
         },
     })
 
+const WorkflowsCreateEmailTemplateSchema = MessagingTemplatesCreateBody
+
+const workflowsCreateEmailTemplate = (): ToolBase<
+    typeof WorkflowsCreateEmailTemplateSchema,
+    WithPostHogUrl<Schemas.MessageTemplate>
+> =>
+    withUiApp('email-template', {
+        name: 'workflows-create-email-template',
+        schema: WorkflowsCreateEmailTemplateSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsCreateEmailTemplateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.description !== undefined) {
+                body['description'] = params.description
+            }
+            if (params.content !== undefined) {
+                body['content'] = params.content
+            }
+            if (params.type !== undefined) {
+                body['type'] = params.type
+            }
+            if (params.message_category !== undefined) {
+                body['message_category'] = params.message_category
+            }
+            if (params.deleted !== undefined) {
+                body['deleted'] = params.deleted
+            }
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
+        },
+    })
+
 const WorkflowsGenerateEmailTemplateSchema = MaxToolsCreateMessageTemplateCreateBody
 
 const workflowsGenerateEmailTemplate = (): ToolBase<
@@ -115,6 +159,25 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Sche
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/pipeline/destinations/hog-${result.id}`)
+        },
+    })
+
+const WorkflowsGetEmailTemplateSchema = MessagingTemplatesRetrieveParams.omit({ project_id: true })
+
+const workflowsGetEmailTemplate = (): ToolBase<
+    typeof WorkflowsGetEmailTemplateSchema,
+    WithPostHogUrl<Schemas.MessageTemplate>
+> =>
+    withUiApp('email-template', {
+        name: 'workflows-get-email-template',
+        schema: WorkflowsGetEmailTemplateSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsGetEmailTemplateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
         },
     })
 
@@ -198,6 +261,43 @@ const workflowsListBatchJobs = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/batch_jobs/`,
         })
         return await withPostHogUrl(context, result, '/pipeline/destinations')
+    },
+})
+
+const WorkflowsListEmailTemplatesSchema = MessagingTemplatesListQueryParams
+
+const workflowsListEmailTemplates = (): ToolBase<
+    typeof WorkflowsListEmailTemplatesSchema,
+    WithPostHogUrl<Schemas.PaginatedMessageTemplateList>
+> => ({
+    name: 'workflows-list-email-templates',
+    schema: WorkflowsListEmailTemplatesSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsListEmailTemplatesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMessageTemplateList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['content', 'created_by'])),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/workflows/library/templates/${item.id}`)
+                    )
+                ),
+            },
+            '/workflows/library/templates'
+        )
     },
 })
 
@@ -351,6 +451,47 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
         },
     })
 
+const WorkflowsUpdateEmailTemplateSchema = MessagingTemplatesPartialUpdateParams.omit({ project_id: true }).extend(
+    MessagingTemplatesPartialUpdateBody.shape
+)
+
+const workflowsUpdateEmailTemplate = (): ToolBase<
+    typeof WorkflowsUpdateEmailTemplateSchema,
+    WithPostHogUrl<Schemas.MessageTemplate>
+> =>
+    withUiApp('email-template', {
+        name: 'workflows-update-email-template',
+        schema: WorkflowsUpdateEmailTemplateSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsUpdateEmailTemplateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.description !== undefined) {
+                body['description'] = params.description
+            }
+            if (params.content !== undefined) {
+                body['content'] = params.content
+            }
+            if (params.type !== undefined) {
+                body['type'] = params.type
+            }
+            if (params.message_category !== undefined) {
+                body['message_category'] = params.message_category
+            }
+            if (params.deleted !== undefined) {
+                body['deleted'] = params.deleted
+            }
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'PATCH',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
+        },
+    })
+
 const WorkflowsUpdateScheduleSchema = HogFlowsSchedulesPartialUpdateParams.omit({ project_id: true }).extend(
     HogFlowsSchedulesPartialUpdateBody.shape
 )
@@ -384,16 +525,20 @@ const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchem
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create': workflowsCreate,
+    'workflows-create-email-template': workflowsCreateEmailTemplate,
     'workflows-generate-email-template': workflowsGenerateEmailTemplate,
     'workflows-get': workflowsGet,
+    'workflows-get-email-template': workflowsGetEmailTemplate,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-global-stats': workflowsGlobalStats,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
+    'workflows-list-email-templates': workflowsListEmailTemplates,
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-logs': workflowsLogs,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
+    'workflows-update-email-template': workflowsUpdateEmailTemplate,
     'workflows-update-schedule': workflowsUpdateSchedule,
 }

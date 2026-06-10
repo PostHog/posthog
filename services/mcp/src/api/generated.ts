@@ -14378,11 +14378,20 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    /**
+     * Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.
+     */
+    export type EmailTemplateDesign = { [key: string]: unknown };
+
     export interface EmailTemplate {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Plain-text fallback body, sent alongside the HTML. */
       text?: string;
+      /** Full HTML document sent verbatim as the email body. Supports Liquid templating. */
       html?: string;
-      design?: unknown;
+      /** Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates. */
+      design?: EmailTemplateDesign;
     }
 
     /**
@@ -22970,23 +22979,40 @@ export namespace Schemas {
     }
 
     export interface MessageTemplateContent {
+      /** Templating language for subject/html/text. Use 'liquid' for new templates.
+
+      * `hog` - hog
+      * `liquid` - liquid */
       templating?: HogFunctionTemplatingEnum;
+      /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
 
     export interface MessageTemplate {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -30750,17 +30776,29 @@ export namespace Schemas {
 
     export interface PatchedMessageTemplate {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name?: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 

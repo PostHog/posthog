@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -127,6 +128,63 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         self.message_template.refresh_from_db()
         assert self.message_template.message_category_id is None
+
+    @parameterized.expand(
+        [
+            ("list_with_read_scope", ["hog_flow:read"], "get", None, status.HTTP_200_OK),
+            ("retrieve_with_read_scope", ["hog_flow:read"], "get", "detail", status.HTTP_200_OK),
+            ("create_with_write_scope", ["hog_flow:write"], "post", None, status.HTTP_201_CREATED),
+            ("update_with_write_scope", ["hog_flow:write"], "patch", "detail", status.HTTP_200_OK),
+            ("create_with_read_scope_forbidden", ["hog_flow:read"], "post", None, status.HTTP_403_FORBIDDEN),
+            ("update_with_read_scope_forbidden", ["hog_flow:read"], "patch", "detail", status.HTTP_403_FORBIDDEN),
+            ("list_with_unrelated_scope_forbidden", ["insight:read"], "get", None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_scope_enforcement(self, _name, scopes, method, target, expected_status):
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        base_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        url = f"{base_url}{self.message_template.id}/" if target == "detail" else base_url
+        data = (
+            {
+                "name": "API key template",
+                "content": {"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+                "type": "email",
+            }
+            if method in ("post", "patch")
+            else None
+        )
+
+        response = getattr(self.client, method)(url, data=data, format="json")
+        assert response.status_code == expected_status, response.json()
+
+    def test_update_replaces_content_wholesale(self):
+        """The content JSONField is replaced as a unit on update, never deep-merged —
+        a payload without design makes the submitted html canonical."""
+        self.message_template.content = {
+            "email": {"subject": "Old", "html": "<p>Old</p>", "design": {"body": {"rows": []}}}
+        }
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={"content": {"email": {"subject": "New", "html": "<p>New</p>"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.message_template.refresh_from_db()
+        assert self.message_template.content["email"] == {"subject": "New", "html": "<p>New</p>"}
+
+    def test_personal_api_key_cannot_access_other_teams_template(self):
+        api_key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{self.other_team_template.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_can_bind_template_to_own_teams_message_category(self):
         own_category = MessageCategory.objects.create(team=self.team, key="own-key", name="Own")

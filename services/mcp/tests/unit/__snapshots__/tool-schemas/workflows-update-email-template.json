@@ -1,0 +1,86 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "Template content keyed by channel. Replaced as a whole on update, not merged.",
+            "properties": {
+                "email": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "design": {
+                                    "additionalProperties": {},
+                                    "description": "Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                "html": {
+                                    "description": "Full HTML document sent verbatim as the email body. Supports Liquid templating.",
+                                    "type": "string"
+                                },
+                                "subject": {
+                                    "description": "Email subject line. Supports Liquid templating. Required for email-type templates.",
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "description": "Plain-text fallback body, sent alongside the HTML.",
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Email message content. Replaced as a whole on update — send the complete object."
+                },
+                "templating": {
+                    "description": "Templating language for subject/html/text. Use 'liquid' for new templates.\n\n* `hog` - hog\n* `liquid` - liquid",
+                    "enum": ["hog", "liquid"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "deleted": {
+            "description": "Soft-delete flag. Set true to remove the template from the library.",
+            "type": "boolean"
+        },
+        "description": {
+            "description": "What the template is for and when to use it.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this message template.",
+            "type": "string"
+        },
+        "message_category": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Message category ID to file the template under. Must belong to the same project."
+        },
+        "name": {
+            "description": "Human-readable template name shown in the library.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "type": {
+            "description": "Message channel of the template. Currently 'email'.",
+            "maxLength": 24,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
