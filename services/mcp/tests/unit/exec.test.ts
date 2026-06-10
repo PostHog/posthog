@@ -242,42 +242,32 @@ describe('exec tool', () => {
             ).rejects.toThrow(/Invalid JSON input:/)
         })
 
-        it('rejects a call missing a required parameter, naming the field', async () => {
+        it.each([
+            {
+                case: 'a missing required parameter, naming the field',
+                input: '{}',
+                expected: /Invalid input for "action-get": missing required parameter: id/,
+            },
+            {
+                case: 'a parameter of the wrong type, naming the expected type',
+                input: '{"id":"not-a-number"}',
+                expected: /parameter "id" must be of type number/,
+            },
+            {
+                // Plain z.object strips unknown keys at parse time (Zod v4), so the
+                // actionable signal is the absent required `id`, not the stray key.
+                case: 'an unexpected property displacing the required field',
+                input: '{"actionId":277664}',
+                expected: /missing required parameter: id/,
+            },
+        ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
                 schema: z.object({ id: z.number() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
-                /Invalid input for "action-get": missing required parameter: id/
-            )
-        })
-
-        it('rejects a parameter of the wrong type, naming the expected type', async () => {
-            const tool = makeMockTool({
-                name: 'action-get',
-                schema: z.object({ id: z.number() }),
-                handler: async (_ctx, params) => params,
-            })
-            const exec = createExec([tool])
-            await expect(
-                exec.handler(mockContext, { command: 'call action-get {"id":"not-a-number"}' })
-            ).rejects.toThrow(/parameter "id" must be of type number/)
-        })
-
-        it('still reports the missing required field when an unexpected property is sent', async () => {
-            // Plain z.object strips unknown keys at parse time (Zod v4), so the
-            // actionable signal is the absent required `id`, not the stray key.
-            const tool = makeMockTool({
-                name: 'action-get',
-                schema: z.object({ id: z.number() }),
-                handler: async (_ctx, params) => params,
-            })
-            const exec = createExec([tool])
-            await expect(exec.handler(mockContext, { command: 'call action-get {"actionId":277664}' })).rejects.toThrow(
-                /missing required parameter: id/
-            )
+            await expect(exec.handler(mockContext, { command: `call action-get ${input}` })).rejects.toThrow(expected)
         })
 
         it('passes validated output — with defaults applied — to the inner handler', async () => {
