@@ -149,7 +149,7 @@ class SnapshotClassifier:
         if not self.baseline:
             return
         if self.is_partial:
-            # Partial runs (e.g. PR-selective storybook) only render a subset of
+            # Partial runs (e.g. draft-PR-selective storybook) only render a subset of
             # the suite. The omitted baseline identifiers haven't been deleted,
             # they just weren't exercised — leave them untouched.
             return

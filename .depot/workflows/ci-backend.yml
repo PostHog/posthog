@@ -42,9 +42,11 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
-        # re-triggers them when a PR leaves draft. Add the `run-ci-backend` label
-        # (labeled/unlabeled re-trigger) to force them on a draft. Mirrors canonical.
+        # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
+        # still skip drafts. Ready PRs run the full matrices — the merge gate —
+        # and ready_for_review re-triggers them when a PR leaves draft. Add the
+        # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
+        # matrices on a draft. Mirrors canonical.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 concurrency:
@@ -333,11 +335,12 @@ jobs:
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
-    # Pick which Django tests to run. On PRs the snob shadow selector narrows
-    # the run to test files reachable from the diff; everywhere else (master,
-    # merge_group, run_legacy via turbo-discover, or a selector full-run signal)
-    # we fall back to the full matrix. The full suite still runs in the merge
-    # queue, which is the safety net.
+    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
+    # subset for fast feedback; the full matrix runs once the PR is marked ready
+    # for review, and that ready run is the merge gate. When selection can't be
+    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
+    # a selector full-run signal), the draft skips the heavy matrices entirely —
+    # the pre-selection draft behavior — and defers to the ready full run.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -345,9 +348,15 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only PRs do selective runs; non-PR events (push, merge_group) always run full,
-        # which build_django_matrix falls back to when select-tests is skipped (empty MODE).
-        if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
+        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
+        # merge_group) always run full, which build_django_matrix falls back to
+        # when select-tests is skipped (empty MODE). The run-ci-backend label
+        # forces the full matrices on a draft.
+        if: |
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == true &&
+            !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
+            needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
@@ -368,36 +377,34 @@ jobs:
               with:
                   version: '0.11.14'
 
-            - name: Decide whether to force a full run
-              id: force_full
+            - name: Decide whether selection can be trusted
+              id: fallback
               env:
-                  EVENT: ${{ github.event_name }}
                   RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
                   TURBO_RESULT: ${{ needs.turbo-discover.result }}
               shell: bash
               run: |
                   set -euo pipefail
-                  force=false
-                  if [[ "$EVENT" != "pull_request" ]]; then
-                      # merge_group, push, scheduled — always full.
-                      force=true
-                  elif [[ "$RUN_LEGACY" == "true" ]]; then
-                      # turbo-discover detected product->legacy graph impact;
-                      # the diff-based selector can't see this, so run everything.
-                      force=true
+                  skip=false
+                  if [[ "$RUN_LEGACY" == "true" ]]; then
+                      # turbo-discover detected product->legacy graph impact; the
+                      # diff-based selector can't see this, so its subset would be
+                      # incomplete. Skip the draft matrices; the ready run is full.
+                      skip=true
                   elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
                       # Conservative — turbo-discover failed.
-                      force=true
+                      skip=true
                   fi
-                  echo "force=$force" >> "$GITHUB_OUTPUT"
+                  echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select
-              # continue-on-error so a selector or git fetch failure doesn't cascade
-              # to a skipped Django matrix and a falsely-green gate. Classify reads
-              # steps.select.outcome (pre-continue-on-error) to detect the failure.
+              # continue-on-error so a selector or git fetch failure doesn't fail this
+              # job — a failed select-tests would leave MODE empty and build_django_matrix
+              # would fall back to an expensive full matrix on a draft. Classify reads
+              # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
               continue-on-error: true
-              if: steps.force_full.outputs.force == 'false'
+              if: steps.fallback.outputs.skip == 'false'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               shell: bash
@@ -411,36 +418,38 @@ jobs:
             - name: Classify selection into segments
               id: classify
               env:
-                  FORCE_FULL: ${{ steps.force_full.outputs.force }}
+                  FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
                   SELECT_OUTCOME: ${{ steps.select.outcome }}
               shell: bash
               run: |
                   set -euo pipefail
-                  fall_back_to_full() {
-                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                  # Untrusted selection on a draft skips the heavy matrices (the
+                  # pre-selection draft behavior); the ready-for-review run is full.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
                       echo "core_files=" >> "$GITHUB_OUTPUT"
                       echo "poe_files=" >> "$GITHUB_OUTPUT"
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
-                      echo "run_poe=true" >> "$GITHUB_OUTPUT"
-                      echo "run_temporal=true" >> "$GITHUB_OUTPUT"
+                      echo "run_poe=false" >> "$GITHUB_OUTPUT"
+                      echo "run_temporal=false" >> "$GITHUB_OUTPUT"
                   }
 
-                  if [[ "$FORCE_FULL" == "true" ]]; then
-                      fall_back_to_full
+                  if [[ "$FALLBACK_SKIP" == "true" ]]; then
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
-                      echo "::warning::shadow selector did not produce output; running full suite"
-                      fall_back_to_full
+                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
+                      fall_back_to_skip
                       exit 0
                   fi
 
                   full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                   if [[ "$full_run_reasons" -gt 0 ]]; then
-                      echo "Selector requested full run:"
+                      echo "Selector requested a full run; draft defers it to ready for review:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_full
+                      fall_back_to_skip
                       exit 0
                   fi
 
@@ -850,6 +859,13 @@ jobs:
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
+                  if [[ "$MODE" == "skip" ]]; then
+                      # Draft PR where selection couldn't be trusted: skip the heavy
+                      # matrices and defer to the full run on ready for review.
+                      echo "include=[]" >> "$GITHUB_OUTPUT"
+                      echo "Django matrix size: 0 (mode=skip)"
+                      exit 0
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: collapse to one shard per active segment, skip
                       # segments with no selected files, drop compat entirely.
@@ -981,12 +997,13 @@ jobs:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
+        # The non-empty include guard covers drafts in skip mode and selected runs
+        # that chose zero files — an empty matrix would otherwise fail the job.
         if: |
             always() &&
-            (github.event.pull_request.draft != true ||
-             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
+            needs.build_django_matrix.outputs.include != '[]' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
@@ -1215,8 +1232,8 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --reruns (selected runs should fail
-                      # loud so flaky tests get fixed instead of masked; the merge queue still has
-                      # reruns). Snapshot flags kept to match the depot shadow's full branch.
+                      # loud so flaky tests get fixed instead of masked; the ready-for-review full
+                      # run has reruns). Snapshot flags kept to match the depot shadow's full branch.
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -1303,8 +1320,8 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --reruns (fail loud; the merge queue
-                      # still reruns). See the core selected branch for the rationale. Snapshot
+                      # Selected mode: no sharding, no --reruns (fail loud; the ready full
+                      # run still reruns). See the core selected branch for the rationale. Snapshot
                       # flags kept to match the depot shadow's full branch.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \

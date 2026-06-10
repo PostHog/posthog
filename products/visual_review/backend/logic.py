@@ -649,7 +649,7 @@ def create_run(
     the backend fetches baselines from GitHub and computes everything.
     Params kept for backward compat with older CLI versions.
 
-    is_partial tags the run as a subset (e.g. PR-selective storybook); the
+    is_partial tags the run as a subset (e.g. draft-PR-selective storybook); the
     classifier then leaves baseline identifiers we didn't touch alone instead
     of marking them as removed.
     """

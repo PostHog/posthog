@@ -86,7 +86,7 @@ run.command('create')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
     .option(
         '--partial',
-        'Mark the run as a subset (e.g. PR-selective storybook). Identifiers in the baseline but not in this run are left untouched instead of flagged as removed.'
+        'Mark the run as a subset (e.g. draft-PR-selective storybook). Identifiers in the baseline but not in this run are left untouched instead of flagged as removed.'
     )
     .action(async (options: RunCreateOptions) => {
         if (!baselineExists(options.baseline)) {
