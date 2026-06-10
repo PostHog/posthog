@@ -127,6 +127,7 @@ type RestoreInlineSelectionRequest = {
     start: number
     end: number
     listItemIndex?: number
+    listItemId?: string
     tableCell?: TableCellPosition
 }
 
@@ -524,13 +525,15 @@ export function MarkdownNotebook({
                 return
             }
 
+            const listItemRefKey =
+                request.listItemId ?? (request.listItemIndex === undefined ? undefined : String(request.listItemIndex))
             const element =
                 request.tableCell !== undefined
                     ? tableCellRefs.current[getTableCellRefKey(request.nodeId, request.tableCell)]
-                    : request.listItemIndex === undefined
+                    : listItemRefKey === undefined
                       ? (blockRefs.current[request.nodeId] ??
                         getNotebookBlockElement(notebookRef.current, request.nodeId))
-                      : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]
+                      : listItemRefs.current[getListItemRefKey(request.nodeId, listItemRefKey)]
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
@@ -754,7 +757,13 @@ export function MarkdownNotebook({
                     if (node.type === 'list' && node.items.length) {
                         const listItemIndex = placement === 'start' ? 0 : node.items.length - 1
                         const offset = offsetForChildren(node.items[listItemIndex].children)
-                        restoreSelectionRef.current = { nodeId: node.id, listItemIndex, start: offset, end: offset }
+                        restoreSelectionRef.current = {
+                            nodeId: node.id,
+                            listItemIndex,
+                            listItemId: node.items[listItemIndex].id,
+                            start: offset,
+                            end: offset,
+                        }
                         return true
                     }
 
@@ -2486,7 +2495,13 @@ export function MarkdownNotebook({
         if (node.type === 'list' && node.items.length) {
             const listItemIndex = placement === 'start' ? 0 : node.items.length - 1
             const offset = offsetForChildren(node.items[listItemIndex].children)
-            restoreSelectionRef.current = { nodeId: node.id, listItemIndex, start: offset, end: offset }
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex,
+                listItemId: node.items[listItemIndex].id,
+                start: offset,
+                end: offset,
+            }
             return true
         }
 
@@ -3093,6 +3108,7 @@ export function MarkdownNotebook({
         }
 
         if (inlineEditableElement.classList.contains('MarkdownNotebook__list-item-content')) {
+            const itemId = inlineEditableElement.dataset.markdownNotebookListItemId
             const itemIndex = Number(inlineEditableElement.dataset.markdownNotebookListItemIndex)
             if (!Number.isInteger(itemIndex)) {
                 return
@@ -3102,10 +3118,14 @@ export function MarkdownNotebook({
                 if (currentNode.type !== 'list') {
                     return currentNode
                 }
+                const targetItemIndex = getListItemIndex(currentNode.items, itemIndex, itemId)
+                if (!currentNode.items[targetItemIndex]) {
+                    return currentNode
+                }
                 return {
                     ...currentNode,
                     items: currentNode.items.map((item, index) =>
-                        index === itemIndex ? { ...item, children: nextChildren } : item
+                        index === targetItemIndex ? { ...item, children: nextChildren } : item
                     ),
                 }
             })
@@ -3491,8 +3511,11 @@ export function MarkdownNotebook({
                             delete blockRefs.current[node.id]
                         }
                     },
-                    setListItemRef: (itemIndex, element) => {
+                    setListItemRef: (itemIndex, itemId, element) => {
                         listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
+                        if (itemId) {
+                            listItemRefs.current[getListItemRefKey(node.id, itemId)] = element
+                        }
                     },
                     setTableCellRef: (position, element) => {
                         tableCellRefs.current[getTableCellRefKey(node.id, position)] = element
@@ -3773,7 +3796,7 @@ function renderNode({
     setLocalComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     rememberComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     setBlockRef: (element: HTMLElement | null) => void
-    setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
+    setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     getTableCellElement: (position: TableCellPosition) => HTMLElement | null
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
@@ -4235,7 +4258,7 @@ function EditableListBlock({
     node: NotebookListBlockNode
     mode: NotebookMode
     setBlockRef: (element: HTMLElement | null) => void
-    setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
+    setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     moveFocusToAdjacentListItem: (
@@ -4250,21 +4273,34 @@ function EditableListBlock({
 }): JSX.Element {
     const renderedItems = useMemo(() => buildRenderedListItems(node.items), [node.items])
 
-    const updateListItem = (itemIndex: number, updater: (item: NotebookListItem) => NotebookListItem): void => {
+    const updateListItem = (
+        itemIndex: number,
+        itemId: string | undefined,
+        updater: (item: NotebookListItem) => NotebookListItem
+    ): void => {
         updateNode(node.id, (currentNode) => {
             if (currentNode.type !== 'list') {
                 return currentNode
             }
 
+            const targetItemIndex = getListItemIndex(currentNode.items, itemIndex, itemId)
+            if (!currentNode.items[targetItemIndex]) {
+                return currentNode
+            }
+
             return {
                 ...currentNode,
-                items: currentNode.items.map((item, index) => (index === itemIndex ? updater(item) : item)),
+                items: currentNode.items.map((item, index) => (index === targetItemIndex ? updater(item) : item)),
             }
         })
     }
 
-    const updateListItemChildren = (itemIndex: number, children: NotebookInlineNode[]): void => {
-        updateListItem(itemIndex, (item) => ({ ...item, children }))
+    const updateListItemChildren = (
+        itemIndex: number,
+        itemId: string | undefined,
+        children: NotebookInlineNode[]
+    ): void => {
+        updateListItem(itemIndex, itemId, (item) => ({ ...item, children }))
     }
 
     const makeListNode = (
@@ -4287,21 +4323,22 @@ function EditableListBlock({
         }
     }
 
-    const replaceListItemWithParagraph = (itemIndex: number, offset: number = 0): void => {
-        const item = node.items[itemIndex]
+    const replaceListItemWithParagraph = (itemIndex: number, itemId?: string, offset: number = 0): void => {
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
         if (!item) {
             return
         }
 
-        const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, itemIndex)
-        const beforeListNode = makeListNode(node.items.slice(0, itemIndex), `before-list-${node.id}`, node.id)
+        const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
+        const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
         const paragraph: NotebookTextBlockNode = {
             id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
             type: 'paragraph',
             children: item.children,
         }
         const childItems = node.items
-            .slice(itemIndex + 1, subtreeEndIndex)
+            .slice(targetItemIndex + 1, subtreeEndIndex)
             .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
         const afterListNode = makeListNode(
             [...childItems, ...node.items.slice(subtreeEndIndex)],
@@ -4320,34 +4357,45 @@ function EditableListBlock({
         restoreSelectionRef.current = { nodeId: paragraph.id, start: offset, end: offset }
     }
 
-    const shiftListItemDepth = (itemIndex: number, direction: 'in' | 'out', offset: number = 0): boolean => {
-        const item = node.items[itemIndex]
+    const shiftListItemDepth = (
+        itemIndex: number,
+        itemId: string | undefined,
+        direction: 'in' | 'out',
+        offset: number = 0
+    ): boolean => {
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
         if (!item) {
             return false
         }
 
-        const maximumDepth = itemIndex === 0 ? 0 : node.items[itemIndex - 1].depth + 1
+        const maximumDepth = targetItemIndex === 0 ? 0 : node.items[targetItemIndex - 1].depth + 1
         const nextDepth = direction === 'in' ? Math.min(item.depth + 1, maximumDepth) : Math.max(0, item.depth - 1)
         const depthDelta = nextDepth - item.depth
         if (depthDelta === 0) {
             return false
         }
 
-        const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, itemIndex)
         updateNode(node.id, (currentNode) => {
             if (currentNode.type !== 'list') {
                 return currentNode
             }
 
+            const currentItemIndex = getListItemIndex(currentNode.items, targetItemIndex, itemId)
+            if (!currentNode.items[currentItemIndex]) {
+                return currentNode
+            }
+            const currentSubtreeEndIndex = getListItemSubtreeEndIndex(currentNode.items, currentItemIndex)
+
             return {
                 ...currentNode,
                 items: currentNode.items.map((currentItem, index) => {
-                    if (index < itemIndex || index >= subtreeEndIndex) {
+                    if (index < currentItemIndex || index >= currentSubtreeEndIndex) {
                         return currentItem
                     }
 
                     const nextItem = { ...currentItem, depth: Math.max(0, currentItem.depth + depthDelta) }
-                    if (index === itemIndex && depthDelta > 0 && (nextItem.ordered ?? currentNode.ordered)) {
+                    if (index === currentItemIndex && depthDelta > 0 && (nextItem.ordered ?? currentNode.ordered)) {
                         return { ...nextItem, start: undefined }
                     }
 
@@ -4355,26 +4403,33 @@ function EditableListBlock({
                 }),
             }
         })
-        restoreSelectionRef.current = { nodeId: node.id, listItemIndex: itemIndex, start: offset, end: offset }
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            listItemIndex: targetItemIndex,
+            listItemId: item.id,
+            start: offset,
+            end: offset,
+        }
         return true
     }
 
-    const removeListItem = (itemIndex: number): void => {
-        const item = node.items[itemIndex]
+    const removeListItem = (itemIndex: number, itemId?: string): void => {
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
         if (!item) {
             return
         }
 
-        if (item.depth && shiftListItemDepth(itemIndex, 'out', 0)) {
+        if (item.depth && shiftListItemDepth(targetItemIndex, item.id, 'out', 0)) {
             return
         }
 
         if (item.depth === 0) {
-            replaceListItemWithParagraph(itemIndex, 0)
+            replaceListItemWithParagraph(targetItemIndex, item.id, 0)
             return
         }
 
-        const nextItems = node.items.filter((_, index) => index !== itemIndex)
+        const nextItems = node.items.filter((_, index) => index !== targetItemIndex)
         if (!nextItems.length) {
             const paragraph = makeEmptyParagraph(`after-list-${node.id}`)
             replaceNodeWithNodes(node.id, [paragraph])
@@ -4383,34 +4438,36 @@ function EditableListBlock({
         }
 
         replaceNodeWithNodes(node.id, [{ ...node, items: nextItems }])
-        const nextItemIndex = Math.max(0, Math.min(itemIndex, nextItems.length - 1))
+        const nextItemIndex = Math.max(0, Math.min(targetItemIndex, nextItems.length - 1))
+        const nextItem = nextItems[nextItemIndex]
         restoreSelectionRef.current = {
             nodeId: node.id,
             listItemIndex: nextItemIndex,
+            listItemId: nextItem?.id,
             start: 0,
             end: 0,
         }
     }
 
-    const splitListItem = (itemIndex: number, offset: number): void => {
-        const item = node.items[itemIndex]
+    const splitListItem = (itemIndex: number, itemId: string | undefined, offset: number): void => {
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
         if (!item) {
             return
         }
 
         if (!getInlineText(item.children).length) {
-            if (item.depth > 0 && shiftListItemDepth(itemIndex, 'out', 0)) {
+            if (item.depth > 0 && shiftListItemDepth(targetItemIndex, item.id, 'out', 0)) {
                 return
             }
 
-            replaceListItemWithParagraph(itemIndex, 0)
+            replaceListItemWithParagraph(targetItemIndex, item.id, 0)
             return
         }
 
-        const [before, after] = splitInlineNodesAt(item.children, offset)
         const nextItem: NotebookListItem = {
-            id: makeListItemId(`split-${node.id}-${String(itemIndex)}`),
-            children: after,
+            id: makeListItemId(`split-${node.id}-${item.id ?? String(targetItemIndex)}`),
+            children: [],
             depth: item.depth,
             ordered: item.ordered ?? node.ordered,
         }
@@ -4419,14 +4476,21 @@ function EditableListBlock({
                 return currentNode
             }
 
+            const currentItemIndex = getListItemIndex(currentNode.items, targetItemIndex, itemId)
+            const currentItem = currentNode.items[currentItemIndex]
+            if (!currentItem) {
+                return currentNode
+            }
+            const [currentBefore, currentAfter] = splitInlineNodesAt(currentItem.children, offset)
             const nextItems = [...currentNode.items]
-            nextItems[itemIndex] = { ...nextItems[itemIndex], children: before }
-            nextItems.splice(itemIndex + 1, 0, nextItem)
+            nextItems[currentItemIndex] = { ...currentItem, children: currentBefore }
+            nextItems.splice(currentItemIndex + 1, 0, { ...nextItem, children: currentAfter })
             return { ...currentNode, items: nextItems }
         })
         restoreSelectionRef.current = {
             nodeId: node.id,
-            listItemIndex: itemIndex + 1,
+            listItemIndex: targetItemIndex + 1,
+            listItemId: nextItem.id,
             start: 0,
             end: 0,
         }
@@ -4492,12 +4556,17 @@ function EditableListItemContent({
     node: NotebookListBlockNode
     item: RenderedListItem
     mode: NotebookMode
-    setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
-    updateListItemChildren: (itemIndex: number, children: NotebookInlineNode[]) => void
-    splitListItem: (itemIndex: number, offset: number) => void
-    removeListItem: (itemIndex: number) => void
-    replaceListItemWithParagraph: (itemIndex: number, offset?: number) => void
-    shiftListItemDepth: (itemIndex: number, direction: 'in' | 'out', offset?: number) => boolean
+    setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
+    updateListItemChildren: (itemIndex: number, itemId: string | undefined, children: NotebookInlineNode[]) => void
+    splitListItem: (itemIndex: number, itemId: string | undefined, offset: number) => void
+    removeListItem: (itemIndex: number, itemId?: string) => void
+    replaceListItemWithParagraph: (itemIndex: number, itemId?: string, offset?: number) => void
+    shiftListItemDepth: (
+        itemIndex: number,
+        itemId: string | undefined,
+        direction: 'in' | 'out',
+        offset?: number
+    ) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -4515,9 +4584,9 @@ function EditableListItemContent({
     const setElementRef = useCallback(
         (element: HTMLDivElement | null): void => {
             elementRef.current = element
-            setListItemRef(item.index, element)
+            setListItemRef(item.index, item.id, element)
         },
-        [item.index, setListItemRef]
+        [item.id, item.index, setListItemRef]
     )
 
     useLayoutEffect(() => {
@@ -4539,11 +4608,12 @@ function EditableListItemContent({
 
     const updateChildren = (nextChildren: NotebookInlineNode[]): NotebookInlineNode[] => {
         skipDomSyncForHtmlRef.current = inlineNodesToHtml(nextChildren)
-        updateListItemChildren(item.index, nextChildren)
+        updateListItemChildren(item.index, item.id, nextChildren)
         return nextChildren
     }
 
     const handleInput = (event: FormEvent<HTMLDivElement>): void => {
+        event.stopPropagation()
         updateChildren(htmlElementToInlineNodes(event.currentTarget))
     }
 
@@ -4557,6 +4627,7 @@ function EditableListItemContent({
             restoreSelectionRef.current = {
                 nodeId: node.id,
                 listItemIndex: item.index,
+                listItemId: item.id,
                 start: linkPasteResult.start,
                 end: linkPasteResult.end,
             }
@@ -4588,6 +4659,7 @@ function EditableListItemContent({
             restoreSelectionRef.current = {
                 nodeId: node.id,
                 listItemIndex: item.index,
+                listItemId: item.id,
                 start: nextCaretOffset,
                 end: nextCaretOffset,
             }
@@ -4609,7 +4681,7 @@ function EditableListItemContent({
         if (event.key === 'Tab') {
             event.preventDefault()
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            shiftListItemDepth(item.index, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
+            shiftListItemDepth(item.index, item.id, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
             return
         }
 
@@ -4632,7 +4704,7 @@ function EditableListItemContent({
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            splitListItem(item.index, selection?.start ?? getInlineText(item.children).length)
+            splitListItem(item.index, item.id, selection?.start ?? getInlineText(item.children).length)
             return
         }
 
@@ -4644,25 +4716,25 @@ function EditableListItemContent({
 
             if (!getInlineText(item.children).length) {
                 event.preventDefault()
-                removeListItem(item.index)
+                removeListItem(item.index, item.id)
                 return
             }
 
-            if (item.depth > 0 && shiftListItemDepth(item.index, 'out', 0)) {
+            if (item.depth > 0 && shiftListItemDepth(item.index, item.id, 'out', 0)) {
                 event.preventDefault()
                 return
             }
 
             if (item.depth === 0) {
                 event.preventDefault()
-                replaceListItemWithParagraph(item.index, 0)
+                replaceListItemWithParagraph(item.index, item.id, 0)
                 return
             }
         }
 
         if (event.key === 'Delete' && !getInlineText(item.children).length) {
             event.preventDefault()
-            removeListItem(item.index)
+            removeListItem(item.index, item.id)
         }
     }
 
@@ -4672,6 +4744,7 @@ function EditableListItemContent({
             className="MarkdownNotebook__list-item-content"
             data-markdown-notebook-node-id={node.id}
             data-markdown-notebook-list-item-index={item.index}
+            data-markdown-notebook-list-item-id={item.id}
             contentEditable={mode === 'edit'}
             suppressContentEditableWarning
             onInput={handleInput}
@@ -7297,8 +7370,8 @@ function escapeAttributeSelectorValue(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function getListItemRefKey(nodeId: string, itemIndex: number): string {
-    return `${nodeId}:${String(itemIndex)}`
+function getListItemRefKey(nodeId: string, itemKey: string | number): string {
+    return `${nodeId}:${String(itemKey)}`
 }
 
 function buildRenderedListItems(items: NotebookListItem[]): RenderedListItem[] {
@@ -7360,6 +7433,17 @@ function getListItemSubtreeEndIndex(items: NotebookListItem[], itemIndex: number
         nextIndex += 1
     }
     return nextIndex
+}
+
+function getListItemIndex(items: NotebookListItem[], fallbackIndex: number, itemId?: string): number {
+    if (itemId) {
+        const itemIndex = items.findIndex((item) => item.id === itemId)
+        if (itemIndex !== -1) {
+            return itemIndex
+        }
+    }
+
+    return fallbackIndex
 }
 
 function getTableCellRefKey(nodeId: string, position: TableCellPosition): string {
@@ -7534,6 +7618,7 @@ function getTextBlockShortcutReplacement(
 
     const listShortcut = getListShortcut(text)
     if (listShortcut) {
+        const listItemId = makeListItemId(`shortcut-${node.id}`)
         return {
             nodes: [
                 {
@@ -7543,7 +7628,7 @@ function getTextBlockShortcutReplacement(
                     start: listShortcut.start,
                     items: [
                         {
-                            id: makeListItemId(`shortcut-${node.id}`),
+                            id: listItemId,
                             children: [],
                             depth: 0,
                             ordered: listShortcut.ordered,
@@ -7552,7 +7637,7 @@ function getTextBlockShortcutReplacement(
                     ],
                 },
             ],
-            restoreSelection: { nodeId: node.id, listItemIndex: 0, start: 0, end: 0 },
+            restoreSelection: { nodeId: node.id, listItemIndex: 0, listItemId, start: 0, end: 0 },
         }
     }
 
@@ -7686,7 +7771,7 @@ function getHistoryRestoreSelection(document: NotebookDocument): RestoreSelectio
 
         if (node.type === 'list' && node.items[0]) {
             const offset = getInlineText(node.items[0].children).length
-            return { nodeId: node.id, listItemIndex: 0, start: offset, end: offset }
+            return { nodeId: node.id, listItemIndex: 0, listItemId: node.items[0].id, start: offset, end: offset }
         }
 
         if (node.type === 'table') {
@@ -7996,7 +8081,13 @@ function getCollapsedSelectionRestoreRequest(
     const offset = range.end
     const listItemIndex = element.dataset.markdownNotebookListItemIndex
     if (listItemIndex !== undefined) {
-        return { nodeId, listItemIndex: Number(listItemIndex), start: offset, end: offset }
+        return {
+            nodeId,
+            listItemIndex: Number(listItemIndex),
+            listItemId: element.dataset.markdownNotebookListItemId,
+            start: offset,
+            end: offset,
+        }
     }
 
     const tableSection = element.dataset.markdownNotebookTableSection
@@ -8309,7 +8400,9 @@ function getSelectedListBlockNode(
     listItemRefs: Record<string, HTMLElement | null>
 ): NotebookListBlockNode | null {
     const selectedItems = node.items.flatMap((item, index) => {
-        const element = listItemRefs[getListItemRefKey(node.id, index)]
+        const element = item.id
+            ? (listItemRefs[getListItemRefKey(node.id, item.id)] ?? listItemRefs[getListItemRefKey(node.id, index)])
+            : listItemRefs[getListItemRefKey(node.id, index)]
         if (!element || !rangeIntersectsNode(range, element)) {
             return []
         }

@@ -150,6 +150,16 @@ function updateContentEditableText(element: HTMLElement, text: string): void {
     fireEvent.input(element)
 }
 
+function updateActiveContentEditableText(text: string): HTMLElement {
+    const element = document.activeElement
+
+    expect(element).toBeInstanceOf(HTMLElement)
+
+    updateContentEditableText(element as HTMLElement, text)
+
+    return element as HTMLElement
+}
+
 function pressEnterInListItem(element: HTMLElement, offset: number = element.textContent?.length ?? 0): void {
     if (element.textContent?.length) {
         selectTextInElement(element, offset, offset)
@@ -5064,6 +5074,53 @@ Tail with **bold** text`)
 2. foo
 3. bar`)
         })
+    })
+
+    it('keeps ordered list items stable when typing into the active item after Enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        updateContentEditableText(textBlock, '1. ')
+        updateActiveContentEditableText('bla')
+        pressEnterInListItem(document.activeElement as HTMLElement, 'bla'.length)
+        updateActiveContentEditableText('foo')
+        pressEnterInListItem(document.activeElement as HTMLElement, 'foo'.length)
+        updateActiveContentEditableText('bar')
+
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['bla', 'foo', 'bar'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. bla
+2. foo
+3. bar`)
+    })
+
+    it('updates only the selected ordered list item from root input events', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. bla
+2. foo
+3.`),
+                onChange,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const listItems = getEditableListItems(container)
+
+        act(() => {
+            listItems[2].textContent = 'bar'
+        })
+        selectTextInElement(listItems[2], 'bar'.length, 'bar'.length)
+        fireEvent.input(canvas)
+
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['bla', 'foo', 'bar'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. bla
+2. foo
+3. bar`)
     })
 
     it('keeps bullet list items stable when creating several items from the keyboard', () => {
