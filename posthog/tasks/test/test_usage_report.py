@@ -4143,43 +4143,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result, [])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_product_analytics_ai_product_billed_as_ai_credits(self, mock_region: MagicMock) -> None:
-        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
-
-        mock_region.return_value = "US"
-        self._setup_teams()
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-        self._setup_instance_group_mapping(analytics_team)
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        # product_analytics emits no $ai_trace, so it bills via the empty-trace fallback.
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_product_analytics",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_product_analytics",
-                "$ai_total_cost_usd": 1.0,
-                "$ai_billable": True,
-                "ai_product": "product_analytics",
-                "$group_1": "https://us.posthog.com",
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 120)
-
-    @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_excludes_events_without_ai_product(self, mock_region: MagicMock) -> None:
         """Generations missing the ai_product property are NOT billed — billing whitelists ai_product."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
@@ -4341,9 +4304,15 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # 3.0 USD * 100 * 1.2 = 360
         self.assertEqual(result, [(self.org_1_team_1.id, 360)])
 
+    @parameterized.expand(
+        [
+            ("slack_app",),
+            ("product_analytics",),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_counts_traceless_whitelisted_product(self, mock_region: MagicMock) -> None:
-        """A traceless whitelisted product (e.g. slack_app) bills via the empty-trace fallback."""
+    def test_traceless_whitelisted_product_bills_as_ai_credits(self, ai_product: str, mock_region: MagicMock) -> None:
+        """A traceless whitelisted product (e.g. slack_app, product_analytics) bills via the empty-trace fallback."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
         mock_region.return_value = "US"
@@ -4355,18 +4324,18 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # slack_app emits no $ai_trace — billed via the empty-trace fallback, not a paired trace.
+        # These products emit no $ai_trace — billed via the empty-trace fallback, not a paired trace.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_slack",
+            distinct_id=f"user_{ai_product}",
             timestamp=period_start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_slack",
+                "$ai_trace_id": f"trace_{ai_product}",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "slack_app",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )
