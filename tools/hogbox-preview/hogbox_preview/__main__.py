@@ -34,9 +34,7 @@ def build_backend(args: argparse.Namespace) -> HoglandBackend:
         host=args.host,
         snapshot=args.snapshot,
         web_port=args.web_port,
-        ssh_key=args.ssh_key,
         box_id=getattr(args, "box_id", None),
-        cli=args.cli,
         name=args.name,
         cpus=args.cpus,
         memory_mib=args.memory_mib,
@@ -99,7 +97,7 @@ def cmd_health(args: argparse.Namespace) -> int:
 def cmd_destroy(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.destroy()
-    print(f"destroyed {args.box_id}")
+    print(f"destroyed {args.box_id or args.name}")
     return 0
 
 
@@ -107,19 +105,17 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="hogbox_preview", description=__doc__)
     p.add_argument("--backend", default="hogland", help="preview layer (default: hogland)")
     p.add_argument("--host", default=DEFAULT_HOST, help="hogland API host")
-    p.add_argument("--snapshot", default="alias:devbox-golden", help="golden snapshot id/alias")
+    p.add_argument("--snapshot", default="alias:posthog-preview-golden", help="golden snapshot id/alias")
     p.add_argument("--web-port", type=int, default=8000, help="in-guest port PostHog serves on")
     p.add_argument("--image", default=PostHogPreviewStack.IMAGE, help="published posthog image")
-    p.add_argument("--ssh-key", default=None, help="ssh private key for the box (default: ssh default)")
-    p.add_argument("--cli", default="hogland", help="hogland CLI binary/path")
     p.add_argument(
         "--name", default="posthog-preview", help="box name (must be unique among live boxes; e.g. preview-pr-123)"
     )
     # Sizing MUST match the golden snapshot being restored ("omit to inherit" is
-    # broken server-side). Defaults match the current 16/64 golden; a 4/16
-    # preview needs a golden BUILT at 4/16 — set these to match it.
-    p.add_argument("--cpus", type=int, default=16, help="vCPUs (must match the golden's size)")
-    p.add_argument("--memory-mib", type=int, default=65536, help="memory MiB (must match the golden's size)")
+    # broken server-side). Defaults match the preview golden (snap-753bb8b3eeef,
+    # alias posthog-preview-golden) at 8 vCPU / 16 GB / 100 GB.
+    p.add_argument("--cpus", type=int, default=8, help="vCPUs (must match the golden's size)")
+    p.add_argument("--memory-mib", type=int, default=16384, help="memory MiB (must match the golden's size)")
     p.add_argument("--disk-gib", type=int, default=100, help="rootfs GiB (must match the golden's size)")
 
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -153,7 +149,9 @@ def main(argv: list[str] | None = None) -> int:
     he.set_defaults(func=cmd_health)
 
     de = sub.add_parser("destroy", help="tear a box down")
-    de.add_argument("--box-id", required=True)
+    de.add_argument(
+        "--box-id", default=None, help="box to tear down (falls back to --name lookup, e.g. for CI cleanup)"
+    )
     de.set_defaults(func=cmd_destroy)
 
     args = p.parse_args(argv)

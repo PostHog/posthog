@@ -22,12 +22,11 @@
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
 #   - vars.HOGBOX_GOLDEN_SNAPSHOT = snap-...                 (from the bake)
-#   - secrets.HOGBOX_SSH_KEY = the golden's box ssh private key (for in-box exec)
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
-#   - the `hogland` CLI available to the runner (see "Install hogland CLI" — TODO:
-#     publish a release binary or `go install` target; today built from source)
 #   - PRs opt in with the `hogbox-preview` label (mirrors hobby's label gate)
+# The box is driven entirely by the posthog-hogland SDK (pip-installable, keyless
+# over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
 
 name: Hogbox Preview Environment
 
@@ -88,27 +87,20 @@ jobs:
               with:
                   python-version: '3.12'
 
-            # TODO: distribute the hogland CLI properly (release binary or a pinned
-            # `go install github.com/posthog/hog/cmd/hogland@<rev>`). The tool shells
-            # out to it for provisioning; it authenticates via HOG_TOKEN + --host.
-            - name: Install hogland CLI
-              run: echo "::error::wire up hogland CLI acquisition (release binary or go install)"; exit 1
-
-            - name: Write box ssh key
-              run: |
-                  install -m 700 -d ~/.ssh
-                  printf '%s\n' "${{ secrets.HOGBOX_SSH_KEY }}" > ~/.ssh/hogbox
-                  chmod 600 ~/.ssh/hogbox
+            # The tool drives the box via the SDK over hogplane's HTTP API
+            # (HOG_TOKEN + --host) — no binary to fetch, no SSH key to mount.
+            - name: Install hogland SDK
+              run: pip install --disable-pip-version-check posthog-hogland==0.1.0
 
             - name: Build preview
               id: build
               run: |
                   out=$(python -m hogbox_preview \
-                    --host "$HOG_HOST" --cli hogland \
+                    --host "$HOG_HOST" \
                     --image "ghcr.io/posthog/posthog:pr-${PR}" \
                     --name "preview-pr-${PR}" \
                     --snapshot "${{ vars.HOGBOX_GOLDEN_SNAPSHOT }}" \
-                    --ssh-key ~/.ssh/hogbox \
+                    --cpus 8 --memory-mib 16384 --disk-gib 100 \
                     up --no-seed)   # golden is already seeded; delta-migrate the PR on top
                   echo "$out"
                   echo "url=$(echo "$out" | sed -n 's/^url=//p')" >> "$GITHUB_OUTPUT"
@@ -147,11 +139,12 @@ jobs:
                   token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
                     "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
                   echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
-            - name: Install hogland CLI
-              run: echo "::error::wire up hogland CLI acquisition"; exit 1
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+            - name: Install hogland SDK
+              run: pip install --disable-pip-version-check posthog-hogland==0.1.0
             - name: Destroy preview box
-              run: |
-                  # Find the box by its deterministic name and delete it.
-                  id=$(hogland --host "$HOG_HOST" box list | jq -r \
-                    ".[] | select(.spec.name==\"preview-pr-${PR}\") | .id" | head -1)
-                  [ -n "$id" ] && hogland --host "$HOG_HOST" box delete "$id" || echo "no preview box for PR ${PR}"
+              working-directory: tools/hogbox-preview
+              # Resolve the box by its deterministic name and tear it down.
+              run: python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
