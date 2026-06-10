@@ -1,4 +1,3 @@
-import time
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
@@ -6,7 +5,7 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.circleci.settings import CIRCLECI_ENDPOINTS
@@ -27,10 +26,24 @@ MAX_RATE_LIMIT_SLEEP_SECONDS = 120
 
 
 class CircleCIRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: int = 0) -> None:
+        super().__init__(message)
+        # Seconds the API asked us to wait (from Retry-After/RateLimit-Reset); 0 when unknown.
+        self.retry_after = retry_after
 
 
 FetchPageFn = Callable[[str], dict[str, Any]]
+
+_EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=60)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    # Honor the API's Retry-After exactly once; otherwise back off exponentially. Doing the
+    # wait here (rather than time.sleep inside fetch_page) avoids stacking both delays.
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, CircleCIRetryableError) and exc.retry_after:
+        return exc.retry_after
+    return _EXPONENTIAL_WAIT(retry_state)
 
 
 @dataclasses.dataclass
@@ -72,7 +85,7 @@ def _rate_limit_sleep_seconds(response: requests.Response) -> int:
 
 def validate_credentials(api_token: str, org_slug: str | None = None) -> tuple[bool, str | None]:
     """Confirm the token with /me, then (when provided) confirm the org slug resolves."""
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_token,))
     headers = _get_headers(api_token)
 
     try:
@@ -105,22 +118,25 @@ def validate_credentials(api_token: str, org_slug: str | None = None) -> tuple[b
     return True, None
 
 
-def _make_fetch_page(headers: dict[str, str], logger: FilteringBoundLogger) -> FetchPageFn:
+def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageFn:
+    headers = _get_headers(api_token)
+    # Single session reused across pages/retries so connection pooling and per-session
+    # tracking hold; redact_values masks the token regardless of header-name denylists.
+    session = make_tracked_session(redact_values=(api_token,))
+
     @retry(
         retry=retry_if_exception_type((CircleCIRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
+        wait=_retry_wait,
         reraise=True,
     )
     def fetch_page(url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429:
             sleep_seconds = _rate_limit_sleep_seconds(response)
-            if sleep_seconds:
-                logger.debug(f"CircleCI: rate limited, sleeping {sleep_seconds}s before retrying. url={url}")
-                time.sleep(sleep_seconds)
-            raise CircleCIRetryableError(f"CircleCI API rate limited: status=429, url={url}")
+            logger.debug(f"CircleCI: rate limited, retrying after {sleep_seconds}s. url={url}")
+            raise CircleCIRetryableError(f"CircleCI API rate limited: status=429, url={url}", retry_after=sleep_seconds)
 
         if response.status_code >= 500:
             raise CircleCIRetryableError(f"CircleCI API error (retryable): status={response.status_code}, url={url}")
@@ -224,8 +240,7 @@ def get_rows(
     if endpoint not in CIRCLECI_ENDPOINTS:
         raise ValueError(f"Unknown CircleCI endpoint: {endpoint}")
 
-    headers = _get_headers(api_token)
-    fetch_page = _make_fetch_page(headers, logger)
+    fetch_page = _make_fetch_page(api_token, logger)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_token = resume_config.next_page_token if resume_config is not None else None

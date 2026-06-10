@@ -243,7 +243,9 @@ class TestPipelinesRows:
 
 
 class TestRetryBehavior:
-    @mock.patch("posthog.temporal.data_imports.sources.circleci.circleci.time.sleep")
+    # Patch the sleep tenacity actually uses; the wait time is computed by `_retry_wait`, so a
+    # single sleep of exactly `retry_after` proves we honor the header without double-waiting.
+    @mock.patch("tenacity.nap.time.sleep")
     @mock.patch(PATCH_SESSION)
     def test_429_honors_rate_limit_headers_then_retries(self, mock_session, mock_sleep):
         mock_session.return_value.get.side_effect = [
@@ -255,7 +257,7 @@ class TestRetryBehavior:
         batches = list(get_rows("token", "gh/posthog", "pipelines", mock.MagicMock(), manager))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1"]
-        mock_sleep.assert_any_call(7)
+        mock_sleep.assert_called_once_with(7)
 
     @mock.patch(PATCH_SESSION)
     def test_5xx_retries_then_succeeds(self, mock_session):
