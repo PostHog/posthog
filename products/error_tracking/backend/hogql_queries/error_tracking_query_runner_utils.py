@@ -1,12 +1,38 @@
 import re
 import datetime
-from typing import Literal
+from typing import Literal, overload
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
+
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
+
+
+@overload
+def validate_uuid_param(value: str, name: str) -> str: ...
+
+
+@overload
+def validate_uuid_param(value: None, name: str) -> None: ...
+
+
+def validate_uuid_param(value: str | None, name: str) -> str | None:
+    """Canonicalize a UUID query param, rejecting values ClickHouse could not parse.
+
+    Returns the dashed-hex form: Python accepts looser formats (32 hex chars, braces,
+    urn prefixes) that would still fail ClickHouse's UUID parsing at query time.
+    DRF's ValidationError, not Django's: the query API only maps the DRF one to a 400.
+    """
+    if value is None:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise DRFValidationError(f"{name} must be a valid UUID")
 
 
 def search_tokenizer(query: str) -> list[str]:

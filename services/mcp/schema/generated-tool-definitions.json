@@ -1459,6 +1459,20 @@
             "readOnlyHint": true
         }
     },
+    "endpoint-logs": {
+        "description": "Retrieve execution logs for an endpoint by name. Each run emits one entry with a timestamp, level (INFO or ERROR), and a message whose extra data is in key=value tokens (path=materialized|inline|ducklake, cache=hit|miss, duration_ms=, rows=, version=, error=). Filter by level (e.g. \"ERROR\"), text search (e.g. \"cache=miss\"), time range (after/before), a specific execution (instance_id), and limit (max 500). Use to debug why an endpoint failed, timed out, missed cache, or returned unexpected row counts.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint logs",
+        "title": "Get endpoint logs",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "endpoint-materialization-status": {
         "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
         "category": "Endpoints",
