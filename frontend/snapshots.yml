@@ -484,6 +484,10 @@ snapshots:
         hash: v1.k794b7964.a9bbe5488b1e8b8f3dd2fde96564a7472ef6c8b0c9a1ec70b7629886ed165b1e.uRnihlAOH_HQAHkOvWnWU2o8teXidFawDVHP0lXYar8
     components-hogcharts-barchart--horizontal-grouped--light:
         hash: v1.k794b7964.beb8d534a94663d944290398d7c2946b739d8d6ad9af6e7cd5b5fa86eb53d4d9.0pZ70Z9dzCO4WrZNoZmeVP0ISM0vy8_QvWUggLAs-6o
+    components-hogcharts-barchart--horizontal-wide-value-labels--dark:
+        hash: v1.k794b7964.de748c4ee5a5eefdd95047814f7116148c8f460de13decb3bdc023a4e5252f4c.ZZKmFWvCjv_YANsXJ5UHe7d3ny1Cfpi0X_n4UT5Jrlg
+    components-hogcharts-barchart--horizontal-wide-value-labels--light:
+        hash: v1.k794b7964.a5c6fd8f9d7fbbc9753e5fc9174ed32c0cc9be8f3413987743f5f757b4c22429.mCdlAsg4goJO4WlH2efiupI0b5igP3z2k9roDJtHNbY
     components-hogcharts-barchart--incomplete-period--dark:
         hash: v1.k794b7964.7d9ab6b6cc8c4937ae0db54e48fa9d49f38e653230aefeeb2e061285aa9e3c31.7A_9Vb8PAwK7BOANh_9R08598qOpiD3_BqCxBkOyPYI
     components-hogcharts-barchart--incomplete-period--light:
