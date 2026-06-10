@@ -43,6 +43,7 @@ import {
 
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
+import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -52,6 +53,14 @@ function getAddedColumns(prev: string[] | null, next: string[] | null, available
     const prevSet = new Set(prev ?? allColumns)
     const nextSet = new Set(next ?? allColumns)
     return allColumns.filter((c) => nextSet.has(c) && !prevSet.has(c))
+}
+
+// null normalizes to "all columns" so an explicit full list and null compare equal.
+function sameColumns(a: string[] | null, b: string[] | null, available: { name: string }[]): boolean {
+    const allColumns = available.map((c) => c.name)
+    const setA = new Set(a ?? allColumns)
+    const setB = new Set(b ?? allColumns)
+    return setA.size === setB.size && [...setA].every((c) => setB.has(c))
 }
 
 export interface ConfigurationTabProps {
@@ -93,17 +102,14 @@ export function ConfigurationTab({
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
         case 'columns':
             return (
-                <div className="flex flex-col gap-6">
-                    <ColumnsSection
-                        source={source}
-                        schema={schema}
-                        updateSchema={updateSchema}
-                        resyncSchema={resyncSchema}
-                        refreshSchemas={refreshSchemas}
-                        refreshingSchemas={refreshingSchemas}
-                    />
-                    <RowFiltersSection source={source} schema={schema} updateSchema={updateSchema} />
-                </div>
+                <ColumnsAndRowFiltersSection
+                    source={source}
+                    schema={schema}
+                    updateSchema={updateSchema}
+                    resyncSchema={resyncSchema}
+                    refreshSchemas={refreshSchemas}
+                    refreshingSchemas={refreshingSchemas}
+                />
             )
         case 'schedule':
             return (
@@ -435,7 +441,7 @@ function SyncMethodSection({
     )
 }
 
-function ColumnsSection({
+function ColumnsAndRowFiltersSection({
     source,
     schema,
     updateSchema,
@@ -452,28 +458,70 @@ function ColumnsSection({
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
-    const synced = schema.enabled_columns
+
+    // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
+    const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
+    const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
+
+    // Reset the drafts when navigating to a different schema or when the server values change (poll).
+    useEffect(() => {
+        setDraftColumns(schema.enabled_columns ?? null)
+        setDraftRowFilters(schema.row_filters ?? null)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [schema.id, JSON.stringify(schema.enabled_columns ?? null), JSON.stringify(schema.row_filters ?? null)])
 
     const alwaysRetained = new Set<string>([
         ...(schema.primary_key_columns ?? []),
         ...(schema.incremental_field ? [schema.incremental_field] : []),
     ])
-    const syncedCount = synced ? new Set([...synced, ...alwaysRetained]).size : available.length
-    const summaryLine = !synced
+    const syncedCount = draftColumns ? new Set([...draftColumns, ...alwaysRetained]).size : available.length
+    const columnsSummary = !draftColumns
         ? `Syncing all ${available.length || 'discovered'} columns`
         : `Syncing ${syncedCount} of ${available.length} columns`
 
-    const handleSave = (nextSyncedColumns: string[] | null): void => {
+    const filterCount = draftRowFilters?.length ?? 0
+    const rowFiltersSummary =
+        filterCount === 0 ? 'Syncing all rows' : `${filterCount} ${filterCount === 1 ? 'filter' : 'filters'} active`
+
+    const rowFilterErrors = validateRowFilters(draftRowFilters ?? [], { availableColumns: available })
+    const hasRowFilterErrors = Object.keys(rowFilterErrors).length > 0
+
+    const isDirty =
+        !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
+        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null)
+
+    const commit = (resyncAfter: boolean): void => {
+        const next = { ...schema, enabled_columns: draftColumns, row_filters: draftRowFilters }
+        if (resyncAfter) {
+            // Bypass the bulk-update debounce so the Temporal workflow reads the new selection from
+            // the DB; firing resync against the queued (but unsent) PATCH would otherwise re-sync
+            // against the old configuration.
+            void api.externalDataSchemas
+                .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
+                .then(() => {
+                    updateSchema(next)
+                    resyncSchema(next)
+                    lemonToast.success('Saved — full resync queued')
+                })
+                .catch((e: any) => {
+                    lemonToast.error(e?.message || "Can't save at this time")
+                })
+            return
+        }
+        updateSchema(next)
+        lemonToast.success('Saved')
+    }
+
+    const handleSave = (): void => {
         const syncType = schema.sync_type
-        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
+        const added = getAddedColumns(schema.enabled_columns ?? null, draftColumns, available)
         const requiresPrompt =
             !!schema.last_synced_at &&
             (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
             added.length > 0
 
         if (!requiresPrompt) {
-            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
-            lemonToast.success('Columns saved')
+            commit(false)
             return
         }
 
@@ -491,118 +539,95 @@ function ColumnsSection({
                     )}
                 </div>
             ),
-            primaryButton: {
-                children: 'Full resync now',
-                onClick: () => {
-                    // Bypass the bulk-update debounce so the Temporal workflow reads the new
-                    // enabled_columns from the DB; firing resync against the queued (but unsent)
-                    // PATCH would otherwise re-sync against the old column selection.
-                    void api.externalDataSchemas
-                        .update(schema.id, { enabled_columns: nextSyncedColumns })
-                        .then(() => {
-                            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
-                            resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
-                            lemonToast.success('Columns saved — full resync queued')
-                        })
-                        .catch((e: any) => {
-                            lemonToast.error(e?.message || "Can't save columns at this time")
-                        })
-                },
-            },
-            secondaryButton: {
-                children: 'Sync forward only',
-                onClick: () => {
-                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
-                    lemonToast.success('Columns saved')
-                },
-            },
+            primaryButton: { children: 'Full resync now', onClick: () => commit(true) },
+            secondaryButton: { children: 'Sync forward only', onClick: () => commit(false) },
         })
     }
 
     return (
-        <div>
-            <SectionHeader
-                title="Columns"
-                description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
-            />
-            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                {!hasAvailableColumns ? (
-                    <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
-                        <span className="text-sm">No columns discovered yet for this schema.</span>
-                        <SourceEditorAction source={source}>
+        <div className="flex flex-col gap-6">
+            <div>
+                <SectionHeader
+                    title="Columns"
+                    description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+                />
+                <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                    {!hasAvailableColumns ? (
+                        <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
+                            <span className="text-sm">No columns discovered yet for this schema.</span>
+                            <SourceEditorAction source={source}>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    loading={refreshingSchemas}
+                                    onClick={() => refreshSchemas()}
+                                >
+                                    Pull new schemas
+                                </LemonButton>
+                            </SourceEditorAction>
+                        </div>
+                    ) : (
+                        <>
+                            <span className="text-sm text-secondary">{columnsSummary}</span>
+                            <SourceEditorAction source={source}>
+                                {({ disabledReason }) => (
+                                    <fieldset disabled={!!disabledReason}>
+                                        <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
+                                    </fieldset>
+                                )}
+                            </SourceEditorAction>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            <div>
+                <SectionHeader
+                    title="Row filters"
+                    description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
+                />
+                <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                    {!hasAvailableColumns ? (
+                        <div className="text-sm text-muted-alt py-2 text-center">
+                            No columns discovered yet — pull schemas from the Columns section above to add row filters.
+                        </div>
+                    ) : (
+                        <>
+                            <span className="text-sm text-secondary">{rowFiltersSummary}</span>
+                            <SourceEditorAction source={source}>
+                                {({ disabledReason }) => (
+                                    <fieldset disabled={!!disabledReason}>
+                                        <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
+                                    </fieldset>
+                                )}
+                            </SourceEditorAction>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {hasAvailableColumns && (
+                <div className="flex justify-end">
+                    <SourceEditorAction source={source}>
+                        {({ disabledReason }) => (
                             <LemonButton
-                                type="secondary"
-                                size="small"
-                                loading={refreshingSchemas}
-                                onClick={() => refreshSchemas()}
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={
+                                    disabledReason ??
+                                    (hasRowFilterErrors
+                                        ? 'Fix the highlighted row filters first'
+                                        : !isDirty
+                                          ? 'No changes to save'
+                                          : undefined)
+                                }
                             >
-                                Pull new schemas
+                                Save
                             </LemonButton>
-                        </SourceEditorAction>
-                    </div>
-                ) : (
-                    <>
-                        <span className="text-sm text-secondary">{summaryLine}</span>
-                        <SourceEditorAction source={source}>
-                            {({ disabledReason }) => (
-                                <fieldset disabled={!!disabledReason}>
-                                    <ColumnSelectionPicker schema={schema} onSave={handleSave} />
-                                </fieldset>
-                            )}
-                        </SourceEditorAction>
-                    </>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RowFiltersSection({
-    source,
-    schema,
-    updateSchema,
-}: {
-    source: ExternalDataSource | null
-    schema: ExternalDataSourceSchema
-    updateSchema: (schema: ExternalDataSourceSchema) => void
-}): JSX.Element {
-    const available = schema.available_columns ?? []
-    const hasAvailableColumns = available.length > 0
-    const activeCount = schema.row_filters?.length ?? 0
-
-    const handleSave = (nextRowFilters: RowFilter[] | null): void => {
-        updateSchema({ ...schema, row_filters: nextRowFilters })
-        lemonToast.success('Row filters saved')
-    }
-
-    return (
-        <div>
-            <SectionHeader
-                title="Row filters"
-                description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
-            />
-            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                {!hasAvailableColumns ? (
-                    <div className="text-sm text-muted-alt py-2 text-center">
-                        No columns discovered yet — pull schemas from the Columns section above to add row filters.
-                    </div>
-                ) : (
-                    <>
-                        <span className="text-sm text-secondary">
-                            {activeCount === 0
-                                ? 'Syncing all rows'
-                                : `${activeCount} ${activeCount === 1 ? 'filter' : 'filters'} active`}
-                        </span>
-                        <SourceEditorAction source={source}>
-                            {({ disabledReason }) => (
-                                <fieldset disabled={!!disabledReason}>
-                                    <RowFilterEditor schema={schema} onSave={handleSave} />
-                                </fieldset>
-                            )}
-                        </SourceEditorAction>
-                    </>
-                )}
-            </div>
+                        )}
+                    </SourceEditorAction>
+                </div>
+            )}
         </div>
     )
 }
