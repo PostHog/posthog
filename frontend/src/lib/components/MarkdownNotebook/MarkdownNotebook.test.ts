@@ -1722,6 +1722,55 @@ Tail paragraph`
         expect(selection?.focusOffset).toEqual('Typed while save is pending'.length)
     })
 
+    it('keeps the caret in place when an autosave echo arrives while editing a list item', () => {
+        const onChange = jest.fn()
+        const initialMarkdown = withNotebookTitle(`- list again
+- and again`)
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: initialMarkdown,
+                remoteValue: initialMarkdown,
+                onChange,
+            })
+        )
+        const secondListItem = getEditableListItems(container)[1]
+
+        expect(secondListItem).toBeInstanceOf(HTMLElement)
+
+        selectTextInElement(secondListItem, 'and again'.length, 'and again'.length)
+        fireEvent.keyDown(secondListItem, { key: 'Enter' })
+        const blankItemSaveEcho = onChange.mock.calls.at(-1)?.[0] as string
+
+        const insertedListItem = getEditableListItems(container)[2]
+        expect(insertedListItem).toBeInstanceOf(HTMLElement)
+
+        insertedListItem.textContent = 'a'
+        act(() => {
+            const range = document.createRange()
+            range.selectNodeContents(insertedListItem)
+            range.collapse(false)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+        fireEvent.input(insertedListItem)
+        const currentMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: currentMarkdown,
+                remoteValue: blankItemSaveEcho,
+                onChange,
+            })
+        )
+
+        const activeElement = document.activeElement as HTMLElement
+        const selection = window.getSelection()
+        expect(activeElement.textContent).toEqual('a')
+        expect(selection?.isCollapsed).toBe(true)
+        expect(selection?.focusOffset).toEqual('a'.length)
+    })
+
     it('applies empty remote markdown updates', () => {
         const { container, rerender } = render(
             createElement(MarkdownNotebook, {

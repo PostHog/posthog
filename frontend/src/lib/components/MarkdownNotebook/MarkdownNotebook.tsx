@@ -533,7 +533,10 @@ export function MarkdownNotebook({
                     : listItemRefKey === undefined
                       ? (blockRefs.current[request.nodeId] ??
                         getNotebookBlockElement(notebookRef.current, request.nodeId))
-                      : listItemRefs.current[getListItemRefKey(request.nodeId, listItemRefKey)]
+                      : (listItemRefs.current[getListItemRefKey(request.nodeId, listItemRefKey)] ??
+                        (request.listItemIndex === undefined
+                            ? undefined
+                            : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]))
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
