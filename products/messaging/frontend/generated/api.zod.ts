@@ -197,13 +197,13 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
                             ),
                         design: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
                             .describe(
-                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
                             ),
                     }),
                     zod.null(),
@@ -259,13 +259,13 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
                             ),
                         design: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
                             .describe(
-                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
                             ),
                     }),
                     zod.null(),
@@ -322,13 +322,13 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
                             ),
                         design: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
                             .describe(
-                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
                             ),
                     }),
                     zod.null(),

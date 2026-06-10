@@ -3,35 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-export const MaxToolsCreateMessageTemplateCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const maxToolsCreateMessageTemplateCreateBodyInstructionsMax = 4000
-
-export const maxToolsCreateMessageTemplateCreateBodyNameMax = 400
-
-export const MaxToolsCreateMessageTemplateCreateBody = /* @__PURE__ */ zod.object({
-    instructions: zod
-        .string()
-        .max(maxToolsCreateMessageTemplateCreateBodyInstructionsMax)
-        .describe('What email template to generate. May include a single URL to draw branding and copy from.'),
-    name: zod
-        .string()
-        .max(maxToolsCreateMessageTemplateCreateBodyNameMax)
-        .optional()
-        .describe('Optional template name. Falls back to a name generated from the instructions.'),
-    message_category: zod.uuid().nullish().describe('Optional message category ID to file the template under.'),
-})
 
 export const HogFlowsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -654,13 +629,13 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
                             ),
                         design: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
                             .describe(
-                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
                             ),
                     }),
                     zod.null(),
@@ -735,13 +710,13 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating.'
+                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
                             ),
                         design: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
                             .describe(
-                                'Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.'
+                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
                             ),
                     }),
                     zod.null(),

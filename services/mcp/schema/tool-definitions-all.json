@@ -6840,7 +6840,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a full HTML document (inline CSS + table layout for email-client compatibility; Liquid supported), and a plain-text fallback. The stored html is sent verbatim. Use the template in a workflow's function_email action. To have PostHog generate one from a prompt instead, use workflows-generate-email-template.",
+        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON) — the server renders the sent HTML from the design and the template stays editable in PostHog's visual editor. Liquid supported throughout. Alternatively author content.email.html directly (full document, inline CSS + table layout; sent verbatim) when you need pixel control the block editor can't express. Use the template in a workflow's function_email action.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
@@ -6863,20 +6863,6 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "workflows-generate-email-template": {
-        "description": "Generate a branded email template from a prompt and save it to the workflows library, returning a link to edit it in the visual editor. 'instructions' may include one URL to pull branding and copy from. Output is AI-generated (Liquid personalization + an Unlayer design); review before sending. Use the returned template in a workflow's function_email action.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Generate email template",
-        "title": "Generate email template",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -7078,7 +7064,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first and send back the complete content.email (subject, html, text). Sending content without design makes your HTML canonical and detaches the template from the visual editor's saved design.",
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first and send back the complete content.email. Edit the design and omit html: the server re-renders the sent HTML from the design. Sending html without design makes that HTML canonical and detaches the template from the visual editor.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

@@ -21,7 +21,6 @@ import {
     HogFlowsRetrieveParams,
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
-    MaxToolsCreateMessageTemplateCreateBody,
     MessagingTemplatesCreateBody,
     MessagingTemplatesListQueryParams,
     MessagingTemplatesPartialUpdateBody,
@@ -110,36 +109,6 @@ const workflowsCreateEmailTemplate = (): ToolBase<
             const result = await context.api.request<Schemas.MessageTemplate>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
-                body,
-            })
-            return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
-        },
-    })
-
-const WorkflowsGenerateEmailTemplateSchema = MaxToolsCreateMessageTemplateCreateBody
-
-const workflowsGenerateEmailTemplate = (): ToolBase<
-    typeof WorkflowsGenerateEmailTemplateSchema,
-    WithPostHogUrl<Schemas.MessageTemplate>
-> =>
-    withUiApp('email-template', {
-        name: 'workflows-generate-email-template',
-        schema: WorkflowsGenerateEmailTemplateSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsGenerateEmailTemplateSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.instructions !== undefined) {
-                body['instructions'] = params.instructions
-            }
-            if (params.name !== undefined) {
-                body['name'] = params.name
-            }
-            if (params.message_category !== undefined) {
-                body['message_category'] = params.message_category
-            }
-            const result = await context.api.request<Schemas.MessageTemplate>({
-                method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/max_tools/create_message_template/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
@@ -526,7 +495,6 @@ const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchem
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create': workflowsCreate,
     'workflows-create-email-template': workflowsCreateEmailTemplate,
-    'workflows-generate-email-template': workflowsGenerateEmailTemplate,
     'workflows-get': workflowsGet,
     'workflows-get-email-template': workflowsGetEmailTemplate,
     'workflows-get-invocation': workflowsGetInvocation,

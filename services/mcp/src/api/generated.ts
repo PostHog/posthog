@@ -14379,7 +14379,7 @@ export namespace Schemas {
     }
 
     /**
-     * Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates.
+     * Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.
      */
     export type EmailTemplateDesign = { [key: string]: unknown };
 
@@ -14388,9 +14388,9 @@ export namespace Schemas {
       subject?: string;
       /** Plain-text fallback body, sent alongside the HTML. */
       text?: string;
-      /** Full HTML document sent verbatim as the email body. Supports Liquid templating. */
+      /** Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design. */
       html?: string;
-      /** Unlayer design JSON saved by the in-app visual editor; present only on editor-authored templates. */
+      /** Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it. */
       design?: EmailTemplateDesign;
     }
 
