@@ -165,7 +165,7 @@ function LogEntryRenderer({ entry, renderMarkdown }: { entry: LogEntry; renderMa
                     </div>
                     <div className="border-l-2 border-primary pl-3 max-w-[90%]">
                         {renderMarkdown && entry.message ? (
-                            <LemonMarkdown className="text-sm font-sans" lowKeyHeadings>
+                            <LemonMarkdown className="text-sm font-sans" lowKeyHeadings disableImages>
                                 {entry.message}
                             </LemonMarkdown>
                         ) : (
@@ -229,6 +229,7 @@ export function TaskSessionView({
         () => entries.filter((entry) => entry.type === 'console' && entry.level === 'debug').length,
         [entries]
     )
+    const agentCount = useMemo(() => entries.filter((entry) => entry.type === 'agent').length, [entries])
     const visibleEntries = useMemo(
         () => (showDebug ? entries : entries.filter((entry) => !(entry.type === 'console' && entry.level === 'debug'))),
         [entries, showDebug]
@@ -264,13 +265,15 @@ export function TaskSessionView({
                     <span className="text-sm font-semibold">Logs ({visibleEntries.length})</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        label="Markdown"
-                        checked={renderMarkdown}
-                        onChange={setRenderMarkdown}
-                        size="xsmall"
-                        bordered
-                    />
+                    {agentCount > 0 && (
+                        <LemonSwitch
+                            label="Markdown"
+                            checked={renderMarkdown}
+                            onChange={setRenderMarkdown}
+                            size="xsmall"
+                            bordered
+                        />
+                    )}
                     {debugCount > 0 && (
                         <LemonSwitch
                             label={`Show debug (${debugCount})`}
