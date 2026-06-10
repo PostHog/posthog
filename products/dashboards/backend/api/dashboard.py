@@ -44,6 +44,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import report_user_action
@@ -58,6 +59,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -147,7 +149,43 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_variables",
     "team_id",
     "quick_filter_ids",
+    "metadata",
 ]
+
+
+def resolve_dashboard_creation_source(request: Request) -> str:
+    """Best-effort creation source, reusing signals already on the request rather than trusting
+    the client to self-report.
+
+    An explicit `x-posthog-client` header wins (the same value persisted on `ActivityLog.client`,
+    e.g. "mcp"). Otherwise the authentication method decides: a personal API key means a direct
+    API caller, anything else (a logged-in session) is the in-app web UI.
+    """
+    client = (request.headers.get(ACTIVITY_LOG_CLIENT_HEADER) or "").strip().lower()
+    if client:
+        return client[:64]
+    if isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication):
+        return Dashboard.CreationSource.API
+    return Dashboard.CreationSource.WEB
+
+
+def build_dashboard_creation_metadata(
+    request: Request,
+    *,
+    template_key: str | None = None,
+    duplicated_from_dashboard_id: int | None = None,
+    creation_context: str | None = None,
+) -> dict[str, Any]:
+    """Provenance recorded on `Dashboard.metadata` at creation time. Only meaningful keys are
+    stored so the payload stays small and old NULL rows remain distinguishable from new ones."""
+    metadata: dict[str, Any] = {"creation_source": resolve_dashboard_creation_source(request)}
+    if creation_context:
+        metadata["creation_context"] = creation_context
+    if template_key:
+        metadata["template_key"] = template_key
+    if duplicated_from_dashboard_id:
+        metadata["duplicated_from_dashboard_id"] = duplicated_from_dashboard_id
+    return metadata
 
 
 VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
@@ -838,6 +876,32 @@ class AddDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
     )
 
 
+class DashboardCreationMetadataSerializer(serializers.Serializer):
+    """Typed view of the `Dashboard.metadata` JSON blob, so generated clients get a real shape
+    instead of `unknown`. Read-only — the server populates it at creation time."""
+
+    creation_source = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Client that created the dashboard: 'web' (in-app UI), 'api' (personal API key), 'mcp' (MCP/agent), or another x-posthog-client value.",
+    )
+    creation_context = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Originating product when the dashboard was created on behalf of another feature (e.g. 'feature_flags', 'experiments').",
+    )
+    template_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Key/name of the template the dashboard was created from, if any.",
+    )
+    duplicated_from_dashboard_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the dashboard this one was duplicated from, if any.",
+    )
+
+
 class DashboardBasicSerializer(
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
@@ -850,6 +914,10 @@ class DashboardBasicSerializer(
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
+    metadata = DashboardCreationMetadataSerializer(
+        read_only=True,
+        help_text="Provenance captured when the dashboard was created (creation source/context, template, duplication).",
+    )
 
     class Meta:
         model = Dashboard
@@ -873,6 +941,7 @@ class DashboardBasicSerializer(
             "access_control_version",
             "last_refresh",
             "team_id",
+            "metadata",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1126,6 +1195,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(
                 existing_dashboard.quick_filter_ids, team_id
             )
+
+        validated_data["metadata"] = build_dashboard_creation_metadata(
+            request,
+            template_key=use_template or None,
+            duplicated_from_dashboard_id=use_dashboard or None,
+            creation_context=request.data.get("creation_context"),
+        )
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
@@ -2784,6 +2860,13 @@ class DashboardsViewSet(
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
 
+            dashboard.metadata = build_dashboard_creation_metadata(
+                request,
+                template_key=dashboard_template.template_name,
+                creation_context=creation_context,
+            )
+            dashboard.save(update_fields=["metadata"])
+
             template_body = request.data["template"]
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
@@ -2860,6 +2943,7 @@ class DashboardsViewSet(
                 filters={**(template.dashboard_filters or {}), "__template_version": 1},
                 created_by=cast(User, request.user),
                 creation_mode="unlisted",
+                metadata=build_dashboard_creation_metadata(request, template_key=template.template_name),
             )
 
             create_from_template(

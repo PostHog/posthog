@@ -81,6 +81,30 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+    def test_creation_metadata_defaults_to_web_for_session_requests(self) -> None:
+        _, response = self.dashboard_api.create_dashboard({"name": "from the app"})
+        self.assertEqual(response["metadata"], {"creation_source": "web"})
+
+    def test_creation_metadata_uses_posthog_client_header(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "from mcp"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self.assertEqual(response.json()["metadata"]["creation_source"], "mcp")
+
+    def test_creation_metadata_records_template_and_duplication(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "original"})
+        _, response = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": source_id})
+        self.assertEqual(response["metadata"]["creation_source"], "web")
+        self.assertEqual(response["metadata"]["duplicated_from_dashboard_id"], source_id)
+
+    def test_creation_metadata_is_not_client_writable(self) -> None:
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "spoofed", "metadata": {"creation_source": "totally-legit"}}
+        )
+        self.assertEqual(response["metadata"], {"creation_source": "web"})
+
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
         dashboard_names = ["a dashboard", "b dashboard"]
