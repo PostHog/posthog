@@ -141,13 +141,13 @@ def _join_on_account_id(select: ast.SelectQuery | ast.SelectSetQuery, join_to_ad
     )
 
 
-def _account_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+def account_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.tags`")
     return _join_on_account_id(_account_tags_select(), join_to_add)
 
 
-def _account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+def account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.notebooks`")
     return _join_on_account_id(_account_notebooks_select(), join_to_add)

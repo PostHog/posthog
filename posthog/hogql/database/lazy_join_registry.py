@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database import lazy_join_tags as tags
-from posthog.hogql.database.schema.account_aggregates import _account_notebooks_join, _account_tags_join
+from posthog.hogql.database.schema.account_aggregates import account_notebooks_join, account_tags_join
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     join_with_error_tracking_fingerprint_issue_state_table,
 )
@@ -69,8 +69,8 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.REPLAY_TO_CONSOLE_LOGS: join_with_console_logs_log_entries_table,
     tags.ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES: join_with_error_tracking_issue_fingerprint_overrides_table,
     tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
-    tags.ACCOUNT_TAGS: _account_tags_join,
-    tags.ACCOUNT_NOTEBOOKS: _account_notebooks_join,
+    tags.ACCOUNT_TAGS: account_tags_join,
+    tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
 }
 
 
