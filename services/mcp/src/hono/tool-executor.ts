@@ -7,6 +7,7 @@ import {
     MissingProjectContextError,
     PostHogApiError,
     PostHogValidationError,
+    ToolInputValidationError,
     findPostHogPermissionError,
     findRecoverableApiError,
 } from '@/lib/errors'
@@ -317,6 +318,8 @@ export class ToolExecutor {
 function classifyToolError(error: unknown, toolName: string): void {
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         toolErrorsTotal.inc({ tool: toolName, error_type: 'missing_context' })
+    } else if (error instanceof ToolInputValidationError) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
     } else if (findPostHogPermissionError(error)) {
         toolErrorsTotal.inc({ tool: toolName, error_type: 'permission' })
     } else if (error instanceof Error && error.name === 'TimeoutError') {

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { ToolInputValidationError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -354,7 +355,9 @@ export function createExecTool(
                             error_message: message,
                             validation_error: true,
                         })
-                        throw new Error(message)
+                        // Typed so the executor's catch skips exception capture and
+                        // classifies it as `validation`, not `internal`.
+                        throw new ToolInputValidationError(message)
                     }
                     input = validation.data as Record<string, unknown>
 

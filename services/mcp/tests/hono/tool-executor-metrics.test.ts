@@ -228,6 +228,15 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
         })
 
+        it('classifies inner validation failures as validation, not internal', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call docs-search {}' } }, execState())
+
+            expect(callsFor(mockToolErrorsInc, 'docs-search')).toEqual([
+                { tool: 'docs-search', error_type: 'validation' },
+            ])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
+        })
+
         it('emits exec-level error for framework failures before inner dispatch', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },

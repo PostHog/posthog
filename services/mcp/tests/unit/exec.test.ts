@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { ToolInputValidationError } from '@/lib/errors'
 import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
@@ -267,7 +268,14 @@ describe('exec tool', () => {
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            await expect(exec.handler(mockContext, { command: `call action-get ${input}` })).rejects.toThrow(expected)
+            const error: unknown = await exec.handler(mockContext, { command: `call action-get ${input}` }).then(
+                () => null,
+                (e: unknown) => e
+            )
+            // Typed rejection — the executor relies on it to skip exception
+            // capture and classify the failure as `validation`.
+            expect(error).toBeInstanceOf(ToolInputValidationError)
+            expect((error as Error).message).toMatch(expected)
         })
 
         it('passes validated output — with defaults applied — to the inner handler', async () => {
