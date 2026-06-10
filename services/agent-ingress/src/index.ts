@@ -124,11 +124,11 @@ async function main(): Promise<void> {
             {
                 port: config.port,
                 bus: bus.constructor.name,
-                public_url: config.publicUrl ?? null,
+                // Only surfaced when set — an unset public URL is normal (domain-mode
+                // routes by host; Django builds callback URLs from its own settings).
+                ...(config.publicUrl ? { public_url: config.publicUrl } : {}),
             },
-            config.publicUrl
-                ? `listening — reachable at ${config.publicUrl}`
-                : 'listening — no public URL configured (set AGENT_INGRESS_PUBLIC_URL so Slack / webhooks know where to call back; `bin/agent-tunnel` writes it to .env.local for you)'
+            config.publicUrl ? `listening — reachable at ${config.publicUrl}` : 'listening'
         )
     })
 }

@@ -44,7 +44,7 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            'Public URL this ingress is reachable at from the outside world (e.g. `https://agents.us.posthog.com`, or a `https://<id>.trycloudflare.com` in local dev via `bin/agent-tunnel`). Logged on boot for debuggability so you can spot mismatches with what Slack / webhooks are pointed at. Unset → boot log says "no public URL configured", and Django omits `slack_events_url` from agent retrieve responses.'
+            'Public URL this ingress is reachable at from the outside world (e.g. `https://agents.us.posthog.com`, or a `https://<id>.trycloudflare.com` in local dev via `bin/agent-tunnel`). Optional and debug-only: when set it is logged on boot so you can spot mismatches with what Slack / webhooks are pointed at. Unset is normal — domain-mode routes by host, and Django builds the `slack_events_url` it returns from its own `AGENT_INGRESS_*` settings, not from this value.'
         ),
 })
 
