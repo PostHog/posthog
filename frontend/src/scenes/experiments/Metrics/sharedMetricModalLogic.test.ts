@@ -9,10 +9,11 @@ import { initKeaTests } from '~/test/init'
 import { METRIC_CONTEXTS } from './experimentMetricModalLogic'
 import { MODAL_PAGE_SIZE, sharedMetricModalLogic } from './sharedMetricModalLogic'
 
-const metric = (id: number, kind: NodeKind = NodeKind.ExperimentMetric): any => ({
+const metric = (id: number, kind: NodeKind = NodeKind.ExperimentMetric, tags: string[] = []): any => ({
     id,
     name: `metric ${id}`,
     query: { kind },
+    tags,
 })
 
 describe('sharedMetricModalLogic', () => {
@@ -113,6 +114,85 @@ describe('sharedMetricModalLogic', () => {
             compatibleSharedMetrics: [],
             hasAnyCompatibleSharedMetrics: true,
         })
+    })
+
+    it('selectMetricsByTag pulls in metrics from unloaded pages before selecting', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
+                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
+                    if (offset === 0) {
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}`,
+                                previous: null,
+                                results: [metric(1, NodeKind.ExperimentMetric, ['main'])],
+                            },
+                        ]
+                    }
+                    // metric 3 shares the "main" tag but lives on a page that has not been rendered yet
+                    return [
+                        200,
+                        { count: 2, next: null, previous: null, results: [metric(3, NodeKind.ExperimentMetric, ['main'])] },
+                    ]
+                },
+            },
+        })
+
+        // only the first page is loaded, so metric 3 is not yet in memory
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ canLoadMore: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectMetricsByTag('main', [])
+        }).toDispatchActions(['loadAllSharedMetrics', 'loadAllSharedMetricsSuccess', 'setSelectedMetricIds'])
+
+        await expectLogic(logic).toMatchValues({
+            selectedMetricIds: [1, 3],
+            canLoadMore: false,
+        })
+    })
+
+    it('selectAllSelectableMetrics spans every page and excludes already-added metrics', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+
+        // metric 1 is already on the experiment; metric 3 lives on the unloaded second page
+        await expectLogic(logic, () => {
+            logic.actions.selectAllSelectableMetrics([1])
+        }).toDispatchActions(['loadAllSharedMetrics', 'loadAllSharedMetricsSuccess', 'setSelectedMetricIds'])
+
+        await expectLogic(logic).toMatchValues({ selectedMetricIds: [3] })
+    })
+
+    it('quick-select applies synchronously when every page is already loaded', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.loadNextSharedMetrics(null)
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ canLoadMore: false })
+
+        // no further fetch is needed, so the selection is set without loading all pages again
+        await expectLogic(logic, () => {
+            logic.actions.selectAllSelectableMetrics([])
+        }).toDispatchActions(['setSelectedMetricIds'])
+        await expectLogic(logic).toMatchValues({ selectedMetricIds: [1, 3] })
+    })
+
+    it('toggleSelectedMetricId adds then removes a metric id', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleSelectedMetricId(5)
+        }).toMatchValues({ selectedMetricIds: [5] })
+        await expectLogic(logic, () => {
+            logic.actions.toggleSelectedMetricId(5)
+        }).toMatchValues({ selectedMetricIds: [] })
     })
 
     it('hasAnyCompatibleSharedMetrics is false when the unfiltered load has no compatible metrics', async () => {
