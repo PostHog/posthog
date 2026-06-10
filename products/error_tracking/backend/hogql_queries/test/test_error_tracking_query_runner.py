@@ -62,6 +62,12 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self, first: object, second: object, msg: object = None
     ) -> None: ...  # will be provided by inheritance from TestCase
 
+    def assertTrue(self, expr: object, msg: object = None) -> None: ...  # will be provided by inheritance from TestCase
+
+    def assertFalse(
+        self, expr: object, msg: object = None
+    ) -> None: ...  # will be provided by inheritance from TestCase
+
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
 
