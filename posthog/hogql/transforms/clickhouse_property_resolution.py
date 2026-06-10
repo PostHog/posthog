@@ -75,6 +75,14 @@ class MaterializedPropertySource:
     has_bloom_filter_lower_index: bool = False
 
 
+def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
+    """The plain table type behind a field's table type, unwrapping alias and virtual-table layers."""
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        table_type = table_type.table_type
+    return table_type if isinstance(table_type, ast.TableType) else None
+
+
 def resolve_materialized_property_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
@@ -95,10 +103,8 @@ def resolve_materialized_property_source(
     if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
-    table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-        table_type = table_type.table_type
-    if not isinstance(table_type, ast.TableType):
+    table_type = _unwrap_to_table_type(field_type)
+    if table_type is None:
         return None
 
     # The materialized-column registry is keyed by the ClickHouse table name, which isn't always the HogQL name
@@ -158,10 +164,8 @@ def resolve_property_group_source(
     if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
-    table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-        table_type = table_type.table_type
-    if not isinstance(table_type, ast.TableType):
+    table_type = _unwrap_to_table_type(field_type)
+    if table_type is None:
         return None
 
     field = field_type.resolve_database_field(context)
