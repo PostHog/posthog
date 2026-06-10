@@ -398,6 +398,9 @@ class SignalReportArtefact(UUIDModel):
             models.Index(fields=["report"], name="signals_sig_report__idx"),
             # For JOINs involving matching a report to artifact of a certain type
             models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
+            # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
+            # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
+            models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
         ]
 
     @classmethod

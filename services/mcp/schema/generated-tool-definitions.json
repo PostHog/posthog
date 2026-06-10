@@ -2816,7 +2816,7 @@
         "feature_flag": "heatmaps-mcp"
     },
     "inbox-report-artefacts-create": {
-        "description": "Append a work-log entry to a signal report so it reads as a living document. `artefact_type` is one of the log types — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference` (a single line: file_path, line, note), `pushed_branch` (a branch pushed without a PR, for rendering a would-be diff: repository, branch, base_branch), `task_run` (a reference to a tasks.Task run: task_id, relationship), or `note` (free-form: note). `content` is a JSON object matching the chosen type. Log artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.",
+        "description": "Append a work-log entry to a signal report so it reads as a living document. `artefact_type` is one of the log types — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference` (a single line: file_path, line, note), `pushed_branch` (a branch pushed without a PR, for rendering a would-be diff: repository, branch, base_branch), `task_run` (a reference to a tasks.Task run: task_id, run_id, product, type), or `note` (free-form: note). `content` is a JSON object matching the chosen type. Log artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append a log artefact to a report",

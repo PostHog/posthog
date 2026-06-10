@@ -100,12 +100,12 @@ def _is_safe_github_ref(ref: str) -> bool:
         and ".." not in ref
         and not ref.startswith("/")
         and not ref.endswith("/")
-        and bool(_GITHUB_REF_RE.match(ref))
+        and bool(_GITHUB_REF_RE.fullmatch(ref))
     )
 
 
 def _is_safe_github_repo_path(repo_path: str) -> bool:
-    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.match(repo_path))
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
@@ -2621,15 +2621,20 @@ class GitHubIntegration(GitHubIntegrationBase):
         elif not _is_safe_github_ref(base_branch):
             return {"success": False, "error": "Invalid base branch name.", "status_code": 400}
 
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{repo_path}/compare/{base_branch}...{branch}",
-            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-            headers={
-                "Accept": "application/vnd.github.diff",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-        )
+        try:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{repo_path}/compare/{base_branch}...{branch}",
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                headers={
+                    "Accept": "application/vnd.github.diff",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
             return {"success": False, "error": response.text, "status_code": response.status_code}
         return {"success": True, "diff": response.text, "base_branch": base_branch}

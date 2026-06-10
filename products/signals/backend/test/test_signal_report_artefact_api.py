@@ -518,6 +518,18 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         ids = {r["id"] for r in list_response.json()["results"]}
         assert str(report.id) in ids
 
+    def test_diff_with_non_dict_content_returns_400_not_500(self):
+        # Log content is stored as arbitrary JSON; a non-object pushed_branch payload must not 500.
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            artefact_type=SignalReportArtefact.ArtefactType.PUSHED_BRANCH,
+            content=[1, 2, 3],
+        )
+
+        response = self.client.get(self._detail_url(str(report.id), str(artefact.id)) + "diff/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 _CODE_REFERENCE_CONTENT = {
     "file_path": "products/signals/backend/models.py",

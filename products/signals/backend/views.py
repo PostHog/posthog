@@ -458,6 +458,26 @@ class SignalReportViewSet(
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
 
+    def _latest_suggested_reviewers_qs(self):
+        """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
+        outer report (`OuterRef("id")`).
+
+        suggested_reviewers is append-only, so only the newest row is the live reviewer set —
+        older versions remain as history and must not match. A row is current iff no newer row of
+        the same type exists for its report.
+        """
+        has_newer = Exists(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("report_id"),
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                created_at__gt=OuterRef("created_at"),
+            )
+        )
+        return SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"),
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        ).filter(~has_newer)
+
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
         if not suggested_reviewer_filter:
@@ -482,10 +502,7 @@ class SignalReportViewSet(
         return queryset.filter(
             Exists(
                 # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                ).extra(
+                self._latest_suggested_reviewers_qs().extra(
                     where=[reviewer_where],
                     params=reviewer_json_filters,
                 )
@@ -614,10 +631,7 @@ class SignalReportViewSet(
         # github_login comes from our own UserSocialAuth DB, not user input.
         suggested_exists = Exists(
             # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            ).extra(
+            self._latest_suggested_reviewers_qs().extra(
                 where=["content::jsonb @> %s::jsonb"],
                 params=[json.dumps([{"github_login": github_login}])],
             )
@@ -1078,62 +1092,68 @@ class SignalReportArtefactViewSet(
             github_name = entry.get("github_name") if explicit_name else None
             resolved_entries.append((login_lc, github_name, explicit_name))
 
-        # Merge commits/names forward from the *current* reviewers (the latest status row), not
-        # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.
-        current = (
-            SignalReportArtefact.objects.filter(
-                report_id=artefact.report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        try:
-            prior_content = json.loads((current or artefact).content)
-        except (json.JSONDecodeError, ValueError):
-            prior_content = []
-        prior_commits_by_login: dict[str, list] = {}
-        prior_name_by_login: dict[str, str | None] = {}
-        if isinstance(prior_content, list):
-            for prior in prior_content:
-                if not isinstance(prior, dict):
-                    continue
-                login = (prior.get("github_login") or "").strip().lower()
-                if not login:
-                    continue
-                commits = prior.get("relevant_commits")
-                if isinstance(commits, list):
-                    prior_commits_by_login[login] = commits
-                prior_name = prior.get("github_name")
-                if isinstance(prior_name, str):
-                    prior_name_by_login[login] = prior_name
-
-        # Dedupe by canonical login, preserve first-seen order.
+        # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
+        # PUT reads the current (latest) reviewers and appends a new row, so without the lock two
+        # simultaneous edits would both read the same row and one would be silently lost.
         seen: set[str] = set()
-        new_content: list[dict] = []
-        for login_lc, github_name, explicit_name in resolved_entries:
-            if login_lc in seen:
-                continue
-            seen.add(login_lc)
-            # If the client supplied github_name (incl. ""), honour it. Otherwise
-            # carry over the prior one so kept reviewers don't lose their name.
-            effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
-            new_content.append(
-                {
-                    "github_login": login_lc,
-                    "github_name": effective_name,
-                    "relevant_commits": prior_commits_by_login.get(login_lc, []),
-                }
-            )
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().filter(id=artefact.report_id).first()
 
-        # Append a new status row rather than mutating in place: a human reviewer edit becomes a
-        # point-in-time entry in the work log, and latest-wins keeps it current.
-        new_artefact = SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(artefact.report_id),
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=json.dumps(new_content),
-        )
+            # Merge commits/names forward from the *current* reviewers (the latest status row), not
+            # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.
+            current = (
+                SignalReportArtefact.objects.filter(
+                    report_id=artefact.report_id,
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            try:
+                prior_content = json.loads((current or artefact).content)
+            except (json.JSONDecodeError, ValueError):
+                prior_content = []
+            prior_commits_by_login: dict[str, list] = {}
+            prior_name_by_login: dict[str, str | None] = {}
+            if isinstance(prior_content, list):
+                for prior in prior_content:
+                    if not isinstance(prior, dict):
+                        continue
+                    login = (prior.get("github_login") or "").strip().lower()
+                    if not login:
+                        continue
+                    commits = prior.get("relevant_commits")
+                    if isinstance(commits, list):
+                        prior_commits_by_login[login] = commits
+                    prior_name = prior.get("github_name")
+                    if isinstance(prior_name, str):
+                        prior_name_by_login[login] = prior_name
+
+            # Dedupe by canonical login, preserve first-seen order.
+            new_content: list[dict] = []
+            for login_lc, github_name, explicit_name in resolved_entries:
+                if login_lc in seen:
+                    continue
+                seen.add(login_lc)
+                # If the client supplied github_name (incl. ""), honour it. Otherwise
+                # carry over the prior one so kept reviewers don't lose their name.
+                effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
+                new_content.append(
+                    {
+                        "github_login": login_lc,
+                        "github_name": effective_name,
+                        "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                    }
+                )
+
+            # Append a new status row rather than mutating in place: a human reviewer edit becomes a
+            # point-in-time entry in the work log, and latest-wins keeps it current.
+            new_artefact = SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(artefact.report_id),
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps(new_content),
+            )
 
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
@@ -1289,6 +1309,9 @@ class SignalReportArtefactViewSet(
             content = json.loads(artefact.content)
         except (json.JSONDecodeError, ValueError):
             content = {}
+        if not isinstance(content, dict):
+            # Log artefacts store arbitrary JSON; a non-object payload has no repository/branch.
+            content = {}
         repository = content.get("repository")
         branch = content.get("branch")
         base_branch = content.get("base_branch")
@@ -1304,7 +1327,18 @@ class SignalReportArtefactViewSet(
                 {"error": f"No GitHub integration can access '{repository}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        result = github.get_branch_diff(repository, branch, base_branch)
+        try:
+            result = github.get_branch_diff(repository, branch, base_branch)
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning(
+                "signals pushed_branch diff fetch errored",
+                repository=repository,
+                branch=branch,
+            )
+            return Response(
+                {"error": "GitHub could not produce the diff for this branch."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         if not result.get("success"):
             # Surface a clean message rather than the raw GitHub error body. A 404 from the
             # compare API means the branch (or repo) isn't on the remote — most often a branch

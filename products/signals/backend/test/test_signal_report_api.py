@@ -460,6 +460,37 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
+    def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
+        # suggested_reviewers is append-only: an older row listing the user must not keep them
+        # flagged after a newer row drops them (latest-wins).
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-latest-wins",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+        old = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+        SignalReportArtefact.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        # Newer row no longer includes the user — the live reviewer set.
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "someoneelse"}]),
+        )
+
+        response = self.client.get(self._list_url(status="ready"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is False
+
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(
