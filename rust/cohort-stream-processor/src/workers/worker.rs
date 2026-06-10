@@ -294,6 +294,15 @@ fn handle_event(
 /// nothing — next tick re-derives the same changes against the still-present state and retries. A
 /// crash strictly between the ack and the state-write is at-most-once (the state stays, but the
 /// change was emitted), the same posture as the event path's shadow output.
+///
+/// **Stage 2 runs after the Stage 1 commit**: once the eviction batch is durable, the tick's leaf
+/// transitions fan out through [`compose_stage2`] — the same evaluator the event path uses — so a
+/// time-driven leaf flip recomposes its composable cohorts against the post-eviction `cf_stage1`,
+/// and the composed changes go out in a second, independent produce (disjoint cohort ids from the
+/// single-leaf produce, so no `(cohort, person)` row straddles the boundary). That pass is
+/// write-before-produce — compose commits `cf_stage2` before the produce — so it is at-most-once: a
+/// failed produce (or a crash) drops the flip; an active person self-heals on their next event, a
+/// dormant person's flip is lost until commit-after-ack durability lands (PR 3.5).
 async fn handle_sweep(
     partition_id: u16,
     store: &CohortStore,
@@ -424,6 +433,76 @@ async fn handle_sweep(
     // re-derives them, keeping popped == evicted + dropped exact.
     for reason in &drops {
         counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
+    }
+
+    // Stage 2: recompose the composable cohorts owning any leaf this tick flipped. Reached only
+    // once the eviction batch committed (the failure paths above returned), so `compose_stage2`
+    // reads post-eviction `cf_stage1` — a fully-drained `Delete` reads back as a non-member. The
+    // transitions are re-read from `results` (`changes` was moved into the first produce); a
+    // resultless tick composes nothing.
+    let mut by_team_transitions: BTreeMap<u64, Vec<LeafTransition>> = BTreeMap::new();
+    for result in &results {
+        if let Some(transition) = &result.transition {
+            by_team_transitions
+                .entry(result.key.team_id)
+                .or_default()
+                .push(transition.clone());
+        }
+    }
+    let mut stage2_changes = Vec::new();
+    for (team_id, transitions) in &by_team_transitions {
+        // The same `snapshot` the eviction ran under (no reload, so no team-drift window between
+        // the two passes); a team with results always resolved above, so `None` is unreachable and
+        // skipped defensively. A store error is logged and skipped, mirroring the event path — the
+        // recompute self-heals the missed flip on the person's next event.
+        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
+            continue;
+        };
+        let filters: &TeamFilters = filters;
+        match compose_stage2(
+            partition_id,
+            store,
+            filters,
+            transitions,
+            due_before_ms,
+            last_updated,
+        ) {
+            Ok(changes) => stage2_changes.extend(changes),
+            Err(error) => warn!(
+                partition_id,
+                team_id,
+                error = %error,
+                "sweep stage 2 composition failed; skipping (self-heals on the person's next event)",
+            ),
+        }
+    }
+    if stage2_changes.is_empty() {
+        return;
+    }
+
+    // The second produce. Write-before-produce: compose already committed `cf_stage2`, so a failed
+    // produce here cannot retry (the recompute would diff against the advanced bit and emit
+    // nothing) — the flip is dropped at-most-once, acceptable while shadow-only. Compose owns the
+    // `STAGE2_*` counters post-commit; only the emission counter is incremented here.
+    let (entered, left) = count_by_status(&stage2_changes);
+    let acks = sink.produce(stage2_changes).await;
+    let errors = acks.iter().filter(|result| result.is_err()).count();
+    if errors > 0 {
+        counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
+        warn!(
+            partition_id,
+            errors,
+            "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
+        );
+        return;
+    }
+    if entered > 0 {
+        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
+            .increment(entered);
+    }
+    if left > 0 {
+        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
+            .increment(left);
     }
 }
 

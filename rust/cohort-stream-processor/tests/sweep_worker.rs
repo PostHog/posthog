@@ -6,6 +6,8 @@
 //! [`EventDispatcher`](cohort_stream_processor::consumers::EventDispatcher) to cover the production
 //! routing path. The scheduling/queue mechanics themselves are unit-tested in
 //! `tests/sweep_eviction_queue.rs`; the per-variant eviction in `src/workers/sweep_callback.rs`.
+//! The Stage 2 section covers a time-driven leaf flip recomposing its composable (multi-leaf)
+//! cohorts through the sweep's second produce.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,7 +26,10 @@ use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_
 use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, Stage1State, StateVariant, StatefulRecord,
 };
-use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+use cohort_stream_processor::stage2::Stage2State;
+use cohort_stream_processor::store::{
+    CohortStore, LeafStateKey, Stage1Key, Stage2Key, StoreConfig,
+};
 use cohort_stream_processor::workers::{process_event, Stage1Worker};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
@@ -85,15 +90,32 @@ fn behavioral_leaf_multiple(window_days: i64, op: &str, value: i64) -> Value {
     })
 }
 
+/// A person-property leaf: `email == "u@p.com"`. Never time-evicted, so it pairs with a behavioral
+/// leaf to make a composable (multi-leaf) cohort whose sweep flips must recompose Stage 2.
+fn person_leaf() -> Value {
+    json!({
+        "type": "person", "key": "email", "value": "u@p.com", "operator": "exact",
+        "conditionHash": "fedcba9876543210",
+        "bytecode": ["_H", 1, 32, "u@p.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+    })
+}
+
 fn cohort(values: Vec<Value>) -> Value {
     json!({ "properties": { "type": "AND", "values": values } })
 }
 
 fn build_team_filters(leaves: Vec<Value>) -> TeamFilters {
+    build_team_filters_multi(vec![(CohortId(1), leaves)])
+}
+
+/// Freeze several cohorts for the team in one catalog.
+fn build_team_filters_multi(cohorts: Vec<(CohortId, Vec<Value>)>) -> TeamFilters {
     let mut builder = TeamFiltersBuilder::default();
-    builder
-        .add_cohort(CohortId(1), TeamId(TEAM), &cohort(leaves))
-        .expect("add cohort");
+    for (id, leaves) in cohorts {
+        builder
+            .add_cohort(id, TeamId(TEAM), &cohort(leaves))
+            .expect("add cohort");
+    }
     builder.freeze(UTC)
 }
 
@@ -125,8 +147,31 @@ fn event_at(person: Uuid, timestamp: &str, source_offset: i64) -> CohortStreamEv
     }
 }
 
+/// Like [`event_at`] but carrying the matching person properties, so one event flips a behavioral
+/// and a person leaf together.
+fn person_event_at(person: Uuid, timestamp: &str, source_offset: i64) -> CohortStreamEvent {
+    CohortStreamEvent {
+        person_properties: Some(r#"{"email":"u@p.com"}"#.to_string()),
+        ..event_at(person, timestamp, source_offset)
+    }
+}
+
 fn behavioral_lsk(filters: &TeamFilters) -> LeafStateKey {
     filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0]
+}
+
+/// The stored `cf_stage2` membership bit for `(cohort_id, person)`, or `None` when never evaluated.
+fn stage2_bit(store: &CohortStore, cohort_id: u64, person: Uuid) -> Option<bool> {
+    let key = Stage2Key {
+        partition_id: PARTITION_ID,
+        team_id: TEAM as u64,
+        cohort_id,
+        person_id: person,
+    };
+    store
+        .get_stage2(&key)
+        .unwrap()
+        .map(|bytes| Stage2State::decode(&bytes).unwrap().in_cohort)
 }
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
@@ -700,6 +745,23 @@ impl FailNthSink {
     fn changes(&self) -> Vec<CohortMembershipChange> {
         self.changes.lock().unwrap().clone()
     }
+
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+/// Drive the runtime until the sink has seen `count` produce calls (acked *or* failed), so a test
+/// can read mid-stream state after a produce that recorded nothing. The worker's state writes
+/// precede each produce call, so observing the call proves they committed.
+async fn drain_until_calls(sink: &FailNthSink, count: usize) {
+    for _ in 0..10_000 {
+        if sink.calls() >= count {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("worker did not reach {count} produce calls");
 }
 
 #[async_trait]
@@ -761,6 +823,342 @@ async fn sweep_produce_failure_reschedules_and_a_later_sweep_retries() {
         state_at(&store, lsk, alice).is_none(),
         "the retry deleted the state once its Left was durable",
     );
+}
+
+// ── Stage 2 composition through the sweep ────────────────────────────────────────
+
+#[tokio::test]
+async fn sweep_left_recomposes_a_two_leaf_cohort() {
+    let (_dir, store) = temp_store();
+    // A composable cohort: AND(behavioral 7d, person email). Neither leaf is owned by a single-leaf
+    // cohort, so every change below comes from Stage 2 composition.
+    let filters = build_team_filters(vec![behavioral_leaf(7), person_leaf()]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+
+    // One matching event flips both leaves → the cohort composes an Entered.
+    send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
+    // The sweep expires the behavioral window; its time-driven Left must recompose the cohort even
+    // though the sibling person leaf (never time-evicted) is still true.
+    send_sweep(&tx, event_ms + 8 * DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let emitted: Vec<(i32, MembershipStatus)> = sink
+        .changes()
+        .iter()
+        .map(|change| (change.cohort_id, change.status))
+        .collect();
+    assert_eq!(
+        emitted,
+        vec![(1, MembershipStatus::Entered), (1, MembershipStatus::Left)],
+        "the sweep's leaf Left recomposes the two-leaf cohort to a cohort Left",
+    );
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the expired behavioral leaf was deleted before compose read it",
+    );
+    assert_eq!(
+        stage2_bit(&store, 1, alice),
+        Some(false),
+        "a composed Left writes the false bit, it does not delete the row",
+    );
+}
+
+#[tokio::test]
+async fn sweep_entered_recomposes_via_daily_slide() {
+    let (_dir, store) = temp_store();
+    // AND(daily eq 1 over 7d, person email): the behavioral leaf is a member only at exactly one
+    // match in the window.
+    let filters = build_team_filters(vec![behavioral_leaf_multiple(7, "eq", 1), person_leaf()]);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let first = "2026-05-20 10:00:00.000000";
+    let second = "2026-05-23 10:00:00.000000";
+    let day = day_of(first);
+
+    // Count 1 @ D satisfies eq 1 (cohort Entered); count 2 @ D+3 fails it (cohort Left).
+    send_event(&tracker, &tx, person_event_at(alice, first, 0), 0).await;
+    send_event(&tracker, &tx, person_event_at(alice, second, 1), 1).await;
+    // The slide drops the day-D bucket: count 2 → 1 re-enters eq 1, so the sweep's *Entered* must
+    // drive a recompose exactly like a Left does.
+    send_sweep(&tx, start_of_day_ms_in_tz(day + 9, UTC)).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            MembershipStatus::Entered, // event @ D   — count 1, the AND is satisfied
+            MembershipStatus::Left,    // event @ D+3 — count 2 fails eq 1
+            MembershipStatus::Entered, // sweep       — the day-D bucket leaves, count back to 1
+        ],
+        "a sweep Entered (daily slide into range) recomposes the cohort, not only a Left",
+    );
+    assert_eq!(stage2_bit(&store, 1, alice), Some(true));
+}
+
+#[tokio::test]
+async fn sweep_dormant_person_left_is_emitted() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7), person_leaf()]);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // Alice enters and goes dormant — no event of hers ever drives a recompose again. Bob stays
+    // active, superseding his own deadline past the sweep. Only the sweep can emit alice's Left:
+    // before this slice it was never emitted (the staleness invariant's churned-person case).
+    let alice = person(1);
+    let bob = person(2);
+    let t0 = "2026-05-20 10:00:00.000000";
+    let t0_ms = clickhouse_timestamp_to_millis(t0).unwrap();
+    send_event(&tracker, &tx, person_event_at(alice, t0, 0), 0).await;
+    send_event(&tracker, &tx, person_event_at(bob, t0, 1), 1).await;
+    send_event(
+        &tracker,
+        &tx,
+        person_event_at(bob, "2026-05-26 10:00:00.000000", 2),
+        2,
+    )
+    .await;
+
+    send_sweep(&tx, t0_ms + 8 * DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    let lefts: Vec<_> = changes
+        .iter()
+        .filter(|change| change.status == MembershipStatus::Left)
+        .collect();
+    assert_eq!(lefts.len(), 1, "the sweep alone drives exactly one Left");
+    assert_eq!(lefts[0].person_id, alice.to_string());
+    assert_eq!(lefts[0].cohort_id, 1);
+    assert_eq!(stage2_bit(&store, 1, alice), Some(false));
+    assert_eq!(
+        stage2_bit(&store, 1, bob),
+        Some(true),
+        "the still-active person is untouched by the dormant person's eviction",
+    );
+}
+
+#[tokio::test]
+async fn sweep_recompose_and_single_leaf_share_a_leaf() {
+    let (_dir, store) = temp_store();
+    // Cohort 1 ANDs the behavioral leaf with a person leaf (composable); cohort 2 is the bare
+    // behavioral leaf (single-leaf), sharing cohort 1's LSK. One eviction must emit both cohorts'
+    // Lefts — cohort 2 via map_transition (first produce), cohort 1 via compose (second produce) —
+    // disjoint cohort ids, each exactly once.
+    let filters = build_team_filters_multi(vec![
+        (CohortId(1), vec![behavioral_leaf(7), person_leaf()]),
+        (CohortId(2), vec![behavioral_leaf(7)]),
+    ]);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+
+    send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
+    send_sweep(&tx, event_ms + 8 * DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let by_status = |status: MembershipStatus| -> Vec<i32> {
+        let mut cohorts: Vec<i32> = sink
+            .changes()
+            .iter()
+            .filter(|change| change.status == status)
+            .map(|change| change.cohort_id)
+            .collect();
+        cohorts.sort_unstable();
+        cohorts
+    };
+    assert_eq!(
+        by_status(MembershipStatus::Entered),
+        vec![1, 2],
+        "the event enters the single-leaf cohort and composes the two-leaf cohort",
+    );
+    assert_eq!(
+        by_status(MembershipStatus::Left),
+        vec![1, 2],
+        "one eviction fans out to the single-leaf Left and the composed Left, each exactly once",
+    );
+    assert_eq!(stage2_bit(&store, 1, alice), Some(false));
+}
+
+#[tokio::test]
+async fn sweep_two_leaves_same_cohort_one_tick() {
+    let (_dir, store) = temp_store();
+    // AND of a 7d and a 30d performed_event on one matcher: a single event enters both leaves, and
+    // a far-future sweep pops both windows in one tick — two transitions for one (cohort, person).
+    let filters = build_team_filters(vec![behavioral_leaf(7), behavioral_leaf(30)]);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+
+    send_event(&tracker, &tx, event_at(alice, ts, 0), 0).await;
+    // Both deadlines (event+7d, event+30d) are past the cutoff: both leaves evict in one tick.
+    send_sweep(&tx, event_ms + 31 * DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![MembershipStatus::Entered, MembershipStatus::Left],
+        "two same-tick leaf evictions of one cohort dedup to a single composed Left",
+    );
+    assert_eq!(stage2_bit(&store, 1, alice), Some(false));
+}
+
+#[tokio::test]
+async fn sweep_compose_after_delete_reads_false() {
+    let (_dir, store) = temp_store();
+    // AND(daily gte 1 over 7d, person email): a full-window drain takes the daily leaf through
+    // `EvictionAction::Delete`, so compose must read the *deleted* row (a non-member), not the
+    // pre-eviction state — pinning the run-after-the-Stage-1-write ordering.
+    let filters = build_team_filters(vec![behavioral_leaf_multiple(7, "gte", 1), person_leaf()]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let day = day_of(ts);
+
+    send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
+    // Slide well past the lone bucket: every bucket drains → Delete + leaf Left.
+    send_sweep(&tx, start_of_day_ms_in_tz(day + 9, UTC)).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![MembershipStatus::Entered, MembershipStatus::Left],
+        "compose reads the deleted leaf as a non-member and emits the cohort Left",
+    );
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the fully-drained daily window was deleted before compose read it",
+    );
+    assert_eq!(stage2_bit(&store, 1, alice), Some(false));
+}
+
+#[tokio::test]
+async fn sweep_compose_produce_failure_does_not_corrupt() {
+    let (_dir, store) = temp_store();
+    // Composable-only cohort, so the sweep's single-leaf produce is empty and never calls the sink:
+    // call 1 is the event's composed Entered, call 2 is the sweep's compose produce.
+    let filters = build_team_filters(vec![behavioral_leaf(7), person_leaf()]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = FailNthSink::new(2);
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+
+    send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
+    send_sweep(&tx, event_ms + 8 * DAY_MS).await;
+
+    // Barrier on the failed compose produce: both writes precede it, so once the call is observed
+    // the Stage 1 eviction and the false `cf_stage2` bit are committed, while the Left itself was
+    // dropped for good (write-before-produce: there is no retry vehicle).
+    drain_until_calls(&sink, 2).await;
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the Stage 1 eviction committed before the failed produce",
+    );
+    assert_eq!(
+        stage2_bit(&store, 1, alice),
+        Some(false),
+        "the cf_stage2 bit committed before the failed produce",
+    );
+    assert_eq!(
+        sink.changes().len(),
+        1,
+        "only the initial Entered was recorded — the composed Left is lost (at-most-once)",
+    );
+
+    // A follow-up matching event re-creates the behavioral leaf and recomposes: false → true emits
+    // a fresh Entered — the active person's self-heal. (A dormant person would stay dropped.)
+    send_event(
+        &tracker,
+        &tx,
+        person_event_at(alice, "2026-05-29 10:00:00.000000", 1),
+        1,
+    )
+    .await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![MembershipStatus::Entered, MembershipStatus::Entered],
+        "the dropped Left never reaches the sink; the next event self-heals the membership",
+    );
+    assert_eq!(stage2_bit(&store, 1, alice), Some(true));
 }
 
 // ── Scheduling: explicit windows are excluded ────────────────────────────────────
