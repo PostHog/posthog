@@ -35,7 +35,9 @@ const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
  * Group-keyed experiment exposure queries read the $group_N columns from the exposure
  * event, and createEvent strips those for personless events. Events carrying group keys
  * must stay personful or their exposures disappear from group-aggregated experiments.
- * The $groups property is still raw here; it expands to $group_N in the later groups step.
+ * Checking $groups alone is sufficient: SDKs only ever send group keys as $groups, and
+ * $group_N is an internal representation the groups step derives from $groups (and only
+ * when processPerson stays true), so it never arrives here pre-expanded from a client.
  */
 function eventHasGroups(properties: PluginEvent['properties']): boolean {
     const groups = properties?.$groups
