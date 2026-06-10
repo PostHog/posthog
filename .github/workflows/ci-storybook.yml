@@ -62,6 +62,7 @@ jobs:
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         - 'ee/frontend/**'
+                        - 'packages/quill/**'
                         - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
                         - 'package.json'
