@@ -283,6 +283,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -4164,7 +4165,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    experiment_set_metadata: { id: number; name: string }[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
@@ -6015,6 +6016,12 @@ export interface ExternalDataSourceSyncSchema {
      * available. The UI should disable selection and surface this string when set.
      */
     permission_error?: string | null
+    /**
+     * Advisory warning when row-level security is active for the sync role on this table:
+     * the sync may read fewer rows than the table contains, and the gap can't be measured.
+     * `null`/undefined = no warning. Unlike `permission_error` this does NOT block selection.
+     */
+    rls_warning?: string | null
     /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
