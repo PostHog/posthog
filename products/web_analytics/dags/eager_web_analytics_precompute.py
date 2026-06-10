@@ -4,18 +4,24 @@ A single Dagster job that pre-warms the lazy precompute cache for the
 Web analytics dashboard's main tile matrix over the trailing 28 days,
 for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
-The job is intentionally thin: it enumerates the dashboard's query
-families and dispatches each through `get_query_runner(...).calculate()`.
-The runner routes through its family's lazy precompute path, which
-already knows what's stale and INSERTs only what's missing. This DAG is
-the *trigger*; the runner is the source of truth for freshness.
+The job is intentionally thin: it enumerates the dashboard's query families
+and dispatches each through `get_query_runner(...).run(...)` in force-refresh
+mode (`ExecutionMode.CALCULATE_BLOCKING_ALWAYS`). The runner routes through
+its family's lazy precompute path, which already knows what's stale and
+INSERTs only what's missing. This DAG is the *trigger*; the runner is the
+source of truth for freshness.
 
-`calculate()` is used deliberately instead of `run()`: `run()` is gated by
-the HogQL query result cache (6h staleness), which is the wrong clock for a
-precompute warmer whose buckets expire on a 2h TTL — it would skip tiles
-whose Redis result is still "fresh" while the precompute they feed has gone
-cold. `calculate()` always enters the precompute path and skips the result
-cache write, leaving Redis result-cache warming to `cache_warming.py`.
+Force-refresh is used deliberately. The DEFAULT execution mode gates on the
+HogQL query result cache (6h staleness), which is the wrong clock for a
+precompute warmer whose buckets expire on a much shorter TTL (15min for
+today's bucket) — it would skip tiles whose Redis result is still "fresh"
+while the precompute they feed has gone cold. Force-refresh always recomputes,
+so every tick re-enters the precompute path. Crucially it goes through `run()`
+(not a bare `calculate()`), so the warm stays inside the same rate-limit and
+concurrency wrappers (`_call_with_rate_limits`) as user traffic — the warmer
+must not pile unthrottled ClickHouse work on top of a saturated cluster. It
+also refreshes the (no-user) result-cache entry as a side effect, which is
+harmless; the user-facing replay warming is `cache_warming.py`'s job.
 
 Why this exists
 ---------------
@@ -58,7 +64,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.event_usage import EventSource
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
@@ -230,9 +237,12 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                 product=Product.WEB_ANALYTICS,
             )
             runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)
-            # `calculate()` not `run()` — see module docstring (bypasses the 6h result
-            # cache, skips the result-cache write).
-            response = runner.calculate()
+            # Force-refresh via run() — see module docstring (recomputes every tick
+            # while staying inside run()'s rate-limit/concurrency wrappers).
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": EventSource.CACHE_WARMING},
+            )
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
             # Self-check the warm actually did its job: the tile must resolve to a
