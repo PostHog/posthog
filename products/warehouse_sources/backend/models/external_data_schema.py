@@ -16,13 +16,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
-from products.data_warehouse.backend.data_load.service import (
-    external_data_workflow_exists,
-    pause_external_data_schedule,
-    sync_external_data_job_workflow,
-    unpause_external_data_schedule,
-)
-from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 type IncrementalFieldValue = str | int | float | None
@@ -328,6 +321,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.save()
 
     def delete_table(self):
+        # s3fs/boto3 at module scope would load at app population — only this method needs them
+        from products.data_warehouse.backend.s3 import get_s3_client  # noqa: PLC0415
+
         if self.table is not None:
             try:
                 client = get_s3_client()
@@ -394,6 +390,15 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+    # data_load.service imports temporalio at module scope; this is a models module, so a
+    # top-level import would put the Temporal client on the django.setup() path
+    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
+        external_data_workflow_exists,
+        pause_external_data_schedule,
+        sync_external_data_job_workflow,
+        unpause_external_data_schedule,
+    )
+
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()

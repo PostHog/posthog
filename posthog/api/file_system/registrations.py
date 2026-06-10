@@ -19,8 +19,8 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.user import User
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
-from products.tasks.backend.api import task_visibility_q
 from products.tasks.backend.models import Task as _Task
+from products.tasks.backend.visibility import task_visibility_q
 
 
 def _first_non_blank(*values: str | None) -> str | None:

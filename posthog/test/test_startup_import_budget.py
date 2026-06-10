@@ -26,6 +26,10 @@ FORBIDDEN_AT_SETUP = [
     "products.batch_exports.backend.temporal",  # batch export workflows + every destination's vendor SDK
     "databricks",  # Databricks SDK — only the databricks batch export destination needs it
     "snowflake",  # Snowflake SDK — only the snowflake batch export destination needs it
+    "temporalio",  # Temporal SDK — only workers and call-time service paths need it (gated on sys.modules)
+    "modal",  # Modal SDK — only the tasks/notebooks sandbox runtime needs it
+    "aiohttp",  # async HTTP — pulled by slack async client / temporal clickhouse, both deferred
+    "s3fs",  # S3 filesystem — only warehouse delete/import paths need it
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
