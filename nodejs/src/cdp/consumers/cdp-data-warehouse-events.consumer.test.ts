@@ -24,6 +24,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     const createDataWarehouseEvent = (teamId: number, properties: Record<string, any> = {}): CdpDataWarehouseEvent => {
         return {
             team_id: teamId,
+            event_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
             properties: {
                 column1: 'value1',
                 column2: 123,
@@ -103,8 +104,8 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 column2: 123,
                 test_prop: 'test_value',
             })
-            expect(invocations[0].event.uuid).toBe('data-warehouse-table-uuid-do-not-use')
-            expect(invocations[0].event.event).toBe('data-warehouse-table-event-do-not-use')
+            expect(invocations[0].event.uuid).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+            expect(invocations[0].event.event).toBe('$warehouse_source_row')
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {

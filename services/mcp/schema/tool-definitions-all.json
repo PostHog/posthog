@@ -619,6 +619,20 @@
             "readOnlyHint": true
         }
     },
+    "business-knowledge-document-window-retrieve": {
+        "description": "Returns a window of content chunks from a business knowledge document, centered around a specific ordinal. Use after searching knowledge to get more surrounding context for a specific result.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Read business knowledge document context",
+        "title": "Read business knowledge document context",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
