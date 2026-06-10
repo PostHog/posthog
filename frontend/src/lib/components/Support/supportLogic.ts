@@ -197,6 +197,11 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'AI gateway',
     },
     {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
         value: 'apps',
         'data-attr': `support-form-target-area-apps`,
         label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
@@ -250,11 +255,6 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'heatmaps',
         'data-attr': `support-form-target-area-heatmaps`,
         label: 'Heatmaps',
-    },
-    {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'AI observability',
     },
     {
         value: 'logs',
