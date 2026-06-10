@@ -1,5 +1,4 @@
 from collections import defaultdict
-from datetime import timedelta
 
 from django.db.models import Q
 from django.utils import timezone
@@ -27,12 +26,9 @@ SDK_VERSIONS_UPDATED_AT_PROPERTY = "sdk_versions_updated_at"
 # Match the SDK Doctor lookback so "current" means the same thing across the product.
 LOOKBACK_DAYS = 7
 
-# All-teams aggregation grouped by team — mirrors the full-scan grouped queries usage_report runs.
+# All-teams aggregation in a single pass — mirrors the full-scan grouped queries usage_report runs.
 # Uses materialized columns (no property-map lookup) and pre-filters to tracked SDKs to bound
 # cardinality. We only need presence of each lib@version per team, so no counts/timestamps.
-# The aggregation state is bounded by the tracked-lib × version × team key space (not event volume),
-# so a single 7-day scan stays cheap — verified against prod via Metabase before collapsing the
-# earlier day-split. Runs on OFFLINE cluster defaults.
 SDK_VERSIONS_BY_TEAM_SQL = """
 SELECT
     team_id,
@@ -40,7 +36,7 @@ SELECT
     `mat_$lib_version` AS lib_version
 FROM events
 WHERE
-    timestamp >= %(begin)s AND timestamp < %(end)s
+    timestamp >= now() - INTERVAL %(lookback_days)s DAY
     AND `mat_$lib` IN %(sdk_types)s
     AND `mat_$lib_version` IS NOT NULL
     AND `mat_$lib_version` != ''
@@ -50,15 +46,14 @@ GROUP BY team_id, lib, lib_version
 
 def _fetch_team_sdk_keys(*, lookback_days: int = LOOKBACK_DAYS) -> dict[int, set[str]]:
     """Return, per team, the set of `{lib}@{lib_version}` keys seen in the lookback window."""
-    team_keys: defaultdict[int, set[str]] = defaultdict(set)
-    now = timezone.now()
-    begin = now - timedelta(days=lookback_days)
     with tags_context(product=Product.SDK_DOCTOR, feature=Feature.USAGE_REPORT):
         rows = sync_execute(
             SDK_VERSIONS_BY_TEAM_SQL,
-            {"begin": begin, "end": now, "sdk_types": SDK_TYPES},
+            {"lookback_days": lookback_days, "sdk_types": SDK_TYPES},
             workload=Workload.OFFLINE,
         )
+
+    team_keys: defaultdict[int, set[str]] = defaultdict(set)
     for team_id, lib, lib_version in rows:
         team_keys[team_id].add(f"{lib}@{lib_version}")
     return team_keys

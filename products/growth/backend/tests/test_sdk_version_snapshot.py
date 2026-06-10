@@ -1,14 +1,12 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.models import Organization, Team
 
 from products.growth.backend.sdk_version_snapshot import (
     SDK_LIBS_PROPERTY,
     SDK_VERSION_KEYS_PROPERTY,
     SDK_VERSIONS_UPDATED_AT_PROPERTY,
-    _fetch_team_sdk_keys,
     _group_properties,
     _roll_up_to_groups,
     snapshot_sdk_versions_to_groups,
@@ -81,24 +79,6 @@ class TestRollUpToGroups(BaseTest):
 
     def test_empty_team_keys_returns_empty(self):
         assert _roll_up_to_groups({}) == ({}, {})
-
-
-class TestFetchTeamSdkKeys(BaseTest):
-    @patch(f"{MODULE}.sync_execute")
-    def test_single_scan_unions_presence_per_team(self, mock_sync_execute: MagicMock):
-        mock_sync_execute.return_value = [
-            (1, "web", "1.0.0"),
-            (1, "web", "2.0.0"),
-            (2, "posthog-php", "3.4.0"),
-        ]
-
-        team_keys = _fetch_team_sdk_keys()
-
-        assert mock_sync_execute.call_count == 1
-        assert team_keys == {1: {"web@1.0.0", "web@2.0.0"}, 2: {"posthog-php@3.4.0"}}
-        # Runs on the OFFLINE cluster with its default settings (no explicit ceiling passed).
-        assert mock_sync_execute.call_args.kwargs["workload"] == Workload.OFFLINE
-        assert "settings" not in mock_sync_execute.call_args.kwargs
 
 
 class TestSnapshotSdkVersionsToGroups(BaseTest):

@@ -77,6 +77,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.growth.backend.temporal.sdk_version_snapshot.workflow import SdkVersionSnapshotInputs
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
@@ -122,6 +123,40 @@ async def create_run_quota_limiting_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "run-quota-limiting-schedule", run_quota_limiting_schedule, trigger_immediately=False
+        )
+
+
+async def create_sdk_version_snapshot_schedule(client: Client):
+    """Create or update the schedule for the SdkVersionSnapshotWorkflow.
+
+    Daily at 06:30 UTC (after the usage report) — snapshots each org's/customer's current SDK
+    versions onto group properties so Sales/CS can self-serve "which customers are on SDK X version Y".
+    """
+    sdk_version_snapshot_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "snapshot-sdk-versions",
+            asdict(SdkVersionSnapshotInputs()),
+            id="sdk-version-snapshot-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 06:30 UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    minute=[ScheduleRange(start=30, end=30)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "sdk-version-snapshot-schedule"):
+        await a_update_schedule(client, "sdk-version-snapshot-schedule", sdk_version_snapshot_schedule)
+    else:
+        await a_create_schedule(
+            client, "sdk-version-snapshot-schedule", sdk_version_snapshot_schedule, trigger_immediately=False
         )
 
 
@@ -581,6 +616,7 @@ async def create_count_all_playlists_schedule(client: Client):
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
+    create_sdk_version_snapshot_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_enforce_max_replay_retention_schedule,
