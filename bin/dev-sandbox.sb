@@ -74,6 +74,11 @@
     (literal (string-append (param "HOME") "/.cargo/credentials"))
     (literal (string-append (param "HOME") "/.cargo/credentials.toml")))
 
+;; Keep DuckDB persistent secrets (CREATE PERSISTENT SECRET — unencrypted cloud
+;; credentials) blocked even though ~/.duckdb is allowed above.
+(deny file-read*
+    (subpath (string-append (param "HOME") "/.duckdb/stored_secrets")))
+
 ;; ── Writes ────────────────────────────────────────────────────────────
 ;; Writes stay broadly allowed (the stack writes caches, build output, /tmp),
 ;; but block the obvious persistence vectors so a dependency can't plant a
