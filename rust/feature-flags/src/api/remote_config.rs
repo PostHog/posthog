@@ -147,11 +147,19 @@ async fn authenticate(
     project_id: i64,
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
+    // Team ids are i32, so a project_id outside that range can't name any team. Treat it
+    // as 404 up front, the same for every auth method (Django resolves a missing project
+    // to 404 regardless of credential).
+    let project_id: i32 = match i32::try_from(project_id) {
+        Ok(id) => id,
+        Err(_) => return Ok(AuthOutcome::ProjectNotFound),
+    };
+
     if let Some(token) = auth::extract_team_secret_token(headers) {
         let (team_id, _api_token, _is_project_secret) =
             auth::validate_secret_api_token(state, &token).await?;
         // Django: authenticated_team.id == view.team.id, where view.team = Team(id=project_id).
-        if i64::from(team_id) != project_id {
+        if team_id != project_id {
             return Ok(AuthOutcome::Forbidden);
         }
         return Ok(AuthOutcome::Authorized {
@@ -161,12 +169,8 @@ async fn authenticate(
     }
 
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        let team_id: i32 = match i32::try_from(project_id) {
-            Ok(id) => id,
-            Err(_) => return Ok(AuthOutcome::ProjectNotFound),
-        };
         // view.team = Team(id=project_id); missing -> 404.
-        let team = match flag_service(state).get_team_by_id(team_id).await {
+        let team = match flag_service(state).get_team_by_id(project_id).await {
             Ok(team) => team,
             Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
                 return Ok(AuthOutcome::ProjectNotFound)
@@ -176,7 +180,7 @@ async fn authenticate(
         auth::validate_personal_api_key_with_scopes_for_team(state, &key, &team).await?;
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
-            team_id,
+            team_id: project_id,
         });
     }
 

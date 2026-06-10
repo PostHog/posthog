@@ -289,6 +289,31 @@ async fn test_remote_config_rate_limited_returns_429() {
 }
 
 #[tokio::test]
+async fn test_remote_config_oversized_project_id_returns_404() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (_team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // project_id > i32::MAX can't name a team: 404 on the secret path too, not 403,
+    // matching the personal-key path.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/99999999999/feature_flags/x/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
 async fn test_remote_config_oversized_numeric_id_returns_404() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
