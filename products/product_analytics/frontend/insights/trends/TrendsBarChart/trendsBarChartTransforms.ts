@@ -1,14 +1,32 @@
 import { normalizeAxisLabel } from '@posthog/quill-charts'
-import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
-
-import { hexToRGBA } from 'lib/utils'
-import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
-
-import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import type { IntervalType } from '~/types'
+import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
+
+// Compare-against-previous bars render at half opacity so they recede behind the current period.
+const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
+
+// Inlined from `lib/utils` so this module stays free of `lib/`/`~/`/`scenes/` deps and compiles in
+// the MCP Vite bundle, which only resolves `products/*` and `@posthog/*`. Returns the input unchanged
+// if it isn't a 3/6/8-digit hex (callers always pass palette hexes).
+function dimHexColor(hex: string, alpha: number): string {
+    let h = hex.replace(/^#/, '')
+    if (h.length === 3 || h.length === 4) {
+        h = h
+            .split('')
+            .map((char) => char + char)
+            .join('')
+    }
+    if (h.length !== 6 && h.length !== 8) {
+        return hex
+    }
+    const r = parseInt(h.slice(0, 2), 16)
+    const g = parseInt(h.slice(2, 4), 16)
+    const b = parseInt(h.slice(4, 6), 16)
+    return `rgba(${r},${g},${b},${alpha})`
+}
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsBarResultLike {
@@ -48,7 +66,7 @@ function resolveBarColor<R extends TrendsBarResultLike, M = unknown>(
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): string {
     const baseColor = opts.getColor(r, index)
-    return r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
+    return r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
 }
 
 function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
@@ -78,17 +96,20 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
 }
 
 export interface BuildTrendsBarTimeSeriesConfigOpts {
-    trendsFilter?: TrendsFilter | null
-    baseCurrency?: CurrencyCode
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
-    interval?: IntervalType | null
+    interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    goalLines?: SchemaGoalLine[] | null
+    // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
+    // interval/timezone for the auto date formatter. Mirrors the line config.
+    xAxisTickFormatter?: (value: string, index: number) => string | null
+    goalLines?: GoalLineLike[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
 }
@@ -105,6 +126,7 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
+            tickFormatter: opts.xAxisTickFormatter,
         },
         yAxis: {
             ...yAxis,
@@ -122,6 +144,38 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
 
 /** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
+
+export interface BuildTrendsBarChartModelOpts<
+    R extends TrendsBarResultLike,
+    M = unknown,
+> extends BuildTrendsBarTimeSeriesConfigOpts {
+    /** Final x-axis labels (the host formats them — kea dates vs the MCP `formatDate`). */
+    labels: string[]
+    getColor: (r: R, index: number) => string
+    getHidden?: (r: R, index: number) => boolean
+    buildMeta?: (r: R, index: number) => M
+}
+
+export interface TrendsBarChartModel<M = unknown> {
+    series: Series<M>[]
+    labels: string[]
+    config: TimeSeriesBarChartConfig
+}
+
+/** Assembles the time-series bar chart model (series + config) in one call so the MCP visualizer
+ *  builds the same series + config the web container assembles piecewise. */
+export function buildTrendsBarChartModel<R extends TrendsBarResultLike, M = unknown>(
+    results: R[],
+    opts: BuildTrendsBarChartModelOpts<R, M>
+): TrendsBarChartModel<M> {
+    const series = buildTrendsBarTimeSeries<R, M>(results, {
+        getColor: opts.getColor,
+        getHidden: opts.getHidden,
+        buildMeta: opts.buildMeta,
+    })
+    const config = buildTrendsBarTimeSeriesConfig(opts)
+    return { series, labels: opts.labels, config }
+}
 
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],

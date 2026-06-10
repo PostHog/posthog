@@ -96,4 +96,16 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
+
+    it('stamps $mcp_tool_category from the catalogued tool definition', async () => {
+        await trackToolCall('query-logs', 5, false, makeState())
+
+        expect(mockCapture.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+    })
+
+    it('omits $mcp_tool_category for tools without a catalogued definition', async () => {
+        await trackToolCall('exec', 5, false, makeState())
+
+        expect(mockCapture.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+    })
 })

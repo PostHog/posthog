@@ -46,7 +46,7 @@ export const getMcpServerInstallationsListUrl = (projectId: string, params?: Mcp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -238,7 +238,7 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -251,10 +251,10 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
 
 /**
  * Start (or re-start) an OAuth flow.
-
-Pass ``template_id`` to (re)connect a catalog template, or
-``installation_id`` to reconnect an existing custom install using its
-cached metadata and per-user DCR creds.
+ *
+ * Pass ``template_id`` to (re)connect a catalog template, or
+ * ``installation_id`` to reconnect an existing custom install using its
+ * cached metadata and per-user DCR creds.
  */
 export const mcpServerInstallationsAuthorizeRetrieve = async (
     projectId: string,
@@ -312,7 +312,7 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -325,9 +325,9 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
 
 /**
  * Lists curated MCP server templates that users can install with one click.
-
-Templates are seeded by PostHog operators and carry shared, encrypted
-OAuth client credentials. Inactive templates are hidden from the catalog.
+ *
+ * Templates are seeded by PostHog operators and carry shared, encrypted
+ * OAuth client credentials. Inactive templates are hidden from the catalog.
  */
 export const mcpServersList = async (
     projectId: string,

@@ -480,6 +480,17 @@
             "description": "A unique integer value identifying this feature flag.",
             "type": "number"
         },
+        "is_remote_configuration": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter."
+        },
         "key": {
             "description": "Feature flag key.",
             "type": "string"
