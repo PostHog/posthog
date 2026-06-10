@@ -416,6 +416,8 @@ jobs:
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
+                  # Kill switch — drop comma-separated products from the matrix; empty = run all.
+                  SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the

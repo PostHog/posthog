@@ -141,7 +141,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return Experiment.Status.DRAFT
 
     def get_feature_flag_key(self):
-        return self.feature_flag.key
+        # Strip the soft-delete tombstone so the API and analytics surface the original
+        # key, matching what the query runners resolve against historical events.
+        return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
         variants = (self.parameters or {}).get("feature_flag_variants")
