@@ -8,6 +8,9 @@ export type RowFilterColumnCategory = 'integer' | 'numeric' | 'string' | 'boolea
 
 export const ROW_FILTER_OPERATORS: RowFilterOperator[] = ['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']
 
+// Mirrors `MAX_ROW_FILTERS` in predicates.py so the editor can cap before the PATCH 400s.
+export const MAX_ROW_FILTERS = 20
+
 const OPERATOR_LABELS: Record<RowFilterOperator, string> = {
     '>': '> greater than',
     '>=': '≥ greater than or equal',
@@ -96,8 +99,9 @@ const STRING_TYPES = new Set([
     'name',
     'citext',
     'enum',
-    'json',
-    'jsonb',
+    // json / jsonb are intentionally excluded — a jsonb/json column compared to a text-bound
+    // value fails at sync time without a cast, so they're treated as unfilterable. Mirror of
+    // `_STRING_TYPES` in predicates.py.
 ])
 
 const BOOLEAN_TYPES = new Set(['bool', 'boolean', 'bit'])
