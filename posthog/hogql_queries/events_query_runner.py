@@ -28,6 +28,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -97,13 +98,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                # Only use backticks for property names with spaces or special chars
-                props = []
-                for key in property_keys:
-                    if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                        props.append(f"toString(person.properties.{key})")
-                    else:
-                        props.append(f"toString(person.properties.`{key}`)")
+                props = person_display_name_property_exprs(property_keys, "person.properties")
                 expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
                 select_input.append(expr)
             else:
@@ -337,12 +332,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                             property_keys = (
                                 self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                             )
-                            props = []
-                            for key in property_keys:
-                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                                    props.append(f"toString(person.properties.{key})")
-                                else:
-                                    props.append(f"toString(person.properties.`{key}`)")
+                            props = person_display_name_property_exprs(property_keys, "person.properties")
                             expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
                             newCol = re.sub(r"person_display_name -- Person ", expr, col)
                             columns.append(newCol)
