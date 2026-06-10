@@ -47,7 +47,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe(
-                            "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                         ),
                     hash: zod
                         .string()
@@ -170,7 +170,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe(
-                            "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                         ),
                     hash: zod
                         .string()
@@ -294,7 +294,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe(
-                            "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                         ),
                     hash: zod
                         .string()
@@ -418,7 +418,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                     ),
                 hash: zod
                     .string()
@@ -431,7 +431,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person; threshold = k-anonymity floor, fire only once N people share the hash). Throttles firing — it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -583,7 +583,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                     ),
                 hash: zod
                     .string()
@@ -596,7 +596,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person; threshold = k-anonymity floor, fire only once N people share the hash). Throttles firing — it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -748,7 +748,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                     ),
                 hash: zod
                     .string()
@@ -761,7 +761,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person; threshold = k-anonymity floor, fire only once N people share the hash). Throttles firing — it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -997,7 +997,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .nullish()
                             .describe(
-                                "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                                'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                             ),
                         hash: zod
                             .string()
@@ -1010,7 +1010,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person; threshold = k-anonymity floor, fire only once N people share the hash). Throttles firing — it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
+                    "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
                 ),
             conversion: zod
                 .unknown()
@@ -1262,7 +1262,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: only fire once at least this many people share the same hash within ttl (e.g. don't fire unless N users qualify). Omit to fire on the first match."
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
                     ),
                 hash: zod
                     .string()
@@ -1275,7 +1275,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person; threshold = k-anonymity floor, fire only once N people share the hash). Throttles firing — it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
