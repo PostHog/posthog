@@ -34,9 +34,8 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         setSelectedMetricIds: (ids: SharedMetric['id'][]) => ({ ids }),
         toggleSelectedMetricId: (id: SharedMetric['id']) => ({ id }),
         clearSelectedMetricIds: true,
-        // Quick-select across the whole result set, not just the pages already loaded.
-        selectAllSelectableMetrics: (alreadyAddedIds: SharedMetric['id'][]) => ({ alreadyAddedIds }),
-        selectMetricsByTag: (tag: string, alreadyAddedIds: SharedMetric['id'][]) => ({ tag, alreadyAddedIds }),
+        toggleFilterTag: (tag: string) => ({ tag }),
+        clearFilterTags: true,
     }),
 
     reducers({
@@ -96,16 +95,16 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                 closeSharedMetricModal: () => [],
             },
         ],
-        // A pending quick-select intent kept while the remaining pages load, applied once
-        // every page is in memory so the selection covers metrics beyond the first page.
-        pendingQuickSelect: [
-            null as { tag: string | null; alreadyAddedIds: SharedMetric['id'][] } | null,
+        // Tags chosen as a display filter — the metric table only shows metrics carrying one of these.
+        filterTags: [
+            [] as string[],
             {
-                selectAllSelectableMetrics: (_, { alreadyAddedIds }) => ({ tag: null, alreadyAddedIds }),
-                selectMetricsByTag: (_, { tag, alreadyAddedIds }) => ({ tag, alreadyAddedIds }),
-                setSelectedMetricIds: () => null,
-                openSharedMetricModal: () => null,
-                closeSharedMetricModal: () => null,
+                toggleFilterTag: (state, { tag }) =>
+                    state.includes(tag) ? state.filter((existingTag) => existingTag !== tag) : [...state, tag],
+                clearFilterTags: () => [],
+                setSearchTerm: () => [],
+                openSharedMetricModal: () => [],
+                closeSharedMetricModal: () => [],
             },
         ],
     }),
@@ -124,22 +123,8 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
                 },
-                loadNextSharedMetrics: async (_, breakpoint) => {
-                    const next = values.sharedMetricsResponse?.next
-                    if (!next) {
-                        return values.sharedMetricsResponse
-                    }
-                    const baseResults = values.sharedMetricsResponse?.results ?? []
-                    const response: CountedPaginatedResponse<SharedMetric> = await api.get(next)
-                    // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this page request.
-                    breakpoint()
-                    return {
-                        ...response,
-                        results: [...baseResults, ...response.results],
-                    }
-                },
-                // Page through every remaining result so quick-select-by-tag operates on the full
-                // set, not just the rows currently rendered in the table.
+                // Page through every remaining result so the tag filter and tag chip list cover the
+                // whole set of shared metrics, not just the first page rendered in the table.
                 loadAllSharedMetrics: async (_, breakpoint) => {
                     let response = values.sharedMetricsResponse
                     if (!response) {
@@ -157,6 +142,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                     let next = response.next
                     while (next) {
                         const page: CountedPaginatedResponse<SharedMetric> = await api.get(next)
+                        // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this load.
                         breakpoint()
                         results = [...results, ...page.results]
                         next = page.next
@@ -175,56 +161,48 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
             (loadedSharedMetrics: SharedMetric[]): SharedMetric[] =>
                 loadedSharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric),
         ],
-        canLoadMore: [(s) => [s.sharedMetricsResponse], (response): boolean => !!response?.next],
+        // Every tag present across the loaded compatible metrics — shown as filter chips.
+        availableTags: [
+            (s) => [s.compatibleSharedMetrics],
+            (compatibleSharedMetrics: SharedMetric[]): string[] =>
+                Array.from(
+                    new Set(compatibleSharedMetrics.flatMap((metric) => metric.tags ?? []).filter(Boolean))
+                ).sort(),
+        ],
+        // The metrics actually rendered: filtered to the chosen tags when any are active.
+        displayedMetrics: [
+            (s) => [s.compatibleSharedMetrics, s.filterTags],
+            (compatibleSharedMetrics: SharedMetric[], filterTags: string[]): SharedMetric[] =>
+                filterTags.length === 0
+                    ? compatibleSharedMetrics
+                    : compatibleSharedMetrics.filter((metric) => metric.tags?.some((tag) => filterTags.includes(tag))),
+        ],
+        // True while the remaining pages are still being fetched in the background.
+        isLoadingAllSharedMetrics: [
+            (s) => [s.sharedMetricsResponseLoading, s.sharedMetricsResponse],
+            (sharedMetricsResponseLoading: boolean, response: CountedPaginatedResponse<SharedMetric> | null): boolean =>
+                sharedMetricsResponseLoading || !!response?.next,
+        ],
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
 
-    listeners(({ actions, values }) => {
-        // Apply a queued quick-select once every page is loaded, so the selection spans
-        // all metrics matching the tag rather than only the rows already rendered.
-        const applyPendingQuickSelect = (): void => {
-            const pending = values.pendingQuickSelect
-            if (!pending) {
-                return
+    listeners(({ actions, values }) => ({
+        openSharedMetricModal: () => {
+            actions.loadSharedMetrics()
+        },
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSharedMetrics()
+        },
+        loadSharedMetricsSuccess: () => {
+            // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
+            if (!values.searchTerm) {
+                actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
             }
-            const alreadyAdded = new Set(pending.alreadyAddedIds)
-            const selectable = values.compatibleSharedMetrics.filter((metric) => !alreadyAdded.has(metric.id))
-            const matched =
-                pending.tag === null
-                    ? selectable
-                    : selectable.filter((metric) => metric.tags?.includes(pending.tag as string))
-            actions.setSelectedMetricIds(matched.map((metric) => metric.id))
-        }
-        const startQuickSelect = (): void => {
-            if (values.canLoadMore) {
+            // Eagerly pull in the rest of the pages so the tag filter operates on every metric.
+            if (values.sharedMetricsResponse?.next) {
                 actions.loadAllSharedMetrics()
-                return
             }
-            applyPendingQuickSelect()
-        }
-        return {
-            openSharedMetricModal: () => {
-                actions.loadSharedMetrics()
-            },
-            setSearchTerm: async (_, breakpoint) => {
-                await breakpoint(300)
-                actions.loadSharedMetrics()
-            },
-            loadSharedMetricsSuccess: () => {
-                // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
-                if (!values.searchTerm) {
-                    actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
-                }
-            },
-            selectAllSelectableMetrics: () => {
-                startQuickSelect()
-            },
-            selectMetricsByTag: () => {
-                startQuickSelect()
-            },
-            loadAllSharedMetricsSuccess: () => {
-                applyPendingQuickSelect()
-            },
-        }
-    }),
+        },
+    })),
 ])
