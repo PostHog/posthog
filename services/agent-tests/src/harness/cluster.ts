@@ -344,7 +344,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
         approvals,
-        buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
+        buildApprovalUrl: (requestId) => `/approvals?request=${requestId}`,
         isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
         tabularStore,

@@ -212,6 +212,10 @@ function findLastAssistant(conv: ConversationMessage[]): AssistantMessageRecord 
     return null
 }
 
+// Fallback when the runner didn't wire `buildApprovalUrl` — a relative console
+// deep link (clickable in-console), not an opaque `urn:` the user can't act on.
+// Prod/dev wire an absolute URL via index.ts; this just keeps the unwired path
+// usable instead of cryptic.
 function defaultApprovalUrl(requestId: string): string {
-    return `urn:posthog:approval:${requestId}`
+    return `/approvals?request=${requestId}`
 }

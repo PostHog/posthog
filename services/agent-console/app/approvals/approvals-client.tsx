@@ -1,5 +1,6 @@
 'use client'
 
+import { useSearchParams } from 'next/navigation'
 import { useMemo } from 'react'
 
 import { useSetDockPage } from '@/components/dock-context'
@@ -12,6 +13,9 @@ const POLL_MS = 10_000
 
 export function ApprovalsClient(): React.ReactElement {
     const teamId = useSessionTeamId()!
+    // Deep link from a gated tool call: `/approvals?request=<id>` opens that
+    // approval's detail directly (the link the agent surfaces to the approver).
+    const requestId = useSearchParams()?.get('request') ?? null
 
     useSetDockPage({ kind: 'agent-list' })
 
@@ -36,6 +40,7 @@ export function ApprovalsClient(): React.ReactElement {
             loading={approvals.loading}
             error={errorMessage}
             onReload={approvals.reload}
+            initialSelectedId={requestId}
         />
     )
 }

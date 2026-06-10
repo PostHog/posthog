@@ -23,10 +23,19 @@ export interface ApprovalsProps {
     error: string | null
     /** Caller refetches the list after a successful decision. */
     onReload: () => void
+    /** Pre-select this approval on mount (deep link from `?request=<id>`). */
+    initialSelectedId?: string | null
 }
 
-export function Approvals({ approvals, agents, loading, error, onReload }: ApprovalsProps): React.ReactElement {
-    const [selectedId, setSelectedId] = useState<string | null>(null)
+export function Approvals({
+    approvals,
+    agents,
+    loading,
+    error,
+    onReload,
+    initialSelectedId,
+}: ApprovalsProps): React.ReactElement {
+    const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
 
     const agentsById = useMemo<AgentLookup>(() => {
         const m = new Map<string, { id: string; name: string; slug: string }>()

@@ -207,7 +207,7 @@ describe('approval-gated tools: real e2e', () => {
         const queued = findApproval(session!.conversation, 'queued')
         expect(queued).not.toBeNull()
         expect(queued!.request_id).toMatch(/^[0-9a-f-]+$/)
-        expect(queued!.approval_url).toMatch(/\/approvals\//)
+        expect(queued!.approval_url).toMatch(/\/approvals\?request=/)
         expect(queued!.approver_hint).toMatch(/admin/i)
 
         // The approval is queryable via janitor.

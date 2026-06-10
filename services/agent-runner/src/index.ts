@@ -299,6 +299,14 @@ async function main(): Promise<void> {
         broker: new SecretBroker(),
         credentialBroker,
         approvals,
+        // Clickable deep link into the console approval inbox, surfaced to the
+        // model on a gated tool call (and whatever it posts to chat / Slack).
+        // Absolute when the console host is configured; relative otherwise —
+        // either way never the opaque `urn:` fallback.
+        buildApprovalUrl: (requestId) => {
+            const path = `/approvals?request=${requestId}`
+            return config.consoleBaseUrl ? `${config.consoleBaseUrl}${path}` : path
+        },
         bus,
         logs: logSink,
         resolveIntegrations,
