@@ -3,11 +3,32 @@
 #   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Toolbar annotations
 feature: toolbar_annotations
 url_prefix: /toolbar_annotations
 ui_apps: {}
 tools:
+    toolbar-annotations-create:
+        operation: toolbar_annotations_create
+        enabled: false
+    toolbar-annotations-destroy:
+        operation: toolbar_annotations_destroy
+        enabled: false
+    toolbar-annotations-get:
+        operation: toolbar_annotations_retrieve
+        enabled: true
+        scopes:
+            - toolbar_annotation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get toolbar annotation
+        description: >
+            Get a single toolbar annotation by id, including the full element context (selector, element chain, inferred
+            selectors, attributes) needed to locate the element in code.
     toolbar-annotations-list:
         operation: toolbar_annotations_list
         enabled: true
@@ -17,14 +38,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
         enrich_url: '{id}'
+        list: true
         title: List toolbar annotations
         description: >
-            List UI annotations a user made with the PostHog toolbar on their own site.
-            Each annotation is feedback pointed at a specific page element — comment, CSS
-            selector, page URL, host, and optional screenshot. Filter by `annotation_status`
-            (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
+            List UI annotations a user made with the PostHog toolbar on their own site. Each annotation is feedback
+            pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter
+            by `annotation_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
             `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.
         response:
             include:
@@ -40,40 +60,6 @@ tools:
                 - screenshot_url
                 - created_at
                 - created_by
-    toolbar-annotations-get:
-        operation: toolbar_annotations_retrieve
-        enabled: true
-        scopes:
-            - toolbar_annotation:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get toolbar annotation
-        description: >
-            Get a single toolbar annotation by id, including the full element context
-            (selector, element chain, inferred selectors, attributes) needed to locate
-            the element in code.
     toolbar-annotations-update:
-        operation: toolbar_annotations_partial_update
-        enabled: true
-        scopes:
-            - toolbar_annotation:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Update toolbar annotation
-        description: >
-            Update a toolbar annotation as you work through it — set `annotation_status`
-            to acknowledged, resolved, or dismissed, and optionally write a `resolution`
-            note describing what you changed or why it was dismissed.
-        param_overrides:
-            annotation_status:
-                description: >
-                    New lifecycle status: 'acknowledged' (picked up), 'resolved' (addressed),
-                    or 'dismissed' (won't fix). Leave unset to only update the resolution note.
-            resolution:
-                description: Note describing what was done about the annotation.
+        operation: toolbar_annotations_update
+        enabled: false
