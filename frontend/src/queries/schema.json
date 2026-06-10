@@ -41424,6 +41424,11 @@
             },
             "type": "object"
         },
+        "TraceOrderColumn": {
+            "description": "Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`).",
+            "enum": ["timestamp", "duration"],
+            "type": "string"
+        },
         "TraceQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41659,7 +41664,13 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "$ref": "#/definitions/LogsOrderBy"
+                    "$ref": "#/definitions/TraceOrderColumn",
+                    "description": "Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`."
+                },
+                "orderDirection": {
+                    "description": "Order direction. Defaults to DESC.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",
