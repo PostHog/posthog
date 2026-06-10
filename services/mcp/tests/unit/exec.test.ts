@@ -275,9 +275,9 @@ describe('exec tool', () => {
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            await expect(
-                exec.handler(mockContext, { command: 'call action-get {"actionId":277664}' })
-            ).rejects.toThrow(/missing required parameter: id/)
+            await expect(exec.handler(mockContext, { command: 'call action-get {"actionId":277664}' })).rejects.toThrow(
+                /missing required parameter: id/
+            )
         })
 
         it('passes validated output — with defaults applied — to the inner handler', async () => {
@@ -330,6 +330,35 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+        })
+
+        it('invokes the inner-call tracker with validation_error=true when input fails validation', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExecTool(
+                [tool],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
+                /missing required parameter: id/
+            )
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('action-get')
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.validation_error).toBe(true)
+            expect(calls[0]!.properties.duration_ms).toBe(0)
+            expect(calls[0]!.properties.error_message).toMatch(/missing required parameter: id/)
         })
     })
 

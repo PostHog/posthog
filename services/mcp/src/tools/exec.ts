@@ -26,6 +26,8 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /** Input rejected by the tool's schema before dispatch — no handler ran. */
+    validation_error?: boolean
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -127,7 +129,7 @@ function valueAtPath(input: unknown, path: ReadonlyArray<PropertyKey>): unknown 
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
  *  not exist" — steering recovery toward re-checking the ID rather than the
  *  malformed parameter. */
-function formatInputValidationError(toolName: string, error: z.ZodError, input: unknown): string {
+export function formatInputValidationError(toolName: string, error: z.ZodError, input: unknown): string {
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
@@ -336,19 +338,26 @@ export function createExecTool(
                         }
                     }
 
-                    // Validate against the tool's own schema before dispatching — the same
-                    // gate the non-exec MCP path (`tool-executor.ts`) applies. Skipping it
-                    // let bad input (missing `id`, wrong type) reach the HTTP layer and
-                    // build URLs like `.../actions/undefined/`, surfacing a misleading 404
-                    // instead of naming the offending field. Use the parsed output so the
-                    // handler receives coerced values and applied defaults.
+                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+
+                    // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
+                    // otherwise bad input reaches the HTTP layer and builds URLs like
+                    // `.../actions/undefined/`, a misleading 404 that hides the offending
+                    // field. Dispatch the parsed output so coerced values and defaults apply.
                     const validation = tool.schema.safeParse(input)
                     if (!validation.success) {
-                        throw new Error(formatInputValidationError(tool.name, validation.error, input))
+                        const message = formatInputValidationError(tool.name, validation.error, input)
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: 0,
+                            success: false,
+                            output_format: useJson ? 'json' : 'text',
+                            error_message: message,
+                            validation_error: true,
+                        })
+                        throw new Error(message)
                     }
                     input = validation.data as Record<string, unknown>
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     const startedAt = Date.now()
                     let result: unknown
                     try {

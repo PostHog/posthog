@@ -11,7 +11,7 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -115,7 +115,10 @@ export class ToolExecutor {
         const validation = tool.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return {
+                content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error, toolArgs) }],
+                isError: true,
+            }
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
@@ -174,7 +177,12 @@ export class ToolExecutor {
         const validation = resolved.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return {
+                content: [
+                    { type: 'text', text: formatInputValidationError(resolved.name, validation.error, toolArgs) },
+                ],
+                isError: true,
+            }
         }
 
         const startMs = Date.now()
@@ -219,9 +227,14 @@ export class ToolExecutor {
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
             execMetrics.innerToolName = toolName
-            const status = properties.success ? 'success' : 'error'
+            const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
-            toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            // Mirror the native path: schema rejections never start a handler, so
+            // they get no duration observation (`callTool` starts its timer only
+            // after validation passes).
+            if (!properties.validation_error) {
+                toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            }
 
             // Mirror the native path: stamp the inner tool's category so exec-routed
             // calls share the dashboard's `$mcp_tool_category` grouping dimension.
