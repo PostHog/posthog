@@ -788,6 +788,7 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    LIST_FEATURE_FLAGS = "list_feature_flags"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"

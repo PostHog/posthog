@@ -134,6 +134,7 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
     'list_data',
+    'list_feature_flags',
     'search',
     'switch_mode',
     'list_llm_skills',
@@ -497,6 +498,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return `Listed ${entityLabel}${pageInfo}`
             }
             return `Listing ${entityLabel}${pageInfo}...`
+        },
+    },
+    list_feature_flags: {
+        name: 'List feature flags',
+        description: 'List feature flags with their status, filterable by stale/enabled/disabled',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const status = typeof toolCall.args?.status === 'string' ? toolCall.args.status : null
+            const label = status ? `${status} feature flags` : 'feature flags'
+            return toolCall.status === 'completed' ? `Listed ${label}` : `Listing ${label}...`
         },
     },
     create_insight: {

@@ -24,6 +24,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
@@ -181,6 +182,7 @@ class EntitySearchContext:
         entity_type: str,
         limit: int = 100,
         offset: int = 0,
+        active_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         List entities with pagination support, sorted by updated_at DESC.
@@ -189,6 +191,7 @@ class EntitySearchContext:
             entity_type: Type of entity to list (insight, dashboard, artifact, etc.)
             limit: Number of entities to return
             offset: Number of entities to skip
+            active_filter: Only used for feature_flag — "STALE" / "true" / "false" status filter
 
         Returns:
             Tuple of (entities list, total count)
@@ -224,6 +227,9 @@ class EntitySearchContext:
         elif entity_type == "account":
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
+        elif entity_type == "feature_flag":
+            # Specialized queryset so we can surface each flag's status and reuse the active/STALE filter
+            return await self._list_feature_flags(limit, offset, active_filter)
         else:
             # Fetch database entities
             db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
@@ -363,6 +369,55 @@ class EntitySearchContext:
             for account in accounts
         ]
         return all_entities, total_count
+
+    async def _list_feature_flags(
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        List feature flags, newest first, surfacing each flag's status so stale flags can be
+        identified without reading them one by one. `active_filter` ("STALE"/"true"/"false")
+        reuses the same backend filter as the feature_flags API.
+        """
+        return await database_sync_to_async(self._list_feature_flags_sync, thread_sensitive=False)(
+            limit, offset, active_filter
+        )
+
+    def _list_feature_flags_sync(
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            FeatureFlag.objects.filter(team=self._team, deleted=False)
+        )
+        if active_filter is not None:
+            queryset = filter_flags_by_active_param(queryset, active_filter)
+        queryset = queryset.order_by("-created_at")
+
+        total_count = queryset.count()
+        flags = list(queryset[offset : offset + limit])
+
+        all_entities: list[dict[str, Any]] = []
+        for flag in flags:
+            status, _ = FeatureFlagStatusChecker(feature_flag=flag).get_status()
+            all_entities.append(
+                {
+                    "type": "feature_flag",
+                    "result_id": str(flag.id),
+                    "extra_fields": {
+                        "key": flag.key,
+                        "name": flag.name,
+                        "status": status.value,
+                        "active": flag.active,
+                        "rollout": self._flag_rollout_summary(flag),
+                    },
+                }
+            )
+        return all_entities, total_count
+
+    def _flag_rollout_summary(self, flag: FeatureFlag) -> str | None:
+        """Highest release-condition rollout percentage, as a display hint (not staleness logic)."""
+        groups = (flag.filters or {}).get("groups", [])
+        percentages = [g.get("rollout_percentage") for g in groups if g.get("rollout_percentage") is not None]
+        return f"{max(percentages)}%" if percentages else None
 
     def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
         """

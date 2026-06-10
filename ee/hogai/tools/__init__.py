@@ -7,6 +7,7 @@ from .create_notebook import CreateNotebookTool
 from .execute_sql.mcp_tool import ExecuteSQLMCPTool  # noqa: F401
 from .execute_sql.tool import ExecuteSQLTool
 from .list_data import ListDataTool
+from .list_feature_flags import ListFeatureFlagsTool
 from .manage_memories import ManageMemoriesTool
 from .read_data import ReadDataTool
 from .read_data_warehouse_schema.mcp_tool import ReadDataWarehouseSchemaMCPTool  # noqa: F401
@@ -23,6 +24,7 @@ __all__ = [
     "CreateFormTool",
     "ManageMemoriesTool",
     "ListDataTool",
+    "ListFeatureFlagsTool",
     "ReadDataTool",
     "ReadTaxonomyTool",
     "SearchTool",
