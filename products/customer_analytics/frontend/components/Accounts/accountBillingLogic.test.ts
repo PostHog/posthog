@@ -6,13 +6,13 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { QueryBasedInsightModel } from '~/types'
 
-import { accountBillingLogic, BILLING_INSIGHT_SHORT_IDS } from './accountBillingLogic'
+import { AccountBillingKind, accountBillingLogic, BILLING_INSIGHT_SHORT_IDS } from './accountBillingLogic'
 
 const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
 const END_VARIABLE_ID = 'var-end'
 
-const buildSpendInsight = (shortId: string): QueryBasedInsightModel =>
+const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
     ({
         short_id: shortId,
         query: {
@@ -40,7 +40,7 @@ describe('accountBillingLogic', () => {
         initKeaTests()
         jest.restoreAllMocks()
         jest.spyOn(insightsApi, 'getByShortId').mockImplementation((shortId) =>
-            Promise.resolve(buildSpendInsight(shortId))
+            Promise.resolve(buildBillingInsight(shortId))
         )
     })
 
@@ -48,49 +48,54 @@ describe('accountBillingLogic', () => {
         logic?.unmount()
     })
 
-    it('loads every saved insight configured for the kind', async () => {
-        logic = accountBillingLogic({ accountId: 'acc-1', externalId: 'org-uuid', kind: 'spend' })
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.savedInsights?.map((insight) => insight.short_id)).toEqual(BILLING_INSIGHT_SHORT_IDS.spend)
-    })
-
-    it('injects the external id into each saved insight variables', async () => {
-        logic = accountBillingLogic({ accountId: 'acc-1', externalId: 'org-uuid', kind: 'spend' })
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners()
-        for (const shortId of BILLING_INSIGHT_SHORT_IDS.spend) {
-            expect(logic.values.variableOverridesByShortId[shortId]?.[ORG_VARIABLE_ID]?.value).toBe('org-uuid')
+    describe.each<AccountBillingKind>(['usage', 'spend'])('kind: %s', (kind) => {
+        const mountForKind = (): void => {
+            logic = accountBillingLogic({ accountId: 'acc-1', externalId: 'org-uuid', kind })
+            logic.mount()
         }
-    })
 
-    it('updates the date variable overrides when the date range changes', async () => {
-        logic = accountBillingLogic({ accountId: 'acc-1', externalId: 'org-uuid', kind: 'spend' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        it('loads every saved insight configured for the kind', async () => {
+            mountForKind()
 
-        logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.savedInsights?.map((insight) => insight.short_id)).toEqual(
+                BILLING_INSIGHT_SHORT_IDS[kind]
+            )
+        })
 
-        const [firstShortId] = BILLING_INSIGHT_SHORT_IDS.spend
-        expect(logic.values.variableOverridesByShortId[firstShortId]?.[START_VARIABLE_ID]?.value).toBe('2024-01-01')
-        expect(logic.values.variableOverridesByShortId[firstShortId]?.[END_VARIABLE_ID]?.value).toBe('2024-01-31')
-    })
+        it('injects the external id into each saved insight variables', async () => {
+            mountForKind()
 
-    it('changes the query key when the date range changes so the insight refetches', async () => {
-        logic = accountBillingLogic({ accountId: 'acc-1', externalId: 'org-uuid', kind: 'spend' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+            for (const shortId of BILLING_INSIGHT_SHORT_IDS[kind]) {
+                expect(logic.values.variableOverridesByShortId[shortId]?.[ORG_VARIABLE_ID]?.value).toBe('org-uuid')
+            }
+        })
 
-        const [firstShortId] = BILLING_INSIGHT_SHORT_IDS.spend
-        const initialQueryKey = logic.values.queryKeyFor(firstShortId)
+        it('updates the date variable overrides when the date range changes', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
 
-        const nextQueryKey = logic.values.queryKeyFor(firstShortId)
-        expect(nextQueryKey).not.toEqual(initialQueryKey)
-        expect(nextQueryKey).toContain('2024-01-01')
-        expect(nextQueryKey).toContain('2024-01-31')
+            const [firstShortId] = BILLING_INSIGHT_SHORT_IDS[kind]
+            expect(logic.values.variableOverridesByShortId[firstShortId]?.[START_VARIABLE_ID]?.value).toBe('2024-01-01')
+            expect(logic.values.variableOverridesByShortId[firstShortId]?.[END_VARIABLE_ID]?.value).toBe('2024-01-31')
+        })
+
+        it('changes the query key when the date range changes so the insight refetches', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const [firstShortId] = BILLING_INSIGHT_SHORT_IDS[kind]
+            const initialQueryKey = logic.values.queryKeyFor(firstShortId)
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+
+            const nextQueryKey = logic.values.queryKeyFor(firstShortId)
+            expect(nextQueryKey).not.toEqual(initialQueryKey)
+            expect(nextQueryKey).toContain('2024-01-01')
+            expect(nextQueryKey).toContain('2024-01-31')
+        })
     })
 })
