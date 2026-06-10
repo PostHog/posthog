@@ -12465,6 +12465,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface DashboardCollaborator {
@@ -24254,6 +24256,8 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -31453,6 +31457,8 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedParserRecipe {
@@ -43055,7 +43061,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
@@ -47324,7 +47330,7 @@ export namespace Schemas {
      */
     order?: string;
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
     };
@@ -48469,7 +48475,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
