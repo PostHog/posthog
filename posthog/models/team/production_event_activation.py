@@ -6,13 +6,12 @@ file is split into two layers so the heuristic can be retuned without
 touching the rest of the system:
 
   1. CRITERION  — `_teams_meeting_criterion(team_ids)` is the single source
-                  of truth for what counts as "production traffic": at least
-                  one event in the window whose origin host is a real public
-                  host (see `is_production_host`). The contract is
-                  intentionally narrow: `Iterable[team_id] -> dict[team_id,
-                  production_host]`. The implementation is free to change.
+                  of truth for what counts as "production traffic". The
+                  contract is intentionally narrow: `Iterable[team_id] ->
+                  dict[team_id, ProductionTrafficSignal]`. The implementation
+                  is free to change.
 
-  2. TRANSITION — `_mark_teams_ingested_production_event(hosts, now)` is
+  2. TRANSITION — `_mark_teams_ingested_production_event(signals, now)` is
                   the only code that marks the column and emits the
                   `first team production event ingested` analytics event.
                   Idempotent under concurrent runs via `SELECT FOR UPDATE
@@ -21,19 +20,34 @@ touching the rest of the system:
 Scheduling lives in `products/growth/dags/team_production_event_activation.py`,
 which wires these helpers into a Dagster job + daily schedule.
 
-Detection is fail-closed: a team qualifies only on a positive public-host
-signal from the browser's `$host` / `$current_url`. No host (server-side and
-mobile SDKs), anything local/private/reserved, or anything ambiguous does not
-qualify. A false positive silently corrupts the activation metric and is hard
-to detect; a false negative is recoverable — the daily sweep re-checks
-unflagged teams. `$ip`/GeoIP can't be used instead: a developer's local
-backend still reaches us over the public internet from a public IP.
+A team qualifies on the strongest available signal for its SDK class, checked
+in this order within the window:
+
+  - WEB:    at least one event whose origin host (`$host`, falling back to the
+            host of `$current_url`) is a real public host — see
+            `is_production_host`. `$ip`/GeoIP can't be used instead: a
+            developer's local backend still reaches us over the public
+            internet from a public IP.
+  - MOBILE: enough distinct physical devices on events that affirm
+            `$is_emulator: false`. A single non-emulator event is *not*
+            production evidence — a developer testing on their own phone looks
+            identical — but several distinct physical devices means the app
+            shipped to real hands.
+  - SERVER: enough distinct users on events from server-side SDKs. There is no
+            environment signal at all in backend events, so this is a pure
+            diversity proxy and intentionally has the highest bar.
+
+Detection is fail-closed: each leg requires its positive signal, and anything
+local/private/reserved/ambiguous does not qualify. A false positive silently
+corrupts the activation metric and is hard to detect; a false negative is
+recoverable — the daily sweep re-checks unflagged teams.
 """
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Final
+from typing import Final, Literal
 
 from django.db import transaction
 
@@ -53,6 +67,50 @@ SWEEP_BATCH_SIZE: Final[int] = 5_000
 # emits pathological host cardinality; a production host pushed past the cap
 # is only a transient false negative — the next daily run resamples.
 HOSTS_PER_TEAM_CAP: Final[int] = 1_000
+
+# MOBILE: distinct physical devices (`$device_id`, falling back to
+# `distinct_id`) on `$is_emulator: false` events. One developer owns one or
+# two test phones; this many distinct real devices means the app shipped.
+# Device IDs are stabler than anonymous distinct_ids against one developer's
+# login/logout/reinstall churn.
+MOBILE_PHYSICAL_DEVICES_THRESHOLD: Final[int] = 3
+
+# SERVER: distinct users on events from server-side SDKs. Backend events carry
+# no environment signal whatsoever, so this is a diversity proxy: a production
+# backend serves many distinct users, a developer's test run uses a handful of
+# fixture IDs. Deliberately the highest bar of the three legs — a seeded dev
+# database can fabricate distinct IDs cheaply.
+SERVER_LIB_USERS_THRESHOLD: Final[int] = 10
+
+# `$lib` values treated as server-side evidence. Deliberately a positive
+# allowlist (not "anything without a host") so that web traffic with stripped
+# properties or e2e suites hammering localhost with fresh anonymous IDs can't
+# drift into this leg.
+SERVER_SIDE_LIBS: Final[tuple[str, ...]] = (
+    "posthog-python",
+    "posthog-node",
+    "posthog-php",
+    "posthog-ruby",
+    "posthog-go",
+    "posthog-java",
+    "posthog-dotnet",
+    "posthog-elixir",
+    "posthog-rs",
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ProductionTrafficSignal:
+    """Which signal qualified a team, for the emitted analytics event.
+
+    `production_host` is set for the web leg; `distinct_count` carries the
+    device count (mobile leg) or user count (server leg).
+    """
+
+    kind: Literal["production_host", "mobile_physical_devices", "server_lib_users"]
+    production_host: str | None = None
+    distinct_count: int | None = None
+
 
 # Reserved / non-public TLD suffixes. A host ending in one of these is a dev or
 # internal name, never a real public environment. Matched as an exact suffix
@@ -122,17 +180,21 @@ def _strip_port_and_brackets(host: str) -> str:
     return host
 
 
-def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, str]:
-    """Return `{team_id: production_host}` for the subset of `team_ids` whose
-    recent traffic meets the criterion: at least one event in the window with
-    a production origin host.
+def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTrafficSignal]:
+    """Return `{team_id: signal}` for the subset of `team_ids` whose recent
+    traffic meets the criterion, with the strongest signal that matched (web
+    origin host > mobile physical devices > server-side user diversity).
 
     Single source of truth for "what counts as production traffic." ClickHouse
-    only collects candidate hosts — `$host`, falling back to the host of
-    `$current_url` — per team; classification happens in `is_production_host`
-    so it stays unit-testable. The exact-localhost prefilter in SQL is an
-    optimization only (it keeps the dominant dev noise out of the result set
-    and away from the per-team cap); correctness lives in the Python classifier.
+    only collects per-team evidence — candidate origin hosts (`$host`, falling
+    back to the host of `$current_url`), physical-device counts, and
+    server-side user counts; host classification happens in
+    `is_production_host` so it stays unit-testable. The exact-localhost
+    prefilter in SQL is an optimization only (it keeps the dominant dev noise
+    out of the result set and away from the per-team cap); correctness lives
+    in the Python classifier. `$is_emulator` is matched against its raw JSON
+    value so both boolean and stringly-typed `false` count, and anything else
+    (true, absent, garbage, SDK versions that don't send it) fails closed.
     """
     team_id_list = list(team_ids)
     if not team_id_list:
@@ -144,43 +206,66 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, str]:
     with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
         rows = sync_execute(
             """
-            SELECT team_id, host
+            SELECT
+                team_id,
+                groupUniqArrayIf(%(hosts_per_team_cap)s)(
+                    host,
+                    host != '' AND host != 'localhost' AND NOT startsWith(host, 'localhost:')
+                ) AS candidate_hosts,
+                uniqIf(
+                    if(device_id != '', device_id, distinct_id),
+                    is_emulator_raw IN ('false', '"false"')
+                ) AS physical_devices,
+                uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
             FROM (
                 SELECT
                     team_id,
+                    distinct_id,
                     if(
                         JSONExtractString(properties, '$host') != '',
                         JSONExtractString(properties, '$host'),
                         domain(JSONExtractString(properties, '$current_url'))
-                    ) AS host
+                    ) AS host,
+                    JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
+                    JSONExtractString(properties, '$device_id') AS device_id,
+                    JSONExtractString(properties, '$lib') AS lib
                 FROM events
                 WHERE team_id IN %(team_ids)s
                   AND timestamp >= now() - toIntervalDay(%(window_days)s)
             )
-            WHERE host != ''
-              AND host != 'localhost'
-              AND NOT startsWith(host, 'localhost:')
-            GROUP BY team_id, host
-            LIMIT %(hosts_per_team_cap)s BY team_id
+            GROUP BY team_id
+            HAVING notEmpty(candidate_hosts)
+                OR physical_devices >= %(mobile_threshold)s
+                OR server_lib_users >= %(server_threshold)s
             """,
             {
                 "team_ids": team_id_list,
                 "window_days": WINDOW_DAYS,
                 "hosts_per_team_cap": HOSTS_PER_TEAM_CAP,
+                "server_side_libs": list(SERVER_SIDE_LIBS),
+                "mobile_threshold": MOBILE_PHYSICAL_DEVICES_THRESHOLD,
+                "server_threshold": SERVER_LIB_USERS_THRESHOLD,
             },
         )
 
-    qualifying: dict[int, str] = {}
-    for team_id, host in rows:
-        if team_id not in qualifying and is_production_host(host):
-            qualifying[team_id] = host
+    qualifying: dict[int, ProductionTrafficSignal] = {}
+    for team_id, candidate_hosts, physical_devices, server_lib_users in rows:
+        production_host = next((host for host in candidate_hosts if is_production_host(host)), None)
+        if production_host is not None:
+            qualifying[team_id] = ProductionTrafficSignal(kind="production_host", production_host=production_host)
+        elif physical_devices >= MOBILE_PHYSICAL_DEVICES_THRESHOLD:
+            qualifying[team_id] = ProductionTrafficSignal(
+                kind="mobile_physical_devices", distinct_count=physical_devices
+            )
+        elif server_lib_users >= SERVER_LIB_USERS_THRESHOLD:
+            qualifying[team_id] = ProductionTrafficSignal(kind="server_lib_users", distinct_count=server_lib_users)
     return qualifying
 
 
 # --- Transition -------------------------------------------------------------
 
 
-def _mark_teams_ingested_production_event(team_production_hosts: Mapping[int, str], now: datetime) -> int:
+def _mark_teams_ingested_production_event(team_signals: Mapping[int, ProductionTrafficSignal], now: datetime) -> int:
     """Mark `ingested_production_event` for the given teams and emit one
     activation event per team that is newly marked.
 
@@ -189,13 +274,13 @@ def _mark_teams_ingested_production_event(team_production_hosts: Mapping[int, st
     each team's event fires at most once. Returns the number of teams that
     were marked this call.
     """
-    if not team_production_hosts:
+    if not team_signals:
         return 0
 
     with transaction.atomic():
         teams_to_mark = list(
             Team.objects.select_for_update(skip_locked=True)
-            .filter(id__in=list(team_production_hosts.keys()), ingested_production_event=False)
+            .filter(id__in=list(team_signals.keys()), ingested_production_event=False)
             .only("id", "uuid")
         )
         if not teams_to_mark:
@@ -210,13 +295,17 @@ def _mark_teams_ingested_production_event(team_production_hosts: Mapping[int, st
     # `ph_scoped_capture`'s explicit flush.
     with ph_scoped_capture() as capture:
         for team in teams_to_mark:
+            signal = team_signals[team.id]
+            properties = {
+                "detection_signal": signal.kind,
+                "production_host": signal.production_host,
+                "distinct_count": signal.distinct_count,
+                "window_days": WINDOW_DAYS,
+            }
             capture(
                 distinct_id=str(team.uuid),
                 event="first team production event ingested",
-                properties={
-                    "production_host": team_production_hosts[team.id],
-                    "window_days": WINDOW_DAYS,
-                },
+                properties={key: value for key, value in properties.items() if value is not None},
                 groups=groups(team=team),
             )
     return len(teams_to_mark)
@@ -236,16 +325,16 @@ def evaluate_and_mark_team_batch(team_ids: Iterable[int], now: datetime) -> tupl
     if not batch:
         return 0, 0
 
-    qualifying_hosts = _teams_meeting_criterion(batch)
-    marked = _mark_teams_ingested_production_event(qualifying_hosts, now=now) if qualifying_hosts else 0
+    qualifying_signals = _teams_meeting_criterion(batch)
+    marked = _mark_teams_ingested_production_event(qualifying_signals, now=now) if qualifying_signals else 0
 
     # Bump `_last_checked_at` for the rest so we know we evaluated them.
     # Qualifying teams already had `_last_checked_at` set inside the
     # transition helper, so don't double-write them here.
-    non_qualifying = [tid for tid in batch if tid not in qualifying_hosts]
+    non_qualifying = [tid for tid in batch if tid not in qualifying_signals]
     if non_qualifying:
         Team.objects.filter(id__in=non_qualifying).update(
             ingested_production_event_last_checked_at=now,
         )
 
-    return len(qualifying_hosts), marked
+    return len(qualifying_signals), marked
