@@ -58,10 +58,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
         headroom = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - in_flight
         if headroom <= 0:
             # At the cap — drain before fetching more. Don't advance the watermark; resume next tick.
-            wf.logger.info(
-                "replay_vision.sweep_throttled",
-                extra={"scanner_id": str(inputs.scanner_id), "in_flight": in_flight},
-            )
+            wf.logger.info("replay_vision.sweep_throttled", extra={"scanner_id": str(inputs.scanner_id)})
             return
 
         find_result = await wf.execute_activity(
