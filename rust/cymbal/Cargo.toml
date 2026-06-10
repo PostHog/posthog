@@ -33,6 +33,7 @@ zip = "4.0"
 proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"
+ed25519-dalek = { version = "2.1", features = ["pkcs8", "pem"] }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 uuid = { workspace = true }
@@ -57,6 +58,7 @@ httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
 tower.workspace = true
+hex = "0.4"
 
 [lints]
 workspace = true

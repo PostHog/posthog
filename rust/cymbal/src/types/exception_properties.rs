@@ -123,6 +123,8 @@ impl ExceptionProperties {
             values,
             sources,
             functions,
+            verified: None,
+            verified_key_id: None,
         })
     }
 }

@@ -194,9 +194,16 @@ pub struct OutputErrProps {
     pub sources: Vec<String>,
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
+    // Authenticity: set true only when the event carried a valid signature from one of the
+    // team's registered Ed25519 keys (see crate::exception_signing). Server-controlled — listed
+    // in RESERVED_PROPERTIES so any client-supplied value is stripped and can't be forged.
+    #[serde(rename = "$exception_verified", skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+    #[serde(rename = "$exception_verified_key_id", skip_serializing_if = "Option::is_none")]
+    pub verified_key_id: Option<String>,
 }
 
-const RESERVED_PROPERTIES: [&str; 11] = [
+const RESERVED_PROPERTIES: [&str; 13] = [
     "$exception_list",
     "$exception_fingerprint",
     "$exception_issue_id",
@@ -208,6 +215,8 @@ const RESERVED_PROPERTIES: [&str; 11] = [
     "$exception_values",
     "$exception_sources",
     "$exception_functions",
+    "$exception_verified",
+    "$exception_verified_key_id",
 ];
 
 impl FingerprintComponent for Exception {
@@ -330,6 +339,11 @@ impl FingerprintedErrProps {
             functions,
             handled,
             releases,
+            // Populated by the signature-verification step in the ingestion pipeline (see
+            // crate::exception_signing). None until that wiring lands; the RESERVED_PROPERTIES
+            // filter above already strips any client-supplied value so it can't be forged.
+            verified: None,
+            verified_key_id: None,
         }
     }
 }
