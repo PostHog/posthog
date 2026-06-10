@@ -914,8 +914,6 @@ export type ActivityLogListParams = {
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
 * `InstanceSetting` - InstanceSetting
-* `AgentApplication` - AgentApplication
-* `AgentRevision` - AgentRevision
 * `SignalScoutConfig` - SignalScoutConfig
  * @minLength 1
  */
@@ -994,8 +992,6 @@ export const ActivityLogListScope = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
-    AgentApplication: 'AgentApplication',
-    AgentRevision: 'AgentRevision',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
@@ -1061,8 +1057,6 @@ export const ActivityLogListScope = {
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  * `InstanceSetting` - InstanceSetting
- * `AgentApplication` - AgentApplication
- * `AgentRevision` - AgentRevision
  * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
@@ -1129,8 +1123,6 @@ export const ActivityLogListScopesItem = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
-    AgentApplication: 'AgentApplication',
-    AgentRevision: 'AgentRevision',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 

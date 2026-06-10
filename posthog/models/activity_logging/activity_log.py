@@ -87,11 +87,7 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "InstanceSetting",
-    "AgentApplication",
-    "AgentRevision",
     "SignalScoutConfig",
-    "AgentApplication",
-    "AgentRevision",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -264,12 +260,6 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # No longer used but kept for backwards-compatibility with existing activity log entries
         "temporary_token",
         "pending_email",
-    ],
-    "AgentApplication": [
-        # Encrypted JSON env block. Auditing that it changed is the point; we
-        # never want the ciphertext (let alone any decrypted secret) to land
-        # in the activity log payload.
-        "encrypted_env",
     ],
 }
 
@@ -647,19 +637,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
-    ],
-    "AgentApplication": [
-        # `archived_at` moves in lockstep with `archived` — the boolean flip is
-        # the user-visible change, the timestamp is bookkeeping.
-        "archived_at",
-        # Tracked separately as revision lifecycle events on AgentRevision;
-        # the FK pointer churns automatically on every promote.
-        "live_revision",
-    ],
-    "AgentRevision": [
-        # Bundle storage URI is set at create time and never mutates after
-        # freeze — surfacing it would just be noise in the log feed.
-        "bundle_uri",
     ],
     "SignalScoutConfig": [
         # Run bookkeeping, not user intent — keep it out of change detection even when it

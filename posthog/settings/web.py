@@ -824,7 +824,7 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
 # Agent janitor service — Django proxies session list/detail/cancel requests to this URL.
-AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
+AGENT_JANITOR_BASE_URL = get_from_env("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
 
 # Public base URL where agent-ingress is reachable from the outside world
 # (Slack's events callback, third-party webhooks, etc). In prod this is the
@@ -833,7 +833,7 @@ AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3
 # `slack_events_url` Django returns on agent retrievals is the actual URL the
 # user pastes into their Slack app dashboard. Empty default → the field is
 # omitted from the serializer response, signalling "not externally reachable".
-AGENT_INGRESS_PUBLIC_URL = os.getenv("AGENT_INGRESS_PUBLIC_URL", "")
+AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
 
 # Shared HMAC signing key for trusted-service JWTs across the agent platform.
 # Django mints aud-scoped tokens for the ingress (draft previews) and janitor
@@ -846,11 +846,13 @@ AGENT_INGRESS_PUBLIC_URL = os.getenv("AGENT_INGRESS_PUBLIC_URL", "")
 # header, and the misconfiguration surfaces fast — far better than minting
 # tokens signed by a baked-in dev string that ends up dispatched to a real
 # upstream service.
-AGENT_INTERNAL_SIGNING_KEY = os.getenv("AGENT_INTERNAL_SIGNING_KEY", "")
+AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")
 
 # ai-gateway billing read plane — Django proxies wallet + ledger reads to this URL.
 # Defaults to the well-known dev secret baked into ai-gateway/bin/start so
 # `/billing` works out of the box. Prod MUST override both via env. Mismatched
 # secret → billing returns 401 → Django surfaces 502 to the caller.
-AI_GATEWAY_BILLING_URL = os.getenv("AI_GATEWAY_BILLING_URL", "http://localhost:8089")
-AI_GATEWAY_BILLING_INTERNAL_SECRET = os.getenv("AI_GATEWAY_BILLING_INTERNAL_SECRET", "dev-local-only-secret-change-me")
+AI_GATEWAY_BILLING_URL = get_from_env("AI_GATEWAY_BILLING_URL", "http://localhost:8089")
+AI_GATEWAY_BILLING_INTERNAL_SECRET = get_from_env(
+    "AI_GATEWAY_BILLING_INTERNAL_SECRET", "dev-local-only-secret-change-me"
+)
