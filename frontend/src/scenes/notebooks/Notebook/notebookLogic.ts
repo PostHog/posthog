@@ -1,3 +1,4 @@
+import { EventSourceMessage } from '@microsoft/fetch-event-source'
 import { sendableSteps } from '@tiptap/pm/collab'
 import {
     BuiltLogic,
@@ -204,6 +205,8 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: true,
         loadNotebook: true,
         scheduleNotebookRefresh: true,
+        connectMarkdownUpdateStream: true,
+        disconnectMarkdownUpdateStream: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
@@ -663,6 +666,21 @@ export const notebookLogic = kea<notebookLogicType>([
                 !isLocalOnly &&
                 !isMarkdownNotebookContent(localContent || notebook?.content),
         ],
+        markdownRealtimeEnabled: [
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.content, s.notebook],
+            (
+                props: NotebookLogicProps,
+                mode: NotebookLogicMode,
+                isLocalOnly: boolean,
+                content: JSONContent,
+                notebook: NotebookType | null
+            ): boolean =>
+                mode === 'notebook' &&
+                !props.cachedNotebook &&
+                !isLocalOnly &&
+                !!notebook &&
+                isMarkdownNotebookContent(content),
+        ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
             (notebook, notebookLoading, mode): boolean => {
@@ -904,6 +922,90 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        connectMarkdownUpdateStream: () => {
+            if (!values.markdownRealtimeEnabled) {
+                return
+            }
+
+            cache.disposables.add(
+                () => {
+                    const controller = new AbortController()
+
+                    const onMessage = (msg: EventSourceMessage): void => {
+                        if (msg.id) {
+                            cache.markdownUpdateStreamLastEventId = msg.id
+                        }
+
+                        if (msg.event !== 'update' && msg.event !== 'step') {
+                            return
+                        }
+
+                        let version = msg.id ? parseInt(msg.id.split('-', 1)[0], 10) : null
+                        if (msg.event === 'update' && msg.data) {
+                            try {
+                                const payload = JSON.parse(msg.data) as { version?: unknown }
+                                if (typeof payload.version === 'number') {
+                                    version = payload.version
+                                }
+                            } catch (e) {
+                                posthog.captureException(e as Error, { action: 'notebook markdown stream parse' })
+                            }
+                        }
+
+                        if (!version || !values.notebook || version <= values.notebook.version) {
+                            return
+                        }
+
+                        if (values.notebookLoading) {
+                            return
+                        }
+
+                        actions.loadNotebook()
+                    }
+
+                    const onError = (error: any): void => {
+                        if (controller.signal.aborted) {
+                            return
+                        }
+                        const message = error instanceof Error ? error.message : String(error)
+                        posthog.captureException(error instanceof Error ? error : new Error(message), {
+                            action: 'notebook markdown stream',
+                        })
+                    }
+
+                    const onClose = (): void => {
+                        if (controller.signal.aborted) {
+                            return
+                        }
+                        actions.connectMarkdownUpdateStream()
+                    }
+
+                    void api.notebooks
+                        .collabStream(values.shortId, {
+                            onMessage,
+                            onError,
+                            onClose,
+                            signal: controller.signal,
+                            lastEventId: cache.markdownUpdateStreamLastEventId,
+                        })
+                        .catch((error) => {
+                            if (controller.signal.aborted) {
+                                return
+                            }
+                            onError(error)
+                            actions.connectMarkdownUpdateStream()
+                        })
+
+                    return () => controller.abort()
+                },
+                'markdownUpdateStream',
+                { pauseOnPageHidden: false }
+            )
+        },
+        disconnectMarkdownUpdateStream: () => {
+            cache.disposables.dispose('markdownUpdateStream')
+            cache.markdownUpdateStreamLastEventId = undefined
+        },
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor && (values.isLocalOnly || !!values.notebook),
@@ -1275,13 +1377,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
 
-            // When collab is enabled, SSE will handle real-time sync, no polling needed
-            if (values.collabEnabled) {
-                return
-            }
-
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
+
+            // When collab or markdown realtime is enabled, SSE handles sync.
+            if (values.collabEnabled || values.markdownRealtimeEnabled) {
+                return
+            }
 
             // Add new refresh timeout
             cache.disposables.add(() => {
@@ -1326,6 +1428,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.receiveNotebookUpdate(notebook)
             }
             // If the notebook ever changes, we want to reset the scheduled refresh
+            actions.scheduleNotebookRefresh()
+        },
+        markdownRealtimeEnabled: (enabled: boolean) => {
+            if (enabled) {
+                actions.connectMarkdownUpdateStream()
+            } else {
+                actions.disconnectMarkdownUpdateStream()
+            }
             actions.scheduleNotebookRefresh()
         },
         comments: (comments: CommentType[] | undefined | null) => {

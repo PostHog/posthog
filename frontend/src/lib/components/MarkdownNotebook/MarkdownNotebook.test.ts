@@ -14,7 +14,7 @@ import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
 
 const NOTEBOOK_TEST_EDITABLE_SELECTOR =
-    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-item-content[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
 const TEST_NOTEBOOK_TITLE = 'Notebook title'
 const TEST_NOTEBOOK_TITLE_MARKDOWN = `# ${TEST_NOTEBOOK_TITLE}`
 const TEST_AI_CHAT_ID = '10000000-1000-4000-8000-100000000001'
@@ -4354,8 +4354,8 @@ Second paragraph`,
         expect(canvas?.getAttribute('contenteditable')).toEqual('true')
         expect(canvas?.getAttribute('data-markdown-notebook-editor')).toEqual('true')
         expect(component?.getAttribute('contenteditable')).toEqual('false')
-        expect(listBlock?.getAttribute('contenteditable')).toEqual('false')
-        expect(listItem?.getAttribute('contenteditable')).toEqual('true')
+        expect(listBlock?.getAttribute('contenteditable')).toEqual('true')
+        expect(listItem?.getAttribute('contenteditable')).toBeNull()
     })
 
     it('keeps notebook tool UI non-editable inside the editable canvas', () => {
@@ -5099,7 +5099,7 @@ Tail with **bold** text`)
 | [PostHog](https://posthog.com/docs) | 12 |`)
     })
 
-    it('renders nested lists as editable list items', () => {
+    it('renders nested lists as a single editable list surface', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -5119,7 +5119,8 @@ Tail with **bold** text`)
         expect(listBlock?.querySelector('ul ul')).toBeInstanceOf(HTMLElement)
         expect(listItems).toHaveLength(3)
         expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
-        expect(listItems[1].getAttribute('contenteditable')).toEqual('true')
+        expect(listBlock?.getAttribute('contenteditable')).toEqual('true')
+        expect(listItems[1].getAttribute('contenteditable')).toBeNull()
 
         listItems[1].textContent = 'Updated child'
         fireEvent.input(listItems[1])
@@ -5129,6 +5130,27 @@ Tail with **bold** text`)
 - Parent
   - Updated child
 - Sibling`)
+    })
+
+    it('renders list rows under one editing host so text selection can span rows', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Alpha
+- Beta
+- Gamma`),
+            })
+        )
+        const listBlock = container.querySelector('.MarkdownNotebook__list-block')
+        const listItems = getEditableListItems(container)
+
+        expect(listBlock?.getAttribute('contenteditable')).toEqual('true')
+        expect(listItems.map((item) => item.getAttribute('contenteditable'))).toEqual([null, null, null])
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 'Al'.length, getFirstTextNode(listItems[2]), 'Gam'.length)
+
+        expect(window.getSelection()?.toString()).toContain('pha')
+        expect(window.getSelection()?.toString()).toContain('Beta')
+        expect(window.getSelection()?.toString()).toContain('Gam')
     })
 
     it('converts an ordered list shortcut at the start of a text row into a list', () => {

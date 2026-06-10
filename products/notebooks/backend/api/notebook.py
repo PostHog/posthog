@@ -234,12 +234,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
+            should_publish_update = False
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
                 locked_instance.last_modified_by = self.context["request"].user
 
-                if validated_data.get("content"):
+                if "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
 
@@ -247,8 +248,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
+                    should_publish_update = True
 
                 updated_notebook = super().update(locked_instance, validated_data)
+                if should_publish_update:
+                    notify_team_id = updated_notebook.team_id
+                    notify_notebook_id = str(updated_notebook.short_id)
+                    notify_version = updated_notebook.version
+                    transaction.on_commit(
+                        lambda: collab.publish_notebook_update(notify_team_id, notify_notebook_id, notify_version)
+                    )
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 

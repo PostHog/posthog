@@ -29,6 +29,7 @@ STREAM_LIFETIME_SECONDS = 5 * 60
 
 DATA_KEY = b"data"
 KEEPALIVE_COMMENT = b": keepalive\n\n"
+UPDATE_EVENT_TYPE = "update"
 
 
 @dataclass
@@ -138,6 +139,54 @@ def submit_steps(
     return _fetch_missed_steps(stream_key, last_seen_version=last_seen_version, current_stream_version=version)
 
 
+def _update_payload(version: int) -> str:
+    return json.dumps({"type": UPDATE_EVENT_TYPE, "version": version})
+
+
+def _log_publish_error(err: redis_exceptions.RedisError, *, stream_key: str, notebook_id: str, version: int) -> None:
+    logger.warning(
+        "notebook_collab_update_publish_error",
+        stream_key=stream_key,
+        notebook_short_id=notebook_id,
+        version=version,
+        error=str(err),
+    )
+
+
+def publish_notebook_update(team_id: int, notebook_id: str, version: int) -> None:
+    client = redis_module.get_client()
+    stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
+
+    try:
+        client.xadd(
+            stream_key,
+            {"data": _update_payload(version)},
+            id=f"{version}-1",
+            maxlen=STREAM_MAX_LENGTH,
+            approximate=True,
+        )
+        client.expire(stream_key, STREAM_TTL_SECONDS)
+    except redis_exceptions.RedisError as err:
+        _log_publish_error(err, stream_key=stream_key, notebook_id=notebook_id, version=version)
+
+
+async def apublish_notebook_update(team_id: int, notebook_id: str, version: int) -> None:
+    client = redis_module.get_async_client()
+    stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
+
+    try:
+        await client.xadd(
+            stream_key,
+            {"data": _update_payload(version)},
+            id=f"{version}-1",
+            maxlen=STREAM_MAX_LENGTH,
+            approximate=True,
+        )
+        await client.expire(stream_key, STREAM_TTL_SECONDS)
+    except redis_exceptions.RedisError as err:
+        _log_publish_error(err, stream_key=stream_key, notebook_id=notebook_id, version=version)
+
+
 def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_stream_version: int) -> SubmitResult:
     # Client is somehow ahead of the stream — no missed range we could send.
     # The only safe response is "reload the notebook".
@@ -150,6 +199,8 @@ def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_stre
     missed_steps: list[StepEntry] = []
     for _stream_id, fields in raw:
         data = json.loads(fields[DATA_KEY])
+        if "step" not in data or "client_id" not in data:
+            continue
         missed_steps.append(StepEntry(step=data["step"], client_id=data["client_id"]))
 
     # MAXLEN/TTL trimmed part of the gap - incomplete rebase set, reload from Postgres
@@ -199,7 +250,15 @@ async def stream_collab_sse(
                     except json.JSONDecodeError:
                         logger.warning("notebook_collab_invalid_payload", stream_key=stream_key, stream_id=current_id)
                         continue
-                    yield f"id: {current_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+                    event_type = data.get("type")
+                    if event_type == UPDATE_EVENT_TYPE:
+                        yield (
+                            f"id: {current_id}\nevent: update\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+                        ).encode()
+                    elif "step" in data:
+                        yield f"id: {current_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+                    else:
+                        logger.warning("notebook_collab_unknown_payload", stream_key=stream_key, stream_id=current_id)
 
                 # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
                 await asyncio.sleep(0)

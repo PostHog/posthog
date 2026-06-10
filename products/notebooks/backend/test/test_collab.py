@@ -4,7 +4,13 @@ from parameterized import parameterized
 
 from posthog import redis
 
-from products.notebooks.backend.collab import STREAM_KEY_PATTERN, STREAM_MAX_LENGTH, StepEntry, submit_steps
+from products.notebooks.backend.collab import (
+    STREAM_KEY_PATTERN,
+    STREAM_MAX_LENGTH,
+    StepEntry,
+    publish_notebook_update,
+    submit_steps,
+)
 
 
 class TestNotebookCollab(BaseTest):
@@ -191,6 +197,37 @@ class TestNotebookCollab(BaseTest):
             last_seen_version=5,
             last_saved_version=5,
         )
+        assert result.status == "stale"
+        assert result.version == 1
+        assert result.steps_since is None
+
+    def test_submit_steps_continues_after_update_event(self):
+        publish_notebook_update(self.team.pk, "nb_update_event", 1)
+
+        result = submit_steps(
+            self.team.pk,
+            "nb_update_event",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            1,
+            last_saved_version=1,
+        )
+
+        assert result.status == "accepted"
+        assert result.version == 2
+
+    def test_submit_steps_treats_missed_update_event_as_stale(self):
+        publish_notebook_update(self.team.pk, "nb_missed_update_event", 1)
+
+        result = submit_steps(
+            self.team.pk,
+            "nb_missed_update_event",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=1,
+        )
+
         assert result.status == "stale"
         assert result.version == 1
         assert result.steps_since is None

@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
+from products.notebooks.backend import collab
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
@@ -122,6 +123,7 @@ async def save_notebook_to_db(
             last_modified_at=timezone.now(),
         )
         await existing_notebook.arefresh_from_db()
+        await collab.apublish_notebook_update(team.id, str(existing_notebook.short_id), existing_notebook.version)
         return existing_notebook
 
     # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
@@ -163,8 +165,10 @@ async def save_notebook_to_db(
     if not created:
         notebook.content = tiptap_doc
         notebook.title = title
+        notebook.version += 1
         notebook.last_modified_by = user
-        await notebook.asave(update_fields=["content", "title", "last_modified_by", "last_modified_at"])
+        await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
+        await collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
 
     return notebook
 

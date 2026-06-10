@@ -179,6 +179,47 @@ describe('Notebook history revert flow', () => {
         expect(logic.values.collabEnabled).toBe(false)
     })
 
+    it('refreshes markdown v2 notebooks from the update stream', async () => {
+        const baseContent = buildMarkdownNotebookContent('# Markdown v2')
+        const updatedContent = buildMarkdownNotebookContent('# Markdown v2\n\nStreamed update')
+        const streamNotebook = {
+            ...cachedNotebook,
+            content: baseContent,
+            text_content: '# Markdown v2',
+        }
+        const updatedNotebook = {
+            ...streamNotebook,
+            version: 2,
+            content: updatedContent,
+            text_content: '# Markdown v2\n\nStreamed update',
+        }
+        let streamOnMessage: ((message: any) => void) | null = null
+
+        jest.spyOn(api.notebooks, 'get')
+            .mockResolvedValueOnce(streamNotebook as NotebookType)
+            .mockResolvedValueOnce(updatedNotebook as NotebookType)
+        jest.spyOn(api.notebooks, 'collabStream').mockImplementation(async (_shortId, { onMessage }) => {
+            streamOnMessage = onMessage
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(streamOnMessage).not.toBeNull()
+        streamOnMessage?.({
+            id: '2-1',
+            event: 'update',
+            data: '{"type":"update","version":2}',
+        })
+
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(logic.values.notebook?.version).toBe(2)
+        expect(logic.values.notebook?.content).toEqual(updatedContent)
+    })
+
     it('clears markdown local content after the save response updates notebook content', async () => {
         const baseContent = buildMarkdownNotebookContent('')
         const localContent = buildMarkdownNotebookContent(`# title

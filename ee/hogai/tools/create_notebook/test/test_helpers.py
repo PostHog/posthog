@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -176,17 +177,19 @@ class TestSaveNotebookToDb(BaseTest):
         original_version = notebook.version
         original_last_modified_at = notebook.last_modified_at
 
-        async_to_sync(save_notebook_to_db)(
-            team=self.team,
-            user=self.user,
-            artifact=parent,
-            blocks=[],
-            title="Updated title",
-            state_messages=[],
-            markdown_content="# Updated\n\nAdd this here.",
-        )
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+                markdown_content="# Updated\n\nAdd this here.",
+            )
 
         notebook.refresh_from_db()
+        mock_publish.assert_awaited_once_with(self.team.id, str(parent.short_id), original_version + 1)
         self.assertEqual(notebook.title, "Updated title")
         self.assertEqual(notebook.text_content, "# Updated\n\nAdd this here.")
         self.assertEqual(notebook.version, original_version + 1)
@@ -206,3 +209,29 @@ class TestSaveNotebookToDb(BaseTest):
                 ],
             },
         )
+
+    def test_save_notebook_update_advances_version_and_publishes_update(self):
+        parent = self._create_notebook_parent("nvrs")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+        original_version = notebook.version
+
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.version, original_version + 1)
+        mock_publish.assert_awaited_once_with(self.team.id, str(parent.short_id), original_version + 1)

@@ -4281,6 +4281,15 @@ function EditableListBlock({
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const renderedItems = useMemo(() => buildRenderedListItems(node.items), [node.items])
+    const listBlockRef = useRef<HTMLDivElement | null>(null)
+
+    const setListBlockRef = useCallback(
+        (element: HTMLDivElement | null): void => {
+            listBlockRef.current = element
+            setBlockRef(element)
+        },
+        [setBlockRef]
+    )
 
     const updateListItem = (
         itemIndex: number,
@@ -4505,26 +4514,237 @@ function EditableListBlock({
         }
     }
 
+    const getListItemContentElement = (target: EventTarget | Node | null): HTMLElement | null => {
+        const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+        const itemElement = element?.closest('.MarkdownNotebook__list-item-content')
+        if (!(itemElement instanceof HTMLElement) || !listBlockRef.current?.contains(itemElement)) {
+            return null
+        }
+
+        return itemElement
+    }
+
+    const getActiveListItemContentElement = (): HTMLElement | null => {
+        const selectionItemElement = getListItemContentElement(window.getSelection()?.anchorNode ?? null)
+        if (selectionItemElement) {
+            return selectionItemElement
+        }
+
+        return getListItemContentElement(document.activeElement)
+    }
+
+    const getListItemDetails = (
+        element: HTMLElement
+    ): { itemIndex: number; itemId: string | undefined; item: NotebookListItem } | null => {
+        const itemIndex = Number(element.dataset.markdownNotebookListItemIndex)
+        if (!Number.isInteger(itemIndex)) {
+            return null
+        }
+
+        const itemId = element.dataset.markdownNotebookListItemId
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
+        if (!item) {
+            return null
+        }
+
+        return { itemIndex: targetItemIndex, itemId: item.id ?? itemId, item }
+    }
+
+    const updateListItemChildrenFromElement = (element: HTMLElement): void => {
+        const details = getListItemDetails(element)
+        if (!details) {
+            return
+        }
+
+        updateListItemChildren(details.itemIndex, details.itemId, htmlElementToInlineNodes(element))
+    }
+
+    const syncListItemsFromDom = (rootElement: HTMLElement): void => {
+        const childrenByItemId = new Map<string, NotebookInlineNode[]>()
+        const childrenByIndex = new Map<number, NotebookInlineNode[]>()
+
+        rootElement.querySelectorAll<HTMLElement>('.MarkdownNotebook__list-item-content').forEach((element) => {
+            const itemIndex = Number(element.dataset.markdownNotebookListItemIndex)
+            const itemId = element.dataset.markdownNotebookListItemId
+            const children = htmlElementToInlineNodes(element)
+
+            if (itemId) {
+                childrenByItemId.set(itemId, children)
+            }
+            if (Number.isInteger(itemIndex)) {
+                childrenByIndex.set(itemIndex, children)
+            }
+        })
+
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'list') {
+                return currentNode
+            }
+
+            let changed = false
+            const items = currentNode.items.map((item, index) => {
+                const children = (item.id ? childrenByItemId.get(item.id) : undefined) ?? childrenByIndex.get(index)
+                if (!children || inlineNodesToHtml(children) === inlineNodesToHtml(item.children)) {
+                    return item
+                }
+
+                changed = true
+                return { ...item, children }
+            })
+
+            return changed ? { ...currentNode, items } : currentNode
+        })
+    }
+
+    const handleListBlockInput = (event: FormEvent<HTMLDivElement>): void => {
+        event.stopPropagation()
+        syncListItemsFromDom(event.currentTarget)
+    }
+
+    const handleListBlockPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
+        const element = getActiveListItemContentElement()
+        const details = element ? getListItemDetails(element) : null
+        if (!element || !details) {
+            return
+        }
+
+        const plainText = event.clipboardData.getData('text/plain')
+        const html = event.clipboardData.getData('text/html')
+        const linkPasteResult = getInlineLinkPasteResult(element, node.id, details.item.children, plainText)
+        if (linkPasteResult) {
+            event.preventDefault()
+            updateListItemChildren(details.itemIndex, details.itemId, linkPasteResult.children)
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: details.itemIndex,
+                listItemId: details.itemId,
+                start: linkPasteResult.start,
+                end: linkPasteResult.end,
+            }
+            return
+        }
+
+        const pastedDocument = plainText ? parseMarkdownNotebook(plainText) : null
+        if (
+            pastedDocument &&
+            pastedDocument.nodes.length === 1 &&
+            pastedDocument.nodes[0].type === 'paragraph' &&
+            shouldUseMarkdownPaste(plainText, html, pastedDocument)
+        ) {
+            event.preventDefault()
+            const selection = getSelectionRange(element, node.id)
+            const currentTextLength = getInlineText(details.item.children).length
+            const selectionStart = selection ? Math.min(selection.start, selection.end) : currentTextLength
+            const selectionEnd = selection ? Math.max(selection.start, selection.end) : currentTextLength
+            const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(details.item.children, selectionStart)
+            const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+            const nextChildren = normalizeInlineNodes([
+                ...beforeSelection,
+                ...pastedDocument.nodes[0].children,
+                ...afterSelection,
+            ])
+            const nextCaretOffset =
+                getInlineText(beforeSelection).length + getInlineText(pastedDocument.nodes[0].children).length
+            updateListItemChildren(details.itemIndex, details.itemId, nextChildren)
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: details.itemIndex,
+                listItemId: details.itemId,
+                start: nextCaretOffset,
+                end: nextCaretOffset,
+            }
+            return
+        }
+
+        if (!html) {
+            return
+        }
+
+        event.preventDefault()
+        const container = document.createElement('div')
+        container.innerHTML = html
+        document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
+        updateListItemChildrenFromElement(element)
+    }
+
+    const handleListBlockKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        const element = getActiveListItemContentElement()
+        const details = element ? getListItemDetails(element) : null
+        if (!element || !details) {
+            return
+        }
+
+        if (event.key === 'Tab') {
+            event.preventDefault()
+            const selection = getCollapsedSelectionRange(element, node.id)
+            shiftListItemDepth(details.itemIndex, details.itemId, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
+            return
+        }
+
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            const selection = getCollapsedSelectionRange(element, node.id)
+            if (
+                selection &&
+                moveFocusToAdjacentListItem(
+                    node.id,
+                    details.itemIndex,
+                    event.key === 'ArrowDown' ? 'next' : 'previous',
+                    selection.start
+                )
+            ) {
+                event.preventDefault()
+            }
+            return
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            const selection = getCollapsedSelectionRange(element, node.id)
+            splitListItem(
+                details.itemIndex,
+                details.itemId,
+                selection?.start ?? getInlineText(details.item.children).length
+            )
+            return
+        }
+
+        if (event.key === 'Backspace') {
+            const selection = getCollapsedSelectionRange(element, node.id)
+            if (!selection || selection.start !== 0 || selection.end !== 0) {
+                return
+            }
+
+            if (!getInlineText(details.item.children).length) {
+                event.preventDefault()
+                removeListItem(details.itemIndex, details.itemId)
+                return
+            }
+
+            if (details.item.depth > 0 && shiftListItemDepth(details.itemIndex, details.itemId, 'out', 0)) {
+                event.preventDefault()
+                return
+            }
+
+            if (details.item.depth === 0) {
+                event.preventDefault()
+                replaceListItemWithParagraph(details.itemIndex, details.itemId, 0)
+                return
+            }
+        }
+
+        if (event.key === 'Delete' && !getInlineText(details.item.children).length) {
+            event.preventDefault()
+            removeListItem(details.itemIndex, details.itemId)
+        }
+    }
+
     const renderListItems = (items: RenderedListItem[], ordered: boolean): ReactNode =>
         items.map((item) => {
             const itemOrdered = item.ordered ?? ordered
             return (
                 <li key={`${node.id}:${item.id ?? item.keyPath}`}>
-                    <EditableListItemContent
-                        node={node}
-                        item={item}
-                        mode={mode}
-                        setListItemRef={setListItemRef}
-                        updateListItemChildren={updateListItemChildren}
-                        splitListItem={splitListItem}
-                        removeListItem={removeListItem}
-                        replaceListItemWithParagraph={replaceListItemWithParagraph}
-                        shiftListItemDepth={shiftListItemDepth}
-                        moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
-                        handleSelectionChange={handleSelectionChange}
-                        startTextSelectionPointer={startTextSelectionPointer}
-                        restoreSelectionRef={restoreSelectionRef}
-                    />
+                    <EditableListItemContent node={node} item={item} setListItemRef={setListItemRef} />
                     {item.childrenItems.length
                         ? renderItems(item.childrenItems, item.childrenItems[0].ordered ?? itemOrdered)
                         : null}
@@ -4541,7 +4761,20 @@ function EditableListBlock({
     }
 
     return (
-        <div className="MarkdownNotebook__list-block" ref={setBlockRef} contentEditable={false}>
+        <div
+            className="MarkdownNotebook__list-block"
+            ref={setListBlockRef}
+            contentEditable={mode === 'edit'}
+            suppressContentEditableWarning
+            onInput={handleListBlockInput}
+            onPaste={handleListBlockPaste}
+            onKeyDown={handleListBlockKeyDown}
+            onMouseDown={startTextSelectionPointer}
+            onPointerDown={startTextSelectionPointer}
+            onTouchStart={startTextSelectionPointer}
+            onMouseUp={handleSelectionChange}
+            onKeyUp={handleSelectionChange}
+        >
             {renderItems(renderedItems, node.ordered, node.start)}
         </div>
     )
@@ -4550,44 +4783,13 @@ function EditableListBlock({
 function EditableListItemContent({
     node,
     item,
-    mode,
     setListItemRef,
-    updateListItemChildren,
-    splitListItem,
-    removeListItem,
-    replaceListItemWithParagraph,
-    shiftListItemDepth,
-    moveFocusToAdjacentListItem,
-    handleSelectionChange,
-    startTextSelectionPointer,
-    restoreSelectionRef,
 }: {
     node: NotebookListBlockNode
     item: RenderedListItem
-    mode: NotebookMode
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
-    updateListItemChildren: (itemIndex: number, itemId: string | undefined, children: NotebookInlineNode[]) => void
-    splitListItem: (itemIndex: number, itemId: string | undefined, offset: number) => void
-    removeListItem: (itemIndex: number, itemId?: string) => void
-    replaceListItemWithParagraph: (itemIndex: number, itemId?: string, offset?: number) => void
-    shiftListItemDepth: (
-        itemIndex: number,
-        itemId: string | undefined,
-        direction: 'in' | 'out',
-        offset?: number
-    ) => boolean
-    moveFocusToAdjacentListItem: (
-        nodeId: string,
-        itemIndex: number,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
-    handleSelectionChange: () => void
-    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
-    restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLDivElement | null>(null)
-    const skipDomSyncForHtmlRef = useRef<string | null>(null)
     const renderedHtml = useMemo(() => inlineNodesToHtml(item.children), [item.children])
 
     const setElementRef = useCallback(
@@ -4604,148 +4806,12 @@ function EditableListItemContent({
             return
         }
 
-        const shouldSkipOwnInputSync =
-            document.activeElement === element && skipDomSyncForHtmlRef.current === renderedHtml
-        skipDomSyncForHtmlRef.current = null
-
-        if (shouldSkipOwnInputSync || element.innerHTML === renderedHtml) {
+        if (element.innerHTML === renderedHtml) {
             return
         }
 
         element.innerHTML = renderedHtml
     }, [renderedHtml])
-
-    const updateChildren = (nextChildren: NotebookInlineNode[]): NotebookInlineNode[] => {
-        skipDomSyncForHtmlRef.current = inlineNodesToHtml(nextChildren)
-        updateListItemChildren(item.index, item.id, nextChildren)
-        return nextChildren
-    }
-
-    const handleInput = (event: FormEvent<HTMLDivElement>): void => {
-        event.stopPropagation()
-        updateChildren(htmlElementToInlineNodes(event.currentTarget))
-    }
-
-    const handlePaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
-        const plainText = event.clipboardData.getData('text/plain')
-        const html = event.clipboardData.getData('text/html')
-        const linkPasteResult = getInlineLinkPasteResult(event.currentTarget, node.id, item.children, plainText)
-        if (linkPasteResult) {
-            event.preventDefault()
-            updateChildren(linkPasteResult.children)
-            restoreSelectionRef.current = {
-                nodeId: node.id,
-                listItemIndex: item.index,
-                listItemId: item.id,
-                start: linkPasteResult.start,
-                end: linkPasteResult.end,
-            }
-            return
-        }
-
-        const pastedDocument = plainText ? parseMarkdownNotebook(plainText) : null
-        if (
-            pastedDocument &&
-            pastedDocument.nodes.length === 1 &&
-            pastedDocument.nodes[0].type === 'paragraph' &&
-            shouldUseMarkdownPaste(plainText, html, pastedDocument)
-        ) {
-            event.preventDefault()
-            const selection = getSelectionRange(event.currentTarget, node.id)
-            const currentTextLength = getInlineText(item.children).length
-            const selectionStart = selection ? Math.min(selection.start, selection.end) : currentTextLength
-            const selectionEnd = selection ? Math.max(selection.start, selection.end) : currentTextLength
-            const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(item.children, selectionStart)
-            const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
-            const nextChildren = normalizeInlineNodes([
-                ...beforeSelection,
-                ...pastedDocument.nodes[0].children,
-                ...afterSelection,
-            ])
-            const nextCaretOffset =
-                getInlineText(beforeSelection).length + getInlineText(pastedDocument.nodes[0].children).length
-            updateChildren(nextChildren)
-            restoreSelectionRef.current = {
-                nodeId: node.id,
-                listItemIndex: item.index,
-                listItemId: item.id,
-                start: nextCaretOffset,
-                end: nextCaretOffset,
-            }
-            return
-        }
-
-        if (!html) {
-            return
-        }
-
-        event.preventDefault()
-        const container = document.createElement('div')
-        container.innerHTML = html
-        document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
-        updateChildren(htmlElementToInlineNodes(event.currentTarget))
-    }
-
-    const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (event.key === 'Tab') {
-            event.preventDefault()
-            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            shiftListItemDepth(item.index, item.id, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
-            return
-        }
-
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            if (
-                selection &&
-                moveFocusToAdjacentListItem(
-                    node.id,
-                    item.index,
-                    event.key === 'ArrowDown' ? 'next' : 'previous',
-                    selection.start
-                )
-            ) {
-                event.preventDefault()
-            }
-            return
-        }
-
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            splitListItem(item.index, item.id, selection?.start ?? getInlineText(item.children).length)
-            return
-        }
-
-        if (event.key === 'Backspace') {
-            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            if (!selection || selection.start !== 0 || selection.end !== 0) {
-                return
-            }
-
-            if (!getInlineText(item.children).length) {
-                event.preventDefault()
-                removeListItem(item.index, item.id)
-                return
-            }
-
-            if (item.depth > 0 && shiftListItemDepth(item.index, item.id, 'out', 0)) {
-                event.preventDefault()
-                return
-            }
-
-            if (item.depth === 0) {
-                event.preventDefault()
-                replaceListItemWithParagraph(item.index, item.id, 0)
-                return
-            }
-        }
-
-        if (event.key === 'Delete' && !getInlineText(item.children).length) {
-            event.preventDefault()
-            removeListItem(item.index, item.id)
-        }
-    }
 
     return (
         <div
@@ -4754,16 +4820,7 @@ function EditableListItemContent({
             data-markdown-notebook-node-id={node.id}
             data-markdown-notebook-list-item-index={item.index}
             data-markdown-notebook-list-item-id={item.id}
-            contentEditable={mode === 'edit'}
-            suppressContentEditableWarning
-            onInput={handleInput}
-            onPaste={handlePaste}
-            onKeyDown={handleKeyDown}
-            onMouseDown={startTextSelectionPointer}
-            onPointerDown={startTextSelectionPointer}
-            onTouchStart={startTextSelectionPointer}
-            onMouseUp={handleSelectionChange}
-            onKeyUp={handleSelectionChange}
+            tabIndex={-1}
         />
     )
 }

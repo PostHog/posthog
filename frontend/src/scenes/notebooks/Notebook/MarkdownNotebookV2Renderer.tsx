@@ -312,9 +312,10 @@ export function MarkdownNotebookV2(): JSX.Element {
             bufferedMarkdownRef.current = null
             latestMarkdownRef.current = nextMarkdown
             setDraftMarkdown(null)
+            setAutosavePaused(false)
             setLocalContent(buildMarkdownNotebookContent(nextMarkdown, nodeIdRef.current))
         },
-        [setLocalContent]
+        [setAutosavePaused, setLocalContent]
     )
 
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
@@ -1126,6 +1127,7 @@ function NotebookAIChatConversation({
                             minRows={2}
                             maxRows={6}
                             autoFocus
+                            stopPropagation
                         />
                         <LemonButton
                             type="primary"

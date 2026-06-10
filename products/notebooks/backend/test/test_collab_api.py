@@ -391,6 +391,24 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         assert "event: step" not in body
         assert ": keepalive" in body
 
+    @patch("products.notebooks.backend.api.notebook.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_stream_delivers_update_event_after_full_doc_patch(self, _mock_on_commit):
+        notebook = self._create_notebook()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"content": UPDATED_DOC, "version": notebook["version"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        stream_response = self.client.get(self._stream_url(notebook["short_id"]), HTTP_LAST_EVENT_ID="0-0")
+
+        assert stream_response.status_code == status.HTTP_200_OK
+        body = self._consume_stream(stream_response)
+        assert "event: update" in body
+        assert f"id: {notebook['version'] + 1}-1" in body
+        assert f'"version":{notebook["version"] + 1}' in body
+
     def test_stream_requires_authentication(self):
         notebook = self._create_notebook()
         self.client.logout()
