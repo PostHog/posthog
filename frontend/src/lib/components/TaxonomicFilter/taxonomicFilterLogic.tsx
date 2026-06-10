@@ -1597,28 +1597,60 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 ),
         ],
         anyGroupLoading: [
-            (s) => [s.infiniteListLogics, s.metaGroupTypes],
-            (infiniteListLogics, metaGroupTypes) =>
-                Object.entries(infiniteListLogics).some(
-                    ([type, logic]) => !metaGroupTypes.has(type) && logic.isMounted() && logic.values.isLoading
-                ),
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
+                    return Object.entries(logics).some(
+                        ([type, logic]) =>
+                            !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
+                    )
+                },
+            ],
+            (anyGroupLoading: boolean) => anyGroupLoading,
         ],
         loadingGroupTypes: [
-            (s) => [s.infiniteListLogics, s.metaGroupTypes],
-            (infiniteListLogics, metaGroupTypes): TaxonomicFilterGroupType[] =>
-                Object.entries(infiniteListLogics)
-                    .filter(([type, logic]) => !metaGroupTypes.has(type) && logic.isMounted() && logic.values.isLoading)
-                    .map(([type]) => type) as TaxonomicFilterGroupType[],
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
+                    return Object.entries(logics)
+                        .filter(
+                            ([type, logic]) =>
+                                !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
+                        )
+                        .map(([type]) => type)
+                        .join(',')
+                },
+            ],
+            (loadingGroupTypesString: string): TaxonomicFilterGroupType[] =>
+                loadingGroupTypesString ? (loadingGroupTypesString.split(',') as TaxonomicFilterGroupType[]) : [],
         ],
         infiniteListCounts: [
-            (s) => [s.infiniteListLogics],
-            (infiniteListLogics) =>
-                Object.fromEntries(
-                    Object.entries(infiniteListLogics).map(([groupType, logic]) => [
-                        groupType,
-                        logic.isMounted() ? logic.values.totalListCount : 0,
-                    ])
-                ),
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    // Serialize to a primitive string so reselect can compare by value,
+                    // avoiding new object references while maintaining reactivity.
+                    return Object.entries(logics)
+                        .map(
+                            ([groupType, logic]) =>
+                                `${groupType}:${logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0}`
+                        )
+                        .join(',')
+                },
+            ],
+            (countsString: string): Record<string, number> => {
+                if (!countsString) {
+                    return {}
+                }
+                return Object.fromEntries(
+                    countsString.split(',').map((part) => {
+                        const idx = part.lastIndexOf(':')
+                        return [part.slice(0, idx), Number(part.slice(idx + 1))]
+                    })
+                )
+            },
             { resultEqualityCheck: objectsEqual },
         ],
         value: [() => [(_, props) => props.value], (value) => value],
