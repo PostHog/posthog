@@ -1,4 +1,5 @@
 import datetime
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -350,19 +351,32 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     @parameterized.expand(
         [
+            # Naive inputs are interpreted in the passed (team) timezone, not UTC.
             (
                 "naive_datetime",
                 datetime.datetime(2023, 5, 1, 12, 30, 0),
-                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=ZoneInfo("America/New_York")),
             ),
             (
                 "aware_datetime",
                 datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
                 datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
             ),
-            ("date", datetime.date(2023, 5, 1), datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=datetime.UTC)),
-            ("string", "2023-05-01 12:30:00", datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC)),
-            ("date_string", "2023-05-01", datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=datetime.UTC)),
+            (
+                "date",
+                datetime.date(2023, 5, 1),
+                datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            (
+                "string",
+                "2023-05-01 12:30:00",
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            (
+                "date_string",
+                "2023-05-01",
+                datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
             ("none", None, EARLIEST_EVENT_TIMESTAMP),
             ("unsupported", 12345, EARLIEST_EVENT_TIMESTAMP),
             ("unparseable_na", "N/A", EARLIEST_EVENT_TIMESTAMP),
@@ -372,7 +386,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         ]
     )
     def test_coerce_to_datetime(self, _name, value, expected):
-        result = _coerce_to_datetime(value)
+        result = _coerce_to_datetime(value, ZoneInfo("America/New_York"))
         self.assertEqual(result, expected)
         # Must be timezone-aware so it can be compared against the tz-aware date_to.
         self.assertIsNotNone(result.tzinfo)
