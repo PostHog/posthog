@@ -219,7 +219,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "chat"},
                             "config": {
-                                "default": {},
+                                # Fully-resolved default (not {}): allow_restart has its own
+                                # default, so the generated zod `.default(...)` must carry it or
+                                # the Orval-emitted object fails strict typecheck.
+                                "default": {"allow_restart": False},
                                 "type": "object",
                                 "properties": {"allow_restart": {"default": False, "type": "boolean"}},
                                 "additionalProperties": False,
@@ -234,7 +237,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "mcp"},
                             "config": {
-                                "default": {},
+                                # Fully-resolved default (not {}) — see the chat trigger above.
+                                "default": {"allow_restart": False},
                                 "type": "object",
                                 "properties": {"allow_restart": {"default": False, "type": "boolean"}},
                                 "additionalProperties": False,

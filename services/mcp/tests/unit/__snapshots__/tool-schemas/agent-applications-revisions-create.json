@@ -22,100 +22,6 @@
         },
         "spec": {
             "properties": {
-                "auth": {
-                    "properties": {
-                        "modes": {
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "properties": {
-                                            "acknowledge_public_exposure": {
-                                                "type": "boolean"
-                                            },
-                                            "type": {
-                                                "const": "public",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "acknowledge_public_exposure"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "issuer": {
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "scopes": {
-                                                "default": [],
-                                                "items": {
-                                                    "type": "string"
-                                                },
-                                                "type": "array"
-                                            },
-                                            "type": {
-                                                "const": "oauth",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "issuer"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "pat",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "issuer_secret_ref": {
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "type": {
-                                                "const": "jwt",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "issuer_secret_ref"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "header": {
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "type": {
-                                                "const": "shared_secret",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "header"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "posthog_internal",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
-                },
                 "entrypoint": {
                     "default": "agent.md",
                     "type": "string"
@@ -513,12 +419,93 @@
                             },
                             {
                                 "properties": {
+                                    "auth": {
+                                        "properties": {
+                                            "modes": {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "properties": {
+                                                                "acknowledge_public_exposure": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "type": {
+                                                                    "const": "public",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "acknowledge_public_exposure"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "scopes": {
+                                                                    "default": [],
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "type": {
+                                                                    "const": "posthog",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "issuer_secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "jwt",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "issuer_secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "header": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "shared_secret",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "header", "secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "type": {
+                                                                    "const": "posthog_internal",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
                                     "config": {
                                         "properties": {
                                             "path": {
-                                                "type": "string"
-                                            },
-                                            "secret": {
                                                 "type": "string"
                                             }
                                         },
@@ -530,7 +517,7 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["type", "config"],
+                                "required": ["type", "config", "auth"],
                                 "type": "object"
                             },
                             {
@@ -582,10 +569,97 @@
                             },
                             {
                                 "properties": {
-                                    "config": {
+                                    "auth": {
                                         "properties": {
-                                            "require_auth": {
-                                                "default": true,
+                                            "modes": {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "properties": {
+                                                                "acknowledge_public_exposure": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "type": {
+                                                                    "const": "public",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "acknowledge_public_exposure"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "scopes": {
+                                                                    "default": [],
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "type": {
+                                                                    "const": "posthog",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "issuer_secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "jwt",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "issuer_secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "header": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "shared_secret",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "header", "secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "type": {
+                                                                    "const": "posthog_internal",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "config": {
+                                        "default": {
+                                            "allow_restart": false
+                                        },
+                                        "properties": {
+                                            "allow_restart": {
+                                                "default": false,
                                                 "type": "boolean"
                                             }
                                         },
@@ -596,14 +670,105 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["type", "config"],
+                                "required": ["type", "auth"],
                                 "type": "object"
                             },
                             {
                                 "properties": {
+                                    "auth": {
+                                        "properties": {
+                                            "modes": {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "properties": {
+                                                                "acknowledge_public_exposure": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "type": {
+                                                                    "const": "public",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "acknowledge_public_exposure"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "scopes": {
+                                                                    "default": [],
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "type": {
+                                                                    "const": "posthog",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "issuer_secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "jwt",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "issuer_secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "header": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "secret_ref": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "type": {
+                                                                    "const": "shared_secret",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type", "header", "secret_ref"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "type": {
+                                                                    "const": "posthog_internal",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["type"],
+                                                            "type": "object"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
                                     "config": {
-                                        "default": {},
-                                        "properties": {},
+                                        "default": {
+                                            "allow_restart": false
+                                        },
+                                        "properties": {
+                                            "allow_restart": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            }
+                                        },
                                         "type": "object"
                                     },
                                     "type": {
@@ -611,7 +776,7 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["type"],
+                                "required": ["type", "auth"],
                                 "type": "object"
                             }
                         ]
@@ -619,7 +784,7 @@
                     "type": "array"
                 }
             },
-            "required": ["model", "auth"],
+            "required": ["model"],
             "type": "object"
         }
     },
