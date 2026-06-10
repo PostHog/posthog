@@ -68,6 +68,10 @@ DEFAULT_SESSION_SORT_COLUMN = "session_start"
 # disabled Temporal backfill.
 MCP_SESSIONS_LOOKBACK = timedelta(hours=24)
 
+assert intent_generation.SESSION_EVENTS_LOOKBACK >= MCP_SESSIONS_LOOKBACK, (
+    "SESSION_EVENTS_LOOKBACK must be >= MCP_SESSIONS_LOOKBACK or detail views will silently truncate for listed sessions"
+)
+
 # Short TTL so concurrent dashboard tabs / auto-refreshes share one ClickHouse
 # aggregation instead of each re-running it — long enough to absorb a burst,
 # short enough that "Reload" still feels live.
