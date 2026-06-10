@@ -143,4 +143,66 @@ describe('wizardActiveSessionDetectorLogic', () => {
             // Teardown is deferred behind the grace window, so the stream stays up for now.
             .toMatchValues({ hasActiveSession: true, shouldStream: true })
     })
+
+    // The grace window is the anti-INC-886 mechanism: a terminal/empty poll schedules
+    // teardown rather than ripping the stream down immediately, and a fresh active
+    // signal inside the window cancels it. These assert the timer actually fires,
+    // gets cancelled, and isn't pushed out by repeat schedules.
+    describe('grace-window teardown', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('fires markInactive once the 30s grace window elapses', async () => {
+            logic.actions.markActive()
+            logic.actions.scheduleMarkInactive()
+
+            // Just before the deadline: the stream is still up.
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(29_000)
+            }).toMatchValues({ hasActiveSession: true })
+
+            // Crossing the 30s deadline tears it down.
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(2_000)
+            })
+                .toDispatchActions(['markInactive'])
+                .toMatchValues({ hasActiveSession: false, shouldStream: false })
+        })
+
+        it('cancels the pending teardown when markActive fires inside the window', async () => {
+            logic.actions.markActive()
+            logic.actions.scheduleMarkInactive()
+
+            jest.advanceTimersByTime(15_000)
+            // A fresh active signal (e.g. an SSE heartbeat) cancels the scheduled teardown.
+            logic.actions.markActive()
+
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(60_000)
+            })
+                .toNotHaveDispatchedActions(['markInactive'])
+                .toMatchValues({ hasActiveSession: true, shouldStream: true })
+        })
+
+        it('keeps the original deadline when scheduleMarkInactive is repeated (idempotent)', async () => {
+            logic.actions.markActive()
+            logic.actions.scheduleMarkInactive() // deadline = now + 30s
+
+            jest.advanceTimersByTime(20_000)
+            logic.actions.scheduleMarkInactive() // must NOT push the deadline out to now + 30s
+
+            // 10s more reaches the *original* 30s deadline → teardown fires. If the repeat
+            // had reset the clock, markInactive wouldn't fire until 30s from the repeat.
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(10_000)
+            })
+                .toDispatchActions(['markInactive'])
+                .toMatchValues({ hasActiveSession: false })
+        })
+    })
 })
