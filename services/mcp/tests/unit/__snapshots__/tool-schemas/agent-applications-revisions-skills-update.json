@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "body": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "files": {
+            "items": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent revision.",
+            "type": "string"
+        },
+        "skill_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "type": "string"
+        }
+    },
+    "required": ["application_id", "id", "skill_id", "description", "body"],
+    "type": "object"
+}
