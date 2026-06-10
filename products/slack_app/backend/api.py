@@ -1399,8 +1399,6 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
-CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
-
 # Feature flag that gates the untagged-thread followup path per org. Off by
 # default until rollout; turning it on for an org makes every message in a
 # tagged thread eligible for classification + forward, instead of requiring a
@@ -1448,56 +1446,12 @@ def _resolve_untagged_followup_mapping(
     return mapping
 
 
-def _untagged_followup_passes_classifier(
-    *,
-    mapping: SlackThreadTaskMapping,
-    slack: SlackIntegration,
-    integration: Integration,
-    event: dict[str, Any],
-    slack_user_id: str,
-    channel: str | None,
-    thread_ts: str | None,
-    slack_team_id: str,
-) -> bool:
-    """Decide whether an untagged thread reply should be forwarded to the agent.
-
-    Runs the Haiku classifier on every message, including ones authored by the
-    original mentioner — they can drift into side chatter in their own thread,
-    and the classifier is cheap enough that the special case isn't worth it.
-    Returns ``True`` when the message is agent-directed, ``False`` to drop.
-    Slack failures on the thread-history fetch fall back to classifying on the
-    message text alone rather than crashing the webhook.
-    """
-    try:
-        thread_history = _collect_thread_messages(slack, integration, channel or "", thread_ts or "", our_bot_id=None)
-    except Exception:
-        logger.exception(
-            "posthog_code_thread_message_history_fetch_failed",
-            slack_team_id=slack_team_id,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-        thread_history = []
-
-    task_title = mapping.task.title if mapping.task and mapping.task.title else ""
-    if classify_message_is_agent_directed(event.get("text", "") or "", task_title, thread_history):
-        return True
-
-    logger.info(
-        "posthog_code_thread_message_classified_chitchat",
-        slack_team_id=slack_team_id,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-    )
-    return False
-
-
 def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
     """Return True if the integration's org has the untagged-thread followup
     flag enabled. Fail-closed on any error — a transient PostHog API outage
     must not silently enable the feature for everyone.
     """
+    return True
     try:
         enabled = posthoganalytics.feature_enabled(
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
@@ -1513,95 +1467,6 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )
-        return False
-
-
-def classify_message_is_agent_directed(
-    event_text: str,
-    task_title: str,
-    thread_history: list[dict[str, str]],
-) -> bool:
-    """Classify whether a Slack thread reply is addressing the running PostHog
-    Slack App or side conversation between humans.
-
-    Default-deny: returns ``False`` for anything ambiguous. A false positive
-    here interrupts the Slack App's run on every "thanks"; a false negative
-    just means the user re-tags ``@PostHog`` — recoverable. The Haiku prompt
-    enumerates the narrow set of cases that count as agent-directed and
-    instructs it to return false on every other case, including uncertainty.
-
-    ``thread_history`` is the conversation so far (oldest first), as returned by
-    ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
-    """
-    stripped = event_text.strip()
-    # Cheap pre-LLM filters. Emoji-only / reaction-only / one-word replies are
-    # almost never agent-directed and dominate the message volume of a busy
-    # thread.
-    if len(stripped) < 6:
-        logger.info("classify_message_is_agent_directed_heuristic_too_short", event_text=event_text)
-        return False
-    word_count = len(re.findall(r"\w+", stripped))
-    if word_count < 2:
-        logger.info("classify_message_is_agent_directed_heuristic_one_word", event_text=event_text)
-        return False
-    if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
-        logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
-        return False
-
-    # Render the tail of the thread for context. Bound the number of lines and
-    # the per-line length to keep the prompt small and predictable.
-    recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
-    history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
-
-    prompt = (
-        "You are a strict router deciding whether to wake the PostHog Slack App, which "
-        "is currently running a task in this Slack thread. The Slack App will only see "
-        "messages you classify as agent_directed=true. False positives interrupt its "
-        "run on every side comment; false negatives are recoverable because the human "
-        "can re-tag @PostHog. Default to false. Only return true when the evidence is "
-        "strong.\n\n"
-        "Return true ONLY when the latest message clearly meets at least one of:\n"
-        "  1. It directly addresses the bot/agent/PostHog by name (e.g. '@PostHog', "
-        "     'PostHog can you…', 'agent, please…', 'bot, …').\n"
-        "  2. It gives a concrete instruction or correction tied to the task the agent "
-        "     is working on (e.g. 'also scope it to org admins', 'use the new helper "
-        "     instead', 'the bug is in file X line Y', 'add a regression test for Z').\n"
-        "  3. It asks a question only the agent could answer about its current task or "
-        "     its just-posted progress update (e.g. 'why did you skip the migration?', "
-        "     'can you also handle the empty-list case?').\n"
-        "  4. It provides task-relevant context the agent clearly needs and is missing "
-        "     (e.g. the actual error message, the URL of the failing request, the "
-        "     repository or file path, the customer/team ID being investigated).\n\n"
-        "Return false (the safe default) for every other case, including:\n"
-        "  - Acknowledgements, social chat, reactions: 'thanks', 'lgtm', 'nice', "
-        "    'great', 'awesome', 'cool', 'lol', 'haha', emojis, GIFs, '+1'.\n"
-        "  - Messages clearly directed at another human (mentions another user, "
-        "    answers their question, refers to people in third person).\n"
-        "  - Status updates between humans: 'I'll take a look later', 'in a meeting', "
-        "    'pinging @X', 'fyi'.\n"
-        "  - Tangential discussion that's interesting but does not instruct the agent.\n"
-        "  - Speculative thinking out loud without an explicit ask.\n"
-        "  - Anything you are not confident about. Uncertainty ⇒ false.\n\n"
-        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
-        f"Thread so far (oldest first):\n{history_block}\n\n"
-        f"Latest message (from a human in this thread): {event_text}\n\n"
-        'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
-    )
-    try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        parsed = json.loads(content)
-        return bool(parsed.get("agent_directed", False))
-    except Exception:
-        logger.exception("classify_message_is_agent_directed_failed")
         return False
 
 
@@ -1868,25 +1733,33 @@ def route_posthog_code_event_to_relevant_region(
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # ---- message-only: mapping + feature flag gate ----
-        # Decides whether a ``message`` event enters the shared pipeline at all.
-        # A thread we don't own (or one whose org hasn't opted in) is dropped
-        # here so we never pay for user resolution downstream.
-        untagged_followup_mapping: SlackThreadTaskMapping | None = None
+        # ---- message events: short-circuit to workflow start ----
+        # The handler stays fast: a tagged thread that's opted in dispatches
+        # immediately, and the workflow runs the classifier (LLM + Slack
+        # thread-history fetch) under Temporal's retry policy. No user
+        # resolution, no scopes, no approval — the originating ``app_mention``
+        # already cleared those gates to create the mapping; if they were
+        # revoked since, the workflow's downstream Slack calls surface it.
         if event_type == "message":
-            untagged_followup_mapping = _resolve_untagged_followup_mapping(
+            mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
                 channel=channel_str,
                 thread_ts=thread_ts_str,
                 slack_team_id=slack_team_id,
             )
-            if untagged_followup_mapping is None:
+            if mapping is None:
                 return ROUTE_HANDLED_LOCALLY
+            return _start_mention_workflow(
+                event,
+                mapping.integration,
+                slack_team_id,
+                event_id,
+                posthog_user=None,
+                untagged_followup=True,
+            )
 
         # =====================================================================
-        # From here on, ``app_mention`` and tagged-thread ``message`` events run
-        # the same body. The only references to ``untagged_followup_mapping`` are
-        # the mention_target override and the classifier gate.
+        # app_mention-only: full pipeline (resolve user, scopes, approval, dispatch)
         # =====================================================================
 
         resolution = resolve_user_for_workspace(
@@ -1929,12 +1802,6 @@ def route_posthog_code_event_to_relevant_region(
             _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
             return ROUTE_HANDLED_LOCALLY
 
-        # A tagged-thread ``message`` is bound to its mapping's integration regardless
-        # of routing precedence — the mapping was the user's last explicit choice
-        # in this thread.
-        if untagged_followup_mapping is not None:
-            mention_target = untagged_followup_mapping.integration
-
         slack = SlackIntegration(mention_target)
         missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
         if missing:
@@ -1946,29 +1813,12 @@ def route_posthog_code_event_to_relevant_region(
             _post_channel_approval_prompt(slack, mention_target, event)
             return ROUTE_HANDLED_LOCALLY
 
-        # ---- the one inline branch on routing intent: classifier gate ----
-        # Untagged thread replies must clear the Haiku classifier before the
-        # agent sees them. Bypass when the author is the original mentioning
-        # user — they're presumed to be addressing the agent in their own thread.
-        if untagged_followup_mapping is not None and not _untagged_followup_passes_classifier(
-            mapping=untagged_followup_mapping,
-            slack=slack,
-            integration=mention_target,
-            event=event,
-            slack_user_id=slack_user_id_str,
-            channel=channel_str,
-            thread_ts=thread_ts_str,
-            slack_team_id=slack_team_id,
-        ):
-            return ROUTE_HANDLED_LOCALLY
-
         return _start_mention_workflow(
             event,
             mention_target,
             slack_team_id,
             event_id,
             posthog_user=posthog_user,
-            untagged_followup=untagged_followup_mapping is not None,
         )
 
     # link_shared (unfurl) works with either integration kind.
@@ -2266,20 +2116,27 @@ def _start_mention_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    posthog_user: User,
+    posthog_user: User | None,
     untagged_followup: bool = False,
 ) -> str:
     """Start the mention workflow for either an explicit ``app_mention`` or an
-    untagged thread reply that cleared the routing classifier.
+    untagged thread reply.
 
     ``untagged_followup`` toggles two mention-only side effects: the
     ``slack_mention_received`` analytics fire (which would otherwise pollute
     the mention funnel with non-mentions) and the pending-picker resolution
     (which is meaningful only when the user actually typed ``@PostHog``). It
-    is also threaded into the workflow inputs so the workflow short-circuits
-    if the mapping is gone by the time the followup activity runs.
+    is also threaded into the workflow inputs so the workflow runs the
+    classifier activity at the top of its body and short-circuits if the
+    mapping is gone by the time the followup activity runs.
+
+    ``posthog_user`` is ``None`` for untagged followups — the handler skips
+    user resolution to keep the webhook fast, and the workflow falls back to
+    its legacy ``resolve_posthog_code_slack_user_activity`` to resolve the
+    Slack user under Temporal retries.
     """
     if not untagged_followup:
+        assert posthog_user is not None, "app_mention path must always resolve a user before dispatch"
         _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
@@ -2288,7 +2145,7 @@ def _start_mention_workflow(
         integration_id=integration.id,
         slack_team_id=slack_team_id,
         slack_event_id=event_id,
-        user_id=posthog_user.id,
+        user_id=posthog_user.id if posthog_user else None,
         untagged_followup=untagged_followup,
     )
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same

@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.storage import object_storage
@@ -278,6 +279,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
             if blocked:
                 return
+
+            # Untagged thread replies face the Haiku classifier before any
+            # forward. The webhook handler punted on this so its 3-second ack
+            # budget stays unencumbered; here we run it under Temporal's retry
+            # policy. Drop on chitchat or any failure (default-deny).
+            if inputs.untagged_followup:
+                should_forward = await _execute_posthog_code_activity(
+                    classify_untagged_followup_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event.get("text", ""),
+                )
+                if not should_forward:
+                    return
 
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
@@ -760,6 +777,158 @@ def classify_posthog_code_task_needs_repo_activity(
     from products.slack_app.backend.api import classify_task_needs_repo
 
     return classify_task_needs_repo(event_text, thread_messages)
+
+
+CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
+
+
+def classify_message_is_agent_directed(
+    event_text: str,
+    task_title: str,
+    thread_history: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack thread reply is addressing the running PostHog
+    Slack App or side conversation between humans.
+
+    Default-deny: returns ``False`` for anything ambiguous. A false positive
+    here interrupts the Slack App's run on every "thanks"; a false negative
+    just means the user re-tags ``@PostHog`` — recoverable. The Haiku prompt
+    enumerates the narrow set of cases that count as agent-directed and
+    instructs it to return false on every other case, including uncertainty.
+
+    ``thread_history`` is the conversation so far (oldest first), as returned
+    by ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+    """
+    stripped = event_text.strip()
+    # Cheap pre-LLM filters. Emoji-only / reaction-only / one-word replies are
+    # almost never agent-directed and dominate the message volume of a busy
+    # thread.
+    if len(stripped) < 6:
+        logger.info("classify_message_is_agent_directed_heuristic_too_short", event_text=event_text)
+        return False
+    word_count = len(re.findall(r"\w+", stripped))
+    if word_count < 2:
+        logger.info("classify_message_is_agent_directed_heuristic_one_word", event_text=event_text)
+        return False
+    if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
+        logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
+        return False
+
+    # Render the tail of the thread for context. Bound the number of lines and
+    # the per-line length to keep the prompt small and predictable.
+    recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
+    history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
+
+    prompt = (
+        "You are a strict router deciding whether to wake the PostHog Slack App, which "
+        "is currently running a task in this Slack thread. The Slack App will only see "
+        "messages you classify as agent_directed=true. False positives interrupt its "
+        "run on every side comment; false negatives are recoverable because the human "
+        "can re-tag @PostHog. Default to false. Only return true when the evidence is "
+        "strong.\n\n"
+        "Return true ONLY when the latest message clearly meets at least one of:\n"
+        "  1. It directly addresses the bot/agent/PostHog by name (e.g. '@PostHog', "
+        "     'PostHog can you…', 'agent, please…', 'bot, …').\n"
+        "  2. It gives a concrete instruction or correction tied to the task the agent "
+        "     is working on (e.g. 'also scope it to org admins', 'use the new helper "
+        "     instead', 'the bug is in file X line Y', 'add a regression test for Z').\n"
+        "  3. It asks a question only the agent could answer about its current task or "
+        "     its just-posted progress update (e.g. 'why did you skip the migration?', "
+        "     'can you also handle the empty-list case?').\n"
+        "  4. It provides task-relevant context the agent clearly needs and is missing "
+        "     (e.g. the actual error message, the URL of the failing request, the "
+        "     repository or file path, the customer/team ID being investigated).\n\n"
+        "Return false (the safe default) for every other case, including:\n"
+        "  - Acknowledgements, social chat, reactions: 'thanks', 'lgtm', 'nice', "
+        "    'great', 'awesome', 'cool', 'lol', 'haha', emojis, GIFs, '+1'.\n"
+        "  - Messages clearly directed at another human (mentions another user, "
+        "    answers their question, refers to people in third person).\n"
+        "  - Status updates between humans: 'I'll take a look later', 'in a meeting', "
+        "    'pinging @X', 'fyi'.\n"
+        "  - Tangential discussion that's interesting but does not instruct the agent.\n"
+        "  - Speculative thinking out loud without an explicit ask.\n"
+        "  - Anything you are not confident about. Uncertainty ⇒ false.\n\n"
+        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
+        f"Thread so far (oldest first):\n{history_block}\n\n"
+        f"Latest message (from a human in this thread): {event_text}\n\n"
+        'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
+    )
+    try:
+        client = get_llm_client("slack_app_routing")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        parsed = json.loads(content)
+        return bool(parsed.get("agent_directed", False))
+    except Exception:
+        logger.exception("classify_message_is_agent_directed_failed")
+        return False
+
+
+@activity.defn
+@close_db_connections
+def classify_untagged_followup_activity(
+    inputs: "PostHogCodeSlackMentionWorkflowInputs",
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    event_text: str,
+) -> bool:
+    """Decide whether an untagged thread reply should reach the agent.
+
+    Runs the LLM + Slack thread-history fetch inside the workflow rather than
+    the webhook handler so they're retriable under Temporal and don't block
+    the Slack webhook's 3-second ack budget. Returns ``True`` to forward,
+    ``False`` to drop. Conservative defaults: missing mapping → drop, history
+    fetch failure → classify on text alone, classifier failure → drop.
+    """
+    from products.slack_app.backend.api import _collect_thread_messages
+
+    try:
+        mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+    except SlackThreadTaskMapping.DoesNotExist:
+        logger.info(
+            "posthog_code_thread_message_mapping_gone",
+            integration_id=inputs.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return False
+
+    integration = mapping.integration
+    slack = SlackIntegration(integration)
+
+    try:
+        thread_history = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
+    except Exception:
+        logger.exception(
+            "posthog_code_thread_message_history_fetch_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        thread_history = []
+
+    task_title = mapping.task.title if mapping.task and mapping.task.title else ""
+    if classify_message_is_agent_directed(event_text, task_title, thread_history):
+        return True
+
+    logger.info(
+        "posthog_code_thread_message_classified_chitchat",
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+    )
+    return False
 
 
 @activity.defn
