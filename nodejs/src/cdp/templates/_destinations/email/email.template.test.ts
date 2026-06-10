@@ -22,8 +22,6 @@ describe('email template', () => {
                     },
                     from: {
                         integrationId: 1,
-                        email: 'test@posthog.com',
-                        name: 'Test User',
                     },
                     subject: 'PostHog Notification',
                     text: '',
@@ -45,9 +43,7 @@ describe('email template', () => {
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "from": {
-                "email": "test@posthog.com",
                 "integrationId": 1,
-                "name": "Test User",
               },
               "html": "",
               "subject": "PostHog Notification",
@@ -71,8 +67,6 @@ describe('email template', () => {
                     },
                     from: {
                         integrationId: 1,
-                        email: 'test@posthog.com',
-                        name: 'Test User',
                     },
                     cc: 'cc1@example.com, cc2@example.com',
                     bcc: 'bcc@example.com',

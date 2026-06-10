@@ -16,6 +16,7 @@ import { IconSlackExternal } from 'lib/lemon-ui/icons'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
+import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 export function SlackNotConfiguredBanner(): JSX.Element {
@@ -79,6 +80,7 @@ export type SlackChannelPickerProps = {
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
     const {
         slackChannels,
+        slackChannelsForPicker,
         allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
@@ -94,12 +96,15 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
+    const rawSlackChannelOptions = useMemo(
+        () => getSlackChannelOptions(slackChannelsForPicker),
+        [slackChannelsForPicker]
+    )
 
     const slackChannelOptions = (): LemonInputSelectOption[] | null => {
         return rawSlackChannelOptions
             ? rawSlackChannelOptions.filter((x) => {
-                  const [id] = x.key.split('|#')
+                  const id = slackChannelId(x.key)
                   // Only show a private channel if searching for the exact channelId or it's currently selected
                   return !isPrivateChannelWithoutAccess(id) || id === value || id === localValue
               })
@@ -125,6 +130,22 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             loadAllSlackChannels()
         }
     }, [loadAllSlackChannels, disabled])
+
+    // Workspaces with hundreds of channels can have the saved channel beyond the first page that
+    // /channels returns. Without a direct lookup the channel never makes it into slackChannels, so
+    // LemonInputSelect can't find an option matching the saved value's key and falls back to
+    // displaying the raw value text — e.g. "C0881TYHT41|#sentry-alerts" instead of the friendly
+    // "#sentry-alerts (C0881TYHT41)". Fire the by-id fetch for both bare and composite values so
+    // the channel is merged into slackChannels regardless of bulk-list position; the label only
+    // renders correctly when the option exists in the picker's options list.
+    useEffect(() => {
+        if (!disabled && value) {
+            const channelId = value.split('|')[0]
+            if (channelId) {
+                loadSlackChannelById(channelId)
+            }
+        }
+    }, [loadSlackChannelById, value, disabled])
 
     return (
         <>
@@ -190,7 +211,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">
-                    Only the first 200 channels are shown — type to search for a specific channel.
+                    Only the first page of channels is shown — type to search for a specific channel.
                 </p>
             ) : null}
 

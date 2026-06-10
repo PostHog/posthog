@@ -35,7 +35,7 @@ from posthog.rate_limit import (
     MaxHandsFreeTokenSustainedRateThrottle,
 )
 
-from ee.models.assistant import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 

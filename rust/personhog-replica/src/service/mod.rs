@@ -12,7 +12,8 @@ use std::sync::Arc;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
-    CountCohortMembersRequest, CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
+    CountCohortMembersRequest, CountCohortMembersResponse, CountGroupTypeMappingsRequest,
+    CountGroupTypeMappingsResponse, CreateGroupRequest, CreateGroupResponse,
     DeleteCohortMemberRequest, DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest,
     DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
@@ -29,21 +30,23 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
-    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
-    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
-    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
-    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpdateGroupRequest,
-    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
+    GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey, GroupTypeMappingsResponse,
+    GroupWithKey, GroupsResponse, HashKeyOverride,
+    HashKeyOverrideContext as ProtoHashKeyOverrideContext, InsertCohortMembersRequest,
+    InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
+    ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
+    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
 
+const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
@@ -95,6 +98,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.person_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} person IDs per request"
+            )));
+        }
 
         let include_props = person_needs_properties(&req.read_options);
         let persons = self
@@ -149,6 +158,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.uuids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} UUIDs per request"
+            )));
+        }
 
         let uuids: Vec<Uuid> = req
             .uuids
@@ -205,6 +220,12 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
 
+        if req.distinct_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} distinct IDs per request"
+            )));
+        }
+
         let include_props = person_needs_properties(&req.read_options);
         let results = self
             .storage
@@ -236,6 +257,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.team_distinct_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} distinct IDs per request"
+            )));
+        }
 
         let include_props = person_needs_properties(&req.read_options);
         let team_distinct_ids: Vec<(i64, String)> = req
@@ -923,6 +950,27 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupTypeMappingsBatchResponse { results }))
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let counts = self
+            .storage
+            .count_group_type_mappings(consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "count_group_type_mappings"))?;
+
+        Ok(Response::new(CountGroupTypeMappingsResponse {
+            counts: counts
+                .into_iter()
+                .map(|(team_id, count)| GroupTypeMappingCount { team_id, count })
+                .collect(),
+        }))
     }
 
     async fn get_group_type_mapping_by_dashboard_id(

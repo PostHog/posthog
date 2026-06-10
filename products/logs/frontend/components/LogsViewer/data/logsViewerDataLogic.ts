@@ -127,7 +127,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy'],
         ],
@@ -286,7 +286,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                         },
@@ -314,7 +314,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             after: values.nextCursor,
@@ -342,7 +342,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
@@ -488,7 +488,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        filterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
+        // Subscribe to the combined query view rather than the user-editable filterGroup
+        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_key`
+        // resolves after mount), not just when the user edits filters.
+        queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
             if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
                 return
             }
@@ -644,7 +647,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         orderBy: values.orderBy,
                         dateRange: values.utcDateRange,
                         searchTerm: values.filters.searchTerm,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         severityLevels: values.filters.severityLevels,
                         serviceNames: values.filters.serviceNames,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,

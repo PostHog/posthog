@@ -22,10 +22,11 @@ from typing import Any
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import Forbidden
+from google.api_core.exceptions import Forbidden, NotFound
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
+from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
@@ -38,6 +39,7 @@ from posthog.temporal.data_imports.pipelines.helpers import (
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
 from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
@@ -58,6 +60,10 @@ __all__ = [
     "filter_bigquery_incremental_fields",
     "validate_bigquery_credentials",
 ]
+
+# Host used both to build the Storage Read API gRPC channel and to label the
+# tracked gRPC transport's logs/metrics.
+BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -142,11 +148,24 @@ def bigquery_storage_read_client(
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    client = bigquery_storage.BigQueryReadClient(
-        credentials=credentials,
-    )
+    # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
+    # interceptors, then hand it to the transport. Passing a `channel` makes the
+    # transport ignore credentials, so they must already be baked into the channel
+    # via `create_channel(credentials=...)`. This routes the Storage Read API's
+    # create_read_session (unary) + read_rows (server-streaming) RPCs through our
+    # logging / metrics / sample-capture pipeline.
+    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
+    transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
-    yield client
+    try:
+        client = bigquery_storage.BigQueryReadClient(transport=transport)
+        yield client
+    finally:
+        # We own the channel (built above), so we must close it — otherwise each
+        # sync leaks an open gRPC channel + its file descriptors. Closing the
+        # transport closes the underlying channel.
+        transport.close()
 
 
 def delete_table(
@@ -182,6 +201,13 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
+        except (Forbidden, NotFound) as e:
+            # Best-effort cleanup. If the service account has lost permission to list/delete
+            # tables, or the dataset no longer exists, there's nothing to recover here — log
+            # quietly rather than capturing an expected, non-actionable condition that would
+            # otherwise fire on every sync for an affected source.
+            if logger:
+                logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:
             capture_exception(e)
 

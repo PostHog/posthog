@@ -9,11 +9,12 @@ from posthog.schema import AgentMode, AssistantMessage, HumanMessage
 
 from posthog.models import Team
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, evaluate_sql_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
 

@@ -52,8 +52,6 @@ pub enum Error {
     MissingDistinctId,
     #[error("distinct_id exceeds maximum size")]
     DistinctIdTooLarge,
-    #[error("distinct_id is a known illegal value: {0}")]
-    InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
     #[error("event uuid is not valid: {0}")]
@@ -120,7 +118,6 @@ impl Error {
             Self::EventNameTooLong => "event_name_too_long",
             Self::MissingDistinctId => "missing_distinct_id",
             Self::DistinctIdTooLarge => "distinct_id_too_large",
-            Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
             Self::InvalidEventUuid(_) => "invalid_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
@@ -178,7 +175,6 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
@@ -236,7 +232,6 @@ impl Error {
             | Self::EventNameTooLong
             | Self::MissingDistinctId
             | Self::DistinctIdTooLarge
-            | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
             | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)

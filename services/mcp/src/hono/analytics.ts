@@ -1,6 +1,12 @@
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
-import { buildMCPAnalyticsGroups, buildMCPContextProperties, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
+import {
+    buildMCPAnalyticsGroups,
+    buildMCPContextProperties,
+    MCP_ANALYTICS_VERSION,
+    type MCPAnalyticsContext,
+} from '@/lib/posthog/analytics'
+import { getToolCategory } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -20,7 +26,7 @@ function buildBaseProperties(
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
-        $mcp_version: state.version,
+        $mcp_version: MCP_ANALYTICS_VERSION,
         $mcp_client_name: requestContext.mcpClientName,
         $mcp_client_version: requestContext.mcpClientVersion,
         $mcp_client_user_agent: requestContext.clientUserAgent,
@@ -97,6 +103,15 @@ export async function trackToolCall(
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
+        // `$mcp_tool_category` is the dashboard's grouping dimension (e.g. "Logs",
+        // "Tracing"). The contract is: the producer stamps the category onto every
+        // tool-call event; the MCP analytics dashboard reads it back verbatim and
+        // never maps tool names to categories itself. PostHog's server derives it
+        // from its own catalog here; external servers using the SDK declare it per
+        // tool. Omitted when unknown (e.g. the `exec` wrapper) so the dashboard
+        // buckets those as "Uncategorized".
+        const toolCategory = getToolCategory(toolName)
+
         getPostHogClient().capture({
             distinctId: state.distinctId,
             event: 'mcp_tool_call',
@@ -107,6 +122,7 @@ export async function trackToolCall(
                 $mcp_duration_ms: durationMs,
                 $mcp_is_error: isError,
                 tool_name: toolName,
+                ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
             },

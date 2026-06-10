@@ -144,10 +144,49 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    autostart_base_branches = serializers.DictField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+            "(or send {}) to keep targeting the repo default branch."
+        ),
+    )
+
     class Meta:
         model = SignalTeamConfig
-        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "default_autostart_priority",
+            "default_slack_notification_channel",
+            "autostart_base_branches",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "default_slack_notification_channel": {
+                "help_text": (
+                    "Default Slack channel for this team's signal inbox notifications, in the same "
+                    "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
+                    "Null means no team-level default; per-user channels still apply."
+                )
+            },
+        }
+
+    def validate_autostart_base_branches(self, value: dict) -> dict:
+        cleaned: dict[str, str] = {}
+        for repo, branch in value.items():
+            repo_key = (repo or "").strip()
+            if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
+                raise serializers.ValidationError(
+                    f"Repository keys must be in 'organization/repository' form, got '{repo}'."
+                )
+            branch_value = (branch or "").strip()
+            if branch_value:
+                cleaned[repo_key.lower()] = branch_value
+        return cleaned
 
 
 class _UserSerializer(serializers.ModelSerializer):

@@ -11,7 +11,7 @@ from posthog.dags import (
     persons_without_distinct_ids_cleanup,
 )
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -32,5 +32,6 @@ defs = dagster.Definitions(
     sensors=[
         person_property_reconciliation.person_property_reconciliation_scheduler,
     ],
+    loggers=loggers,
     resources=resources,
 )

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, SinglePagePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient, RESTClientRetryableError
@@ -109,6 +110,21 @@ class TestRESTClient:
         )
 
         assert len(pages) == 0
+
+    # The auth's secret must be registered with the tracked session so it's masked from
+    # logs even when injected into a query param / custom header; no auth → nothing to redact.
+    @pytest.mark.parametrize(
+        "auth,expected_redact_values",
+        [
+            (APIKeyAuth(api_key="sk_live_x", name="key", location="query"), ("sk_live_x",)),
+            (None, ()),
+        ],
+    )
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_builds_session_with_credentials_for_redaction(self, MockSession, auth, expected_redact_values) -> None:
+        MockSession.return_value.headers = {}
+        RESTClient(base_url="https://api.example.com", auth=auth)
+        assert MockSession.call_args.kwargs["redact_values"] == expected_redact_values
 
     def test_join_url(self) -> None:
         client = RESTClient(base_url="https://api.example.com")

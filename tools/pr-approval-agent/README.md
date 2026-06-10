@@ -8,7 +8,15 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 Add the `stamphog` label to a non-draft PR.
 The GitHub Action runs the agent and posts an approval or comment.
 On approval the label stays so it's visible which PRs were stamphog'd.
-On failure the label is removed so it can be re-applied.
+On a substantive non-approval (`REFUSE`/`ESCALATE`) the label is removed so it
+can be re-applied once the feedback is addressed.
+If the review agent can't reach its LLM backend (credentials, credit, or
+outage) it returns `ERROR` and **keeps** the label — a transient infra failure
+must not silently drop labels across every queued PR. The review retries on the
+next push, or re-apply the label once the backend recovers. When the whole
+fleet of stamphog reviews suddenly returns `ERROR`, suspect the
+`STAMPHOG_ANTHROPIC_API_KEY` org secret first (stamphog uses its own dedicated
+Anthropic key, separate from the shared `ANTHROPIC_API_KEY`).
 
 ### Local testing
 

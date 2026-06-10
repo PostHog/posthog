@@ -76,7 +76,6 @@ class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
         super().perform_destroy(instance)
 
 
-@extend_schema(tags=["customer_analytics"])
 class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")

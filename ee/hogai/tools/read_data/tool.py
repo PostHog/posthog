@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.core.cache import cache as django_cache
 from django.utils import timezone
@@ -32,10 +32,14 @@ from products.ai_observability.backend.text_repr.formatters.trace_formatter impo
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
+from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.account import AccountContext
 from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -46,22 +50,25 @@ from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
     ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACCOUNT_PROMPT,
     READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
+    READ_DATA_BK_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
+from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, has_customer_analytics_mode_feature_flag
+from ee.hogai.utils.helpers import sanitize_for_system_reminder
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
-from ee.models.assistant import AgentArtifact
 
 
 class ReadDataWarehouseSchema(BaseModel):
@@ -149,6 +156,14 @@ class ReadExperiment(BaseModel):
     feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
 
 
+class ReadAccount(BaseModel):
+    """Retrieves a customer account by its UUID or external id, including roles, tags, external-system ids, and saved notes."""
+
+    kind: Literal["account"] = "account"
+    account_id: str | None = Field(default=None, description="The UUID of the account.")
+    external_id: str | None = Field(default=None, description="The external id of the account.")
+
+
 class ReadActivityLog(BaseModel):
     """Retrieves recent activity log entries showing who changed what and when in this project."""
 
@@ -189,6 +204,20 @@ class ReadLLMTrace(BaseModel):
     trace_id: str = Field(description="The trace ID to read.")
 
 
+class ReadBusinessKnowledgeDocument(BaseModel):
+    """Reads a wider context window from a business knowledge document around a specific chunk ordinal."""
+
+    kind: Literal["business_knowledge_document"] = "business_knowledge_document"
+    document_id: str = Field(description="The document ID from a previous business knowledge search result handle.")
+    around_ordinal: int = Field(description="The chunk ordinal to center the window around.")
+    radius: int = Field(
+        default=BK_DRILLDOWN_DEFAULT_RADIUS,
+        ge=0,
+        le=BK_DRILLDOWN_MAX_RADIUS,
+        description="Number of chunks before and after the center to include.",
+    )
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -201,8 +230,10 @@ ReadDataQuery = (
     | ReadSurvey
     | ReadFeatureFlag
     | ReadExperiment
+    | ReadAccount
     | ReadActivityLog
     | ReadLLMTrace
+    | ReadBusinessKnowledgeDocument
 )
 
 
@@ -251,6 +282,15 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if has_audit_logs_access:
             prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
             kinds.append(ReadActivityLog)
+
+        has_bk = await database_sync_to_async(has_business_knowledge_feature_flag)(team)
+        if has_bk and await database_sync_to_async(has_ready_sources)(team.id):
+            prompt_vars["business_knowledge_prompt"] = READ_DATA_BK_PROMPT
+            kinds.append(ReadBusinessKnowledgeDocument)
+
+        if has_customer_analytics_mode_feature_flag(team, user):
+            prompt_vars["account_prompt"] = READ_DATA_ACCOUNT_PROMPT
+            kinds.append(ReadAccount)
 
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
@@ -325,6 +365,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_feature_flag(schema.id, schema.key), None
             case ReadExperiment() as schema:
                 return await self._read_experiment(schema.id, schema.feature_flag_key), None
+            case ReadAccount() as schema:
+                if not has_customer_analytics_mode_feature_flag(self._team, self._user):
+                    raise MaxToolFatalError("Account data is not available for this project.")
+                return await self._read_account(schema.account_id, schema.external_id), None
             case ReadActivityLog() as schema:
                 if not await self._context_manager.check_has_audit_logs_access():
                     raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
@@ -340,6 +384,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 ), None
             case ReadLLMTrace() as schema:
                 return await self._read_llm_trace(schema.trace_id), None
+            case ReadBusinessKnowledgeDocument() as schema:
+                return await self._read_business_knowledge_document(
+                    schema.document_id, schema.around_ordinal, schema.radius
+                ), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -642,6 +690,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
         return await context.format_experiment(experiment)
 
+    async def _read_account(self, account_id: str | None, external_id: str | None) -> str:
+        if account_id is None and external_id is None:
+            raise MaxToolRetryableError("You must provide either 'account_id' or 'external_id' to read an account.")
+
+        context = AccountContext(
+            team=self._team,
+            account_id=account_id,
+            external_id=external_id,
+        )
+
+        account = await context.aget_account()
+        if account is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(account, "viewer", resource="account", action="read")
+        return await context.format_account(account)
+
     async def _read_activity_log(
         self,
         scope: str | None,
@@ -741,3 +806,33 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 parts.append(f"- {note.text}")
 
         return "\n".join(parts)
+
+    async def _read_business_knowledge_document(self, document_id: str, around_ordinal: int, radius: int) -> str:
+        has_access = await database_sync_to_async(
+            self.user_access_control.check_access_level_for_resource, thread_sensitive=False
+        )("business_knowledge", "viewer")
+        if not has_access:
+            raise MaxToolAccessDeniedError("business_knowledge", "viewer", action="read")
+
+        try:
+            doc_uuid = UUID(document_id)
+        except ValueError:
+            raise MaxToolRetryableError(f"Invalid document_id '{document_id}'. Must be a valid UUID.")
+
+        results = await database_sync_to_async(get_document_window, thread_sensitive=False)(
+            self._team.id, doc_uuid, around_ordinal, radius=radius
+        )
+
+        if not results:
+            raise MaxToolRetryableError(
+                f"No content found for document_id={document_id} around ordinal {around_ordinal}."
+            )
+
+        chunks = []
+        for r in results:
+            heading = sanitize_for_system_reminder(r.heading_path or r.document_title or "Untitled")
+            source_name = sanitize_for_system_reminder(r.source_name)
+            content = sanitize_for_system_reminder(r.content)
+            chunks.append(f"## [{r.ordinal}] {source_name} — {heading}\n\n{content}")
+
+        return "\n\n---\n\n".join(chunks)

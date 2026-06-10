@@ -11,16 +11,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type { DocsSearchRequestApi, DocsSearchResponseApi, McpToolsCreate200 } from './api.schemas'
 
 export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
-    return `/api/environments/${projectId}/mcp_tools/${toolName}/`
+    return `/api/projects/${projectId}/mcp_tools/${toolName}/`
 }
 
 /**
  * Invoke an MCP tool by name.
-
-This endpoint allows MCP callers to invoke Max AI tools directly
-without going through the full LangChain conversation flow.
-
-Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
+ *
+ * This endpoint allows MCP callers to invoke Max AI tools directly
+ * without going through the full LangChain conversation flow.
+ *
+ * Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
  */
 export const mcpToolsCreate = async (
     projectId: string,
@@ -34,7 +34,7 @@ export const mcpToolsCreate = async (
 }
 
 export const getDocsSearchUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_tools/docs_search/`
+    return `/api/projects/${projectId}/mcp_tools/docs_search/`
 }
 
 /**
