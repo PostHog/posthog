@@ -4223,16 +4223,23 @@ Second row`)
 
 <Embed />
 
+1. First item
+2. Second item
+
 Second paragraph`,
                 registry,
             })
         )
         const canvas = container.querySelector('.MarkdownNotebook__canvas')
         const component = container.querySelector('.MarkdownNotebook__component-shell')
+        const listBlock = container.querySelector('.MarkdownNotebook__list-block')
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
 
         expect(canvas?.getAttribute('contenteditable')).toEqual('true')
         expect(canvas?.getAttribute('data-markdown-notebook-editor')).toEqual('true')
         expect(component?.getAttribute('contenteditable')).toEqual('false')
+        expect(listBlock?.getAttribute('contenteditable')).toEqual('false')
+        expect(listItem?.getAttribute('contenteditable')).toEqual('true')
     })
 
     it('keeps notebook tool UI non-editable inside the editable canvas', () => {

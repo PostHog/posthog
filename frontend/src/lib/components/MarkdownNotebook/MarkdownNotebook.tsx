@@ -4532,7 +4532,7 @@ function EditableListBlock({
     }
 
     return (
-        <div className="MarkdownNotebook__list-block" ref={setBlockRef}>
+        <div className="MarkdownNotebook__list-block" ref={setBlockRef} contentEditable={false}>
             {renderItems(renderedItems, node.ordered, node.start)}
         </div>
     )
