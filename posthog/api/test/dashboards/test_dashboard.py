@@ -1364,6 +1364,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
+                "creation_source": "web",
                 "dashboard_id": response["id"],
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
@@ -2381,6 +2382,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
+                "creation_source": "web",
                 "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
@@ -2396,6 +2398,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             team=ANY,
             request=ANY,
         )
+
+    def test_create_from_template_json_records_template_id_in_metadata(self) -> None:
+        template_id = "0192f0c0-0000-7000-8000-000000000000"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": {**valid_template, "id": template_id}},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        metadata = response.json()["metadata"]
+        self.assertEqual(metadata["creation_source"], "web")
+        self.assertEqual(metadata["template_key"], valid_template["template_name"])
+        self.assertEqual(metadata["template_id"], template_id)
 
     @parameterized.expand(
         [

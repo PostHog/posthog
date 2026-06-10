@@ -36,13 +36,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
-    class CreationSource(models.TextChoices):
-        # Which client created the dashboard. Mirrors the vocabulary used by
-        # ExternalDataSource.created_via and the x-posthog-client header.
-        WEB = "web", "Web"
-        API = "api", "API"
-        MCP = "mcp", "MCP"
-
     class RestrictionLevel(models.IntegerChoices):
         """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
 
@@ -77,9 +70,10 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         blank=True,
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    # Provenance captured at creation time: creation_source ("web"/"api"/"mcp"), creation_context
-    # (originating product), template_key, duplicated_from_dashboard_id. Free-form JSON so new
-    # provenance signals can be recorded without a migration. Server-populated; not client-writable.
+    # Provenance captured at creation time: creation_source (an EventSource value — web/api/mcp/
+    # wizard/terraform/posthog_code/…), creation_context (originating product), template_key,
+    # template_id, duplicated_from_dashboard_id. Free-form JSON so new provenance signals can be
+    # recorded without a migration. Server-populated; not client-writable.
     metadata = models.JSONField(default=dict, null=True, blank=True)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
