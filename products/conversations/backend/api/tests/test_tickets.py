@@ -77,45 +77,31 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["id"] for r in response.json()["results"]}
 
-    def test_filter_tags_all_and_exclude(self, mock_on_commit):
-        t_ab = str(self._ticket_with_tags("alpha", "beta").id)
-        t_a = str(self._ticket_with_tags("alpha").id)
-        t_bc = str(self._ticket_with_tags("beta", "gamma").id)
-
-        # `tags` is unchanged: OR (any of the listed tags).
-        self.assertEqual(self._list_ids(tags=json.dumps(["alpha", "beta"])), {t_ab, t_a, t_bc})
-
-        # `tags_all` is AND: must carry every listed tag.
-        self.assertEqual(self._list_ids(tags_all=json.dumps(["alpha", "beta"])), {t_ab})
-
-        # `tags_exclude` is NOT: drops tickets carrying any listed tag.
-        exclude_ids = self._list_ids(tags_exclude=json.dumps(["gamma"]))
-        self.assertIn(t_ab, exclude_ids)
-        self.assertIn(t_a, exclude_ids)
-        self.assertNotIn(t_bc, exclude_ids)
-
-        # The groups compose with AND: has alpha, not beta.
-        self.assertEqual(
-            self._list_ids(tags_all=json.dumps(["alpha"]), tags_exclude=json.dumps(["beta"])),
-            {t_a},
-        )
-
-        # Malformed JSON is ignored, not a 500 (mirrors the `tags` param).
-        self.assertEqual(
-            self.client.get(
-                f"/api/projects/{self.team.id}/conversations/tickets/", data={"tags_all": "not-json"}
-            ).status_code,
-            status.HTTP_200_OK,
-        )
-
-        # A pathologically large tags_all list is capped, not run as thousands of JOINs.
-        self.assertEqual(
-            self.client.get(
-                f"/api/projects/{self.team.id}/conversations/tickets/",
-                data={"tags_all": json.dumps([f"t{i}" for i in range(200)])},
-            ).status_code,
-            status.HTTP_200_OK,
-        )
+    @parameterized.expand(
+        [
+            ("tags_matches_any", {"tags": '["alpha", "beta"]'}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("tags_all_matches_every", {"tags_all": '["alpha", "beta"]'}, {"alpha_beta"}),
+            ("tags_exclude_drops_tagged", {"tags_exclude": '["gamma"]'}, {"alpha_beta", "alpha"}),
+            (
+                "tags_all_composes_with_tags_exclude",
+                {"tags_all": '["alpha"]', "tags_exclude": '["beta"]'},
+                {"alpha"},
+            ),
+            ("malformed_json_ignored", {"tags_all": "not-json"}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("oversized_list_capped_not_500", {"tags_all": json.dumps([f"t{i}" for i in range(200)])}, set()),
+        ]
+    )
+    def test_filter_tags(self, mock_on_commit, _name, params, expected_keys):
+        # Expectations are fixture keys rather than ids (tickets don't exist at decorator
+        # time); the response is projected onto the fixture, which also keeps the untagged
+        # setUp ticket out of the comparison.
+        fixture = {
+            "alpha_beta": self._ticket_with_tags("alpha", "beta"),
+            "alpha": self._ticket_with_tags("alpha"),
+            "beta_gamma": self._ticket_with_tags("beta", "gamma"),
+        }
+        ids = self._list_ids(**params)
+        self.assertEqual({key for key, ticket in fixture.items() if str(ticket.id) in ids}, expected_keys)
 
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(
