@@ -722,6 +722,22 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["user_id"] == self.user.id
         assert content["user_uuid"] == str(self.user.uuid)
 
+    def test_state_transition_response_includes_source_products(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={str(report.id): ["zendesk"]},
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == ["zendesk"]
+
     @parameterized.expand(
         [
             (
