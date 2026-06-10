@@ -148,8 +148,9 @@ class MarketingSourceFactory:
         self.context = context
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
-        # Cache warehouse data to avoid repeated queries
-        database = Database.create_for(team=self.context.team)
+        # Cache warehouse data to avoid repeated queries. Reuse the request-shared database when the
+        # caller provides one (Database.create_for is ~550ms and we only need warehouse table names).
+        database = self.context.database or Database.create_for(team=self.context.team)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")
