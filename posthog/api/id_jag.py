@@ -20,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 import jwt
 import requests
 import structlog
+from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 from rest_framework.exceptions import ParseError, UnsupportedMediaType
 from rest_framework.parsers import FormParser, JSONParser
@@ -430,11 +431,14 @@ def _get_signing_key() -> str:
 
 
 def _construct_access_token(payload: dict[str, Any]) -> str:
+    signing_key = _get_signing_key()
+    # `kid` matches the thumbprint published in `/.well-known/jwks.json`, so a
+    # resource server can pick the right key once a rotation publishes more than one.
     return jwt.encode(
         payload,
-        _get_signing_key(),
+        signing_key,
         algorithm="RS256",
-        headers={"typ": ACCESS_TOKEN_TYPE},
+        headers={"typ": ACCESS_TOKEN_TYPE, "kid": jwk_from_pem(signing_key).thumbprint()},
     )
 
 

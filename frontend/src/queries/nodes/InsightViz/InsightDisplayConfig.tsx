@@ -17,10 +17,13 @@ import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -104,6 +107,7 @@ export function InsightDisplayConfig(): JSX.Element {
         compareFilter,
         supportsCompare,
         interval,
+        insightData,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -140,9 +144,13 @@ export function InsightDisplayConfig(): JSX.Element {
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        showValuesOnSeries,
+        showPercentagesOnSeries,
+        mightContainFractionalNumbers,
+        showConfidenceIntervals,
+        showMovingAverage,
+    } = useValues(trendsDataLogic(insightProps))
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
@@ -208,6 +216,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           : [
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
@@ -223,6 +232,9 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                                 ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                                     ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                    : []),
+                                ...(isTrendsFunnel && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <HideIncompleteConversionWindowPeriodsFilter /> }]
                                     : []),
                                 ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
                                     ? [{ label: () => <HideWeekendsFilter /> }]
@@ -381,6 +393,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const advancedOptionsCount: number =
         (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
+        (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
         isTrends &&
@@ -434,6 +447,9 @@ export function InsightDisplayConfig(): JSX.Element {
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
                             disableReason={editingDisabledReason}
+                            tooltip={formatResolvedDateRange(
+                                alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
+                            )}
                         />
                     </ConfigFilter>
                 )}

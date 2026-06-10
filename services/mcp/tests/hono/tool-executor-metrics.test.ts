@@ -64,7 +64,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         apiKeyScopes: [],
         clientProfile: {
             capabilities: { supportsInstructions: true },
-            isCodingAgent: vi.fn(() => false),
+            isCliModeEnabled: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -77,6 +77,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         allTools: tools as any,
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
         ...overrides,
     }
 }

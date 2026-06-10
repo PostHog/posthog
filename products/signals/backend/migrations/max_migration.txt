@@ -1,1 +1,1 @@
-0029_wipe_legacy_scout_configs
+0036_signalteamconfig_backfill_default_autostart_p2

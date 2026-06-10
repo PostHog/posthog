@@ -31,7 +31,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
-from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_public_key
+from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
@@ -68,7 +68,7 @@ _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
 SECRET_API_KEY_BODY_COUNTER = Counter(
     "api_auth_secret_api_key_body",
-    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+    "Requests where the team secret token is provided in the request body instead of the Authorization header",
 )
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
@@ -327,12 +327,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     """
-    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
+    Authenticates using a team secret token. Unlike a personal API key, this is not associated with a
     user and should only be used for local_evaluation and flags remote_config (not to be confused with the
     other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
-    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
+    TeamSecretTokenUser object that has the team set. This allows us to use the existing permissioning
     system for local_evaluation and flags remote_config requests.
 
     Only the first key candidate found in the request is tried, and the order is:
@@ -347,7 +347,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         cls,
         request: Union[HttpRequest, Request],
     ) -> Optional[str]:
-        """Try to find project secret API key in request and return it"""
+        """Try to find team secret token in request and return it"""
         if "authorization" in request.headers:
             authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
@@ -375,7 +375,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
+        # get the team from the team secret token
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
@@ -383,9 +383,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             if team is None:
                 return None
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # The team secret token is not associated with a user, so we create a TeamSecretTokenUser
             # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
             return None
 
@@ -394,9 +394,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class TeamSecretTokenUser:
     """
-    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    A "synthetic" user object returned by the TeamSecretTokenAuthentication when authenticating with a team secret token.
     """
 
     def __init__(self, team):
@@ -515,49 +515,52 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not self._is_id_jag_token(token):
                 return None
 
-            public_key = get_oidc_public_key()
-            if public_key is None:
+            verification_keys = get_oidc_verification_keys()
+            if not verification_keys:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
             site_url = (settings.SITE_URL or "").rstrip("/")
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-            try:
-                claims = jwt.decode(
-                    token,
-                    public_key,
-                    algorithms=["RS256"],
-                    audience=site_url,
-                    issuer=site_url,
-                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
-                    options={
-                        "require": [
-                            "iss",
-                            "sub",
-                            "email",
-                            "aud",
-                            "exp",
-                            "iat",
-                            "client_id",
-                            "scope",
-                            "org_id",
-                        ],
-                        "verify_signature": True,
-                        "verify_exp": True,
-                        "verify_aud": True,
-                        "verify_iss": True,
-                    },
-                )
-            except jwt.ExpiredSignatureError:
-                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
-            except jwt.InvalidAudienceError:
-                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
-            except jwt.InvalidIssuerError:
-                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
-            except jwt.MissingRequiredClaimError as e:
-                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
-            except jwt.PyJWTError:
+            # Try the active signing key first, then any keys being rotated out. A wrong
+            # key fails the signature check, so we move on; a key that matches but fails
+            # claim validation (expiry, audience, …) raises the real error to report.
+            claims = None
+            for verification_key in verification_keys:
+                try:
+                    claims = jwt.decode(
+                        token,
+                        verification_key,
+                        algorithms=["RS256"],
+                        audience=site_url,
+                        issuer=site_url,
+                        leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                        options={
+                            "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                            "verify_signature": True,
+                            "verify_exp": True,
+                            "verify_aud": True,
+                            "verify_iss": True,
+                        },
+                    )
+                    break
+                except jwt.InvalidSignatureError:
+                    continue
+                except jwt.ExpiredSignatureError:
+                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+                except jwt.InvalidAudienceError:
+                    raise AuthenticationFailed(
+                        detail="ID-JAG access token audience does not match this resource server."
+                    )
+                except jwt.InvalidIssuerError:
+                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+                except jwt.MissingRequiredClaimError as e:
+                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+                except jwt.PyJWTError:
+                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+            if claims is None:
                 raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
 
             sub_parts = self._parse_sub(str(claims.get("sub", "")))

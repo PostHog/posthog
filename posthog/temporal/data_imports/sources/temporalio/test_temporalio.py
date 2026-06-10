@@ -10,7 +10,7 @@ from posthog.temporal.data_imports.sources.temporalio.temporalio import FakeSett
 class TestTemporalIOClient:
     def test_fake_settings_satisfies_encryption_codec_contract(self):
         # FakeSettings must expose every attribute EncryptionCodec.from_settings reads
-        # (TEST, DEBUG, TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_KEYS); a missing one raises
+        # (TEST, DEBUG, TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS); a missing one raises
         # AttributeError. The 32-byte key clears the prod (TEST=False) length guard.
         codec = EncryptionCodec.from_settings(FakeSettings(TEMPORAL_SECRET_KEY="k" * 32))
 

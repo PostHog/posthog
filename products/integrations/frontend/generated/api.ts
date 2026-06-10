@@ -55,13 +55,13 @@ export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId
 
 /**
  * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
  */
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
@@ -85,7 +85,7 @@ export const getRoleExternalReferencesListUrl = (organizationId: string, params?
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -147,7 +147,7 @@ export const getRoleExternalReferencesLookupRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -174,7 +174,7 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -293,7 +293,7 @@ export const getIntegrationsChannelsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -406,7 +406,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -438,7 +438,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -485,7 +485,7 @@ export const getIntegrationsGithubTeamsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -651,10 +651,10 @@ export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string)
 
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
  */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,

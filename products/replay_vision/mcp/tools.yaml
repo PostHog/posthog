@@ -235,6 +235,9 @@ tools:
             already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.
         requires_ai_consent: true
         feature_flag: replay-vision
+    vision-scanners-stats-retrieve:
+        operation: vision_scanners_stats_retrieve
+        enabled: false
     vision-scanners-update:
         operation: vision_scanners_partial_update
         enabled: true

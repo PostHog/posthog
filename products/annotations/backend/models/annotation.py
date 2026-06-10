@@ -29,6 +29,9 @@ class Annotation(ModelActivityMixin, models.Model):
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope, default=Scope.INSIGHT)
+    # Optional emoji shown in place of the default badge when surfacing the annotation.
+    # Long enough to hold a single multi-codepoint grapheme (ZWJ sequences, skin-tone modifiers).
+    emoji = models.CharField(max_length=16, null=True, blank=True)
     creation_type = models.CharField(max_length=3, choices=CreationType, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
