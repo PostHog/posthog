@@ -200,6 +200,7 @@ def generate_survey_translation(
         posthog_properties={"ai_product": "survey_translation", "target_language": target_language},
         team_id=team_id,
         distinct_id=distinct_id,
+        billable=True,
     )
 
     translations, question_patches, generated_paths = _filter_existing_fields(

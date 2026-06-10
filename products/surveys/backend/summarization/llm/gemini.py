@@ -88,6 +88,7 @@ def summarize_with_gemini(
         },
         team_id=team_id,
         distinct_id=distinct_id,
+        billable=True,
     )
 
     return SummarizationResult(summary=summary, trace_id=trace_id)

@@ -4308,6 +4308,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         [
             ("slack_app",),
             ("product_analytics",),
+            ("survey_summary",),
+            ("survey_translation",),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")

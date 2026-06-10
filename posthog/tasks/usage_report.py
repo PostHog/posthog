@@ -1139,6 +1139,8 @@ POSTHOG_AI_PRODUCTS = [
     "subscriptions",
     "alert_investigation_agent",
     "product_analytics",
+    "survey_summary",
+    "survey_translation",
 ]
 
 # ai_product values billed as signals credits.

@@ -42,6 +42,7 @@ def generate_structured_output(
     posthog_properties: dict | None = None,
     team_id: int | None = None,
     distinct_id: str | None = None,
+    billable: bool = False,
 ) -> tuple[T, str]:
     client = create_gemini_client()
 
@@ -52,7 +53,10 @@ def generate_structured_output(
     )
 
     trace_id = str(uuid.uuid4())
-    properties = posthog_properties or {}
+    properties = {**(posthog_properties or {})}
+    if billable and team_id is not None:
+        properties["team_id"] = team_id
+        properties["$ai_billable"] = True
 
     try:
         response = client.models.generate_content(
