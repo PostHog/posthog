@@ -1,12 +1,11 @@
 import api from 'lib/api'
+import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { EventDefinitionType } from '~/types'
 
-import { isDefinitionStale } from './definitions'
-
-export const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
+const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
 
 // Use a longer staleness window than the global default so orgs that ingested AI events
 // in the past, paused, and have since resumed still land on the dashboard rather than the

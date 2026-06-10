@@ -4,18 +4,12 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AI_EVENT_NAMES, hasRecentAIEvents } from './aiEventsUtils'
+import { hasRecentAIEvents } from './aiEventsUtils'
 
 describe('aiEventsUtils', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-    })
-
-    describe('AI_EVENT_NAMES', () => {
-        it('should contain all expected AI event names', () => {
-            expect(AI_EVENT_NAMES).toEqual(['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'])
-        })
     })
 
     describe('hasRecentAIEvents', () => {
