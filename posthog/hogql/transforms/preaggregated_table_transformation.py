@@ -584,7 +584,7 @@ def do_preaggregated_table_transforms(node: _T_AST, context: HogQLContext) -> _T
     """
 
     # Only support the transformation if the team's timezone is set and is an integer number of hours offset
-    timezone = context.team.timezone if context.team else None
+    timezone = context.data.team_context.timezone
     if not timezone or not is_integer_timezone(timezone):
         return node
 

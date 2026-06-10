@@ -147,6 +147,9 @@ class HogQLContext:
 
     @cached_property
     def project_id(self) -> int:
+        if self.data_provider is not None:
+            return self.data.team_context.project_id
+
         from posthog.models import Team
 
         if not self.team and not self.team_id:

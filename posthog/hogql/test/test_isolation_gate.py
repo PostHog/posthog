@@ -2,17 +2,20 @@
 # database access raises. This pins the growing set of compile paths that work with
 # a fake DataProvider and no Django data — the gate battery expands as more
 # mid-compile reads are routed through the provider.
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    DateRange,
+    HogQLFilters,
     HogQLQueryModifiers,
     HogQLVariable,
     InCohortVia,
     MaterializationMode,
     PersonsOnEventsMode,
-    PropertyOperator,
     RetentionEntity,
 )
 
@@ -20,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.data_provider import ActionRef, CohortRef, InsightVariableInfo, PropertyTypes, StaticDataProvider
 from posthog.hogql.database.database import Database
+from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -30,10 +34,11 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 from posthog.hogql.variables import replace_variables_core
 
 from posthog.models import Property
+from posthog.models.property import PropertyType
 
 
-def _team_context(**overrides) -> HogQLTeamContext:
-    defaults = {
+def _team_context(**overrides: Any) -> HogQLTeamContext:
+    defaults: dict[str, Any] = {
         "team_id": 42,
         "project_id": 42,
         "uuid": "018e9a40-0000-0000-0000-000000000000",
@@ -109,7 +114,7 @@ class TestEngineIsolationGate(SimpleTestCase):
 
     def test_event_property_filter(self) -> None:
         expr = property_to_expr_core(
-            Property(type="event", key="$browser", operator=PropertyOperator.EXACT, value="Chrome"),
+            Property(type="event", key="$browser", operator="exact", value="Chrome"),
             _provider(),
         )
         self.assertEqual(
@@ -143,7 +148,9 @@ class TestEngineIsolationGate(SimpleTestCase):
             ("group", "group", "is_enterprise", 2),
         ]
     )
-    def test_bool_coercion_via_provider(self, _name: str, kind: str, key: str, group_type_index: int | None) -> None:
+    def test_bool_coercion_via_provider(
+        self, _name: str, kind: PropertyType, key: str, group_type_index: int | None
+    ) -> None:
         provider = _provider(
             property_type_catalog=PropertyTypes(
                 event={key: {"type": "Boolean"}},
@@ -152,9 +159,7 @@ class TestEngineIsolationGate(SimpleTestCase):
             )
         )
         expr = property_to_expr_core(
-            Property(
-                type=kind, key=key, operator=PropertyOperator.EXACT, value="true", group_type_index=group_type_index
-            ),
+            Property(type=kind, key=key, operator="exact", value="true", group_type_index=group_type_index),
             provider,
         )
         assert isinstance(expr, ast.CompareOperation)
@@ -217,6 +222,25 @@ class TestEngineIsolationGate(SimpleTestCase):
         prepare_and_print_ast(parse_select("SELECT event FROM events"), context, dialect="clickhouse")
         self.assertEqual(context.restricted_properties, {("secret", 1)})
 
+    def test_filters_placeholder_resolved_and_printed_via_provider(self) -> None:
+        provider = StaticDataProvider(
+            team_context=_team_context(
+                test_account_filters=[
+                    {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
+                ]
+            )
+        )
+        node = parse_select("SELECT event FROM events WHERE {filters}")
+        replaced = replace_filters_core(
+            node,
+            HogQLFilters(dateRange=DateRange(date_from="-7d"), filterTestAccounts=True),
+            provider,
+            Database(),
+        )
+        printed, _ = prepare_and_print_ast(replaced, self._print_context(provider), dialect="clickhouse")
+        self.assertIn("timestamp", printed)
+        self.assertIn("email", str(printed))
+
     def test_variables_substituted_via_provider(self) -> None:
         provider = _provider(
             insight_variables_by_id={"vid-1": InsightVariableInfo(code_name="my_var", default_value=42)}
@@ -230,7 +254,7 @@ class TestEngineIsolationGate(SimpleTestCase):
 
     def test_relative_date_resolves_against_team_context_timezone(self) -> None:
         expr = property_to_expr_core(
-            Property(type="event", key="signup_date", operator=PropertyOperator.IS_DATE_AFTER, value="-7d"),
+            Property(type="event", key="signup_date", operator="is_date_after", value="-7d"),
             _provider(),
         )
         assert isinstance(expr, ast.CompareOperation)
