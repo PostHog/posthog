@@ -145,6 +145,19 @@ describe('email tracking code', () => {
             }
         })
 
+        it('trims whitespace around keys in the rotation list', () => {
+            const original = defaultConfig.ENCRYPTION_SALT_KEYS
+            defaultConfig.ENCRYPTION_SALT_KEYS = 'signing-key-cccccccccccccccccccc'
+            const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
+            // Same keys, but configured with a space after the comma — must still verify.
+            defaultConfig.ENCRYPTION_SALT_KEYS = 'other-key-dddddddddddddddddddddd, signing-key-cccccccccccccccccccc'
+            try {
+                expect(parseEmailTrackingCode(code)?.format).toBe('signed')
+            } finally {
+                defaultConfig.ENCRYPTION_SALT_KEYS = original
+            }
+        })
+
         it('emits unsigned codes when no signing key is configured', () => {
             const original = defaultConfig.ENCRYPTION_SALT_KEYS
             defaultConfig.ENCRYPTION_SALT_KEYS = ''

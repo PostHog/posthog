@@ -37,7 +37,10 @@ function fromBase64UrlSafe(b64url: string): string {
 }
 
 function getSigningKeys(): string[] {
-    return (defaultConfig.ENCRYPTION_SALT_KEYS || '').split(',').filter(Boolean)
+    return (defaultConfig.ENCRYPTION_SALT_KEYS || '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean)
 }
 
 function signPayload(payload: string, key: string): string {
