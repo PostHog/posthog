@@ -8,7 +8,11 @@ import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
-import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
+import {
+    ArtifactContentType,
+    NotebookArtifactContent,
+    VisualizationArtifactContent,
+} from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -118,6 +122,21 @@ export function notebookArtifactContentToMarkdown(content: NotebookArtifactConte
     return [`# ${title}`, markdown].filter((block) => block.trim()).join('\n\n')
 }
 
+export function visualizationArtifactContentToNotebookArtifactContent(
+    content: VisualizationArtifactContent
+): NotebookArtifactContent {
+    return {
+        content_type: ArtifactContentType.Notebook,
+        blocks: [
+            {
+                type: 'visualization',
+                query: content.query as VisualizationBlock['query'],
+                title: getVisualizationArtifactTitle(content),
+            },
+        ],
+    }
+}
+
 export function convertNotebookContentToMarkdown(content: JSONContent | null | undefined): string {
     if (isMarkdownNotebookContent(content)) {
         return getMarkdownNotebookMarkdown(content)
@@ -207,6 +226,14 @@ function getNotebookArtifactVisualizationQuery(block: VisualizationBlock): Noteb
 
 function getNotebookArtifactVisualizationDisplay(block: VisualizationBlock): ChartDisplayType | null {
     return /\bpie\b/i.test(block.title ?? '') ? ChartDisplayType.ActionsPie : null
+}
+
+function getVisualizationArtifactTitle(content: VisualizationArtifactContent): string | null {
+    return (
+        normalizeArtifactTitle(content.name) ??
+        normalizeArtifactTitle(content.plan) ??
+        normalizeArtifactTitle(content.description)
+    )
 }
 
 function getOptionalTitleProp(title: string | null | undefined): Partial<Pick<NotebookComponentProps, 'title'>> {

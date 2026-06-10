@@ -61,6 +61,7 @@ import {
     type ArtifactMessage,
     AssistantMessageType,
     type NotebookArtifactContent,
+    type VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 
 import { NODE_ICONS } from '../nodeIcons'
@@ -73,6 +74,7 @@ import {
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
     notebookArtifactContentToMarkdown,
+    visualizationArtifactContentToNotebookArtifactContent,
 } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
@@ -161,16 +163,29 @@ type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
     uiContext?: Partial<MaxUIContext>
 }
 
-type NotebookArtifactThreadMessage = ArtifactMessage &
+type NotebookApplicableArtifactContent = NotebookArtifactContent | VisualizationArtifactContent
+
+type NotebookApplicableArtifactThreadMessage = ArtifactMessage &
     ThreadMessage & {
-        content: NotebookArtifactContent
+        content: NotebookApplicableArtifactContent
     }
+
+type NotebookArtifactApplyMode = 'replace' | 'insert-after-chat'
+
+type NotebookArtifactApplyRequest = {
+    content: NotebookArtifactContent
+    mode: NotebookArtifactApplyMode
+}
 
 type MarkdownNotebookRuntimeContextValue = {
     notebookShortId: string | null
     notebookTitle: string
     markdown: string
-    applyNotebookArtifactContent: (content: NotebookArtifactContent, chatId?: string) => void
+    applyNotebookArtifactContent: (
+        content: NotebookArtifactContent,
+        chatId?: string,
+        mode?: NotebookArtifactApplyMode
+    ) => void
 }
 
 const MarkdownNotebookRuntimeContext = createContext<MarkdownNotebookRuntimeContextValue | null>(null)
@@ -298,13 +313,16 @@ export function MarkdownNotebookV2(): JSX.Element {
     )
 
     const applyNotebookArtifactContent = useCallback(
-        (content: NotebookArtifactContent, chatId?: string): void => {
+        (content: NotebookArtifactContent, chatId?: string, mode: NotebookArtifactApplyMode = 'replace'): void => {
             const artifactMarkdown = notebookArtifactContentToMarkdown(content)
             if (!artifactMarkdown.trim()) {
                 return
             }
 
-            const nextMarkdown = preserveNotebookAIChatMarker(artifactMarkdown, latestMarkdownRef.current, chatId)
+            const nextMarkdown =
+                mode === 'insert-after-chat'
+                    ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, latestMarkdownRef.current, chatId)
+                    : preserveNotebookAIChatMarker(artifactMarkdown, latestMarkdownRef.current, chatId)
             if (nextMarkdown === latestMarkdownRef.current) {
                 return
             }
@@ -488,7 +506,10 @@ function getInlineAICompletion(threadRaw: ThreadMessage[]): { status: 'done' | '
         }
     }
 
-    if (lastAssistantMessage.type === AssistantMessageType.Notebook) {
+    if (
+        lastAssistantMessage.type === AssistantMessageType.Notebook ||
+        isCompletedNotebookApplicableArtifactMessage(lastAssistantMessage)
+    ) {
         return {
             status: 'done',
             message: 'Updated the notebook.',
@@ -519,31 +540,48 @@ function useApplyNotebookArtifactMessages(threadRaw: ThreadMessage[], chatId: st
         }
 
         for (const message of threadRaw) {
-            if (!isCompletedNotebookArtifactMessage(message)) {
+            if (!isCompletedNotebookApplicableArtifactMessage(message)) {
                 continue
             }
 
+            const artifactRequest = getNotebookArtifactApplyRequestForMessage(message)
             const artifactKey = getNotebookArtifactMessageKey(message)
             if (appliedArtifactKeysRef.current.has(artifactKey)) {
                 continue
             }
 
-            runtimeContext.applyNotebookArtifactContent(message.content, chatId)
+            runtimeContext.applyNotebookArtifactContent(artifactRequest.content, chatId, artifactRequest.mode)
             appliedArtifactKeysRef.current.add(artifactKey)
         }
     }, [chatId, runtimeContext, threadRaw])
 }
 
-function isCompletedNotebookArtifactMessage(message: ThreadMessage): message is NotebookArtifactThreadMessage {
+function getNotebookArtifactApplyRequestForMessage(
+    message: NotebookApplicableArtifactThreadMessage
+): NotebookArtifactApplyRequest {
+    if (message.content.content_type === ArtifactContentType.Notebook) {
+        return { content: message.content, mode: 'replace' }
+    }
+
+    return {
+        content: visualizationArtifactContentToNotebookArtifactContent(message.content),
+        mode: 'insert-after-chat',
+    }
+}
+
+function isCompletedNotebookApplicableArtifactMessage(
+    message: ThreadMessage
+): message is NotebookApplicableArtifactThreadMessage {
     return (
         message.type === AssistantMessageType.Artifact &&
         message.status === 'completed' &&
-        message.content.content_type === ArtifactContentType.Notebook
+        (message.content.content_type === ArtifactContentType.Notebook ||
+            message.content.content_type === ArtifactContentType.Visualization)
     )
 }
 
-function getNotebookArtifactMessageKey(message: NotebookArtifactThreadMessage): string {
-    return `${message.artifact_id}:${message.id ?? ''}:${JSON.stringify(message.content.blocks)}`
+function getNotebookArtifactMessageKey(message: NotebookApplicableArtifactThreadMessage): string {
+    return `${message.artifact_id}:${message.id ?? ''}:${JSON.stringify(message.content)}`
 }
 
 const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry([
@@ -676,6 +714,33 @@ function preserveNotebookAIChatMarker(
     }
 
     return [nextMarkdown.trimEnd(), chatMarker].filter((block) => block.trim()).join('\n\n')
+}
+
+function insertMarkdownAfterNotebookAIChatMarker(
+    blockMarkdown: string,
+    currentMarkdown: string,
+    chatId: string | undefined
+): string {
+    const trimmedBlockMarkdown = blockMarkdown.trim()
+    if (!trimmedBlockMarkdown || currentMarkdown.includes(trimmedBlockMarkdown)) {
+        return currentMarkdown
+    }
+
+    if (!chatId) {
+        return [currentMarkdown, trimmedBlockMarkdown].filter((block) => block.trim()).join('\n\n')
+    }
+
+    const chatMarker = getNotebookAIChatMarker(chatId)
+    const chatMarkerIndex = currentMarkdown.indexOf(chatMarker)
+    if (chatMarkerIndex === -1) {
+        return [currentMarkdown, trimmedBlockMarkdown].filter((block) => block.trim()).join('\n\n')
+    }
+
+    const insertionIndex = chatMarkerIndex + chatMarker.length
+    const beforeInsertion = currentMarkdown.slice(0, insertionIndex).trimEnd()
+    const afterInsertion = currentMarkdown.slice(insertionIndex).trimStart()
+
+    return [beforeInsertion, trimmedBlockMarkdown, afterInsertion].filter((block) => block.trim()).join('\n\n')
 }
 
 function getNotebookAIChatMarker(chatId: string): string {
@@ -1203,7 +1268,7 @@ function getNotebookAIChatThreadMessages(
         if (message.type === AssistantMessageType.Notebook && message.status === 'completed') {
             return [{ role: 'assistant', id, content: 'Updated the notebook.' }]
         }
-        if (isCompletedNotebookArtifactMessage(message)) {
+        if (isCompletedNotebookApplicableArtifactMessage(message)) {
             return [{ role: 'assistant', id, content: 'Updated the notebook.' }]
         }
         if (message.type === AssistantMessageType.Assistant) {

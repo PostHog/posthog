@@ -1,6 +1,10 @@
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
+import {
+    ArtifactContentType,
+    NotebookArtifactContent,
+    VisualizationArtifactContent,
+} from '~/queries/schema/schema-assistant-messages'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { NotebookNodeType } from '../types'
@@ -11,6 +15,7 @@ import {
     getMarkdownNotebookMarkdown,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
+    visualizationArtifactContentToNotebookArtifactContent,
 } from './markdownNotebookV2'
 
 describe('markdownNotebookV2', () => {
@@ -139,6 +144,33 @@ Users activated faster.
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
             '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+        )
+    })
+
+    it('converts visualization artifacts to notebook query content', () => {
+        const content: VisualizationArtifactContent = {
+            content_type: ArtifactContentType.Visualization,
+            plan: 'Create a pie chart',
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select event, count() from events group by event',
+            },
+        }
+
+        const notebookContent = visualizationArtifactContentToNotebookArtifactContent(content)
+
+        expect(notebookContent).toEqual({
+            content_type: ArtifactContentType.Notebook,
+            blocks: [
+                {
+                    type: 'visualization',
+                    title: 'Create a pie chart',
+                    query: content.query,
+                },
+            ],
+        })
+        expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 
