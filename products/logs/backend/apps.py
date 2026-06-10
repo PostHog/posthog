@@ -7,8 +7,8 @@ class LogsConfig(AppConfig):
     label = "logs"
 
     def ready(self) -> None:
-        # Connect the logs alert / sampling-rule activity-log receivers at app-population. They used
-        # to wire in as an import side effect of the viewset modules; the lazy API router no longer
-        # pulls that, so a process that never builds the router (celery, temporal, migrate) would
-        # drop audit logs on those writes. Both modules are light, so importing them here stays cheap.
-        from products.logs.backend import alerts_api, sampling_api  # noqa: F401, PLC0415
+        # Connect the logs alert / sampling-rule activity-log receivers at app-population, from a
+        # dedicated light module. They must not live in the viewset modules: the lazy API router no
+        # longer pulls those, and alerts_api transitively imports the whole query-runner layer,
+        # which would drag posthog.schema and HogQL into django.setup() for every process type.
+        from products.logs.backend import activity_logging  # noqa: F401, PLC0415

@@ -8,6 +8,7 @@ class AnnotationsConfig(AppConfig):
     label = "annotations"
 
     def ready(self) -> None:
-        # Connect the annotation activity-logging / analytics receivers at app-population. They used
-        # to wire in via the viewset import; the lazy API router no longer pulls that, so connect here.
-        from products.annotations.backend.api import annotation  # noqa: F401, PLC0415
+        # Connect the annotation activity-logging / analytics receivers at app-population, from a
+        # dedicated light module — importing the viewset module here would pull posthog.api
+        # routing/utils (and posthog.schema with them) into django.setup() for every process type.
+        from products.annotations.backend import activity_logging  # noqa: F401, PLC0415
