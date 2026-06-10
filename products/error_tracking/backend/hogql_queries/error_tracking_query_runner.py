@@ -40,8 +40,9 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if self.query.withAggregations is None:
             self.query.withAggregations = True
 
+        # first/last event fetches read every matching event's full properties blob — opt-in only.
         if self.query.withFirstEvent is None:
-            self.query.withFirstEvent = True
+            self.query.withFirstEvent = False
 
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
@@ -61,9 +62,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @classmethod
     def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
-        if date == "all" or date is None:
+        if date == "all":
             return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=365 * 4)
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        # A missing date range must not silently mean "all time" — that's a 4-year events scan.
+        return relative_date_parse(
+            date or "-7d", now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC")
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:

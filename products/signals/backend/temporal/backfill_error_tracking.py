@@ -48,7 +48,8 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
             team=team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
+                # withFirstEvent reads each issue's event blobs, so keep the scanned window bounded.
+                dateRange=DateRange(date_from="-30d"),
                 orderBy="first_seen",
                 orderDirection="DESC",
                 volumeResolution=1,

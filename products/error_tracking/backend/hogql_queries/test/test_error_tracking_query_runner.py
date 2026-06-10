@@ -21,6 +21,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
+    ErrorTrackingOrderBy,
     ErrorTrackingQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
@@ -281,9 +282,30 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_missing_date_from_defaults_to_seven_days(self):
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
+        self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+
+    def test_event_fetching_defaults_off(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy=ErrorTrackingOrderBy.LAST_SEEN,
+                volumeResolution=1,
+            ),
+        )
+        self.assertFalse(runner.query.withFirstEvent)
+        self.assertFalse(runner.query.withLastEvent)
+        self.assertTrue(runner.query.withAggregations)
+
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
-        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
+        results = self._calculate(
+            issueId=self.issue_id_one, withAggregations=True, dateRange=DateRange(date_from="-3y")
+        )["results"]
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], self.issue_id_one)
@@ -422,20 +444,32 @@ class ErrorTrackingQueryRunnerTestsMixin:
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            properties={
+                "$session_id": str(uuid7()),
+                "$exception_issue_id": self.issue_id_one,
+                "$exception_fingerprint": self.issue_one_fingerprint,
+            },
         )
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            properties={
+                "$session_id": str(uuid7()),
+                "$exception_issue_id": self.issue_id_one,
+                "$exception_fingerprint": self.issue_one_fingerprint,
+            },
         )
         # blank string
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": "", "$exception_issue_id": self.issue_id_one},
+            properties={
+                "$session_id": "",
+                "$exception_issue_id": self.issue_id_one,
+                "$exception_fingerprint": self.issue_one_fingerprint,
+            },
         )
         flush_persons_and_events()
 
@@ -447,7 +481,9 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_correctly_counts_persons(self):
-        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
+        results = self._calculate(
+            issueId=self.issue_id_one, withAggregations=True, dateRange=DateRange(date_from="-3y")
+        )["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["users"], 2)
 
@@ -504,7 +540,9 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
-        results = self._calculate(withAggregations=True, orderBy="occurrences")["results"]
+        results = self._calculate(withAggregations=True, orderBy="occurrences", dateRange=DateRange(date_from="-3y"))[
+            "results"
+        ]
         self.assertEqual(len(results), 2)
 
         # count is (2 x issue_one) + (1 x issue_three)

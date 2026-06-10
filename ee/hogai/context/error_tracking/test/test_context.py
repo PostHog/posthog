@@ -124,6 +124,17 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNone(issue)
 
+    async def test_aget_first_event_finds_event_in_first_seen_window(self):
+        context = self._create_context(self.issue_id_one)
+        issue = await context.aget_issue()
+        assert issue is not None
+        self.assertIsNotNone(issue.first_seen)
+
+        event = await context.aget_first_event(issue.first_seen)
+
+        assert event is not None
+        self.assertIn("$exception_list", event["properties"])
+
     async def test_format_stacktrace_correctly(self):
         context = self._create_context(self.issue_id_one)
 
