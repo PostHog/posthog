@@ -42,9 +42,6 @@ tools:
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
-    cohorts-used-in-retrieve:
-        operation: cohorts_used_in_retrieve
-        enabled: false
     complete-product-onboarding-partial-update:
         operation: organizations_projects_complete_product_onboarding_partial_update
         enabled: false
