@@ -16,14 +16,20 @@ describe('database-guard', () => {
             }
         )
 
-        it.each(['posthog', 'posthog_persons', 'behavioral_cohorts', 'cyclotron', 'default'])(
-            'refuses non-test database %s',
-            (name) => {
-                expect(() => assertTestDatabaseName(name, 'unit test', emptyEnv)).toThrow(
-                    /Refusing to run a destructive test helper/
-                )
-            }
-        )
+        it.each([
+            'posthog',
+            'posthog_persons',
+            'behavioral_cohorts',
+            'cyclotron',
+            'default',
+            // "test" embedded in another word must not pass the guard.
+            'latest',
+            'posthog_latest',
+        ])('refuses non-test database %s', (name) => {
+            expect(() => assertTestDatabaseName(name, 'unit test', emptyEnv)).toThrow(
+                /Refusing to run a destructive test helper/
+            )
+        })
 
         it('includes the database name, source and escape hatch in the error', () => {
             expect(() => assertTestDatabaseName('posthog', 'Postgres COMMON_WRITE', emptyEnv)).toThrow(

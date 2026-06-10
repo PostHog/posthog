@@ -7,7 +7,10 @@ import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
  */
 export const UNSAFE_DATABASE_RESET_ENV_VAR = 'ALLOW_NON_TEST_DATABASE_RESET'
 
-const TEST_DATABASE_NAME_PATTERN = /test/i
+// Matches "test" only as an underscore- or boundary-delimited token, so real
+// test databases (test_posthog, posthog_test) pass while names that merely
+// embed the substring (latest, posthog_latest) are still refused.
+const TEST_DATABASE_NAME_PATTERN = /(^|_)test(_|$)/i
 const ESCAPE_HATCH_VALUES = new Set(['1', 'true', 'yes'])
 
 /**
