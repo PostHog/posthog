@@ -125,8 +125,10 @@ class TestSummarizeWithGemini:
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
 
+    @patch("products.surveys.backend.llm.client.get_instance_region_url")
     @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_generation_is_tagged_billable(self, mock_create_client):
+    def test_generation_is_tagged_billable(self, mock_create_client, mock_region_url):
+        mock_region_url.return_value = "https://us.posthog.com"
         mock_client = MagicMock()
         mock_create_client.return_value = mock_client
         valid_response = {
@@ -142,6 +144,7 @@ class TestSummarizeWithGemini:
         assert properties["$ai_billable"] is True
         assert properties["team_id"] == 42
         assert properties["ai_product"] == "survey_summary"
+        assert properties["$group_1"] == "https://us.posthog.com"
 
     @patch("products.surveys.backend.llm.client.create_gemini_client")
     def test_generation_not_billable_without_team_id(self, mock_create_client):

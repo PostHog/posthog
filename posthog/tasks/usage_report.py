@@ -43,7 +43,13 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
+from posthog.utils import (
+    CLOUD_REGION_TO_URL,
+    get_helm_info_env,
+    get_instance_realm,
+    get_instance_region,
+    get_previous_day,
+)
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -1125,10 +1131,6 @@ AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
     "US": 2,
-}
-CLOUD_REGION_TO_URL = {
-    "EU": "https://eu.posthog.com",
-    "US": "https://us.posthog.com",
 }
 
 

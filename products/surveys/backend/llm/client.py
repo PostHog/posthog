@@ -12,6 +12,8 @@ from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel
 from rest_framework import exceptions
 
+from posthog.utils import get_instance_region_url
+
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
@@ -57,6 +59,9 @@ def generate_structured_output(
     if billable and team_id is not None:
         properties["team_id"] = team_id
         properties["$ai_billable"] = True
+        region_url = get_instance_region_url()
+        if region_url:
+            properties["$group_1"] = region_url
 
     try:
         response = client.models.generate_content(

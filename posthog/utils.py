@@ -1258,6 +1258,18 @@ def get_instance_region() -> Optional[str]:
     return settings.CLOUD_DEPLOYMENT
 
 
+CLOUD_REGION_TO_URL = {
+    "EU": "https://eu.posthog.com",
+    "US": "https://us.posthog.com",
+}
+
+
+def get_instance_region_url() -> Optional[str]:
+    """Customer-facing URL for the current Cloud region, used as the AI billing `instance` group value."""
+    region = get_instance_region()
+    return CLOUD_REGION_TO_URL.get(region) if region else None
+
+
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 

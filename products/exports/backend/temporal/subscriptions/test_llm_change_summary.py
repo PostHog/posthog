@@ -474,6 +474,28 @@ class TestGenerateChangeSummary:
         assert call_kwargs.kwargs["temperature"] == 0.3
         assert call_kwargs.kwargs["max_tokens"] == 500
 
+    @patch("products.exports.backend.temporal.subscriptions.llm_change_summary.get_instance_region_url")
+    @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
+    def test_generation_is_tagged_billable(self, mock_get_client, mock_region_url):
+        mock_region_url.return_value = "https://us.posthog.com"
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- summary", 10, 5)
+
+        team = MagicMock()
+        team.id = 42
+
+        generate_change_summary(
+            [_make_state(1, "X", "data")],
+            [_make_state(1, "X", "data", timestamp="2025-04-15T10:00:00Z")],
+            team=team,
+        )
+
+        properties = mock_client.chat.completions.create.call_args.kwargs["posthog_properties"]
+        assert properties["$ai_billable"] is True
+        assert properties["team_id"] == 42
+        assert properties["ai_product"] == "subscriptions"
+        assert properties["$group_1"] == "https://us.posthog.com"
+
     @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_uses_initial_prompt_when_no_previous_states(self, mock_get_client):
         mock_client = mock_get_client.return_value
