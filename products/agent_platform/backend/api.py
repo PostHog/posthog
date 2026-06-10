@@ -85,6 +85,7 @@ from .serializers import (
     WriteSpecRequestSerializer,
     WriteToolRequestSerializer,
     WriteTypedBundleRequestSerializer,
+    agent_ingress_route_url,
 )
 from .spec_schema import missing_required_secrets
 
@@ -212,11 +213,8 @@ _TRIGGER_ROUTES: dict[str, dict[str, str]] = {
 def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Return `{trigger_type: {route_name: absolute_url}}` for every
     trigger the spec declares that has a public ingress route in
-    `_TRIGGER_ROUTES`. Empty when `AGENT_INGRESS_PUBLIC_URL` isn't
-    set (local dev without `bin/agent-tunnel`)."""
-    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
-    if not base:
-        return {}
+    `_TRIGGER_ROUTES`. Empty when no public agent-ingress URL is configured
+    for the active routing mode (local dev without `bin/agent-tunnel`)."""
     triggers = spec.get("triggers") or []
     if not isinstance(triggers, list):
         return {}
@@ -234,7 +232,10 @@ def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[st
         # should already enforce uniqueness, but be defensive.
         if ttype in out:
             continue
-        out[ttype] = {name: f"{base}/agents/{ingress_slug}{path}" for name, path in routes.items()}
+        urls = {name: agent_ingress_route_url(ingress_slug, path) for name, path in routes.items()}
+        if any(url is None for url in urls.values()):
+            return {}
+        out[ttype] = {name: url for name, url in urls.items() if url is not None}
     return out
 
 
@@ -886,10 +887,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
                     ),
                     "ingress_slug": drf_serializers.CharField(
-                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix.",
+                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
                     ),
                     "endpoints": drf_serializers.JSONField(
-                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset.",
+                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
                     ),
                     "auth": drf_serializers.JSONField(
                         help_text="How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
@@ -1734,10 +1735,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has no slack trigger.
         """
         revision: AgentRevision = self.get_object()
-        base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
         slug = revision.application.slug
-        events_url = f"{base}/agents/{slug}/slack/events" if base and slug else None
-        interactivity_url = f"{base}/agents/{slug}/slack/interactivity" if base and slug else None
+        events_url = agent_ingress_route_url(slug, "/slack/events")
+        interactivity_url = agent_ingress_route_url(slug, "/slack/interactivity")
         result = self._call(
             _janitor().slack_manifest,
             str(revision.id),

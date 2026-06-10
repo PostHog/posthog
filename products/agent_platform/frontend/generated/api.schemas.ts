@@ -43,7 +43,7 @@ export interface AgentApplicationApi {
     readonly created_at: string
     readonly updated_at: string
     /**
-     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
      * @nullable
      */
     readonly slack_events_url: string | null
@@ -904,7 +904,7 @@ export interface PatchedAgentApplicationApi {
     readonly created_at?: string
     readonly updated_at?: string
     /**
-     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
      * @nullable
      */
     readonly slack_events_url?: string | null
@@ -1097,9 +1097,9 @@ export interface AgentApplicationPreviewTokenResponseApi {
     token: string
     /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
     expires_in: number
-    /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
+    /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
     ingress_slug: string
-    /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset. */
+    /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
     endpoints: unknown
     /** How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
     auth: unknown

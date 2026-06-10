@@ -81,8 +81,9 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
     slack_events_url = serializers.SerializerMethodField(
         help_text=(
             "Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. "
-            "Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no "
-            "public agent-ingress URL configured (e.g. local dev without a tunnel)."
+            "Computed from the agent slug and the deployment's ingress routing mode "
+            "(`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). "
+            "Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel)."
         ),
     )
     slack_interactivity_url = serializers.SerializerMethodField(
@@ -143,11 +144,29 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
         return _slack_path_url(obj.slug, "interactivity")
 
 
-def _slack_path_url(slug: str, suffix: str) -> str | None:
-    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
-    if not base or not slug:
+def agent_ingress_route_url(slug: str, path: str) -> str | None:
+    """Absolute URL of an agent's ingress route, matching what the deployed
+    ingress actually serves. Mode mirrors `AGENT_INGRESS_ROUTING_MODE` (and the
+    ingress's own `ROUTING_MODE`):
+
+      domain → ``https://<slug><suffix><path>``    (slug in host, routes at root)
+      path   → ``<public_url>/agents/<slug><path>`` (slug in path)
+
+    `path` is the leading-slash route (e.g. `/slack/events`). Returns None when
+    the active mode's required setting is unset or `slug` is empty — the caller
+    omits the field, signalling "not externally reachable".
+    """
+    if not slug:
         return None
-    return f"{base}/agents/{slug}/slack/{suffix}"
+    if settings.AGENT_INGRESS_ROUTING_MODE == "domain":
+        suffix = (settings.AGENT_INGRESS_DOMAIN_SUFFIX or "").strip()
+        return f"https://{slug}{suffix}{path}" if suffix else None
+    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
+    return f"{base}/agents/{slug}{path}" if base else None
+
+
+def _slack_path_url(slug: str, suffix: str) -> str | None:
+    return agent_ingress_route_url(slug, f"/slack/{suffix}")
 
 
 @extend_schema_field(AGENT_SPEC_JSON_SCHEMA)

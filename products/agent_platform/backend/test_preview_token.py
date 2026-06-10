@@ -14,6 +14,9 @@ Verifies:
     auth-stripping proxy.
   * Empty `endpoints` when `AGENT_INGRESS_PUBLIC_URL` is unset (local
     dev without the tunnel).
+  * Domain routing mode (`AGENT_INGRESS_ROUTING_MODE=domain`): URLs put
+    the slug in the host (`https://<slug><suffix>/...`), matching what the
+    domain-mode ingress serves; empty when the suffix is unset.
   * Hard requirements that already existed: live revision rejected,
     cross-app revision rejected, missing query param rejected.
 """
@@ -188,3 +191,105 @@ class TestPreviewTokenResponse(APIBaseTest):
         res = self.client.get(f"/api/projects/{self.team.id}/agent_applications/{app.slug}/preview-token/")
         assert res.status_code == 400, res.content
         assert "revision_id" in res.content.decode()
+
+
+@override_settings(
+    AGENT_INGRESS_ROUTING_MODE="domain",
+    AGENT_INGRESS_DOMAIN_SUFFIX=".agents.dev.posthog.dev",
+    AGENT_INGRESS_PUBLIC_URL="https://ignored-in-domain-mode.example.com",
+)
+class TestPreviewTokenDomainMode(APIBaseTest):
+    """Domain-mode URL shape for `endpoints`: slug in the host, routes mounted
+    at root. `AGENT_INGRESS_PUBLIC_URL` is deliberately set to prove domain mode
+    ignores it. Standalone (not a subclass of the path-mode suite) so the
+    path-mode assertions don't re-run under these settings."""
+
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str = "preview-bot") -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name="Preview bot", description="")
+
+    def _revision(self, app: AgentApplication, spec: dict[str, Any]) -> AgentRevision:
+        return AgentRevision.all_teams.create(
+            application=app, state="draft", bundle_uri=f"local://{app.slug}/v1", spec=spec
+        )
+
+    def _url(self, app: AgentApplication, rev: AgentRevision) -> str:
+        return f"/api/projects/{self.team.id}/agent_applications/{app.slug}/preview-token/?revision_id={rev.id}"
+
+    def test_endpoints_use_host_routing(self) -> None:
+        app = self._app()
+        spec = _base_spec(
+            triggers=[
+                {"type": "chat", "config": {"require_auth": True}},
+                {"type": "slack", "config": {"mention_only": True, "trusted_workspaces": ["T01ABC"]}},
+            ]
+        )
+        rev = self._revision(app, spec)
+
+        res = self.client.get(self._url(app, rev))
+        assert res.status_code == 200, res.content
+        endpoints = res.json()["endpoints"]
+
+        expected_slug = f"{app.slug}-{rev.id.hex}"
+        # Slug in the host, route at root — what the domain-mode ingress
+        # actually serves. The path-mode `/agents/<slug>/...` shape would
+        # 404 here, which is the bug this whole change fixes.
+        assert endpoints["chat"]["run"] == f"https://{expected_slug}.agents.dev.posthog.dev/run"
+        assert endpoints["slack"]["events"] == f"https://{expected_slug}.agents.dev.posthog.dev/slack/events"
+
+    @override_settings(AGENT_INGRESS_DOMAIN_SUFFIX="")
+    def test_endpoints_empty_when_suffix_unset(self) -> None:
+        app = self._app()
+        rev = self._revision(app, _base_spec())
+
+        res = self.client.get(self._url(app, rev))
+        assert res.status_code == 200, res.content
+        # Domain mode selected but no suffix → not externally reachable.
+        # Same fail-closed empty as path mode without a public URL.
+        assert res.json()["endpoints"] == {}
+
+
+class TestSlackUrlSerializer(APIBaseTest):
+    """`slack_events_url` / `slack_interactivity_url` on the application
+    retrieve serializer, across both routing modes."""
+
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str = "slack-bot") -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name="Slack bot", description="")
+
+    def _retrieve(self, app: AgentApplication) -> dict[str, Any]:
+        res = self.client.get(f"/api/projects/{self.team.id}/agent_applications/{app.slug}/")
+        assert res.status_code == 200, res.content
+        return res.json()
+
+    @override_settings(AGENT_INGRESS_ROUTING_MODE="path", AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com")
+    def test_path_mode_urls(self) -> None:
+        body = self._retrieve(self._app())
+        assert body["slack_events_url"] == "https://ingress.example.com/agents/slack-bot/slack/events"
+        assert body["slack_interactivity_url"] == "https://ingress.example.com/agents/slack-bot/slack/interactivity"
+
+    @override_settings(AGENT_INGRESS_ROUTING_MODE="domain", AGENT_INGRESS_DOMAIN_SUFFIX=".agents.dev.posthog.dev")
+    def test_domain_mode_urls(self) -> None:
+        body = self._retrieve(self._app())
+        assert body["slack_events_url"] == "https://slack-bot.agents.dev.posthog.dev/slack/events"
+        assert body["slack_interactivity_url"] == "https://slack-bot.agents.dev.posthog.dev/slack/interactivity"
+
+    @override_settings(AGENT_INGRESS_ROUTING_MODE="path", AGENT_INGRESS_PUBLIC_URL=None)
+    def test_null_when_unconfigured(self) -> None:
+        body = self._retrieve(self._app())
+        assert body["slack_events_url"] is None
+        assert body["slack_interactivity_url"] is None
