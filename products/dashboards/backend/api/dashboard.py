@@ -1318,9 +1318,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._undo_delete_related_tiles(instance)
 
         # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
-        # so this is the single place to capture deletes. Snapshot the tile count before tiles are removed.
+        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
+        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
         tile_count_at_deletion = instance.tiles.count() if being_deleted else None
+        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
 
         initial_data = dict(self.initial_data)
 
@@ -1383,7 +1385,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 report_user_action(
                     user,
                     "dashboard deleted",
-                    {**instance.get_analytics_metadata(), "tile_count": tile_count_at_deletion},
+                    {
+                        **instance.get_analytics_metadata(),
+                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
+                        "tile_count": tile_count_at_deletion,
+                    },
                     team=instance.team,
                     request=self.context["request"],
                 )

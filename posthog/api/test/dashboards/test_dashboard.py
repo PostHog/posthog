@@ -1360,10 +1360,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id)
         mock_report_user_action.reset_mock()
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
+        # item_count (insight tiles) and tile_count (all tiles) are snapshotted pre-delete, so they survive
+        # _delete_related_tiles: 1 insight tile, 2 tiles total (insight + text).
         mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard deleted",
@@ -1373,10 +1376,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard_id,
                 "has_description": False,
                 "is_shared": False,
-                "item_count": 0,
+                "item_count": 1,
                 "pinned": False,
                 "tags_count": 0,
-                "tile_count": 1,
+                "tile_count": 2,
             },
             team=ANY,
             request=ANY,
