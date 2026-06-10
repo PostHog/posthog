@@ -175,12 +175,17 @@ Whitelist the public names (`if name in __all__`) and raise `AttributeError` oth
 If the constant lives in a heavy module (a Temporal destination, an SDK wrapper), move the constant to an import-light module and have both sides import it from there; re-export under the old name to keep existing importers working.
 
 **A deferral relocates cost — check where it lands before calling it a win.**
-Deferring an import (or a pydantic `defer_build`) does not delete the work; it moves it to first use, and first use may be a live request.
-The generated `posthog.schema` models defer their core-schema builds (~400ms off every setup), but in a web pod the first `/query` validation would then build the whole discriminated-union tree on a user's request, once per worker, after every deploy — previously that cost was paid at boot, behind the readiness probe, pre-fork and COW-shared.
-The fix is mode-dependent eagerness: `wsgi.py`/`asgi.py` set `POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT` so web keeps the eager build at boot, while celery/temporal/migrate/CLI stay lazy (they touch few or no models, and their first-use latency is not user-facing).
-Two sub-lessons: a post-hoc warm-up loop was ~2.5x more expensive than letting class creation build eagerly (`model_rebuild()` re-resolves namespaces per model), so prefer an import-time switch over warming; and a guard test pins both modes, because silently losing the web switch would only show up as a p99 spike after deploys.
+Deferring an import does not delete the work; it moves it to first use, and first use may be a live request.
 The general question to ask of any deferral: _which process pays now, on what path, and is that path latency-sensitive?_
 Background workers paying lazily is almost always fine; web workers paying on first requests usually is not.
+
+**Pydantic `defer_build` on the generated schema: attempted and reverted.**
+Generating `posthog.schema` against a `defer_build` base took ~400ms of core-schema construction off every setup, and looked safe — validation, `model_dump`, `model_json_schema`, and `TypeAdapter` all build on demand in round-trip tests.
+Two failures killed it.
+First, cost relocation (above): in a web pod the deferred builds land on each worker's first `/query` after every deploy — previously paid at boot, behind the readiness probe, pre-fork and COW-shared — and the obvious warm-up loop measured ~2.5x more expensive than eager class creation (`model_rebuild()` re-resolves namespaces per model).
+Second, and fatal: query runners _construct_ response models directly (no validation, so nothing triggers the lazy build), and `model_dump()` then feeds a deferred child model's mock serializer into pydantic-core through a polymorphic field — `TypeError: 'MockValSer' object cannot be converted to 'SchemaSerializer'`, a hard 500 in any process.
+Round-trip tests on a single model cannot catch this: for `defer_build`, the serialization _matrix_ (construct-then-dump, subclass-through-parent, `Any`-typed fields) is the test surface.
+The ~1.8s the schema costs at import is real but structural — the tracked path is splitting the generated module, not deferring builds.
 
 **Regenerating a shared snapshot on top of a bad merge.**
 Query-count snapshot files (`.ambr`) are generated.

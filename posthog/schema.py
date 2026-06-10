@@ -8,9 +8,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, ConfigDict, Field, RootModel, confloat, conint
-
-from posthog.schema_base import SchemaBaseModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 
 class SchemaRoot(RootModel[Any]):
@@ -80,7 +78,7 @@ class AlertConditionType(StrEnum):
     RELATIVE_DECREASE = "relative_decrease"
 
 
-class AlertScheduleRestrictionWindow(SchemaBaseModel):
+class AlertScheduleRestrictionWindow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -107,7 +105,7 @@ class Action(StrEnum):
     REJECT = "reject"
 
 
-class ApprovalResumePayload(SchemaBaseModel):
+class ApprovalResumePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -133,7 +131,7 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
-class AssistantBaseMultipleBreakdownFilter(SchemaBaseModel):
+class AssistantBaseMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -157,7 +155,7 @@ class YAxisPosition(StrEnum):
     RIGHT = "right"
 
 
-class AssistantDataVisualizationAxisDisplaySettings(SchemaBaseModel):
+class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -195,7 +193,7 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
-class AssistantDataVisualizationAxisFormatting(SchemaBaseModel):
+class AssistantDataVisualizationAxisFormatting(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -213,7 +211,7 @@ class AssistantDataVisualizationAxisFormatting(SchemaBaseModel):
     suffix: str | None = Field(default=None, description="Text appended to each value (e.g. `%` or ` ms`).")
 
 
-class AssistantDataVisualizationAxisSettings(SchemaBaseModel):
+class AssistantDataVisualizationAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -236,7 +234,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
-class AssistantDataVisualizationGoalLine(SchemaBaseModel):
+class AssistantDataVisualizationGoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -249,7 +247,7 @@ class Scale(StrEnum):
     LOGARITHMIC = "logarithmic"
 
 
-class AssistantDataVisualizationYAxisSettings(SchemaBaseModel):
+class AssistantDataVisualizationYAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -260,7 +258,7 @@ class AssistantDataVisualizationYAxisSettings(SchemaBaseModel):
     startAtZero: bool | None = Field(default=None, description="Whether this Y axis should start at zero.")
 
 
-class AssistantDateRange(SchemaBaseModel):
+class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -274,7 +272,7 @@ class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_AFTER = "is_date_after"
 
 
-class AssistantDurationRange(SchemaBaseModel):
+class AssistantDurationRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -297,7 +295,7 @@ class Key(StrEnum):
     SELECTOR = "selector"
 
 
-class AssistantElementPropertyFilter3(SchemaBaseModel):
+class AssistantElementPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -332,7 +330,7 @@ class AssistantElementPropertyFilter3(SchemaBaseModel):
     )
 
 
-class AssistantElementPropertyFilter4(SchemaBaseModel):
+class AssistantElementPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -384,7 +382,7 @@ class AssistantEventType(StrEnum):
     SANDBOX = "sandbox"
 
 
-class AssistantFlagPropertyFilter(SchemaBaseModel):
+class AssistantFlagPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -406,7 +404,7 @@ class AssistantFlagPropertyFilter(SchemaBaseModel):
     )
 
 
-class AssistantFormOption(SchemaBaseModel):
+class AssistantFormOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -446,7 +444,7 @@ class AssistantGenerationStatusType(StrEnum):
     GENERATION_ERROR = "generation_error"
 
 
-class AssistantGenericMultipleBreakdownFilter(SchemaBaseModel):
+class AssistantGenericMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -461,7 +459,7 @@ class AssistantGenericPropertyFilterType(StrEnum):
     FEATURE = "feature"
 
 
-class AssistantHogQLPropertyFilter(SchemaBaseModel):
+class AssistantHogQLPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -485,7 +483,7 @@ class AssistantHogQLPropertyFilter(SchemaBaseModel):
     )
 
 
-class AssistantHogQLQuery(SchemaBaseModel):
+class AssistantHogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -498,7 +496,7 @@ class AssistantHogQLQuery(SchemaBaseModel):
     )
 
 
-class AssistantInsightVizNode(SchemaBaseModel):
+class AssistantInsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -579,7 +577,7 @@ class AssistantNumericValuePropertyFilterOperator(StrEnum):
     LT = "lt"
 
 
-class AssistantPathCleaningFilter(SchemaBaseModel):
+class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -616,7 +614,7 @@ class Key5(StrEnum):
     SNAPSHOT_SOURCE = "snapshot_source"
 
 
-class AssistantRecordingPropertyFilter2(SchemaBaseModel):
+class AssistantRecordingPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -640,7 +638,7 @@ class AssistantRecordingPropertyFilter2(SchemaBaseModel):
     value: float
 
 
-class AssistantRecordingPropertyFilter3(SchemaBaseModel):
+class AssistantRecordingPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -674,7 +672,7 @@ class AssistantRecordingPropertyFilter3(SchemaBaseModel):
     )
 
 
-class AssistantRecordingPropertyFilter4(SchemaBaseModel):
+class AssistantRecordingPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -818,7 +816,7 @@ class AssistantTool(StrEnum):
     OPEN_ACCOUNT = "open_account"
 
 
-class AssistantToolCall(SchemaBaseModel):
+class AssistantToolCall(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -831,7 +829,7 @@ class AssistantToolCall(SchemaBaseModel):
     )
 
 
-class AssistantToolCallMessage(SchemaBaseModel):
+class AssistantToolCallMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -881,7 +879,7 @@ class YAxisScaleType(StrEnum):
     LINEAR = "linear"
 
 
-class AssistantUpdateEvent(SchemaBaseModel):
+class AssistantUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -929,7 +927,7 @@ class AutocompleteCompletionItemKind(StrEnum):
     SNIPPET = "Snippet"
 
 
-class BaseAssistantMessage(SchemaBaseModel):
+class BaseAssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -947,7 +945,7 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
-class BiasRisk(SchemaBaseModel):
+class BiasRisk(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1004,7 +1002,7 @@ class BreakdownType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
-class BreakdownValue(SchemaBaseModel):
+class BreakdownValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1012,7 +1010,7 @@ class BreakdownValue(SchemaBaseModel):
     value: str
 
 
-class Results(SchemaBaseModel):
+class Results(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1020,7 +1018,7 @@ class Results(SchemaBaseModel):
     values: list[BreakdownValue]
 
 
-class CompareItem(SchemaBaseModel):
+class CompareItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1028,7 +1026,7 @@ class CompareItem(SchemaBaseModel):
     value: str
 
 
-class StatusItem(SchemaBaseModel):
+class StatusItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1036,7 +1034,7 @@ class StatusItem(SchemaBaseModel):
     value: str
 
 
-class CalendarHeatmapFilter(SchemaBaseModel):
+class CalendarHeatmapFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1081,7 +1079,7 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
 
 
-class ChartSettingsDisplay(SchemaBaseModel):
+class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1092,7 +1090,7 @@ class ChartSettingsDisplay(SchemaBaseModel):
     yAxisPosition: YAxisPosition | None = None
 
 
-class ChartSettingsFormatting(SchemaBaseModel):
+class ChartSettingsFormatting(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1102,7 +1100,7 @@ class ChartSettingsFormatting(SchemaBaseModel):
     suffix: str | None = None
 
 
-class CompareFilter(SchemaBaseModel):
+class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1126,7 +1124,7 @@ class ColorMode(StrEnum):
     DARK = "dark"
 
 
-class ConditionalFormattingRule(SchemaBaseModel):
+class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1139,7 +1137,7 @@ class ConditionalFormattingRule(SchemaBaseModel):
     templateId: str
 
 
-class ConversationsTicketSignalExtra(SchemaBaseModel):
+class ConversationsTicketSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1350,14 +1348,14 @@ class CustomChannelOperator(StrEnum):
     NOT_REGEX = "not_regex"
 
 
-class CustomEventConversionGoal(SchemaBaseModel):
+class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     customEventName: str
 
 
-class DangerousOperationResponse(SchemaBaseModel):
+class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1395,7 +1393,7 @@ class DataTableNodeViewPropsContextType(StrEnum):
     TEAM_COLUMNS = "team_columns"
 
 
-class DataWarehouseEventsModifier(SchemaBaseModel):
+class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1415,7 +1413,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
-class DataWarehouseSyncWarning(SchemaBaseModel):
+class DataWarehouseSyncWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1447,7 +1445,7 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
-class DatabaseSchemaSchema(SchemaBaseModel):
+class DatabaseSchemaSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1459,7 +1457,7 @@ class DatabaseSchemaSchema(SchemaBaseModel):
     status: str | None = None
 
 
-class DatabaseSchemaSource(SchemaBaseModel):
+class DatabaseSchemaSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1501,7 +1499,7 @@ class DatabaseSerializedFieldType(StrEnum):
     UNKNOWN = "unknown"
 
 
-class DateRange(SchemaBaseModel):
+class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1606,7 +1604,7 @@ class Key10(StrEnum):
     SELECTOR = "selector"
 
 
-class ElementType(SchemaBaseModel):
+class ElementType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1621,7 +1619,7 @@ class ElementType(SchemaBaseModel):
     text: str | None = None
 
 
-class EmbeddedDocument(SchemaBaseModel):
+class EmbeddedDocument(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1636,7 +1634,7 @@ class EmbeddingModelName(StrEnum):
     TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
 
 
-class EmbeddingRecord(SchemaBaseModel):
+class EmbeddingRecord(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1648,14 +1646,14 @@ class EmbeddingRecord(SchemaBaseModel):
     timestamp: AwareDatetime
 
 
-class EmptyPropertyFilter(SchemaBaseModel):
+class EmptyPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     type: Literal["empty"] = "empty"
 
 
-class EndpointExecutionFailedSignalExtra(SchemaBaseModel):
+class EndpointExecutionFailedSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1667,7 +1665,7 @@ class EndpointExecutionFailedSignalExtra(SchemaBaseModel):
     saved_query_id: str | None = None
 
 
-class EndpointLastExecutionTimesRequest(SchemaBaseModel):
+class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1738,7 +1736,7 @@ class EntityType(StrEnum):
     GROUPS = "groups"
 
 
-class ErrorBlock(SchemaBaseModel):
+class ErrorBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1750,7 +1748,7 @@ class ErrorBlock(SchemaBaseModel):
     type: Literal["error"] = "error"
 
 
-class Population(SchemaBaseModel):
+class Population(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1760,7 +1758,7 @@ class Population(SchemaBaseModel):
     success_only: float
 
 
-class FirstEvent(SchemaBaseModel):
+class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1770,7 +1768,7 @@ class FirstEvent(SchemaBaseModel):
     uuid: str
 
 
-class LastEvent(SchemaBaseModel):
+class LastEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1780,7 +1778,7 @@ class LastEvent(SchemaBaseModel):
     uuid: str
 
 
-class VolumeBucket(SchemaBaseModel):
+class VolumeBucket(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1788,7 +1786,7 @@ class VolumeBucket(SchemaBaseModel):
     value: float
 
 
-class ErrorTrackingIssueAggregations(SchemaBaseModel):
+class ErrorTrackingIssueAggregations(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1804,7 +1802,7 @@ class ErrorTrackingIssueAssigneeType(StrEnum):
     ROLE = "role"
 
 
-class ErrorTrackingIssueCohort(SchemaBaseModel):
+class ErrorTrackingIssueCohort(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1817,7 +1815,7 @@ class OrderDirection2(StrEnum):
     DESC = "DESC"
 
 
-class ErrorTrackingIssueImpactToolOutput(SchemaBaseModel):
+class ErrorTrackingIssueImpactToolOutput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1840,7 +1838,7 @@ class ErrorTrackingOrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
-class ErrorTrackingSignalExtra(SchemaBaseModel):
+class ErrorTrackingSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1853,7 +1851,7 @@ class SourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
 
 
-class EventDefinition(SchemaBaseModel):
+class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1867,7 +1865,7 @@ class CorrelationType(StrEnum):
     FAILURE = "failure"
 
 
-class Person(SchemaBaseModel):
+class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1876,7 +1874,7 @@ class Person(SchemaBaseModel):
     properties: dict[str, Any]
 
 
-class EventType(SchemaBaseModel):
+class EventType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1914,7 +1912,7 @@ class UrlMatching(Enum):
     NONE_TYPE_NONE = None
 
 
-class Properties(SchemaBaseModel):
+class Properties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1922,7 +1920,7 @@ class Properties(SchemaBaseModel):
     name: str | None = None
 
 
-class EventsQueryPersonColumn(SchemaBaseModel):
+class EventsQueryPersonColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1952,7 +1950,7 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
-class ExperimentExposureTimeSeries(SchemaBaseModel):
+class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1961,7 +1959,7 @@ class ExperimentExposureTimeSeries(SchemaBaseModel):
     variant: str
 
 
-class ExperimentMaxBayesianContext(SchemaBaseModel):
+class ExperimentMaxBayesianContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1971,7 +1969,7 @@ class ExperimentMaxBayesianContext(SchemaBaseModel):
     significant: bool
 
 
-class ExperimentMaxFrequentistContext(SchemaBaseModel):
+class ExperimentMaxFrequentistContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1998,7 +1996,7 @@ class ExperimentMetricMathType(StrEnum):
     HOGQL = "hogql"
 
 
-class ExperimentMetricOutlierHandling(SchemaBaseModel):
+class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2055,7 +2053,7 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
-class ExperimentVariant(SchemaBaseModel):
+class ExperimentVariant(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2081,7 +2079,7 @@ class ExperimentVariant(SchemaBaseModel):
     )
 
 
-class ExperimentVariantFunnelsBaseStats(SchemaBaseModel):
+class ExperimentVariantFunnelsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2090,7 +2088,7 @@ class ExperimentVariantFunnelsBaseStats(SchemaBaseModel):
     success_count: float
 
 
-class ExperimentVariantTrendsBaseStats(SchemaBaseModel):
+class ExperimentVariantTrendsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2261,7 +2259,7 @@ class ExternalQueryStatus(StrEnum):
     ERROR = "error"
 
 
-class FailureMessage(SchemaBaseModel):
+class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2276,7 +2274,7 @@ class Tag(StrEnum):
     BETA = "beta"
 
 
-class FileSystemEntry(SchemaBaseModel):
+class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2384,7 +2382,7 @@ class FileSystemIconType(StrEnum):
     EXPORTS = "exports"
 
 
-class FileSystemViewLogEntry(SchemaBaseModel):
+class FileSystemViewLogEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2398,7 +2396,7 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
-class FlagPropertyFilter(SchemaBaseModel):
+class FlagPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2412,7 +2410,7 @@ class FlagPropertyFilter(SchemaBaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
-class FormDismissPayload(SchemaBaseModel):
+class FormDismissPayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2434,7 +2432,7 @@ class FunnelCorrelationResultsType(StrEnum):
     EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
-class FunnelExclusionLegacy(SchemaBaseModel):
+class FunnelExclusionLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2479,7 +2477,7 @@ class FunnelStepsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
 
 
-class FunnelTimeToConvertResults(SchemaBaseModel):
+class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2498,7 +2496,7 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
-class GithubIssueSignalExtra(SchemaBaseModel):
+class GithubIssueSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2516,7 +2514,7 @@ class Position(StrEnum):
     END = "end"
 
 
-class GoalLine(SchemaBaseModel):
+class GoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2549,7 +2547,7 @@ class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
 
 
-class HeatmapGradientStop(SchemaBaseModel):
+class HeatmapGradientStop(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2607,7 +2605,7 @@ class HedgehogActorSkinOption(StrEnum):
     GHOST = "ghost"
 
 
-class HogCompileResponse(SchemaBaseModel):
+class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2701,7 +2699,7 @@ class SessionsV2JoinMode(StrEnum):
     UUID = "uuid"
 
 
-class HogQLVariable(SchemaBaseModel):
+class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2711,7 +2709,7 @@ class HogQLVariable(SchemaBaseModel):
     variableId: str
 
 
-class HogQueryResponse(SchemaBaseModel):
+class HogQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2753,7 +2751,7 @@ class InsightThresholdType(StrEnum):
     PERCENTAGE = "percentage"
 
 
-class InsightsThresholdBounds(SchemaBaseModel):
+class InsightsThresholdBounds(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2761,7 +2759,7 @@ class InsightsThresholdBounds(SchemaBaseModel):
     upper: float | None = Field(default=None, description="Alert fires when the value exceeds this number.")
 
 
-class IntegrationFilter(SchemaBaseModel):
+class IntegrationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2821,7 +2819,7 @@ class Method(StrEnum):
     MEDIAN = "median"
 
 
-class LLMTraceEvent(SchemaBaseModel):
+class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2831,7 +2829,7 @@ class LLMTraceEvent(SchemaBaseModel):
     properties: dict[str, Any]
 
 
-class LLMTracePerson(SchemaBaseModel):
+class LLMTracePerson(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2848,7 +2846,7 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
-class LinearIssueSignalExtra(SchemaBaseModel):
+class LinearIssueSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2878,7 +2876,7 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGN_GROUPS = "campaign_groups"
 
 
-class LlmEvalReportSignalExtra(SchemaBaseModel):
+class LlmEvalReportSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2891,7 +2889,7 @@ class LlmEvalReportSignalExtra(SchemaBaseModel):
     report_run_id: str
 
 
-class LlmEvalSignalExtra(SchemaBaseModel):
+class LlmEvalSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2903,7 +2901,7 @@ class LlmEvalSignalExtra(SchemaBaseModel):
     trace_id: str
 
 
-class LoadingBlock(SchemaBaseModel):
+class LoadingBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2916,7 +2914,7 @@ class MatchedOn(StrEnum):
     VALUE = "value"
 
 
-class LogAttributeResult(SchemaBaseModel):
+class LogAttributeResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2947,7 +2945,7 @@ class LogSeverityLevel(StrEnum):
     FATAL = "fatal"
 
 
-class LogValueResult(SchemaBaseModel):
+class LogValueResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2965,7 +2963,7 @@ class ThresholdOperator(StrEnum):
     BELOW = "below"
 
 
-class LogsAlertStateChangeSignalExtra(SchemaBaseModel):
+class LogsAlertStateChangeSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2991,7 +2989,7 @@ class LogsSparklineBreakdownBy(StrEnum):
     SERVICE = "service"
 
 
-class MarkdownBlock(SchemaBaseModel):
+class MarkdownBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3041,7 +3039,7 @@ class MarketingAnalyticsConstants(StrEnum):
     CONST_ = "const:"
 
 
-class MarketingAnalyticsDrillDownConfig(SchemaBaseModel):
+class MarketingAnalyticsDrillDownConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3076,7 +3074,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
-class MarketingIntegrationConfig1(SchemaBaseModel):
+class MarketingIntegrationConfig1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3095,7 +3093,7 @@ class MarketingIntegrationConfig1(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig2(SchemaBaseModel):
+class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3114,7 +3112,7 @@ class MarketingIntegrationConfig2(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class ConversionActionTypes(SchemaBaseModel):
+class ConversionActionTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3123,7 +3121,7 @@ class ConversionActionTypes(SchemaBaseModel):
     specific: list[str] = Field(..., max_length=9, min_length=9)
 
 
-class MarketingIntegrationConfig3(SchemaBaseModel):
+class MarketingIntegrationConfig3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3143,7 +3141,7 @@ class MarketingIntegrationConfig3(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig4(SchemaBaseModel):
+class MarketingIntegrationConfig4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3162,7 +3160,7 @@ class MarketingIntegrationConfig4(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig5(SchemaBaseModel):
+class MarketingIntegrationConfig5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3181,7 +3179,7 @@ class MarketingIntegrationConfig5(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig6(SchemaBaseModel):
+class MarketingIntegrationConfig6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3200,7 +3198,7 @@ class MarketingIntegrationConfig6(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig7(SchemaBaseModel):
+class MarketingIntegrationConfig7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3221,7 +3219,7 @@ class MarketingIntegrationConfig7(SchemaBaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
-class MarketingIntegrationConfig8(SchemaBaseModel):
+class MarketingIntegrationConfig8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3269,7 +3267,7 @@ class MatchField(StrEnum):
     CAMPAIGN_ID = "campaign_id"
 
 
-class MatchedRecordingEvent(SchemaBaseModel):
+class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3277,14 +3275,14 @@ class MatchedRecordingEvent(SchemaBaseModel):
     uuid: str
 
 
-class MatchingEventsResponse(SchemaBaseModel):
+class MatchingEventsResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
 
 
-class MaxAddonInfo(SchemaBaseModel):
+class MaxAddonInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3301,7 +3299,7 @@ class MaxAddonInfo(SchemaBaseModel):
     usage_limit: float | None = None
 
 
-class SpendHistoryItem(SchemaBaseModel):
+class SpendHistoryItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3313,7 +3311,7 @@ class SpendHistoryItem(SchemaBaseModel):
     label: str
 
 
-class UsageHistoryItem(SchemaBaseModel):
+class UsageHistoryItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3330,7 +3328,7 @@ class MaxBillingContextBillingPeriodInterval(StrEnum):
     YEAR = "year"
 
 
-class MaxBillingContextSettings(SchemaBaseModel):
+class MaxBillingContextSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3344,7 +3342,7 @@ class MaxBillingContextSubscriptionLevel(StrEnum):
     CUSTOM = "custom"
 
 
-class MaxBillingContextTrial(SchemaBaseModel):
+class MaxBillingContextTrial(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3353,7 +3351,7 @@ class MaxBillingContextTrial(SchemaBaseModel):
     target: str | None = None
 
 
-class MaxErrorTrackingIssueContext(SchemaBaseModel):
+class MaxErrorTrackingIssueContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3362,7 +3360,7 @@ class MaxErrorTrackingIssueContext(SchemaBaseModel):
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
-class MaxErrorTrackingIssuePreview(SchemaBaseModel):
+class MaxErrorTrackingIssuePreview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3378,7 +3376,7 @@ class MaxErrorTrackingIssuePreview(SchemaBaseModel):
     users: float = Field(..., description="Number of affected users")
 
 
-class MaxErrorTrackingSearchResponse(SchemaBaseModel):
+class MaxErrorTrackingSearchResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3401,7 +3399,7 @@ class EvaluationType(StrEnum):
     LLM_JUDGE = "llm_judge"
 
 
-class MaxEvaluationContext(SchemaBaseModel):
+class MaxEvaluationContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3413,7 +3411,7 @@ class MaxEvaluationContext(SchemaBaseModel):
     type: Literal["evaluation"] = "evaluation"
 
 
-class MaxEventContext(SchemaBaseModel):
+class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3429,7 +3427,7 @@ class Goal(Enum):
     NONE_TYPE_NONE = None
 
 
-class MaxExperimentVariantResultBayesian(SchemaBaseModel):
+class MaxExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3440,7 +3438,7 @@ class MaxExperimentVariantResultBayesian(SchemaBaseModel):
     significant: bool
 
 
-class MaxExperimentVariantResultFrequentist(SchemaBaseModel):
+class MaxExperimentVariantResultFrequentist(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3451,7 +3449,7 @@ class MaxExperimentVariantResultFrequentist(SchemaBaseModel):
     significant: bool
 
 
-class MaxNotebookContext(SchemaBaseModel):
+class MaxNotebookContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3460,7 +3458,7 @@ class MaxNotebookContext(SchemaBaseModel):
     type: Literal["notebook"] = "notebook"
 
 
-class MaxProductInfo(SchemaBaseModel):
+class MaxProductInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3528,7 +3526,7 @@ class MetaAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
-class MinimalHedgehogConfig(SchemaBaseModel):
+class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3538,7 +3536,7 @@ class MinimalHedgehogConfig(SchemaBaseModel):
     use_as_profile: bool
 
 
-class ModeContext(SchemaBaseModel):
+class ModeContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3554,7 +3552,7 @@ class MultiQuestionFormFieldType(StrEnum):
     TOGGLE = "toggle"
 
 
-class MultiQuestionFormQuestionOption(SchemaBaseModel):
+class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3695,14 +3693,14 @@ class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     CAMPAIGN = "Campaign"
 
 
-class PageURL(SchemaBaseModel):
+class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     url: str
 
 
-class PathCleaningFilter(SchemaBaseModel):
+class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3718,7 +3716,7 @@ class PathType(StrEnum):
     HOGQL = "hogql"
 
 
-class PathsFilterLegacy(SchemaBaseModel):
+class PathsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3739,7 +3737,7 @@ class PathsFilterLegacy(SchemaBaseModel):
     step_limit: int | None = None
 
 
-class PathsLink(SchemaBaseModel):
+class PathsLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3749,7 +3747,7 @@ class PathsLink(SchemaBaseModel):
     value: float
 
 
-class PersistedFolder(SchemaBaseModel):
+class PersistedFolder(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3761,7 +3759,7 @@ class PersistedFolder(SchemaBaseModel):
     updated_at: str
 
 
-class PersonType(SchemaBaseModel):
+class PersonType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3775,7 +3773,7 @@ class PersonType(SchemaBaseModel):
     uuid: str | None = None
 
 
-class PgAnalyzeIssueReference(SchemaBaseModel):
+class PgAnalyzeIssueReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3785,7 +3783,7 @@ class PgAnalyzeIssueReference(SchemaBaseModel):
     url: str | None = None
 
 
-class PgAnalyzeIssueSignalExtra(SchemaBaseModel):
+class PgAnalyzeIssueSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4060,12 +4058,12 @@ class PropertyType(StrEnum):
     PERSON = "person"
 
 
-class Mark(SchemaBaseModel):
+class Mark(BaseModel):
     attrs: dict[str, Any] | None = None
     type: str
 
 
-class ProsemirrorJSONContent(SchemaBaseModel):
+class ProsemirrorJSONContent(BaseModel):
     attrs: dict[str, Any] | None = None
     content: list[ProsemirrorJSONContent] | None = None
     marks: list[Mark] | None = None
@@ -4080,7 +4078,7 @@ class QueryIndexUsage(StrEnum):
     YES = "yes"
 
 
-class QueryLogTags(SchemaBaseModel):
+class QueryLogTags(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4109,7 +4107,7 @@ class LimitContext(Enum):
     NONE_TYPE_NONE = None
 
 
-class QueryResponseAlternative7(SchemaBaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4119,7 +4117,7 @@ class QueryResponseAlternative7(SchemaBaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative82(SchemaBaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4130,7 +4128,7 @@ class QueryResponseAlternative82(SchemaBaseModel):
     )
 
 
-class QueryTiming(SchemaBaseModel):
+class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4149,7 +4147,7 @@ class QuickFilterType(StrEnum):
     AUTO_DISCOVERY = "auto-discovery"
 
 
-class ReasoningMessage(SchemaBaseModel):
+class ReasoningMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4160,7 +4158,7 @@ class ReasoningMessage(SchemaBaseModel):
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
-class RecordingDurationFilter(SchemaBaseModel):
+class RecordingDurationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4190,7 +4188,7 @@ class RecordingOrderDirection(StrEnum):
     DESC = "DESC"
 
 
-class RecordingPropertyFilter(SchemaBaseModel):
+class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4229,7 +4227,7 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
-class RelevantCommit(SchemaBaseModel):
+class RelevantCommit(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4238,7 +4236,7 @@ class RelevantCommit(SchemaBaseModel):
     url: str
 
 
-class ReplayInactivityPeriod(SchemaBaseModel):
+class ReplayInactivityPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4249,7 +4247,7 @@ class ReplayInactivityPeriod(SchemaBaseModel):
     ts_to_s: float | None = None
 
 
-class ResolvedDateRangeResponse(SchemaBaseModel):
+class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4257,7 +4255,7 @@ class ResolvedDateRangeResponse(SchemaBaseModel):
     date_to: AwareDatetime
 
 
-class ResultCustomizationBase(SchemaBaseModel):
+class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4270,7 +4268,7 @@ class ResultCustomizationBy(StrEnum):
     POSITION = "position"
 
 
-class ResultCustomizationByPosition(SchemaBaseModel):
+class ResultCustomizationByPosition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4279,7 +4277,7 @@ class ResultCustomizationByPosition(SchemaBaseModel):
     hidden: bool | None = None
 
 
-class ResultCustomizationByValue(SchemaBaseModel):
+class ResultCustomizationByValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4312,7 +4310,7 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
-class RetentionValue(SchemaBaseModel):
+class RetentionValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4321,7 +4319,7 @@ class RetentionValue(SchemaBaseModel):
     label: str | None = None
 
 
-class RevenueAnalyticsBreakdown(SchemaBaseModel):
+class RevenueAnalyticsBreakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4334,7 +4332,7 @@ class MrrOrGross(StrEnum):
     GROSS = "gross"
 
 
-class RevenueAnalyticsGoal(SchemaBaseModel):
+class RevenueAnalyticsGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4344,7 +4342,7 @@ class RevenueAnalyticsGoal(SchemaBaseModel):
     name: str
 
 
-class RevenueAnalyticsMRRQueryResultItem(SchemaBaseModel):
+class RevenueAnalyticsMRRQueryResultItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4361,7 +4359,7 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
-class RevenueAnalyticsPropertyFilter(SchemaBaseModel):
+class RevenueAnalyticsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4377,7 +4375,7 @@ class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
     ALL = "all"
 
 
-class RevenueCurrencyPropertyConfig(SchemaBaseModel):
+class RevenueCurrencyPropertyConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4385,7 +4383,7 @@ class RevenueCurrencyPropertyConfig(SchemaBaseModel):
     static: CurrencyCode | None = None
 
 
-class SampleRatioMismatch(SchemaBaseModel):
+class SampleRatioMismatch(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4393,7 +4391,7 @@ class SampleRatioMismatch(SchemaBaseModel):
     p_value: float
 
 
-class SamplingRate(SchemaBaseModel):
+class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4411,7 +4409,7 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
-class SessionData(SchemaBaseModel):
+class SessionData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4421,7 +4419,7 @@ class SessionData(SchemaBaseModel):
     timestamp: str
 
 
-class SessionEventsItem(SchemaBaseModel):
+class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4434,7 +4432,7 @@ class SessionEventsItem(SchemaBaseModel):
     session_id: str = Field(..., description="Session ID these events belong to")
 
 
-class SessionProblemEventEntry(SchemaBaseModel):
+class SessionProblemEventEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4453,7 +4451,7 @@ class ProblemType(StrEnum):
     FAILURE = "failure"
 
 
-class SessionProblemSignalExtra(SchemaBaseModel):
+class SessionProblemSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4471,7 +4469,7 @@ class SessionProblemSignalExtra(SchemaBaseModel):
     start_time: str
 
 
-class SessionPropertyFilter(SchemaBaseModel):
+class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4482,7 +4480,7 @@ class SessionPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class Integration(SchemaBaseModel):
+class Integration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4491,7 +4489,7 @@ class Integration(SchemaBaseModel):
     kind: IntegrationKind
 
 
-class SessionRecordingExternalReference(SchemaBaseModel):
+class SessionRecordingExternalReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4509,7 +4507,7 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
-class SummaryOutcome(SchemaBaseModel):
+class SummaryOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4517,7 +4515,7 @@ class SummaryOutcome(SchemaBaseModel):
     success: bool | None = None
 
 
-class SessionReplayBlock(SchemaBaseModel):
+class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4527,7 +4525,7 @@ class SessionReplayBlock(SchemaBaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
-class SessionReplaySegment(SchemaBaseModel):
+class SessionReplaySegment(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4538,7 +4536,7 @@ class SessionReplaySegment(SchemaBaseModel):
     start_time: str
 
 
-class SessionSegmentClusterMetrics(SchemaBaseModel):
+class SessionSegmentClusterMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4547,7 +4545,7 @@ class SessionSegmentClusterMetrics(SchemaBaseModel):
     relevant_user_count: float
 
 
-class SessionSegmentClusterSignalExtra(SchemaBaseModel):
+class SessionSegmentClusterSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4557,7 +4555,7 @@ class SessionSegmentClusterSignalExtra(SchemaBaseModel):
     segments: list[SessionReplaySegment]
 
 
-class SessionSegmentClusterSignalInput(SchemaBaseModel):
+class SessionSegmentClusterSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4575,7 +4573,7 @@ class Theme(StrEnum):
     SYSTEM = "system"
 
 
-class SharingConfigurationSettings(SchemaBaseModel):
+class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4588,7 +4586,7 @@ class SharingConfigurationSettings(SchemaBaseModel):
     whitelabel: bool | None = None
 
 
-class SignalExtraBase(SchemaBaseModel):
+class SignalExtraBase(BaseModel):
     pass
     model_config = ConfigDict(
         extra="forbid",
@@ -4603,7 +4601,7 @@ class Priority(StrEnum):
     P4 = "P4"
 
 
-class SignalRemediation(SchemaBaseModel):
+class SignalRemediation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4628,7 +4626,7 @@ class SignalRemediation(SchemaBaseModel):
     )
 
 
-class SignalReviewerUserInfo(SchemaBaseModel):
+class SignalReviewerUserInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4668,7 +4666,7 @@ class SignalSourceType(StrEnum):
     ALERT_STATE_CHANGE = "alert_state_change"
 
 
-class SignalsScoutEvidenceEntry(SchemaBaseModel):
+class SignalsScoutEvidenceEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4691,7 +4689,7 @@ class Severity(StrEnum):
     P4 = "P4"
 
 
-class TimeRange(SchemaBaseModel):
+class TimeRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4699,7 +4697,7 @@ class TimeRange(SchemaBaseModel):
     date_to: str
 
 
-class SignalsScoutSignalExtra(SchemaBaseModel):
+class SignalsScoutSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4733,7 +4731,7 @@ class SignalsScoutSignalExtra(SchemaBaseModel):
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
-class SignalsScoutSignalInput(SchemaBaseModel):
+class SignalsScoutSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4746,7 +4744,7 @@ class SignalsScoutSignalInput(SchemaBaseModel):
     weight: float
 
 
-class SimilarIssue(SchemaBaseModel):
+class SimilarIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4802,7 +4800,7 @@ class ReleaseStatus(StrEnum):
     GA = "ga"
 
 
-class SourceFieldFileUploadJsonFormatConfig(SchemaBaseModel):
+class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4821,7 +4819,7 @@ class SourceFieldInputConfigType(StrEnum):
     TEXTAREA = "textarea"
 
 
-class SourceFieldOauthConfig(SchemaBaseModel):
+class SourceFieldOauthConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4833,7 +4831,7 @@ class SourceFieldOauthConfig(SchemaBaseModel):
     type: Literal["oauth"] = "oauth"
 
 
-class SourceFieldSSHTunnelConfig(SchemaBaseModel):
+class SourceFieldSSHTunnelConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4848,7 +4846,7 @@ class SourceFieldSelectConfigConverter(StrEnum):
     STR_TO_OPTIONAL_INT = "str_to_optional_int"
 
 
-class SourceMap(SchemaBaseModel):
+class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4885,7 +4883,7 @@ class StickinessComputationMode(StrEnum):
     CUMULATIVE = "cumulative"
 
 
-class StickinessFilterLegacy(SchemaBaseModel):
+class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4904,7 +4902,7 @@ class StickinessOperator(StrEnum):
     EXACT = "exact"
 
 
-class SubagentUpdateEvent(SchemaBaseModel):
+class SubagentUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4926,7 +4924,7 @@ class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
     root: Literal[5] = Field(5, description="Subscriptions a free-tier team may create.")
 
 
-class SuggestedQuestionsQueryResponse(SchemaBaseModel):
+class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4937,7 +4935,7 @@ class SuggestedQuestionsQueryResponse(SchemaBaseModel):
     )
 
 
-class SuggestedTable(SchemaBaseModel):
+class SuggestedTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4945,7 +4943,7 @@ class SuggestedTable(SchemaBaseModel):
     tooltip: str | None = None
 
 
-class SurveyAnalysisResponseItem(SchemaBaseModel):
+class SurveyAnalysisResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4954,7 +4952,7 @@ class SurveyAnalysisResponseItem(SchemaBaseModel):
     timestamp: str | None = Field(default="", description="Response timestamp")
 
 
-class Value(SchemaBaseModel):
+class Value(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4962,7 +4960,7 @@ class Value(SchemaBaseModel):
     name: str
 
 
-class Actions(SchemaBaseModel):
+class Actions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5003,7 +5001,7 @@ class SurveyQuestionDescriptionContentType(StrEnum):
     TEXT = "text"
 
 
-class Branching(SchemaBaseModel):
+class Branching(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5123,7 +5121,7 @@ class TikTokAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
-class TimelineEntry(SchemaBaseModel):
+class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5132,7 +5130,7 @@ class TimelineEntry(SchemaBaseModel):
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
 
 
-class TraceNeighborsQueryResponse(SchemaBaseModel):
+class TraceNeighborsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5162,7 +5160,7 @@ class DetailedResultsAggregationType(StrEnum):
     MEDIAN = "median"
 
 
-class TrendsFilterLegacy(SchemaBaseModel):
+class TrendsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5189,7 +5187,7 @@ class TrendsFilterLegacy(SchemaBaseModel):
     y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
-class TrendsFormulaNode(SchemaBaseModel):
+class TrendsFormulaNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5207,7 +5205,7 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
-class UserBasicType(SchemaBaseModel):
+class UserBasicType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5233,7 +5231,7 @@ class UserProductListReason(StrEnum):
     ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
-class VectorSearchResponseItem(SchemaBaseModel):
+class VectorSearchResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5241,7 +5239,7 @@ class VectorSearchResponseItem(SchemaBaseModel):
     id: str
 
 
-class ActionsPie(SchemaBaseModel):
+class ActionsPie(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5249,7 +5247,7 @@ class ActionsPie(SchemaBaseModel):
     hideAggregation: bool | None = None
 
 
-class RETENTION(SchemaBaseModel):
+class RETENTION(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5258,7 +5256,7 @@ class RETENTION(SchemaBaseModel):
     useSmallLayout: bool | None = None
 
 
-class VizSpecificOptions(SchemaBaseModel):
+class VizSpecificOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5266,7 +5264,7 @@ class VizSpecificOptions(SchemaBaseModel):
     RETENTION_1: RETENTION | None = Field(default=None, alias="RETENTION")
 
 
-class WebAnalyticsExternalSummaryRequest(SchemaBaseModel):
+class WebAnalyticsExternalSummaryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5304,7 +5302,7 @@ class WebAnalyticsOrderByFields(StrEnum):
     ERRORS = "Errors"
 
 
-class WebAnalyticsSampling(SchemaBaseModel):
+class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5312,7 +5310,7 @@ class WebAnalyticsSampling(SchemaBaseModel):
     forceSamplingRate: SamplingRate | None = None
 
 
-class WebNotableChangeItem(SchemaBaseModel):
+class WebNotableChangeItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5325,7 +5323,7 @@ class WebNotableChangeItem(SchemaBaseModel):
     previous_value: float
 
 
-class WebOverviewItem(SchemaBaseModel):
+class WebOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5379,7 +5377,7 @@ class WebVitalsMetricBand(StrEnum):
     POOR = "poor"
 
 
-class WebVitalsPathBreakdownResultItem(SchemaBaseModel):
+class WebVitalsPathBreakdownResultItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5409,7 +5407,7 @@ class WebsiteBrowsingHistoryProdInterest(StrEnum):
     ENDPOINTS = "endpoints"
 
 
-class WorkflowVariablePropertyFilter(SchemaBaseModel):
+class WorkflowVariablePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5420,7 +5418,7 @@ class WorkflowVariablePropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class YAxisSettings(SchemaBaseModel):
+class YAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5431,7 +5429,7 @@ class YAxisSettings(SchemaBaseModel):
     startAtZero: bool | None = Field(default=None, description="Whether the Y axis should start at zero")
 
 
-class ZendeskTicketSignalExtra(SchemaBaseModel):
+class ZendeskTicketSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5443,7 +5441,7 @@ class ZendeskTicketSignalExtra(SchemaBaseModel):
     url: str
 
 
-class ZendeskTicketSignalInput(SchemaBaseModel):
+class ZendeskTicketSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5456,14 +5454,14 @@ class ZendeskTicketSignalInput(SchemaBaseModel):
     weight: float
 
 
-class NamedArgs(SchemaBaseModel):
+class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     level: MarketingAnalyticsDrillDownLevel
 
 
-class GetEffectiveExcludedColumns(SchemaBaseModel):
+class GetEffectiveExcludedColumns(BaseModel):
     namedArgs: NamedArgs | None = None
 
 
@@ -5471,14 +5469,14 @@ class Integer(RootModel[int]):
     root: int
 
 
-class ActionConversionGoal(SchemaBaseModel):
+class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     actionId: int
 
 
-class ActorsPropertyTaxonomyResponse(SchemaBaseModel):
+class ActorsPropertyTaxonomyResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5486,7 +5484,7 @@ class ActorsPropertyTaxonomyResponse(SchemaBaseModel):
     sample_values: list[str | float | bool | int]
 
 
-class AggregatedSpanRow(SchemaBaseModel):
+class AggregatedSpanRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5500,14 +5498,14 @@ class AggregatedSpanRow(SchemaBaseModel):
     total_duration_nano: float
 
 
-class AlertCondition(SchemaBaseModel):
+class AlertCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     type: AlertConditionType
 
 
-class AlertScheduleRestriction(SchemaBaseModel):
+class AlertScheduleRestriction(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5518,7 +5516,7 @@ class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
     root: ApprovalDecisionStatus | str
 
 
-class AssistantArrayPropertyFilter(SchemaBaseModel):
+class AssistantArrayPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5536,14 +5534,14 @@ class AssistantArrayPropertyFilter(SchemaBaseModel):
     )
 
 
-class AssistantBreakdownFilter(SchemaBaseModel):
+class AssistantBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     breakdown_limit: int | None = Field(default=25, description="How many distinct values to show.")
 
 
-class AssistantCohortPropertyFilter(SchemaBaseModel):
+class AssistantCohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5562,7 +5560,7 @@ class AssistantCohortPropertyFilter(SchemaBaseModel):
     value: int = Field(..., description="The cohort ID to filter by.")
 
 
-class AssistantDataVisualizationAxis(SchemaBaseModel):
+class AssistantDataVisualizationAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5576,7 +5574,7 @@ class AssistantDataVisualizationAxis(SchemaBaseModel):
     )
 
 
-class AssistantDataVisualizationChartSettings(SchemaBaseModel):
+class AssistantDataVisualizationChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5621,7 +5619,7 @@ class AssistantDataVisualizationChartSettings(SchemaBaseModel):
     )
 
 
-class AssistantDataVisualizationTableSettings(SchemaBaseModel):
+class AssistantDataVisualizationTableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5634,7 +5632,7 @@ class AssistantDataVisualizationTableSettings(SchemaBaseModel):
     transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
 
 
-class AssistantDateTimePropertyFilter(SchemaBaseModel):
+class AssistantDateTimePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5642,7 +5640,7 @@ class AssistantDateTimePropertyFilter(SchemaBaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantElementPropertyFilter1(SchemaBaseModel):
+class AssistantElementPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5683,7 +5681,7 @@ class AssistantElementPropertyFilter1(SchemaBaseModel):
     )
 
 
-class AssistantElementPropertyFilter2(SchemaBaseModel):
+class AssistantElementPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5708,7 +5706,7 @@ class AssistantElementPropertyFilter2(SchemaBaseModel):
     value: float
 
 
-class AssistantElementPropertyFilter5(SchemaBaseModel):
+class AssistantElementPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5738,14 +5736,14 @@ class AssistantElementPropertyFilter5(SchemaBaseModel):
     )
 
 
-class AssistantForm(SchemaBaseModel):
+class AssistantForm(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     options: list[AssistantFormOption]
 
 
-class AssistantFunnelsBreakdownFilter(SchemaBaseModel):
+class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5766,7 +5764,7 @@ class AssistantFunnelsBreakdownFilter(SchemaBaseModel):
     )
 
 
-class AssistantFunnelsExclusionEventsNode(SchemaBaseModel):
+class AssistantFunnelsExclusionEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5776,7 +5774,7 @@ class AssistantFunnelsExclusionEventsNode(SchemaBaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
 
 
-class AssistantFunnelsFilter(SchemaBaseModel):
+class AssistantFunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5879,14 +5877,14 @@ class AssistantFunnelsFilter(SchemaBaseModel):
     )
 
 
-class AssistantGenerationStatusEvent(SchemaBaseModel):
+class AssistantGenerationStatusEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     type: AssistantGenerationStatusType
 
 
-class AssistantGenericPropertyFilter1(SchemaBaseModel):
+class AssistantGenericPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5912,7 +5910,7 @@ class AssistantGenericPropertyFilter1(SchemaBaseModel):
     )
 
 
-class AssistantGenericPropertyFilter2(SchemaBaseModel):
+class AssistantGenericPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5922,7 +5920,7 @@ class AssistantGenericPropertyFilter2(SchemaBaseModel):
     value: float
 
 
-class AssistantGenericPropertyFilter3(SchemaBaseModel):
+class AssistantGenericPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5942,7 +5940,7 @@ class AssistantGenericPropertyFilter3(SchemaBaseModel):
     )
 
 
-class AssistantGenericPropertyFilter4(SchemaBaseModel):
+class AssistantGenericPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5952,7 +5950,7 @@ class AssistantGenericPropertyFilter4(SchemaBaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGenericPropertyFilter5(SchemaBaseModel):
+class AssistantGenericPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5967,7 +5965,7 @@ class AssistantGenericPropertyFilter5(SchemaBaseModel):
     type: AssistantGenericPropertyFilterType
 
 
-class AssistantGroupMultipleBreakdownFilter(SchemaBaseModel):
+class AssistantGroupMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5976,7 +5974,7 @@ class AssistantGroupMultipleBreakdownFilter(SchemaBaseModel):
     type: Literal["group"] = "group"
 
 
-class AssistantGroupPropertyFilter1(SchemaBaseModel):
+class AssistantGroupPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6003,7 +6001,7 @@ class AssistantGroupPropertyFilter1(SchemaBaseModel):
     )
 
 
-class AssistantGroupPropertyFilter2(SchemaBaseModel):
+class AssistantGroupPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6014,7 +6012,7 @@ class AssistantGroupPropertyFilter2(SchemaBaseModel):
     value: float
 
 
-class AssistantGroupPropertyFilter3(SchemaBaseModel):
+class AssistantGroupPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6035,7 +6033,7 @@ class AssistantGroupPropertyFilter3(SchemaBaseModel):
     )
 
 
-class AssistantGroupPropertyFilter4(SchemaBaseModel):
+class AssistantGroupPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6046,7 +6044,7 @@ class AssistantGroupPropertyFilter4(SchemaBaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGroupPropertyFilter5(SchemaBaseModel):
+class AssistantGroupPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6062,7 +6060,7 @@ class AssistantGroupPropertyFilter5(SchemaBaseModel):
     type: Literal["group"] = "group"
 
 
-class AssistantLifecycleFilter(SchemaBaseModel):
+class AssistantLifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6084,7 +6082,7 @@ class AssistantLifecycleFilter(SchemaBaseModel):
     )
 
 
-class AssistantMessageMetadata(SchemaBaseModel):
+class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6101,7 +6099,7 @@ class AssistantMessageMetadata(SchemaBaseModel):
     )
 
 
-class AssistantNumericValuePropertyFilter(SchemaBaseModel):
+class AssistantNumericValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6109,7 +6107,7 @@ class AssistantNumericValuePropertyFilter(SchemaBaseModel):
     value: float
 
 
-class AssistantPathsFilter(SchemaBaseModel):
+class AssistantPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6235,7 +6233,7 @@ class AssistantPathsFilter(SchemaBaseModel):
     )
 
 
-class AssistantRecordingPropertyFilter1(SchemaBaseModel):
+class AssistantRecordingPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6275,7 +6273,7 @@ class AssistantRecordingPropertyFilter1(SchemaBaseModel):
     )
 
 
-class AssistantRecordingPropertyFilter5(SchemaBaseModel):
+class AssistantRecordingPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6304,7 +6302,7 @@ class AssistantRecordingPropertyFilter5(SchemaBaseModel):
     type: Literal["recording"] = "recording"
 
 
-class AssistantRetentionActionsNode(SchemaBaseModel):
+class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6351,7 +6349,7 @@ class AssistantRetentionActionsNode(SchemaBaseModel):
     type: Literal["actions"] = "actions"
 
 
-class AssistantRetentionEventsNode(SchemaBaseModel):
+class AssistantRetentionEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6402,7 +6400,7 @@ class AssistantRetentionEventsNode(SchemaBaseModel):
     type: Literal["events"] = "events"
 
 
-class AssistantSetPropertyFilter(SchemaBaseModel):
+class AssistantSetPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6415,7 +6413,7 @@ class AssistantSetPropertyFilter(SchemaBaseModel):
     )
 
 
-class AssistantStringOrBooleanValuePropertyFilter(SchemaBaseModel):
+class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6439,7 +6437,7 @@ class AssistantStringOrBooleanValuePropertyFilter(SchemaBaseModel):
     )
 
 
-class AssistantTraceQuery(SchemaBaseModel):
+class AssistantTraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6476,7 +6474,7 @@ class AssistantTraceQuery(SchemaBaseModel):
     )
 
 
-class AssistantTracesQuery(SchemaBaseModel):
+class AssistantTracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6534,7 +6532,7 @@ class AssistantTracesQuery(SchemaBaseModel):
     )
 
 
-class AssistantTrendsBreakdownFilter(SchemaBaseModel):
+class AssistantTrendsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6555,7 +6553,7 @@ class AssistantTrendsBreakdownFilter(SchemaBaseModel):
     )
 
 
-class AssistantTrendsFilter(SchemaBaseModel):
+class AssistantTrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6658,7 +6656,7 @@ class AssistantTrendsFilter(SchemaBaseModel):
     )
 
 
-class AutocompleteCompletionItem(SchemaBaseModel):
+class AutocompleteCompletionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6689,7 +6687,7 @@ class AutocompleteCompletionItem(SchemaBaseModel):
     )
 
 
-class BoxPlotDatum(SchemaBaseModel):
+class BoxPlotDatum(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6705,7 +6703,7 @@ class BoxPlotDatum(SchemaBaseModel):
     series_label: str | None = None
 
 
-class Breakdown(SchemaBaseModel):
+class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6716,7 +6714,7 @@ class Breakdown(SchemaBaseModel):
     type: MultipleBreakdownType | None = None
 
 
-class BreakdownFilter(SchemaBaseModel):
+class BreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6731,7 +6729,7 @@ class BreakdownFilter(SchemaBaseModel):
     breakdowns: list[Breakdown] | None = Field(default=None, max_length=3)
 
 
-class IntervalItem(SchemaBaseModel):
+class IntervalItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6742,7 +6740,7 @@ class IntervalItem(SchemaBaseModel):
     )
 
 
-class Series(SchemaBaseModel):
+class Series(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6750,14 +6748,14 @@ class Series(SchemaBaseModel):
     value: int
 
 
-class CampaignFieldPreference(SchemaBaseModel):
+class CampaignFieldPreference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     match_field: MatchField
 
 
-class Settings(SchemaBaseModel):
+class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6765,7 +6763,7 @@ class Settings(SchemaBaseModel):
     formatting: ChartSettingsFormatting | None = None
 
 
-class ChartAxis(SchemaBaseModel):
+class ChartAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6773,7 +6771,7 @@ class ChartAxis(SchemaBaseModel):
     settings: Settings | None = None
 
 
-class ClickhouseQueryProgress(SchemaBaseModel):
+class ClickhouseQueryProgress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6784,7 +6782,7 @@ class ClickhouseQueryProgress(SchemaBaseModel):
     time_elapsed: int
 
 
-class CohortPropertyFilter(SchemaBaseModel):
+class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6796,7 +6794,7 @@ class CohortPropertyFilter(SchemaBaseModel):
     value: int
 
 
-class ConversationsTicketSignalInput(SchemaBaseModel):
+class ConversationsTicketSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6809,7 +6807,7 @@ class ConversationsTicketSignalInput(SchemaBaseModel):
     weight: float
 
 
-class CustomChannelCondition(SchemaBaseModel):
+class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6819,7 +6817,7 @@ class CustomChannelCondition(SchemaBaseModel):
     value: str | list[str] | None = None
 
 
-class CustomChannelRule(SchemaBaseModel):
+class CustomChannelRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6829,7 +6827,7 @@ class CustomChannelRule(SchemaBaseModel):
     items: list[CustomChannelCondition]
 
 
-class DataTableNodeViewPropsContext(SchemaBaseModel):
+class DataTableNodeViewPropsContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6837,7 +6835,7 @@ class DataTableNodeViewPropsContext(SchemaBaseModel):
     type: DataTableNodeViewPropsContextType
 
 
-class DataWarehousePersonPropertyFilter(SchemaBaseModel):
+class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6848,7 +6846,7 @@ class DataWarehousePersonPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class DataWarehousePropertyFilter(SchemaBaseModel):
+class DataWarehousePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6859,7 +6857,7 @@ class DataWarehousePropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class DataWarehouseViewLink(SchemaBaseModel):
+class DataWarehouseViewLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6873,7 +6871,7 @@ class DataWarehouseViewLink(SchemaBaseModel):
     source_table_name: str | None = None
 
 
-class DatabaseSchemaField(SchemaBaseModel):
+class DatabaseSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6887,7 +6885,7 @@ class DatabaseSchemaField(SchemaBaseModel):
     type: DatabaseSerializedFieldType
 
 
-class DatabaseSchemaPostHogTable(SchemaBaseModel):
+class DatabaseSchemaPostHogTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6898,7 +6896,7 @@ class DatabaseSchemaPostHogTable(SchemaBaseModel):
     type: Literal["posthog"] = "posthog"
 
 
-class DatabaseSchemaSystemTable(SchemaBaseModel):
+class DatabaseSchemaSystemTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6909,7 +6907,7 @@ class DatabaseSchemaSystemTable(SchemaBaseModel):
     type: Literal["system"] = "system"
 
 
-class DatabaseSchemaTableCommon(SchemaBaseModel):
+class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6924,7 +6922,7 @@ class Day(RootModel[int]):
     root: int
 
 
-class DeepResearchNotebook(SchemaBaseModel):
+class DeepResearchNotebook(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6934,7 +6932,7 @@ class DeepResearchNotebook(SchemaBaseModel):
     title: str
 
 
-class ElementPropertyFilter(SchemaBaseModel):
+class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6945,7 +6943,7 @@ class ElementPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class EmbeddingDistance(SchemaBaseModel):
+class EmbeddingDistance(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6954,7 +6952,7 @@ class EmbeddingDistance(SchemaBaseModel):
     result: EmbeddingRecord
 
 
-class EndpointExecutionFailedSignalInput(SchemaBaseModel):
+class EndpointExecutionFailedSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6967,7 +6965,7 @@ class EndpointExecutionFailedSignalInput(SchemaBaseModel):
     weight: float
 
 
-class EndpointsUsageOverviewItem(SchemaBaseModel):
+class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6977,7 +6975,7 @@ class EndpointsUsageOverviewItem(SchemaBaseModel):
     value: float | None = None
 
 
-class EnrichedReviewer(SchemaBaseModel):
+class EnrichedReviewer(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6987,7 +6985,7 @@ class EnrichedReviewer(SchemaBaseModel):
     user: SignalReviewerUserInfo | None = None
 
 
-class ErrorTrackingExternalReferenceIntegration(SchemaBaseModel):
+class ErrorTrackingExternalReferenceIntegration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6996,7 +6994,7 @@ class ErrorTrackingExternalReferenceIntegration(SchemaBaseModel):
     kind: IntegrationKind
 
 
-class ErrorTrackingIssueAssignee(SchemaBaseModel):
+class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7004,7 +7002,7 @@ class ErrorTrackingIssueAssignee(SchemaBaseModel):
     type: ErrorTrackingIssueAssigneeType
 
 
-class ErrorTrackingIssueFilter(SchemaBaseModel):
+class ErrorTrackingIssueFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7015,7 +7013,7 @@ class ErrorTrackingIssueFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class ErrorTrackingPendingFingerprintIssueStateUpdate(SchemaBaseModel):
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7034,7 +7032,7 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(SchemaBaseModel):
     )
 
 
-class ErrorTrackingSignalInput(SchemaBaseModel):
+class ErrorTrackingSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7047,7 +7045,7 @@ class ErrorTrackingSignalInput(SchemaBaseModel):
     weight: float
 
 
-class EventMetadataPropertyFilter(SchemaBaseModel):
+class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7058,7 +7056,7 @@ class EventMetadataPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class EventOddsRatioSerialized(SchemaBaseModel):
+class EventOddsRatioSerialized(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7069,7 +7067,7 @@ class EventOddsRatioSerialized(SchemaBaseModel):
     success_count: int
 
 
-class EventPropertyFilter(SchemaBaseModel):
+class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7080,7 +7078,7 @@ class EventPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class EventTaxonomyItem(SchemaBaseModel):
+class EventTaxonomyItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7089,7 +7087,7 @@ class EventTaxonomyItem(SchemaBaseModel):
     sample_values: list[str]
 
 
-class EventsHeatMapColumnAggregationResult(SchemaBaseModel):
+class EventsHeatMapColumnAggregationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7097,7 +7095,7 @@ class EventsHeatMapColumnAggregationResult(SchemaBaseModel):
     value: int
 
 
-class EventsHeatMapDataResult(SchemaBaseModel):
+class EventsHeatMapDataResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7106,7 +7104,7 @@ class EventsHeatMapDataResult(SchemaBaseModel):
     value: int
 
 
-class EventsHeatMapRowAggregationResult(SchemaBaseModel):
+class EventsHeatMapRowAggregationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7114,7 +7112,7 @@ class EventsHeatMapRowAggregationResult(SchemaBaseModel):
     value: int
 
 
-class EventsHeatMapStructuredResult(SchemaBaseModel):
+class EventsHeatMapStructuredResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7124,7 +7122,7 @@ class EventsHeatMapStructuredResult(SchemaBaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
-class ExperimentApiEventSource(SchemaBaseModel):
+class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7166,7 +7164,7 @@ class ExperimentApiEventSource(SchemaBaseModel):
     )
 
 
-class ExperimentApiExposureConfig(SchemaBaseModel):
+class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7187,7 +7185,7 @@ class ExperimentApiExposureConfig(SchemaBaseModel):
     )
 
 
-class ExperimentApiExposureCriteria(SchemaBaseModel):
+class ExperimentApiExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7195,7 +7193,7 @@ class ExperimentApiExposureCriteria(SchemaBaseModel):
     filterTestAccounts: bool | None = None
 
 
-class ExperimentApiMetric(SchemaBaseModel):
+class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7263,7 +7261,7 @@ class ExperimentApiMetric(SchemaBaseModel):
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
-class ExperimentExposureQueryResponse(SchemaBaseModel):
+class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7279,7 +7277,7 @@ class ExperimentExposureQueryResponse(SchemaBaseModel):
     )
 
 
-class ExperimentMetricBaseProperties(SchemaBaseModel):
+class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7297,7 +7295,7 @@ class ExperimentMetricBaseProperties(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentParameters(SchemaBaseModel):
+class ExperimentParameters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7333,7 +7331,7 @@ class ExperimentParameters(SchemaBaseModel):
     )
 
 
-class ExperimentStatsBase(SchemaBaseModel):
+class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7351,7 +7349,7 @@ class ExperimentStatsBase(SchemaBaseModel):
     sum_squares: float
 
 
-class ExperimentStatsBaseValidated(SchemaBaseModel):
+class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7370,7 +7368,7 @@ class ExperimentStatsBaseValidated(SchemaBaseModel):
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
 
 
-class ExperimentVariantResultBayesian(SchemaBaseModel):
+class ExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7393,7 +7391,7 @@ class ExperimentVariantResultBayesian(SchemaBaseModel):
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
 
 
-class ExperimentVariantResultFrequentist(SchemaBaseModel):
+class ExperimentVariantResultFrequentist(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7416,7 +7414,7 @@ class ExperimentVariantResultFrequentist(SchemaBaseModel):
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
 
 
-class ExternalQueryError(SchemaBaseModel):
+class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7424,7 +7422,7 @@ class ExternalQueryError(SchemaBaseModel):
     detail: str
 
 
-class FeaturePropertyFilter(SchemaBaseModel):
+class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7435,7 +7433,7 @@ class FeaturePropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class FileSystemCount(SchemaBaseModel):
+class FileSystemCount(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7444,7 +7442,7 @@ class FileSystemCount(SchemaBaseModel):
     has_more: bool
 
 
-class FileSystemImport(SchemaBaseModel):
+class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7498,7 +7496,7 @@ class FileSystemImport(SchemaBaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
-class FormResumePayload(SchemaBaseModel):
+class FormResumePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7506,7 +7504,7 @@ class FormResumePayload(SchemaBaseModel):
     form_answers: dict[str, str | list[str]]
 
 
-class FunnelCorrelationResult(SchemaBaseModel):
+class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7514,7 +7512,7 @@ class FunnelCorrelationResult(SchemaBaseModel):
     skewed: bool
 
 
-class FunnelExclusionSteps(SchemaBaseModel):
+class FunnelExclusionSteps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7522,7 +7520,7 @@ class FunnelExclusionSteps(SchemaBaseModel):
     funnelToStep: int
 
 
-class FunnelsFilterLegacy(SchemaBaseModel):
+class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7542,7 +7540,7 @@ class FunnelsFilterLegacy(SchemaBaseModel):
     layout: FunnelLayout | None = None
 
 
-class GithubIssueSignalInput(SchemaBaseModel):
+class GithubIssueSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7555,7 +7553,7 @@ class GithubIssueSignalInput(SchemaBaseModel):
     weight: float
 
 
-class GroupPropertyFilter(SchemaBaseModel):
+class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7568,7 +7566,7 @@ class GroupPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class HeatmapSettings(SchemaBaseModel):
+class HeatmapSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7586,7 +7584,7 @@ class HeatmapSettings(SchemaBaseModel):
     yAxisLabel: str | None = None
 
 
-class HogQLAutocompleteResponse(SchemaBaseModel):
+class HogQLAutocompleteResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7598,7 +7596,7 @@ class HogQLAutocompleteResponse(SchemaBaseModel):
     )
 
 
-class HogQLNotice(SchemaBaseModel):
+class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7608,7 +7606,7 @@ class HogQLNotice(SchemaBaseModel):
     start: int | None = None
 
 
-class HogQLPropertyFilter(SchemaBaseModel):
+class HogQLPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7618,7 +7616,7 @@ class HogQLPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class HogQLQueryModifiers(SchemaBaseModel):
+class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7686,7 +7684,7 @@ class HogQLQueryModifiers(SchemaBaseModel):
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
-class HogQuery(SchemaBaseModel):
+class HogQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7698,7 +7696,7 @@ class HogQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DayItem(SchemaBaseModel):
+class DayItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7706,7 +7704,7 @@ class DayItem(SchemaBaseModel):
     value: str | AwareDatetime | int
 
 
-class InsightThreshold(SchemaBaseModel):
+class InsightThreshold(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7719,7 +7717,7 @@ class InsightThreshold(SchemaBaseModel):
     )
 
 
-class LLMTrace(SchemaBaseModel):
+class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7745,7 +7743,7 @@ class LLMTrace(SchemaBaseModel):
     webSearchCost: float | None = None
 
 
-class LifecycleFilter(SchemaBaseModel):
+class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7755,7 +7753,7 @@ class LifecycleFilter(SchemaBaseModel):
     toggledLifecycles: list[LifecycleToggle] | None = None
 
 
-class LifecycleFilterLegacy(SchemaBaseModel):
+class LifecycleFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7764,7 +7762,7 @@ class LifecycleFilterLegacy(SchemaBaseModel):
     toggledLifecycles: list[LifecycleToggle] | None = None
 
 
-class LinearIssueSignalInput(SchemaBaseModel):
+class LinearIssueSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7777,7 +7775,7 @@ class LinearIssueSignalInput(SchemaBaseModel):
     weight: float
 
 
-class LlmEvaluationReportSignalInput(SchemaBaseModel):
+class LlmEvaluationReportSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7790,7 +7788,7 @@ class LlmEvaluationReportSignalInput(SchemaBaseModel):
     weight: float
 
 
-class LlmEvaluationSignalInput(SchemaBaseModel):
+class LlmEvaluationSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7803,7 +7801,7 @@ class LlmEvaluationSignalInput(SchemaBaseModel):
     weight: float
 
 
-class LogEntryPropertyFilter(SchemaBaseModel):
+class LogEntryPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7814,7 +7812,7 @@ class LogEntryPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class LogMessage(SchemaBaseModel):
+class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7835,7 +7833,7 @@ class LogMessage(SchemaBaseModel):
     uuid: str
 
 
-class LogPropertyFilter(SchemaBaseModel):
+class LogPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7846,7 +7844,7 @@ class LogPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class LogsAlertStateChangeSignalInput(SchemaBaseModel):
+class LogsAlertStateChangeSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7859,7 +7857,7 @@ class LogsAlertStateChangeSignalInput(SchemaBaseModel):
     weight: float
 
 
-class MarketingAnalyticsItem(SchemaBaseModel):
+class MarketingAnalyticsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7872,7 +7870,7 @@ class MarketingAnalyticsItem(SchemaBaseModel):
     value: float | str | None = None
 
 
-class MarketingAnalyticsSchemaField(SchemaBaseModel):
+class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7881,7 +7879,7 @@ class MarketingAnalyticsSchemaField(SchemaBaseModel):
     type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
-class MarketingIntegrationConfigType(SchemaBaseModel):
+class MarketingIntegrationConfigType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7896,7 +7894,7 @@ class MarketingIntegrationConfigType(SchemaBaseModel):
     tableKeywords: list[str]
 
 
-class MatchedRecording(SchemaBaseModel):
+class MatchedRecording(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7904,7 +7902,7 @@ class MatchedRecording(SchemaBaseModel):
     session_id: str | None = None
 
 
-class MaxActionContext(SchemaBaseModel):
+class MaxActionContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7914,7 +7912,7 @@ class MaxActionContext(SchemaBaseModel):
     type: Literal["action"] = "action"
 
 
-class MaxBillingContextBillingPeriod(SchemaBaseModel):
+class MaxBillingContextBillingPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7923,7 +7921,7 @@ class MaxBillingContextBillingPeriod(SchemaBaseModel):
     interval: MaxBillingContextBillingPeriodInterval
 
 
-class MaxExperimentMetricResult(SchemaBaseModel):
+class MaxExperimentMetricResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7932,7 +7930,7 @@ class MaxExperimentMetricResult(SchemaBaseModel):
     variant_results: list[MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist]
 
 
-class MaxExperimentSummaryContext(SchemaBaseModel):
+class MaxExperimentSummaryContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7946,7 +7944,7 @@ class MaxExperimentSummaryContext(SchemaBaseModel):
     variants: list[str]
 
 
-class MaxRecordingEventFilter(SchemaBaseModel):
+class MaxRecordingEventFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7978,7 +7976,7 @@ class MaxRecordingEventFilter(SchemaBaseModel):
     type: Literal["events"] = "events"
 
 
-class MultiQuestionFormField(SchemaBaseModel):
+class MultiQuestionFormField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7998,7 +7996,7 @@ class MultiQuestionFormField(SchemaBaseModel):
     type: MultiQuestionFormFieldType = Field(..., description="Field type (required, no default)")
 
 
-class MultiQuestionFormQuestion(SchemaBaseModel):
+class MultiQuestionFormQuestion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8032,7 +8030,7 @@ class NotebookInfo(RootModel[DeepResearchNotebook]):
     root: DeepResearchNotebook
 
 
-class NotebookUpdateMessage(SchemaBaseModel):
+class NotebookUpdateMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8047,7 +8045,7 @@ class NotebookUpdateMessage(SchemaBaseModel):
     type: Literal["ai/notebook"] = "ai/notebook"
 
 
-class PathsFilter(SchemaBaseModel):
+class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8069,7 +8067,7 @@ class PathsFilter(SchemaBaseModel):
     stepLimit: int | None = 5
 
 
-class PersonPropertyFilter(SchemaBaseModel):
+class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8080,7 +8078,7 @@ class PersonPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class PgAnalyzeIssueSignalInput(SchemaBaseModel):
+class PgAnalyzeIssueSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8093,7 +8091,7 @@ class PgAnalyzeIssueSignalInput(SchemaBaseModel):
     weight: float
 
 
-class PlanningStep(SchemaBaseModel):
+class PlanningStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8101,7 +8099,7 @@ class PlanningStep(SchemaBaseModel):
     status: PlanningStepStatus
 
 
-class PreprocessingConfig(SchemaBaseModel):
+class PreprocessingConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8119,7 +8117,7 @@ class PreprocessingConfig(SchemaBaseModel):
     )
 
 
-class ProductItem(SchemaBaseModel):
+class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8130,7 +8128,7 @@ class ProductItem(SchemaBaseModel):
     type: str | None = None
 
 
-class ProductsData(SchemaBaseModel):
+class ProductsData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8139,7 +8137,7 @@ class ProductsData(SchemaBaseModel):
     products: list[ProductItem]
 
 
-class PropertyValueItem(SchemaBaseModel):
+class PropertyValueItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8147,7 +8145,7 @@ class PropertyValueItem(SchemaBaseModel):
     name: str | float | bool | None = None
 
 
-class QueryResponseAlternative9(SchemaBaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8161,7 +8159,7 @@ class QueryResponseAlternative9(SchemaBaseModel):
     warnings: list[HogQLNotice]
 
 
-class QueryResponseAlternative10(SchemaBaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8173,7 +8171,7 @@ class QueryResponseAlternative10(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative21(SchemaBaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8189,7 +8187,7 @@ class QueryResponseAlternative21(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative29(SchemaBaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8198,7 +8196,7 @@ class QueryResponseAlternative29(SchemaBaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(SchemaBaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8222,7 +8220,7 @@ class QueryResponseAlternative88(SchemaBaseModel):
     )
 
 
-class QueryStatus(SchemaBaseModel):
+class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8261,7 +8259,7 @@ class QueryStatus(SchemaBaseModel):
     team_id: int
 
 
-class QueryStatusResponse(SchemaBaseModel):
+class QueryStatusResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8276,7 +8274,7 @@ class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDi
     root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 
-class RetentionResult(SchemaBaseModel):
+class RetentionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8288,7 +8286,7 @@ class RetentionResult(SchemaBaseModel):
     values: list[RetentionValue]
 
 
-class RevenueAnalyticsAssistantFilters(SchemaBaseModel):
+class RevenueAnalyticsAssistantFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8298,7 +8296,7 @@ class RevenueAnalyticsAssistantFilters(SchemaBaseModel):
     properties: list[RevenueAnalyticsPropertyFilter]
 
 
-class RevenueAnalyticsEventItem(SchemaBaseModel):
+class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8360,7 +8358,7 @@ class RevenueAnalyticsEventItem(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsGrossRevenueQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8402,7 +8400,7 @@ class RevenueAnalyticsGrossRevenueQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsMRRQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsMRRQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8444,7 +8442,7 @@ class RevenueAnalyticsMRRQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsMetricsQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8486,7 +8484,7 @@ class RevenueAnalyticsMetricsQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsOverviewItem(SchemaBaseModel):
+class RevenueAnalyticsOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8494,7 +8492,7 @@ class RevenueAnalyticsOverviewItem(SchemaBaseModel):
     value: float
 
 
-class RevenueAnalyticsOverviewQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8535,7 +8533,7 @@ class RevenueAnalyticsOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsTopCustomersQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8577,7 +8575,7 @@ class RevenueAnalyticsTopCustomersQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueExampleDataWarehouseTablesQueryResponse(SchemaBaseModel):
+class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8623,7 +8621,7 @@ class RevenueExampleDataWarehouseTablesQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueExampleEventsQueryResponse(SchemaBaseModel):
+class RevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8669,7 +8667,7 @@ class RevenueExampleEventsQueryResponse(SchemaBaseModel):
     )
 
 
-class SavedInsightNode(SchemaBaseModel):
+class SavedInsightNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8774,7 +8772,7 @@ class SavedInsightNode(SchemaBaseModel):
     vizSpecificOptions: VizSpecificOptions | None = None
 
 
-class Filters(SchemaBaseModel):
+class Filters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8782,7 +8780,7 @@ class Filters(SchemaBaseModel):
     properties: list[SessionPropertyFilter] | None = None
 
 
-class SessionAttributionExplorerQueryResponse(SchemaBaseModel):
+class SessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8828,7 +8826,7 @@ class SessionAttributionExplorerQueryResponse(SchemaBaseModel):
     )
 
 
-class SessionBatchEventsQueryResponse(SchemaBaseModel):
+class SessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8882,7 +8880,7 @@ class SessionBatchEventsQueryResponse(SchemaBaseModel):
     )
 
 
-class SessionProblemSignalInput(SchemaBaseModel):
+class SessionProblemSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8895,7 +8893,7 @@ class SessionProblemSignalInput(SchemaBaseModel):
     weight: float
 
 
-class SessionRecordingType(SchemaBaseModel):
+class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8948,7 +8946,7 @@ class SessionRecordingType(SchemaBaseModel):
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
 
-class SessionsQueryResponse(SchemaBaseModel):
+class SessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8994,7 +8992,7 @@ class SessionsQueryResponse(SchemaBaseModel):
     )
 
 
-class SessionsTimelineQueryResponse(SchemaBaseModel):
+class SessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9068,7 +9066,7 @@ class SignalInput(
     )
 
 
-class SignalInputBase(SchemaBaseModel):
+class SignalInputBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9081,7 +9079,7 @@ class SignalInputBase(SchemaBaseModel):
     weight: float
 
 
-class SourceFieldFileUploadConfig(SchemaBaseModel):
+class SourceFieldFileUploadConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9092,7 +9090,7 @@ class SourceFieldFileUploadConfig(SchemaBaseModel):
     type: Literal["file-upload"] = "file-upload"
 
 
-class SourceFieldInputConfig(SchemaBaseModel):
+class SourceFieldInputConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9113,7 +9111,7 @@ class SourceFieldInputConfig(SchemaBaseModel):
     type: SourceFieldInputConfigType
 
 
-class SpanPropertyFilter(SchemaBaseModel):
+class SpanPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9124,7 +9122,7 @@ class SpanPropertyFilter(SchemaBaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class SpanTreeNode(SchemaBaseModel):
+class SpanTreeNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9148,7 +9146,7 @@ class SpanTreeNode(SchemaBaseModel):
     total_duration_nano: float
 
 
-class StickinessCriteria(SchemaBaseModel):
+class StickinessCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9156,7 +9154,7 @@ class StickinessCriteria(SchemaBaseModel):
     value: conint(ge=1)
 
 
-class StickinessFilter(SchemaBaseModel):
+class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9179,7 +9177,7 @@ class StickinessFilter(SchemaBaseModel):
     stickinessCriteria: StickinessCriteria | None = None
 
 
-class StickinessQueryResponse(SchemaBaseModel):
+class StickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9220,7 +9218,7 @@ class StickinessQueryResponse(SchemaBaseModel):
     )
 
 
-class SuggestedQuestionsQuery(SchemaBaseModel):
+class SuggestedQuestionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9231,7 +9229,7 @@ class SuggestedQuestionsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SurveyAnalysisQuestionGroup(SchemaBaseModel):
+class SurveyAnalysisQuestionGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9242,7 +9240,7 @@ class SurveyAnalysisQuestionGroup(SchemaBaseModel):
     )
 
 
-class SurveyAppearanceSchema(SchemaBaseModel):
+class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9274,7 +9272,7 @@ class SurveyAppearanceSchema(SchemaBaseModel):
     zIndex: str | None = None
 
 
-class SurveyDisplayConditionsSchema(SchemaBaseModel):
+class SurveyDisplayConditionsSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9288,7 +9286,7 @@ class SurveyDisplayConditionsSchema(SchemaBaseModel):
     urlMatchType: SurveyMatchType | None = None
 
 
-class SurveyQuestionSchema(SchemaBaseModel):
+class SurveyQuestionSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9311,7 +9309,7 @@ class SurveyQuestionSchema(SchemaBaseModel):
     upperBoundLabel: str | None = None
 
 
-class TableSettings(SchemaBaseModel):
+class TableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9321,7 +9319,7 @@ class TableSettings(SchemaBaseModel):
     transpose: bool | None = None
 
 
-class TaskExecutionItem(SchemaBaseModel):
+class TaskExecutionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9334,7 +9332,7 @@ class TaskExecutionItem(SchemaBaseModel):
     task_type: str
 
 
-class TaskExecutionMessage(SchemaBaseModel):
+class TaskExecutionMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9344,7 +9342,7 @@ class TaskExecutionMessage(SchemaBaseModel):
     type: Literal["ai/task_execution"] = "ai/task_execution"
 
 
-class TeamTaxonomyItem(SchemaBaseModel):
+class TeamTaxonomyItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9352,7 +9350,7 @@ class TeamTaxonomyItem(SchemaBaseModel):
     event: str
 
 
-class TestBasicQueryResponse(SchemaBaseModel):
+class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9393,7 +9391,7 @@ class TestBasicQueryResponse(SchemaBaseModel):
     )
 
 
-class TestCachedBasicQueryResponse(SchemaBaseModel):
+class TestCachedBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9445,7 +9443,7 @@ class TestCachedBasicQueryResponse(SchemaBaseModel):
     )
 
 
-class ThresholdDetectorConfig(SchemaBaseModel):
+class ThresholdDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9457,7 +9455,7 @@ class ThresholdDetectorConfig(SchemaBaseModel):
     upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
 
 
-class TraceQueryResponse(SchemaBaseModel):
+class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9502,7 +9500,7 @@ class TraceQueryResponse(SchemaBaseModel):
     )
 
 
-class TraceSpansAggregationQueryResponse(SchemaBaseModel):
+class TraceSpansAggregationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9547,7 +9545,7 @@ class TraceSpansAggregationQueryResponse(SchemaBaseModel):
     )
 
 
-class TraceSpansQueryResponse(SchemaBaseModel):
+class TraceSpansQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9592,7 +9590,7 @@ class TraceSpansQueryResponse(SchemaBaseModel):
     )
 
 
-class TraceSpansTreeQueryResponse(SchemaBaseModel):
+class TraceSpansTreeQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9637,7 +9635,7 @@ class TraceSpansTreeQueryResponse(SchemaBaseModel):
     )
 
 
-class TracesQueryResponse(SchemaBaseModel):
+class TracesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9682,7 +9680,7 @@ class TracesQueryResponse(SchemaBaseModel):
     )
 
 
-class TrendsAlertConfig(SchemaBaseModel):
+class TrendsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9697,7 +9695,7 @@ class TrendsAlertConfig(SchemaBaseModel):
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 
-class TrendsFilter(SchemaBaseModel):
+class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9795,7 +9793,7 @@ class TrendsFilter(SchemaBaseModel):
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
-class TrendsQueryResponse(SchemaBaseModel):
+class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9838,7 +9836,7 @@ class TrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class UsageMetric(SchemaBaseModel):
+class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9860,7 +9858,7 @@ class UsageMetric(SchemaBaseModel):
     value: float
 
 
-class UsageMetricsQueryResponse(SchemaBaseModel):
+class UsageMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9901,7 +9899,7 @@ class UsageMetricsQueryResponse(SchemaBaseModel):
     )
 
 
-class UserProductListItem(SchemaBaseModel):
+class UserProductListItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9914,7 +9912,7 @@ class UserProductListItem(SchemaBaseModel):
     updated_at: str
 
 
-class WebAnalyticsExternalSummaryQueryResponse(SchemaBaseModel):
+class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9923,7 +9921,7 @@ class WebAnalyticsExternalSummaryQueryResponse(SchemaBaseModel):
     status: ExternalQueryStatus
 
 
-class WebAnalyticsItemBaseNumberString(SchemaBaseModel):
+class WebAnalyticsItemBaseNumberString(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9935,7 +9933,7 @@ class WebAnalyticsItemBaseNumberString(SchemaBaseModel):
     value: float | str | None = None
 
 
-class WebAnalyticsItemBaseNumber(SchemaBaseModel):
+class WebAnalyticsItemBaseNumber(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9947,7 +9945,7 @@ class WebAnalyticsItemBaseNumber(SchemaBaseModel):
     value: float | None = None
 
 
-class WebExternalClicksTableQueryResponse(SchemaBaseModel):
+class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9994,7 +9992,7 @@ class WebExternalClicksTableQueryResponse(SchemaBaseModel):
     )
 
 
-class WebGoalsQueryResponse(SchemaBaseModel):
+class WebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10049,7 +10047,7 @@ class WebGoalsQueryResponse(SchemaBaseModel):
     )
 
 
-class WebNotableChangesQueryResponse(SchemaBaseModel):
+class WebNotableChangesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10092,7 +10090,7 @@ class WebNotableChangesQueryResponse(SchemaBaseModel):
     )
 
 
-class WebOverviewQueryResponse(SchemaBaseModel):
+class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10138,7 +10136,7 @@ class WebOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class WebPageURLSearchQueryResponse(SchemaBaseModel):
+class WebPageURLSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10181,7 +10179,7 @@ class WebPageURLSearchQueryResponse(SchemaBaseModel):
     )
 
 
-class WebStatsTableQueryResponse(SchemaBaseModel):
+class WebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10230,7 +10228,7 @@ class WebStatsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class WebVitalsItemAction(SchemaBaseModel):
+class WebVitalsItemAction(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10238,7 +10236,7 @@ class WebVitalsItemAction(SchemaBaseModel):
     math: WebVitalsPercentile
 
 
-class WebVitalsPathBreakdownResult(SchemaBaseModel):
+class WebVitalsPathBreakdownResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10247,7 +10245,7 @@ class WebVitalsPathBreakdownResult(SchemaBaseModel):
     poor: list[WebVitalsPathBreakdownResultItem]
 
 
-class ZScoreDetectorConfig(SchemaBaseModel):
+class ZScoreDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10265,7 +10263,7 @@ class ZScoreDetectorConfig(SchemaBaseModel):
     )
 
 
-class AccountsQueryResponse(SchemaBaseModel):
+class AccountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10316,7 +10314,7 @@ class AccountsQueryResponse(SchemaBaseModel):
     )
 
 
-class ActorsPropertyTaxonomyQueryResponse(SchemaBaseModel):
+class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10357,7 +10355,7 @@ class ActorsPropertyTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class ActorsQueryResponse(SchemaBaseModel):
+class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10404,7 +10402,7 @@ class ActorsQueryResponse(SchemaBaseModel):
     )
 
 
-class AnalyticsQueryResponseBase(SchemaBaseModel):
+class AnalyticsQueryResponseBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10445,7 +10443,7 @@ class AnalyticsQueryResponseBase(SchemaBaseModel):
     )
 
 
-class AssistantDataVisualizationNode(SchemaBaseModel):
+class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10472,7 +10470,7 @@ class AssistantDataVisualizationNode(SchemaBaseModel):
     )
 
 
-class AssistantErrorTrackingQuery(SchemaBaseModel):
+class AssistantErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10523,7 +10521,7 @@ class AssistantErrorTrackingQuery(SchemaBaseModel):
     )
 
 
-class AssistantFunnelNodeShared(SchemaBaseModel):
+class AssistantFunnelNodeShared(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10572,7 +10570,7 @@ class AssistantFunnelNodeShared(SchemaBaseModel):
     ) = None
 
 
-class AssistantFunnelsActionsNode(SchemaBaseModel):
+class AssistantFunnelsActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10625,7 +10623,7 @@ class AssistantFunnelsActionsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AssistantFunnelsEventsNode(SchemaBaseModel):
+class AssistantFunnelsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10681,7 +10679,7 @@ class AssistantFunnelsEventsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AssistantFunnelsGroupNode(SchemaBaseModel):
+class AssistantFunnelsGroupNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10699,7 +10697,7 @@ class AssistantFunnelsGroupNode(SchemaBaseModel):
     operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
 
 
-class AssistantFunnelsQuery(SchemaBaseModel):
+class AssistantFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10777,7 +10775,7 @@ class AssistantFunnelsQuery(SchemaBaseModel):
     )
 
 
-class AssistantInsightsQueryBase(SchemaBaseModel):
+class AssistantInsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10818,7 +10816,7 @@ class AssistantInsightsQueryBase(SchemaBaseModel):
     )
 
 
-class AssistantLifecycleActionsNode(SchemaBaseModel):
+class AssistantLifecycleActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10858,7 +10856,7 @@ class AssistantLifecycleActionsNode(SchemaBaseModel):
     ) = None
 
 
-class AssistantLifecycleEventsNode(SchemaBaseModel):
+class AssistantLifecycleEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10896,7 +10894,7 @@ class AssistantLifecycleEventsNode(SchemaBaseModel):
     ) = None
 
 
-class AssistantMessage(SchemaBaseModel):
+class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10908,7 +10906,7 @@ class AssistantMessage(SchemaBaseModel):
     type: Literal["ai"] = "ai"
 
 
-class AssistantPathsQuery(SchemaBaseModel):
+class AssistantPathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10958,7 +10956,7 @@ class AssistantPathsQuery(SchemaBaseModel):
     )
 
 
-class AssistantRecordingsQuery(SchemaBaseModel):
+class AssistantRecordingsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11047,7 +11045,7 @@ class AssistantRecordingsQuery(SchemaBaseModel):
     )
 
 
-class AssistantRetentionFilter(SchemaBaseModel):
+class AssistantRetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11121,7 +11119,7 @@ class AssistantRetentionFilter(SchemaBaseModel):
     )
 
 
-class AssistantRetentionQuery(SchemaBaseModel):
+class AssistantRetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11164,7 +11162,7 @@ class AssistantRetentionQuery(SchemaBaseModel):
     )
 
 
-class AssistantStickinessActionsNode(SchemaBaseModel):
+class AssistantStickinessActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11225,7 +11223,7 @@ class AssistantStickinessActionsNode(SchemaBaseModel):
     ) = None
 
 
-class AssistantStickinessEventsNode(SchemaBaseModel):
+class AssistantStickinessEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11286,7 +11284,7 @@ class AssistantStickinessEventsNode(SchemaBaseModel):
     ) = None
 
 
-class AssistantStickinessFilter(SchemaBaseModel):
+class AssistantStickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11317,7 +11315,7 @@ class AssistantStickinessFilter(SchemaBaseModel):
     )
 
 
-class AssistantStickinessQuery(SchemaBaseModel):
+class AssistantStickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11394,7 +11392,7 @@ class AssistantStickinessQuery(SchemaBaseModel):
     )
 
 
-class AssistantTrendsActionsNode(SchemaBaseModel):
+class AssistantTrendsActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11457,7 +11455,7 @@ class AssistantTrendsActionsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AssistantTrendsEventsNode(SchemaBaseModel):
+class AssistantTrendsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11520,7 +11518,7 @@ class AssistantTrendsEventsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AssistantTrendsGroupNode(SchemaBaseModel):
+class AssistantTrendsGroupNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11562,7 +11560,7 @@ class AssistantTrendsGroupNode(SchemaBaseModel):
     operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
 
 
-class AssistantTrendsQuery(SchemaBaseModel):
+class AssistantTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11644,7 +11642,7 @@ class AssistantTrendsQuery(SchemaBaseModel):
     )
 
 
-class BreakdownItem(SchemaBaseModel):
+class BreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11652,7 +11650,7 @@ class BreakdownItem(SchemaBaseModel):
     value: str | int
 
 
-class COPODDetectorConfig(SchemaBaseModel):
+class COPODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11669,7 +11667,7 @@ class COPODDetectorConfig(SchemaBaseModel):
     )
 
 
-class CacheMissResponse(SchemaBaseModel):
+class CacheMissResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11677,7 +11675,7 @@ class CacheMissResponse(SchemaBaseModel):
     query_status: QueryStatus | None = None
 
 
-class CachedAccountsQueryResponse(SchemaBaseModel):
+class CachedAccountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11739,7 +11737,7 @@ class CachedAccountsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedActorsPropertyTaxonomyQueryResponse(SchemaBaseModel):
+class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11791,7 +11789,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedActorsQueryResponse(SchemaBaseModel):
+class CachedActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11849,7 +11847,7 @@ class CachedActorsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedCalendarHeatmapQueryResponse(SchemaBaseModel):
+class CachedCalendarHeatmapQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11902,7 +11900,7 @@ class CachedCalendarHeatmapQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedDocumentSimilarityQueryResponse(SchemaBaseModel):
+class CachedDocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11957,7 +11955,7 @@ class CachedDocumentSimilarityQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedEndpointsUsageOverviewQueryResponse(SchemaBaseModel):
+class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12009,7 +12007,7 @@ class CachedEndpointsUsageOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedEndpointsUsageTableQueryResponse(SchemaBaseModel):
+class CachedEndpointsUsageTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12066,7 +12064,7 @@ class CachedEndpointsUsageTableQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedEndpointsUsageTrendsQueryResponse(SchemaBaseModel):
+class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12118,7 +12116,7 @@ class CachedEndpointsUsageTrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedErrorTrackingBreakdownsQueryResponse(SchemaBaseModel):
+class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12170,7 +12168,7 @@ class CachedErrorTrackingBreakdownsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedErrorTrackingSimilarIssuesQueryResponse(SchemaBaseModel):
+class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12225,7 +12223,7 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedEventTaxonomyQueryResponse(SchemaBaseModel):
+class CachedEventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12280,7 +12278,7 @@ class CachedEventTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedEventsQueryResponse(SchemaBaseModel):
+class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12338,7 +12336,7 @@ class CachedEventsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedExperimentExposureQueryResponse(SchemaBaseModel):
+class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12369,7 +12367,7 @@ class CachedExperimentExposureQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedFunnelCorrelationResponse(SchemaBaseModel):
+class CachedFunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12426,7 +12424,7 @@ class CachedFunnelCorrelationResponse(SchemaBaseModel):
     )
 
 
-class CachedFunnelsQueryResponse(SchemaBaseModel):
+class CachedFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12478,7 +12476,7 @@ class CachedFunnelsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedGroupsQueryResponse(SchemaBaseModel):
+class CachedGroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12536,7 +12534,7 @@ class CachedGroupsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedLifecycleQueryResponse(SchemaBaseModel):
+class CachedLifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12588,7 +12586,7 @@ class CachedLifecycleQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedLogsQueryResponse(SchemaBaseModel):
+class CachedLogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12645,7 +12643,7 @@ class CachedLogsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedMarketingAnalyticsAggregatedQueryResponse(SchemaBaseModel):
+class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12698,7 +12696,7 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedMarketingAnalyticsTableQueryResponse(SchemaBaseModel):
+class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12756,7 +12754,7 @@ class CachedMarketingAnalyticsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedNonIntegratedConversionsTableQueryResponse(SchemaBaseModel):
+class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12814,7 +12812,7 @@ class CachedNonIntegratedConversionsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedPathsQueryResponse(SchemaBaseModel):
+class CachedPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12866,7 +12864,7 @@ class CachedPathsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedPropertyValuesQueryResponse(SchemaBaseModel):
+class CachedPropertyValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12918,7 +12916,7 @@ class CachedPropertyValuesQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRecordingsQueryResponse(SchemaBaseModel):
+class CachedRecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12975,7 +12973,7 @@ class CachedRecordingsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRetentionQueryResponse(SchemaBaseModel):
+class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13027,7 +13025,7 @@ class CachedRetentionQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueAnalyticsGrossRevenueQueryResponse(SchemaBaseModel):
+class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13080,7 +13078,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueAnalyticsMRRQueryResponse(SchemaBaseModel):
+class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13133,7 +13131,7 @@ class CachedRevenueAnalyticsMRRQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueAnalyticsMetricsQueryResponse(SchemaBaseModel):
+class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13186,7 +13184,7 @@ class CachedRevenueAnalyticsMetricsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueAnalyticsOverviewQueryResponse(SchemaBaseModel):
+class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13238,7 +13236,7 @@ class CachedRevenueAnalyticsOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueAnalyticsTopCustomersQueryResponse(SchemaBaseModel):
+class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13291,7 +13289,7 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueExampleDataWarehouseTablesQueryResponse(SchemaBaseModel):
+class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13348,7 +13346,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedRevenueExampleEventsQueryResponse(SchemaBaseModel):
+class CachedRevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13405,7 +13403,7 @@ class CachedRevenueExampleEventsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedSessionAttributionExplorerQueryResponse(SchemaBaseModel):
+class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13462,7 +13460,7 @@ class CachedSessionAttributionExplorerQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedSessionBatchEventsQueryResponse(SchemaBaseModel):
+class CachedSessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13527,7 +13525,7 @@ class CachedSessionBatchEventsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedSessionsQueryResponse(SchemaBaseModel):
+class CachedSessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13584,7 +13582,7 @@ class CachedSessionsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedSessionsTimelineQueryResponse(SchemaBaseModel):
+class CachedSessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13637,7 +13635,7 @@ class CachedSessionsTimelineQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedStickinessQueryResponse(SchemaBaseModel):
+class CachedStickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13689,7 +13687,7 @@ class CachedStickinessQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedSuggestedQuestionsQueryResponse(SchemaBaseModel):
+class CachedSuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13715,7 +13713,7 @@ class CachedSuggestedQuestionsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTeamTaxonomyQueryResponse(SchemaBaseModel):
+class CachedTeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13770,7 +13768,7 @@ class CachedTeamTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTraceNeighborsQueryResponse(SchemaBaseModel):
+class CachedTraceNeighborsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13809,7 +13807,7 @@ class CachedTraceNeighborsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTraceQueryResponse(SchemaBaseModel):
+class CachedTraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13865,7 +13863,7 @@ class CachedTraceQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTraceSpansAggregationQueryResponse(SchemaBaseModel):
+class CachedTraceSpansAggregationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13921,7 +13919,7 @@ class CachedTraceSpansAggregationQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTraceSpansQueryResponse(SchemaBaseModel):
+class CachedTraceSpansQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13977,7 +13975,7 @@ class CachedTraceSpansQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTraceSpansTreeQueryResponse(SchemaBaseModel):
+class CachedTraceSpansTreeQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14033,7 +14031,7 @@ class CachedTraceSpansTreeQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTracesQueryResponse(SchemaBaseModel):
+class CachedTracesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14089,7 +14087,7 @@ class CachedTracesQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedTrendsQueryResponse(SchemaBaseModel):
+class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14143,7 +14141,7 @@ class CachedTrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedUsageMetricsQueryResponse(SchemaBaseModel):
+class CachedUsageMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14195,7 +14193,7 @@ class CachedUsageMetricsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedVectorSearchQueryResponse(SchemaBaseModel):
+class CachedVectorSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14247,7 +14245,7 @@ class CachedVectorSearchQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebExternalClicksTableQueryResponse(SchemaBaseModel):
+class CachedWebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14305,7 +14303,7 @@ class CachedWebExternalClicksTableQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebGoalsQueryResponse(SchemaBaseModel):
+class CachedWebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14371,7 +14369,7 @@ class CachedWebGoalsQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebNotableChangesQueryResponse(SchemaBaseModel):
+class CachedWebNotableChangesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14425,7 +14423,7 @@ class CachedWebNotableChangesQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebOverviewQueryResponse(SchemaBaseModel):
+class CachedWebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14482,7 +14480,7 @@ class CachedWebOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebPageURLSearchQueryResponse(SchemaBaseModel):
+class CachedWebPageURLSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14536,7 +14534,7 @@ class CachedWebPageURLSearchQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebStatsTableQueryResponse(SchemaBaseModel):
+class CachedWebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14596,7 +14594,7 @@ class CachedWebStatsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebVitalsPathBreakdownQueryResponse(SchemaBaseModel):
+class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14649,7 +14647,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(SchemaBaseModel):
     )
 
 
-class CalendarHeatmapResponse(SchemaBaseModel):
+class CalendarHeatmapResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14691,7 +14689,7 @@ class CalendarHeatmapResponse(SchemaBaseModel):
     )
 
 
-class ChartSettings(SchemaBaseModel):
+class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14722,7 +14720,7 @@ class ChartSettings(SchemaBaseModel):
     )
 
 
-class ContextMessage(SchemaBaseModel):
+class ContextMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14733,7 +14731,7 @@ class ContextMessage(SchemaBaseModel):
     type: Literal["context"] = "context"
 
 
-class ConversionGoalFilter1(SchemaBaseModel):
+class ConversionGoalFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14821,7 +14819,7 @@ class ConversionGoalFilter1(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ConversionGoalFilter2(SchemaBaseModel):
+class ConversionGoalFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14907,7 +14905,7 @@ class ConversionGoalFilter2(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ConversionGoalFilter3(SchemaBaseModel):
+class ConversionGoalFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14998,7 +14996,7 @@ class ConversionGoalFilter3(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DashboardFilter(SchemaBaseModel):
+class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15033,7 +15031,7 @@ class DashboardFilter(SchemaBaseModel):
     ) = None
 
 
-class Response(SchemaBaseModel):
+class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15080,7 +15078,7 @@ class Response(SchemaBaseModel):
     )
 
 
-class Response1(SchemaBaseModel):
+class Response1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15127,7 +15125,7 @@ class Response1(SchemaBaseModel):
     )
 
 
-class Response2(SchemaBaseModel):
+class Response2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15174,7 +15172,7 @@ class Response2(SchemaBaseModel):
     )
 
 
-class Response4(SchemaBaseModel):
+class Response4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15220,7 +15218,7 @@ class Response4(SchemaBaseModel):
     )
 
 
-class Response5(SchemaBaseModel):
+class Response5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15269,7 +15267,7 @@ class Response5(SchemaBaseModel):
     )
 
 
-class Response6(SchemaBaseModel):
+class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15316,7 +15314,7 @@ class Response6(SchemaBaseModel):
     )
 
 
-class Response7(SchemaBaseModel):
+class Response7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15371,7 +15369,7 @@ class Response7(SchemaBaseModel):
     )
 
 
-class Response8(SchemaBaseModel):
+class Response8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15413,7 +15411,7 @@ class Response8(SchemaBaseModel):
     )
 
 
-class Response9(SchemaBaseModel):
+class Response9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15459,7 +15457,7 @@ class Response9(SchemaBaseModel):
     )
 
 
-class Response10(SchemaBaseModel):
+class Response10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15505,7 +15503,7 @@ class Response10(SchemaBaseModel):
     )
 
 
-class Response11(SchemaBaseModel):
+class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15547,7 +15545,7 @@ class Response11(SchemaBaseModel):
     )
 
 
-class Response12(SchemaBaseModel):
+class Response12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15589,7 +15587,7 @@ class Response12(SchemaBaseModel):
     )
 
 
-class Response13(SchemaBaseModel):
+class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15631,7 +15629,7 @@ class Response13(SchemaBaseModel):
     )
 
 
-class Response14(SchemaBaseModel):
+class Response14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15672,7 +15670,7 @@ class Response14(SchemaBaseModel):
     )
 
 
-class Response15(SchemaBaseModel):
+class Response15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15714,7 +15712,7 @@ class Response15(SchemaBaseModel):
     )
 
 
-class Response16(SchemaBaseModel):
+class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15760,7 +15758,7 @@ class Response16(SchemaBaseModel):
     )
 
 
-class Response18(SchemaBaseModel):
+class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15807,7 +15805,7 @@ class Response18(SchemaBaseModel):
     )
 
 
-class Response19(SchemaBaseModel):
+class Response19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15849,7 +15847,7 @@ class Response19(SchemaBaseModel):
     )
 
 
-class Response20(SchemaBaseModel):
+class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15896,7 +15894,7 @@ class Response20(SchemaBaseModel):
     )
 
 
-class Response25(SchemaBaseModel):
+class Response25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15941,7 +15939,7 @@ class Response25(SchemaBaseModel):
     )
 
 
-class Response26(SchemaBaseModel):
+class Response26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15987,7 +15985,7 @@ class Response26(SchemaBaseModel):
     )
 
 
-class Response27(SchemaBaseModel):
+class Response27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16038,7 +16036,7 @@ class Response27(SchemaBaseModel):
     )
 
 
-class DataWarehouseNode(SchemaBaseModel):
+class DataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16126,7 +16124,7 @@ class DataWarehouseNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DatabaseSchemaBatchExportTable(SchemaBaseModel):
+class DatabaseSchemaBatchExportTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16137,7 +16135,7 @@ class DatabaseSchemaBatchExportTable(SchemaBaseModel):
     type: Literal["batch_export"] = "batch_export"
 
 
-class DatabaseSchemaDataWarehouseTable(SchemaBaseModel):
+class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16158,7 +16156,7 @@ class DatabaseSchemaDataWarehouseTable(SchemaBaseModel):
     url_pattern: str
 
 
-class DocumentSimilarityQueryResponse(SchemaBaseModel):
+class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16202,7 +16200,7 @@ class DocumentSimilarityQueryResponse(SchemaBaseModel):
     )
 
 
-class ECODDetectorConfig(SchemaBaseModel):
+class ECODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16219,7 +16217,7 @@ class ECODDetectorConfig(SchemaBaseModel):
     )
 
 
-class EndpointRunRequest(SchemaBaseModel):
+class EndpointRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16265,7 +16263,7 @@ class EndpointRunRequest(SchemaBaseModel):
     )
 
 
-class EndpointsUsageOverviewQueryResponse(SchemaBaseModel):
+class EndpointsUsageOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16306,7 +16304,7 @@ class EndpointsUsageOverviewQueryResponse(SchemaBaseModel):
     )
 
 
-class EndpointsUsageTableQueryResponse(SchemaBaseModel):
+class EndpointsUsageTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16352,7 +16350,7 @@ class EndpointsUsageTableQueryResponse(SchemaBaseModel):
     )
 
 
-class EndpointsUsageTrendsQueryResponse(SchemaBaseModel):
+class EndpointsUsageTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16393,7 +16391,7 @@ class EndpointsUsageTrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class EntityNode(SchemaBaseModel):
+class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16475,7 +16473,7 @@ class EntityNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ErrorTrackingBreakdownsQueryResponse(SchemaBaseModel):
+class ErrorTrackingBreakdownsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16516,7 +16514,7 @@ class ErrorTrackingBreakdownsQueryResponse(SchemaBaseModel):
     )
 
 
-class ErrorTrackingExternalReference(SchemaBaseModel):
+class ErrorTrackingExternalReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16525,7 +16523,7 @@ class ErrorTrackingExternalReference(SchemaBaseModel):
     integration: ErrorTrackingExternalReferenceIntegration
 
 
-class ErrorTrackingIssue(SchemaBaseModel):
+class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16546,7 +16544,7 @@ class ErrorTrackingIssue(SchemaBaseModel):
     status: ErrorTrackingIssueStatus
 
 
-class ErrorTrackingIssueFilteringToolOutput(SchemaBaseModel):
+class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16591,7 +16589,7 @@ class ErrorTrackingIssueFilteringToolOutput(SchemaBaseModel):
     )
 
 
-class ErrorTrackingQueryResponse(SchemaBaseModel):
+class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16636,7 +16634,7 @@ class ErrorTrackingQueryResponse(SchemaBaseModel):
     )
 
 
-class ErrorTrackingRelationalIssue(SchemaBaseModel):
+class ErrorTrackingRelationalIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16650,7 +16648,7 @@ class ErrorTrackingRelationalIssue(SchemaBaseModel):
     status: ErrorTrackingIssueStatus
 
 
-class ErrorTrackingSimilarIssuesQueryResponse(SchemaBaseModel):
+class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16694,7 +16692,7 @@ class ErrorTrackingSimilarIssuesQueryResponse(SchemaBaseModel):
     )
 
 
-class EventTaxonomyQueryResponse(SchemaBaseModel):
+class EventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16738,7 +16736,7 @@ class EventTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class EventsNode(SchemaBaseModel):
+class EventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16823,7 +16821,7 @@ class EventsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EventsQueryActionStep(SchemaBaseModel):
+class EventsQueryActionStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16863,7 +16861,7 @@ class EventsQueryActionStep(SchemaBaseModel):
     url_matching: UrlMatching | None = None
 
 
-class EventsQueryResponse(SchemaBaseModel):
+class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16910,7 +16908,7 @@ class EventsQueryResponse(SchemaBaseModel):
     )
 
 
-class ExperimentBreakdownResult(SchemaBaseModel):
+class ExperimentBreakdownResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16932,7 +16930,7 @@ class ExperimentBreakdownResult(SchemaBaseModel):
     )
 
 
-class ExperimentDataWarehouseNode(SchemaBaseModel):
+class ExperimentDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17018,7 +17016,7 @@ class ExperimentDataWarehouseNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentEventExposureConfig(SchemaBaseModel):
+class ExperimentEventExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17050,7 +17048,7 @@ class ExperimentEventExposureConfig(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FeatureFlagGroupType(SchemaBaseModel):
+class FeatureFlagGroupType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17087,7 +17085,7 @@ class FeatureFlagGroupType(SchemaBaseModel):
     variant: str | None = None
 
 
-class FunnelCorrelationResponse(SchemaBaseModel):
+class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17133,7 +17131,7 @@ class FunnelCorrelationResponse(SchemaBaseModel):
     )
 
 
-class FunnelExclusionActionsNode(SchemaBaseModel):
+class FunnelExclusionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17218,7 +17216,7 @@ class FunnelExclusionActionsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelExclusionEventsNode(SchemaBaseModel):
+class FunnelExclusionEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17305,7 +17303,7 @@ class FunnelExclusionEventsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelsDataWarehouseNode(SchemaBaseModel):
+class FunnelsDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17393,7 +17391,7 @@ class FunnelsDataWarehouseNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelsQueryResponse(SchemaBaseModel):
+class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17434,7 +17432,7 @@ class FunnelsQueryResponse(SchemaBaseModel):
     )
 
 
-class GenericCachedQueryResponse(SchemaBaseModel):
+class GenericCachedQueryResponse(BaseModel):
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17452,7 +17450,7 @@ class GenericCachedQueryResponse(SchemaBaseModel):
     timezone: str
 
 
-class GroupsQueryResponse(SchemaBaseModel):
+class GroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17499,7 +17497,7 @@ class GroupsQueryResponse(SchemaBaseModel):
     )
 
 
-class HBOSDetectorConfig(SchemaBaseModel):
+class HBOSDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17521,7 +17519,7 @@ class HeatMapQuerySource(RootModel[EventsNode]):
     root: EventsNode
 
 
-class HogQLFilters(SchemaBaseModel):
+class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17554,7 +17552,7 @@ class HogQLFilters(SchemaBaseModel):
     ) = None
 
 
-class HogQLMetadataResponse(SchemaBaseModel):
+class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17568,7 +17566,7 @@ class HogQLMetadataResponse(SchemaBaseModel):
     warnings: list[HogQLNotice]
 
 
-class HogQLQueryResponse(SchemaBaseModel):
+class HogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17615,7 +17613,7 @@ class HogQLQueryResponse(SchemaBaseModel):
     )
 
 
-class IQRDetectorConfig(SchemaBaseModel):
+class IQRDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17633,7 +17631,7 @@ class IQRDetectorConfig(SchemaBaseModel):
     )
 
 
-class InsightActorsQueryBase(SchemaBaseModel):
+class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17649,7 +17647,7 @@ class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizatio
     root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
-class IsolationForestDetectorConfig(SchemaBaseModel):
+class IsolationForestDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17667,7 +17665,7 @@ class IsolationForestDetectorConfig(SchemaBaseModel):
     )
 
 
-class KNNDetectorConfig(SchemaBaseModel):
+class KNNDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17689,7 +17687,7 @@ class KNNDetectorConfig(SchemaBaseModel):
     )
 
 
-class LOFDetectorConfig(SchemaBaseModel):
+class LOFDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17707,7 +17705,7 @@ class LOFDetectorConfig(SchemaBaseModel):
     )
 
 
-class LifecycleDataWarehouseNode(SchemaBaseModel):
+class LifecycleDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17794,7 +17792,7 @@ class LifecycleDataWarehouseNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LifecycleQueryResponse(SchemaBaseModel):
+class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17835,7 +17833,7 @@ class LifecycleQueryResponse(SchemaBaseModel):
     )
 
 
-class LogAttributesQueryResponse(SchemaBaseModel):
+class LogAttributesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17877,7 +17875,7 @@ class LogAttributesQueryResponse(SchemaBaseModel):
     )
 
 
-class LogValuesQueryResponse(SchemaBaseModel):
+class LogValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17918,7 +17916,7 @@ class LogValuesQueryResponse(SchemaBaseModel):
     )
 
 
-class LogsQueryResponse(SchemaBaseModel):
+class LogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17964,7 +17962,7 @@ class LogsQueryResponse(SchemaBaseModel):
     )
 
 
-class MADDetectorConfig(SchemaBaseModel):
+class MADDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17982,7 +17980,7 @@ class MADDetectorConfig(SchemaBaseModel):
     )
 
 
-class MarketingAnalyticsAggregatedQueryResponse(SchemaBaseModel):
+class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18024,7 +18022,7 @@ class MarketingAnalyticsAggregatedQueryResponse(SchemaBaseModel):
     )
 
 
-class MarketingAnalyticsConfig(SchemaBaseModel):
+class MarketingAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18037,7 +18035,7 @@ class MarketingAnalyticsConfig(SchemaBaseModel):
     sources_map: dict[str, SourceMap] | None = None
 
 
-class MarketingAnalyticsTableQueryResponse(SchemaBaseModel):
+class MarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18084,7 +18082,7 @@ class MarketingAnalyticsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class MaxBillingContext(SchemaBaseModel):
+class MaxBillingContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18107,21 +18105,21 @@ class MaxBillingContext(SchemaBaseModel):
     usage_history: list[UsageHistoryItem] | None = None
 
 
-class MultiQuestionForm(SchemaBaseModel):
+class MultiQuestionForm(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     questions: list[MultiQuestionFormQuestion] = Field(..., description="The questions to ask")
 
 
-class MultipleBreakdownOptions(SchemaBaseModel):
+class MultipleBreakdownOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     values: list[BreakdownItem]
 
 
-class NewExperimentQueryResponse(SchemaBaseModel):
+class NewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18140,7 +18138,7 @@ class NewExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class NonIntegratedConversionsTableQueryResponse(SchemaBaseModel):
+class NonIntegratedConversionsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18187,7 +18185,7 @@ class NonIntegratedConversionsTableQueryResponse(SchemaBaseModel):
     )
 
 
-class OCSVMDetectorConfig(SchemaBaseModel):
+class OCSVMDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18209,7 +18207,7 @@ class OCSVMDetectorConfig(SchemaBaseModel):
     )
 
 
-class PCADetectorConfig(SchemaBaseModel):
+class PCADetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18226,7 +18224,7 @@ class PCADetectorConfig(SchemaBaseModel):
     )
 
 
-class PathsQueryResponse(SchemaBaseModel):
+class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18267,7 +18265,7 @@ class PathsQueryResponse(SchemaBaseModel):
     )
 
 
-class PersonsNode(SchemaBaseModel):
+class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18336,7 +18334,7 @@ class PersonsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class PlanningMessage(SchemaBaseModel):
+class PlanningMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18346,7 +18344,7 @@ class PlanningMessage(SchemaBaseModel):
     type: Literal["ai/planning"] = "ai/planning"
 
 
-class PropertyGroupFilterValue(SchemaBaseModel):
+class PropertyGroupFilterValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18376,7 +18374,7 @@ class PropertyGroupFilterValue(SchemaBaseModel):
     ]
 
 
-class PropertyValuesQueryResponse(SchemaBaseModel):
+class PropertyValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18417,7 +18415,7 @@ class PropertyValuesQueryResponse(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative1(SchemaBaseModel):
+class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18464,7 +18462,7 @@ class QueryResponseAlternative1(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative2(SchemaBaseModel):
+class QueryResponseAlternative2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18510,7 +18508,7 @@ class QueryResponseAlternative2(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative3(SchemaBaseModel):
+class QueryResponseAlternative3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18557,7 +18555,7 @@ class QueryResponseAlternative3(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative4(SchemaBaseModel):
+class QueryResponseAlternative4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18604,7 +18602,7 @@ class QueryResponseAlternative4(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative5(SchemaBaseModel):
+class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18621,7 +18619,7 @@ class QueryResponseAlternative5(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative6(SchemaBaseModel):
+class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18663,7 +18661,7 @@ class QueryResponseAlternative6(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative8(SchemaBaseModel):
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18710,7 +18708,7 @@ class QueryResponseAlternative8(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative11(SchemaBaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18756,7 +18754,7 @@ class QueryResponseAlternative11(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative14(SchemaBaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18801,7 +18799,7 @@ class QueryResponseAlternative14(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative15(SchemaBaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18845,7 +18843,7 @@ class QueryResponseAlternative15(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative16(SchemaBaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18886,7 +18884,7 @@ class QueryResponseAlternative16(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative22(SchemaBaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18930,7 +18928,7 @@ class QueryResponseAlternative22(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative23(SchemaBaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18976,7 +18974,7 @@ class QueryResponseAlternative23(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative24(SchemaBaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19025,7 +19023,7 @@ class QueryResponseAlternative24(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative25(SchemaBaseModel):
+class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19072,7 +19070,7 @@ class QueryResponseAlternative25(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative26(SchemaBaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19127,7 +19125,7 @@ class QueryResponseAlternative26(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative27(SchemaBaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19169,7 +19167,7 @@ class QueryResponseAlternative27(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative28(SchemaBaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19212,7 +19210,7 @@ class QueryResponseAlternative28(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative30(SchemaBaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19255,7 +19253,7 @@ class QueryResponseAlternative30(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative31(SchemaBaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19297,7 +19295,7 @@ class QueryResponseAlternative31(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative32(SchemaBaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19339,7 +19337,7 @@ class QueryResponseAlternative32(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative33(SchemaBaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19381,7 +19379,7 @@ class QueryResponseAlternative33(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative34(SchemaBaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19422,7 +19420,7 @@ class QueryResponseAlternative34(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative35(SchemaBaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19464,7 +19462,7 @@ class QueryResponseAlternative35(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative36(SchemaBaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19511,7 +19509,7 @@ class QueryResponseAlternative36(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative37(SchemaBaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19553,7 +19551,7 @@ class QueryResponseAlternative37(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative38(SchemaBaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19600,7 +19598,7 @@ class QueryResponseAlternative38(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative39(SchemaBaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19647,7 +19645,7 @@ class QueryResponseAlternative39(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative40(SchemaBaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19694,7 +19692,7 @@ class QueryResponseAlternative40(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative41(SchemaBaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19741,7 +19739,7 @@ class QueryResponseAlternative41(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative42(SchemaBaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19788,7 +19786,7 @@ class QueryResponseAlternative42(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative43(SchemaBaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19834,7 +19832,7 @@ class QueryResponseAlternative43(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative44(SchemaBaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19883,7 +19881,7 @@ class QueryResponseAlternative44(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative45(SchemaBaseModel):
+class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19930,7 +19928,7 @@ class QueryResponseAlternative45(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative46(SchemaBaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19985,7 +19983,7 @@ class QueryResponseAlternative46(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative47(SchemaBaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20027,7 +20025,7 @@ class QueryResponseAlternative47(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative48(SchemaBaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20073,7 +20071,7 @@ class QueryResponseAlternative48(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative49(SchemaBaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20119,7 +20117,7 @@ class QueryResponseAlternative49(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative50(SchemaBaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20161,7 +20159,7 @@ class QueryResponseAlternative50(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative51(SchemaBaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20203,7 +20201,7 @@ class QueryResponseAlternative51(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative52(SchemaBaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20245,7 +20243,7 @@ class QueryResponseAlternative52(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative53(SchemaBaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20286,7 +20284,7 @@ class QueryResponseAlternative53(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative54(SchemaBaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20328,7 +20326,7 @@ class QueryResponseAlternative54(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative55(SchemaBaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20374,7 +20372,7 @@ class QueryResponseAlternative55(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative57(SchemaBaseModel):
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20421,7 +20419,7 @@ class QueryResponseAlternative57(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative58(SchemaBaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20463,7 +20461,7 @@ class QueryResponseAlternative58(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative59(SchemaBaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20510,7 +20508,7 @@ class QueryResponseAlternative59(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative60(SchemaBaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20555,7 +20553,7 @@ class QueryResponseAlternative60(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative64(SchemaBaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20600,7 +20598,7 @@ class QueryResponseAlternative64(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative65(SchemaBaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20646,7 +20644,7 @@ class QueryResponseAlternative65(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative66(SchemaBaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20697,7 +20695,7 @@ class QueryResponseAlternative66(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative67(SchemaBaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20740,7 +20738,7 @@ class QueryResponseAlternative67(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative68(SchemaBaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20781,7 +20779,7 @@ class QueryResponseAlternative68(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative69(SchemaBaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20822,7 +20820,7 @@ class QueryResponseAlternative69(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative70(SchemaBaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20863,7 +20861,7 @@ class QueryResponseAlternative70(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative71(SchemaBaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20904,7 +20902,7 @@ class QueryResponseAlternative71(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative73(SchemaBaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20950,7 +20948,7 @@ class QueryResponseAlternative73(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative75(SchemaBaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20996,7 +20994,7 @@ class QueryResponseAlternative75(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative76(SchemaBaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21042,7 +21040,7 @@ class QueryResponseAlternative76(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative77(SchemaBaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21084,7 +21082,7 @@ class QueryResponseAlternative77(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative78(SchemaBaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21125,7 +21123,7 @@ class QueryResponseAlternative78(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative79(SchemaBaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21170,7 +21168,7 @@ class QueryResponseAlternative79(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative80(SchemaBaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21215,7 +21213,7 @@ class QueryResponseAlternative80(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative81(SchemaBaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21260,7 +21258,7 @@ class QueryResponseAlternative81(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative83(SchemaBaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21304,7 +21302,7 @@ class QueryResponseAlternative83(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative84(SchemaBaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21348,7 +21346,7 @@ class QueryResponseAlternative84(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative85(SchemaBaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21389,7 +21387,7 @@ class QueryResponseAlternative85(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative86(SchemaBaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21434,7 +21432,7 @@ class QueryResponseAlternative86(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative89(SchemaBaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21475,7 +21473,7 @@ class QueryResponseAlternative89(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative90(SchemaBaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21516,7 +21514,7 @@ class QueryResponseAlternative90(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative91(SchemaBaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21567,7 +21565,7 @@ class QueryResponseAlternative91(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative92(SchemaBaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21608,7 +21606,7 @@ class QueryResponseAlternative92(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative93(SchemaBaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21654,7 +21652,7 @@ class QueryResponseAlternative93(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative94(SchemaBaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21695,7 +21693,7 @@ class QueryResponseAlternative94(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative95(SchemaBaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21736,7 +21734,7 @@ class QueryResponseAlternative95(SchemaBaseModel):
     )
 
 
-class RecordingsQueryResponse(SchemaBaseModel):
+class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21782,7 +21780,7 @@ class RecordingsQueryResponse(SchemaBaseModel):
     )
 
 
-class RetentionEntity(SchemaBaseModel):
+class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21825,7 +21823,7 @@ class RetentionEntity(SchemaBaseModel):
     uuid: str | None = None
 
 
-class RetentionFilter(SchemaBaseModel):
+class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21884,7 +21882,7 @@ class RetentionFilter(SchemaBaseModel):
     totalIntervals: int | None = 8
 
 
-class RetentionFilterLegacy(SchemaBaseModel):
+class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21902,7 +21900,7 @@ class RetentionFilterLegacy(SchemaBaseModel):
     total_intervals: int | None = None
 
 
-class RetentionQueryResponse(SchemaBaseModel):
+class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21943,7 +21941,7 @@ class RetentionQueryResponse(SchemaBaseModel):
     )
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21956,7 +21954,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(SchemaB
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21969,7 +21967,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMRRQueryResponse(SchemaBaseModel)
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21982,7 +21980,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsMetricsQueryResponse(SchemaBaseMo
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21995,7 +21993,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(SchemaBaseM
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(SchemaBaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22008,7 +22006,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(SchemaB
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsConfig(SchemaBaseModel):
+class RevenueAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22017,7 +22015,7 @@ class RevenueAnalyticsConfig(SchemaBaseModel):
     goals: list[RevenueAnalyticsGoal] | None = []
 
 
-class RevenueAnalyticsGrossRevenueQuery(SchemaBaseModel):
+class RevenueAnalyticsGrossRevenueQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22032,7 +22030,7 @@ class RevenueAnalyticsGrossRevenueQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsMRRQuery(SchemaBaseModel):
+class RevenueAnalyticsMRRQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22047,7 +22045,7 @@ class RevenueAnalyticsMRRQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsMetricsQuery(SchemaBaseModel):
+class RevenueAnalyticsMetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22062,7 +22060,7 @@ class RevenueAnalyticsMetricsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsOverviewQuery(SchemaBaseModel):
+class RevenueAnalyticsOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22075,7 +22073,7 @@ class RevenueAnalyticsOverviewQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueAnalyticsTopCustomersQuery(SchemaBaseModel):
+class RevenueAnalyticsTopCustomersQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22089,7 +22087,7 @@ class RevenueAnalyticsTopCustomersQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueExampleDataWarehouseTablesQuery(SchemaBaseModel):
+class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22102,7 +22100,7 @@ class RevenueExampleDataWarehouseTablesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RevenueExampleEventsQuery(SchemaBaseModel):
+class RevenueExampleEventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22115,7 +22113,7 @@ class RevenueExampleEventsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SessionAttributionExplorerQuery(SchemaBaseModel):
+class SessionAttributionExplorerQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22130,7 +22128,7 @@ class SessionAttributionExplorerQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SessionsTimelineQuery(SchemaBaseModel):
+class SessionsTimelineQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22150,7 +22148,7 @@ class SessionsTimelineQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SurveyCreationSchema(SchemaBaseModel):
+class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22172,7 +22170,7 @@ class SurveyCreationSchema(SchemaBaseModel):
     type: SurveyType
 
 
-class TeamTaxonomyQueryResponse(SchemaBaseModel):
+class TeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22216,7 +22214,7 @@ class TeamTaxonomyQueryResponse(SchemaBaseModel):
     )
 
 
-class TileFilters(SchemaBaseModel):
+class TileFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22251,7 +22249,7 @@ class TileFilters(SchemaBaseModel):
     ) = None
 
 
-class TraceNeighborsQuery(SchemaBaseModel):
+class TraceNeighborsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22292,7 +22290,7 @@ class TraceNeighborsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TraceQuery(SchemaBaseModel):
+class TraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22330,7 +22328,7 @@ class TraceQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TracesQuery(SchemaBaseModel):
+class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22381,7 +22379,7 @@ class TracesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class UsageMetricsQuery(SchemaBaseModel):
+class UsageMetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22404,7 +22402,7 @@ class UsageMetricsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class VectorSearchQueryResponse(SchemaBaseModel):
+class VectorSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22445,7 +22443,7 @@ class VectorSearchQueryResponse(SchemaBaseModel):
     )
 
 
-class WebAnalyticsAssistantFilters(SchemaBaseModel):
+class WebAnalyticsAssistantFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22456,7 +22454,7 @@ class WebAnalyticsAssistantFilters(SchemaBaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
 
 
-class WebAnalyticsExternalSummaryQuery(SchemaBaseModel):
+class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22467,7 +22465,7 @@ class WebAnalyticsExternalSummaryQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebExternalClicksTableQuery(SchemaBaseModel):
+class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22505,7 +22503,7 @@ class WebExternalClicksTableQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebGoalsQuery(SchemaBaseModel):
+class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22550,7 +22548,7 @@ class WebGoalsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebNotableChangesQuery(SchemaBaseModel):
+class WebNotableChangesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22587,7 +22585,7 @@ class WebNotableChangesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebOverviewQuery(SchemaBaseModel):
+class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22631,7 +22629,7 @@ class WebOverviewQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebPageURLSearchQuery(SchemaBaseModel):
+class WebPageURLSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22670,7 +22668,7 @@ class WebPageURLSearchQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebStatsTableQuery(SchemaBaseModel):
+class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22721,7 +22719,7 @@ class WebStatsTableQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebVitalsItem(SchemaBaseModel):
+class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22730,7 +22728,7 @@ class WebVitalsItem(SchemaBaseModel):
     days: list[str]
 
 
-class WebVitalsPathBreakdownQueryResponse(SchemaBaseModel):
+class WebVitalsPathBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22772,7 +22770,7 @@ class WebVitalsPathBreakdownQueryResponse(SchemaBaseModel):
     )
 
 
-class WebVitalsQueryResponse(SchemaBaseModel):
+class WebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22813,7 +22811,7 @@ class WebVitalsQueryResponse(SchemaBaseModel):
     )
 
 
-class AccountsQuery(SchemaBaseModel):
+class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22859,7 +22857,7 @@ class AccountsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ActionsNode(SchemaBaseModel):
+class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22942,7 +22940,7 @@ class ActionsNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ActorsPropertyTaxonomyQuery(SchemaBaseModel):
+class ActorsPropertyTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23028,7 +23026,7 @@ class AssistantBasePropertyFilter(
     )
 
 
-class AssistantLifecycleQuery(SchemaBaseModel):
+class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23082,7 +23080,7 @@ class AssistantLifecycleQuery(SchemaBaseModel):
     )
 
 
-class AssistantPathsActorsQuery(SchemaBaseModel):
+class AssistantPathsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23094,7 +23092,7 @@ class AssistantPathsActorsQuery(SchemaBaseModel):
     source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
 
 
-class AssistantTrendsActorsQuery(SchemaBaseModel):
+class AssistantTrendsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23129,7 +23127,7 @@ class AssistantTrendsActorsQuery(SchemaBaseModel):
     )
 
 
-class CachedErrorTrackingQueryResponse(SchemaBaseModel):
+class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23185,7 +23183,7 @@ class CachedErrorTrackingQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedHogQLQueryResponse(SchemaBaseModel):
+class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23243,7 +23241,7 @@ class CachedHogQLQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedInsightActorsQueryOptionsResponse(SchemaBaseModel):
+class CachedInsightActorsQueryOptionsResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23275,7 +23273,7 @@ class CachedInsightActorsQueryOptionsResponse(SchemaBaseModel):
     )
 
 
-class CachedNewExperimentQueryResponse(SchemaBaseModel):
+class CachedNewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23309,7 +23307,7 @@ class CachedNewExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedWebVitalsQueryResponse(SchemaBaseModel):
+class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23361,7 +23359,7 @@ class CachedWebVitalsQueryResponse(SchemaBaseModel):
     )
 
 
-class CoreEvent(SchemaBaseModel):
+class CoreEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23380,7 +23378,7 @@ class CoreEvent(SchemaBaseModel):
     name: str = Field(..., description="Display name")
 
 
-class CustomerAnalyticsConfig(SchemaBaseModel):
+class CustomerAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23392,7 +23390,7 @@ class CustomerAnalyticsConfig(SchemaBaseModel):
     subscription_event: EventsNode | ActionsNode
 
 
-class Response3(SchemaBaseModel):
+class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23439,7 +23437,7 @@ class Response3(SchemaBaseModel):
     )
 
 
-class Response21(SchemaBaseModel):
+class Response21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23484,7 +23482,7 @@ class Response21(SchemaBaseModel):
     )
 
 
-class DocumentSimilarityQuery(SchemaBaseModel):
+class DocumentSimilarityQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23507,7 +23505,7 @@ class DocumentSimilarityQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EndpointsUsageOverviewQuery(SchemaBaseModel):
+class EndpointsUsageOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23522,7 +23520,7 @@ class EndpointsUsageOverviewQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EndpointsUsageTableQuery(SchemaBaseModel):
+class EndpointsUsageTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23540,7 +23538,7 @@ class EndpointsUsageTableQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EndpointsUsageTrendsQuery(SchemaBaseModel):
+class EndpointsUsageTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23560,7 +23558,7 @@ class EndpointsUsageTrendsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EnsembleDetectorConfig(SchemaBaseModel):
+class EnsembleDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23582,7 +23580,7 @@ class EnsembleDetectorConfig(SchemaBaseModel):
     type: Literal["ensemble"] = "ensemble"
 
 
-class ErrorTrackingBreakdownsQuery(SchemaBaseModel):
+class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23598,7 +23596,7 @@ class ErrorTrackingBreakdownsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ErrorTrackingCorrelatedIssue(SchemaBaseModel):
+class ErrorTrackingCorrelatedIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23617,7 +23615,7 @@ class ErrorTrackingCorrelatedIssue(SchemaBaseModel):
     status: ErrorTrackingIssueStatus
 
 
-class ErrorTrackingIssueCorrelationQueryResponse(SchemaBaseModel):
+class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23662,7 +23660,7 @@ class ErrorTrackingIssueCorrelationQueryResponse(SchemaBaseModel):
     )
 
 
-class ErrorTrackingSimilarIssuesQuery(SchemaBaseModel):
+class ErrorTrackingSimilarIssuesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23680,7 +23678,7 @@ class ErrorTrackingSimilarIssuesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EventTaxonomyQuery(SchemaBaseModel):
+class EventTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23697,7 +23695,7 @@ class EventTaxonomyQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentExposureCriteria(SchemaBaseModel):
+class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23706,7 +23704,7 @@ class ExperimentExposureCriteria(SchemaBaseModel):
     multiple_variant_handling: MultipleVariantHandling | None = None
 
 
-class ExperimentHoldoutType(SchemaBaseModel):
+class ExperimentHoldoutType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23719,7 +23717,7 @@ class ExperimentHoldoutType(SchemaBaseModel):
     updated_at: str | None = None
 
 
-class FunnelsFilter(SchemaBaseModel):
+class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23775,7 +23773,7 @@ class FunnelsFilter(SchemaBaseModel):
     useUdf: bool | None = None
 
 
-class GroupsQuery(SchemaBaseModel):
+class GroupsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23793,7 +23791,7 @@ class GroupsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class HogQLQuery(SchemaBaseModel):
+class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23827,7 +23825,7 @@ class HogQLQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightActorsQueryOptionsResponse(SchemaBaseModel):
+class InsightActorsQueryOptionsResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23868,7 +23866,7 @@ class InsightFilter(
     )
 
 
-class MarketingAnalyticsAggregatedQuery(SchemaBaseModel):
+class MarketingAnalyticsAggregatedQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23916,7 +23914,7 @@ class MarketingAnalyticsAggregatedQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class MarketingAnalyticsTableQuery(SchemaBaseModel):
+class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23969,7 +23967,7 @@ class MarketingAnalyticsTableQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class MaxInnerUniversalFiltersGroup(SchemaBaseModel):
+class MaxInnerUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23997,7 +23995,7 @@ class MaxInnerUniversalFiltersGroup(SchemaBaseModel):
     )
 
 
-class MaxOuterUniversalFiltersGroup(SchemaBaseModel):
+class MaxOuterUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24005,7 +24003,7 @@ class MaxOuterUniversalFiltersGroup(SchemaBaseModel):
     values: list[MaxInnerUniversalFiltersGroup]
 
 
-class MaxRecordingUniversalFilters(SchemaBaseModel):
+class MaxRecordingUniversalFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24032,7 +24030,7 @@ class MaxRecordingUniversalFilters(SchemaBaseModel):
     )
 
 
-class NonIntegratedConversionsTableQuery(SchemaBaseModel):
+class NonIntegratedConversionsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24080,7 +24078,7 @@ class NonIntegratedConversionsTableQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class PropertyGroupFilter(SchemaBaseModel):
+class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24088,7 +24086,7 @@ class PropertyGroupFilter(SchemaBaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class PropertyValuesQuery(SchemaBaseModel):
+class PropertyValuesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24104,7 +24102,7 @@ class PropertyValuesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative17(SchemaBaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24149,7 +24147,7 @@ class QueryResponseAlternative17(SchemaBaseModel):
     )
 
 
-class RecordingsQuery(SchemaBaseModel):
+class RecordingsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24258,7 +24256,7 @@ class RecordingsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RetentionQuery(SchemaBaseModel):
+class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24305,7 +24303,7 @@ class RetentionQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class StickinessQuery(SchemaBaseModel):
+class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24362,7 +24360,7 @@ class StickinessQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TeamTaxonomyQuery(SchemaBaseModel):
+class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24375,7 +24373,7 @@ class TeamTaxonomyQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TraceSpansAggregationQuery(SchemaBaseModel):
+class TraceSpansAggregationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24395,7 +24393,7 @@ class TraceSpansAggregationQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TraceSpansQuery(SchemaBaseModel):
+class TraceSpansQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24424,7 +24422,7 @@ class TraceSpansQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TraceSpansTreeQuery(SchemaBaseModel):
+class TraceSpansTreeQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24460,7 +24458,7 @@ class TraceSpansTreeQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class VectorSearchQuery(SchemaBaseModel):
+class VectorSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24473,7 +24471,7 @@ class VectorSearchQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebVitalsPathBreakdownQuery(SchemaBaseModel):
+class WebVitalsPathBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24520,7 +24518,7 @@ class WebVitalsPathBreakdownQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AssistantLifecycleActorsQuery(SchemaBaseModel):
+class AssistantLifecycleActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24543,7 +24541,7 @@ class AssistantLifecycleActorsQuery(SchemaBaseModel):
     )
 
 
-class CachedErrorTrackingIssueCorrelationQueryResponse(SchemaBaseModel):
+class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24599,7 +24597,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(SchemaBaseModel):
     )
 
 
-class CalendarHeatmapQuery(SchemaBaseModel):
+class CalendarHeatmapQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24656,7 +24654,7 @@ class CalendarHeatmapQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class Response22(SchemaBaseModel):
+class Response22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24701,7 +24699,7 @@ class Response22(SchemaBaseModel):
     )
 
 
-class DataVisualizationNode(SchemaBaseModel):
+class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24713,7 +24711,7 @@ class DataVisualizationNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DatabaseSchemaEndpointTable(SchemaBaseModel):
+class DatabaseSchemaEndpointTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24726,7 +24724,7 @@ class DatabaseSchemaEndpointTable(SchemaBaseModel):
     type: Literal["endpoint"] = "endpoint"
 
 
-class DatabaseSchemaManagedViewTable(SchemaBaseModel):
+class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24740,7 +24738,7 @@ class DatabaseSchemaManagedViewTable(SchemaBaseModel):
     type: Literal["managed_view"] = "managed_view"
 
 
-class DatabaseSchemaMaterializedViewTable(SchemaBaseModel):
+class DatabaseSchemaMaterializedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24754,7 +24752,7 @@ class DatabaseSchemaMaterializedViewTable(SchemaBaseModel):
     type: Literal["materialized_view"] = "materialized_view"
 
 
-class DatabaseSchemaViewTable(SchemaBaseModel):
+class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24800,7 +24798,7 @@ class DetectorConfig(
     ) = Field(..., description="Detector configuration types")
 
 
-class ErrorTrackingIssueCorrelationQuery(SchemaBaseModel):
+class ErrorTrackingIssueCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24812,7 +24810,7 @@ class ErrorTrackingIssueCorrelationQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ErrorTrackingQuery(SchemaBaseModel):
+class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24864,7 +24862,7 @@ class ErrorTrackingQuery(SchemaBaseModel):
     withLastEvent: bool | None = None
 
 
-class ExperimentExposureQuery(SchemaBaseModel):
+class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24882,7 +24880,7 @@ class ExperimentExposureQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentFunnelMetricTypeProps(SchemaBaseModel):
+class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24891,7 +24889,7 @@ class ExperimentFunnelMetricTypeProps(SchemaBaseModel):
     series: list[Annotated[EventsNode | ActionsNode | ExperimentDataWarehouseNode, Field(discriminator="kind")]]
 
 
-class ExperimentRatioMetric(SchemaBaseModel):
+class ExperimentRatioMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24914,7 +24912,7 @@ class ExperimentRatioMetric(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentRatioMetricTypeProps(SchemaBaseModel):
+class ExperimentRatioMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24925,7 +24923,7 @@ class ExperimentRatioMetricTypeProps(SchemaBaseModel):
     numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
 
 
-class ExperimentRetentionMetric(SchemaBaseModel):
+class ExperimentRetentionMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24950,7 +24948,7 @@ class ExperimentRetentionMetric(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentRetentionMetricTypeProps(SchemaBaseModel):
+class ExperimentRetentionMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24963,7 +24961,7 @@ class ExperimentRetentionMetricTypeProps(SchemaBaseModel):
     start_handling: StartHandling
 
 
-class GroupNode(SchemaBaseModel):
+class GroupNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25051,7 +25049,7 @@ class GroupNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBaseCalendarHeatmapResponse(SchemaBaseModel):
+class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25096,7 +25094,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBaseFunnelsQueryResponse(SchemaBaseModel):
+class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25141,7 +25139,7 @@ class InsightsQueryBaseFunnelsQueryResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBaseLifecycleQueryResponse(SchemaBaseModel):
+class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25186,7 +25184,7 @@ class InsightsQueryBaseLifecycleQueryResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBasePathsQueryResponse(SchemaBaseModel):
+class InsightsQueryBasePathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25231,7 +25229,7 @@ class InsightsQueryBasePathsQueryResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBaseRetentionQueryResponse(SchemaBaseModel):
+class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25276,7 +25274,7 @@ class InsightsQueryBaseRetentionQueryResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightsQueryBaseTrendsQueryResponse(SchemaBaseModel):
+class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25321,7 +25319,7 @@ class InsightsQueryBaseTrendsQueryResponse(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LifecycleQuery(SchemaBaseModel):
+class LifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25383,7 +25381,7 @@ class LifecycleQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LogAttributesQuery(SchemaBaseModel):
+class LogAttributesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25406,7 +25404,7 @@ class LogAttributesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LogValuesQuery(SchemaBaseModel):
+class LogValuesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25426,7 +25424,7 @@ class LogValuesQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LogsAlertFilters(SchemaBaseModel):
+class LogsAlertFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25435,7 +25433,7 @@ class LogsAlertFilters(SchemaBaseModel):
     severityLevels: list[LogSeverityLevel] | None = None
 
 
-class LogsQuery(SchemaBaseModel):
+class LogsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25467,7 +25465,7 @@ class LogsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SessionsQuery(SchemaBaseModel):
+class SessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25584,7 +25582,7 @@ class SessionsQuery(SchemaBaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class StickinessActorsQuery(SchemaBaseModel):
+class StickinessActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25601,7 +25599,7 @@ class StickinessActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class TrendsQuery(SchemaBaseModel):
+class TrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25668,7 +25666,7 @@ class TrendsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class CachedExperimentTrendsQueryResponse(SchemaBaseModel):
+class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25704,7 +25702,7 @@ class CachedExperimentTrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class Response24(SchemaBaseModel):
+class Response24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25725,7 +25723,7 @@ class Response24(SchemaBaseModel):
     )
 
 
-class EndpointRequest(SchemaBaseModel):
+class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25766,7 +25764,7 @@ class EndpointRequest(SchemaBaseModel):
     )
 
 
-class ExperimentFunnelMetric(SchemaBaseModel):
+class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25787,7 +25785,7 @@ class ExperimentFunnelMetric(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentMeanMetric(SchemaBaseModel):
+class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25820,7 +25818,7 @@ class ExperimentMeanMetric(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentMeanMetricTypeProps(SchemaBaseModel):
+class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25857,7 +25855,7 @@ class ExperimentMetricTypeProps(
     )
 
 
-class ExperimentTrendsQueryResponse(SchemaBaseModel):
+class ExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25878,7 +25876,7 @@ class ExperimentTrendsQueryResponse(SchemaBaseModel):
     )
 
 
-class FunnelsQuery(SchemaBaseModel):
+class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25932,7 +25930,7 @@ class FunnelsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative18(SchemaBaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25952,7 +25950,7 @@ class QueryResponseAlternative18(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative19(SchemaBaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25973,7 +25971,7 @@ class QueryResponseAlternative19(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative62(SchemaBaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25993,7 +25991,7 @@ class QueryResponseAlternative62(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative63(SchemaBaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26014,7 +26012,7 @@ class QueryResponseAlternative63(SchemaBaseModel):
     )
 
 
-class QueryResponseAlternative74(SchemaBaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26032,7 +26030,7 @@ class QueryResponseAlternative74(SchemaBaseModel):
     ]
 
 
-class CachedExperimentFunnelsQueryResponse(SchemaBaseModel):
+class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26067,7 +26065,7 @@ class CachedExperimentFunnelsQueryResponse(SchemaBaseModel):
     )
 
 
-class Response23(SchemaBaseModel):
+class Response23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26087,7 +26085,7 @@ class Response23(SchemaBaseModel):
     )
 
 
-class DatabaseSchemaQueryResponse(SchemaBaseModel):
+class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26105,7 +26103,7 @@ class DatabaseSchemaQueryResponse(SchemaBaseModel):
     ]
 
 
-class ExperimentFunnelsQueryResponse(SchemaBaseModel):
+class ExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26133,7 +26131,7 @@ class ExperimentMetric(
     )
 
 
-class ExperimentQueryResponse(SchemaBaseModel):
+class ExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26169,7 +26167,7 @@ class ExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class ExperimentTrendsQuery(SchemaBaseModel):
+class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26186,7 +26184,7 @@ class ExperimentTrendsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelPathsFilter(SchemaBaseModel):
+class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26195,7 +26193,7 @@ class FunnelPathsFilter(SchemaBaseModel):
     funnelStep: int | None = None
 
 
-class FunnelsActorsQuery(SchemaBaseModel):
+class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26230,7 +26228,7 @@ class FunnelsActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LegacyExperimentQueryResponse(SchemaBaseModel):
+class LegacyExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26252,7 +26250,7 @@ class LegacyExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class PathsQuery(SchemaBaseModel):
+class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26308,7 +26306,7 @@ class ProductAnalyticsInsightQueryNode(
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
 
 
-class QueryResponseAlternative20(SchemaBaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26534,7 +26532,7 @@ class QueryResponseAlternative(
     )
 
 
-class VisualizationBlock(SchemaBaseModel):
+class VisualizationBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26566,7 +26564,7 @@ class VisualizationBlock(SchemaBaseModel):
     type: Literal["visualization"] = "visualization"
 
 
-class VisualizationItem(SchemaBaseModel):
+class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26596,7 +26594,7 @@ class VisualizationItem(SchemaBaseModel):
     query: str | None = ""
 
 
-class VisualizationMessage(SchemaBaseModel):
+class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26630,7 +26628,7 @@ class VisualizationMessage(SchemaBaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
-class NamedArgs1(SchemaBaseModel):
+class NamedArgs1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26639,23 +26637,23 @@ class NamedArgs1(SchemaBaseModel):
     )
 
 
-class IsExperimentFunnelMetric(SchemaBaseModel):
+class IsExperimentFunnelMetric(BaseModel):
     namedArgs: NamedArgs1 | None = None
 
 
-class IsExperimentMeanMetric(SchemaBaseModel):
+class IsExperimentMeanMetric(BaseModel):
     namedArgs: NamedArgs1 | None = None
 
 
-class IsExperimentRatioMetric(SchemaBaseModel):
+class IsExperimentRatioMetric(BaseModel):
     namedArgs: NamedArgs1 | None = None
 
 
-class IsExperimentRetentionMetric(SchemaBaseModel):
+class IsExperimentRetentionMetric(BaseModel):
     namedArgs: NamedArgs1 | None = None
 
 
-class CachedExperimentQueryResponse(SchemaBaseModel):
+class CachedExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26706,7 +26704,7 @@ class CachedExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class CachedLegacyExperimentQueryResponse(SchemaBaseModel):
+class CachedLegacyExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26743,7 +26741,7 @@ class CachedLegacyExperimentQueryResponse(SchemaBaseModel):
     )
 
 
-class DatabaseSchemaQuery(SchemaBaseModel):
+class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26758,7 +26756,7 @@ class DatabaseSchemaQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentFunnelsQuery(SchemaBaseModel):
+class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26774,7 +26772,7 @@ class ExperimentFunnelsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentMetricTimeseries(SchemaBaseModel):
+class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26790,7 +26788,7 @@ class ExperimentMetricTimeseries(SchemaBaseModel):
     updated_at: str
 
 
-class ExperimentQuery(SchemaBaseModel):
+class ExperimentQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26807,7 +26805,7 @@ class ExperimentQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelCorrelationQuery(SchemaBaseModel):
+class FunnelCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26823,7 +26821,7 @@ class FunnelCorrelationQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightVizNode(SchemaBaseModel):
+class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26857,7 +26855,7 @@ class InsightVizNode(SchemaBaseModel):
     vizSpecificOptions: VizSpecificOptions | None = None
 
 
-class MultiVisualizationMessage(SchemaBaseModel):
+class MultiVisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26868,7 +26866,7 @@ class MultiVisualizationMessage(SchemaBaseModel):
     visualizations: list[VisualizationItem]
 
 
-class NotebookArtifactContent(SchemaBaseModel):
+class NotebookArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26883,7 +26881,7 @@ class NotebookArtifactContent(SchemaBaseModel):
     title: str | None = Field(default=None, description="Title for the notebook")
 
 
-class WebVitalsQuery(SchemaBaseModel):
+class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26929,29 +26927,29 @@ class WebVitalsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class NamedArgs2(SchemaBaseModel):
+class NamedArgs2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     query: ExperimentTrendsQuery | ExperimentFunnelsQuery
 
 
-class IsExperimentFunnelsQuery(SchemaBaseModel):
+class IsExperimentFunnelsQuery(BaseModel):
     namedArgs: NamedArgs2 | None = None
 
 
-class IsExperimentTrendsQuery(SchemaBaseModel):
+class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs2 | None = None
 
 
-class DocumentArtifactContent(SchemaBaseModel):
+class DocumentArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
-class ExperimentActorsQuery(SchemaBaseModel):
+class ExperimentActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26989,7 +26987,7 @@ class ExperimentActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class FunnelCorrelationActorsQuery(SchemaBaseModel):
+class FunnelCorrelationActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27029,7 +27027,7 @@ class FunnelCorrelationActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightActorsQuery(SchemaBaseModel):
+class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27060,7 +27058,7 @@ class InsightActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightActorsQueryOptions(SchemaBaseModel):
+class InsightActorsQueryOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27076,7 +27074,7 @@ class InsightActorsQueryOptions(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SessionBatchEventsQuery(SchemaBaseModel):
+class SessionBatchEventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27173,7 +27171,7 @@ class SessionBatchEventsQuery(SchemaBaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class ActorsQuery(SchemaBaseModel):
+class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27218,7 +27216,7 @@ class ActorsQuery(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EventsQuery(SchemaBaseModel):
+class EventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27311,7 +27309,7 @@ class HasPropertiesNode(RootModel[EventsNode | EventsQuery | PersonsNode]):
     root: EventsNode | EventsQuery | PersonsNode
 
 
-class DataTableNode(SchemaBaseModel):
+class DataTableNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27481,7 +27479,7 @@ class DataTableNode(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ArtifactMessage(SchemaBaseModel):
+class ArtifactMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27496,7 +27494,7 @@ class ArtifactMessage(SchemaBaseModel):
     type: Literal["ai/artifact"] = "ai/artifact"
 
 
-class HogQLAutocomplete(SchemaBaseModel):
+class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27581,7 +27579,7 @@ class HogQLAutocomplete(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class HogQLMetadata(SchemaBaseModel):
+class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27674,7 +27672,7 @@ class HogQLMetadata(SchemaBaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class HumanMessage(SchemaBaseModel):
+class HumanMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27686,7 +27684,7 @@ class HumanMessage(SchemaBaseModel):
     ui_context: MaxUIContext | None = None
 
 
-class MaxDashboardContext(SchemaBaseModel):
+class MaxDashboardContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27698,7 +27696,7 @@ class MaxDashboardContext(SchemaBaseModel):
     type: Literal["dashboard"] = "dashboard"
 
 
-class MaxInsightContext(SchemaBaseModel):
+class MaxInsightContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27791,7 +27789,7 @@ class MaxInsightContext(SchemaBaseModel):
     variablesOverride: dict[str, HogQLVariable] | None = None
 
 
-class MaxUIContext(SchemaBaseModel):
+class MaxUIContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27806,7 +27804,7 @@ class MaxUIContext(SchemaBaseModel):
     voice_mode: bool | None = None
 
 
-class QueryRequest(SchemaBaseModel):
+class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28103,7 +28101,7 @@ class QuerySchemaRoot(
     ) = Field(..., discriminator="kind")
 
 
-class QueryUpgradeRequest(SchemaBaseModel):
+class QueryUpgradeRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28190,7 +28188,7 @@ class QueryUpgradeRequest(SchemaBaseModel):
     ) = Field(..., discriminator="kind")
 
 
-class QueryUpgradeResponse(SchemaBaseModel):
+class QueryUpgradeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28307,7 +28305,7 @@ class RootAssistantMessage(
     )
 
 
-class SourceConfig(SchemaBaseModel):
+class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28371,7 +28369,7 @@ class SourceConfig(SchemaBaseModel):
     webhookSetupCaption: str | None = None
 
 
-class SourceFieldSelectConfig(SchemaBaseModel):
+class SourceFieldSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28384,7 +28382,7 @@ class SourceFieldSelectConfig(SchemaBaseModel):
     type: Literal["select"] = "select"
 
 
-class SourceFieldSelectConfigOption(SchemaBaseModel):
+class SourceFieldSelectConfigOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28403,7 +28401,7 @@ class SourceFieldSelectConfigOption(SchemaBaseModel):
     value: str
 
 
-class SourceFieldSwitchGroupConfig(SchemaBaseModel):
+class SourceFieldSwitchGroupConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28422,7 +28420,7 @@ class SourceFieldSwitchGroupConfig(SchemaBaseModel):
     type: Literal["switch-group"] = "switch-group"
 
 
-class VisualizationArtifactContent(SchemaBaseModel):
+class VisualizationArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
