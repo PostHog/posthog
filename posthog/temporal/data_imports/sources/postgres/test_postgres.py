@@ -470,6 +470,11 @@ class TestValidateCredentialsErrorMapping:
                 "The SSL/TLS connection to your database was closed unexpectedly. "
                 "Check your database's SSL configuration and that the port is correct.",
             ),
+            # Unmapped errors fall back to the generic message.
+            (
+                "some brand new failure",
+                "Could not connect to Postgres. Please check all connection details are valid.",
+            ),
         ],
     )
     def test_operational_errors_map_to_friendly_messages(self, source, config, error_msg, expected):
@@ -482,17 +487,6 @@ class TestValidateCredentialsErrorMapping:
 
         assert valid is False
         assert error == expected
-
-    def test_unmapped_operational_error_falls_back_to_generic_message(self, source, config):
-        with (
-            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
-            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
-            mock.patch.object(source, "get_schemas", side_effect=psycopg.OperationalError("some brand new failure")),
-        ):
-            valid, error = source.validate_credentials(config, team_id=1)
-
-        assert valid is False
-        assert error == "Could not connect to Postgres. Please check all connection details are valid."
 
 
 class TestPostgresSchemaDiscovery:
