@@ -27837,6 +27837,34 @@ export namespace Schemas {
     }
 
     /**
+     * A single message in a ticket thread (output-only).
+     */
+    export interface TicketMessage {
+      /** Message (comment) UUID. */
+      readonly id: string;
+      /** Plain-text message body. */
+      readonly content: string;
+      /** TipTap rich content JSON, if any. */
+      readonly rich_content: unknown;
+      /** One of: customer, support, AI. */
+      readonly author_type: string;
+      /** Display name of the author. */
+      readonly author_name: string;
+      /** True for internal notes not visible to the customer. */
+      readonly is_private: boolean;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketMessage[];
+    }
+
+    /**
      * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
      */
     export type TicketViewFilters = { [key: string]: unknown };
@@ -41517,6 +41545,21 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    /**
+     * Payload for posting a reply or internal note to a ticket.
+     */
+    export interface TicketReplyRequest {
+      /**
+         * Reply content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
+      is_private?: boolean;
+      /** Optional TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -48243,6 +48286,17 @@ export namespace Schemas {
       Breached: 'breached',
       OnTrack: 'on-track',
     } as const;
+
+    export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type ConversationsViewsListParams = {
     /**
