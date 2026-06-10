@@ -134,6 +134,18 @@ const meta: Meta<StoryArgs> = {
         // The tracker ticks `now` at 1Hz; freezing the clock keeps the relative-time
         // sub-line stable across snapshot passes.
         mockDate: '2024-05-01 12:00:00',
+        testOptions: {
+            // Snapshot light theme only. The test-runner takes a `light` then a `dark`
+            // screenshot per story by toggling `body[theme]`; the FAB mounts live kea
+            // logics (SSE tracker + jittered REST detector) whose background timers can
+            // re-render mid-capture, racing that toggle and occasionally landing a
+            // wrong-theme screenshot (the `--light` snapshot captured in dark — flake
+            // verification, 2026-06). Dropping the dark pass removes the only source of
+            // a dark `body[theme]`, so the remaining light snapshot is deterministic.
+            // Dark-mode rendering is still exercisable manually via the Storybook
+            // theme toolbar.
+            skipDarkMode: true,
+        },
     },
     decorators: [
         // The active-session detector polls `sessions/latest/` after a randomized
