@@ -39,6 +39,7 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
+import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { AnyResponseType, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
@@ -72,10 +73,19 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import {
+    NotebookArtifactApplyMode,
+    insertMarkdownAfterNotebookAIChatMarker,
+    preserveNotebookAIChatMarker,
+} from './markdownNotebookRuntime'
+import {
     appendMarkdownNotebookBlock,
+    buildMarkdownNotebookContent,
+    getMarkdownNotebookMarkdown,
+    getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
+    notebookArtifactContentToMarkdown,
     serializeMarkdownNotebookComponent,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
@@ -191,6 +201,15 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
+        setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
+        handleMarkdownEditorChange: (markdown: string) => ({ markdown }),
+        setMarkdownEditorDraft: (draft: string | null) => ({ draft }),
+        setMarkdownEditorBuffer: (buffered: string | null) => ({ buffered }),
+        applyNotebookArtifactMarkdown: (
+            content: NotebookArtifactContent,
+            chatId?: string,
+            mode: NotebookArtifactApplyMode = 'replace'
+        ) => ({ content, chatId, mode }),
         setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
             jsonContent,
             updateEditor,
@@ -276,6 +295,27 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setAutosavePaused: (_, { paused }) => paused,
+            },
+        ],
+        markdownEditorInteractionActive: [
+            false,
+            {
+                setMarkdownEditorInteractionActive: (_, { active }) => active,
+            },
+        ],
+        // The markdown the editor renders while an interaction (insert menu, toolbar) is active —
+        // it freezes the editor value so logic-side content changes don't disturb the interaction.
+        markdownEditorDraft: [
+            null as string | null,
+            {
+                setMarkdownEditorDraft: (_, { draft }) => draft,
+            },
+        ],
+        // Edits made while an interaction is active, flushed to localContent when it ends.
+        markdownEditorBuffer: [
+            null as string | null,
+            {
+                setMarkdownEditorBuffer: (_, { buffered }) => buffered,
             },
         ],
         editor: [
@@ -679,6 +719,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 // We use the local content is set otherwise the notebook content
                 return previewContent || localContent || notebook?.content || []
             },
+        ],
+        markdownEditorMarkdown: [(s) => [s.content], (content): string => getMarkdownNotebookMarkdown(content)],
+        markdownEditorNodeId: [(s) => [s.content], (content): string => getMarkdownNotebookNodeId(content)],
+        markdownEditorValue: [
+            (s) => [s.markdownEditorDraft, s.markdownEditorMarkdown],
+            (markdownEditorDraft, markdownEditorMarkdown): string => markdownEditorDraft ?? markdownEditorMarkdown,
         ],
         title: [
             (s) => [s.notebook, s.content],
@@ -1145,6 +1191,59 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.warning('Could not add experiment to notebook')
             }
         },
+        handleMarkdownEditorChange: ({ markdown }) => {
+            if (values.markdownEditorInteractionActive) {
+                actions.setMarkdownEditorBuffer(markdown)
+                actions.setMarkdownEditorDraft(markdown)
+                return
+            }
+
+            if (markdown === values.markdownEditorMarkdown) {
+                return
+            }
+
+            actions.setLocalContent(buildMarkdownNotebookContent(markdown, values.markdownEditorNodeId))
+        },
+
+        setMarkdownEditorInteractionActive: ({ active }) => {
+            if (active) {
+                if (values.markdownEditorDraft === null) {
+                    actions.setMarkdownEditorDraft(values.markdownEditorMarkdown)
+                }
+                actions.setAutosavePaused(true)
+                return
+            }
+
+            const bufferedMarkdown = values.markdownEditorBuffer
+            actions.setMarkdownEditorBuffer(null)
+            if (bufferedMarkdown !== null && bufferedMarkdown !== values.markdownEditorMarkdown) {
+                actions.setLocalContent(buildMarkdownNotebookContent(bufferedMarkdown, values.markdownEditorNodeId))
+            }
+            actions.setMarkdownEditorDraft(null)
+            actions.setAutosavePaused(false)
+        },
+
+        applyNotebookArtifactMarkdown: ({ content, chatId, mode }) => {
+            const artifactMarkdown = notebookArtifactContentToMarkdown(content)
+            if (!artifactMarkdown.trim()) {
+                return
+            }
+
+            const currentMarkdown = values.markdownEditorValue
+            const nextMarkdown =
+                mode === 'insert-after-chat'
+                    ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+            if (nextMarkdown === currentMarkdown) {
+                return
+            }
+
+            actions.setMarkdownEditorBuffer(null)
+            actions.setMarkdownEditorDraft(null)
+            actions.setAutosavePaused(false)
+            actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
+        },
+
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
