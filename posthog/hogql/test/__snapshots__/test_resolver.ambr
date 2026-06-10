@@ -328,7 +328,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -389,7 +388,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -450,7 +448,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -511,7 +508,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -596,7 +592,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -657,7 +652,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -718,7 +712,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -1544,7 +1537,6 @@
                                     "distinct_id"
                                   ],
                                   hidden: False,
-                                  join_function: None,
                                   join_table: {
                                     fields: {
                                       distinct_id: {
@@ -1625,7 +1617,6 @@
                             "distinct_id"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               distinct_id: {
@@ -1886,7 +1877,6 @@
                                     "fingerprint"
                                   ],
                                   hidden: False,
-                                  join_function: None,
                                   join_table: {
                                     fields: {
                                       fingerprint: {
@@ -1964,7 +1954,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               fingerprint: {
@@ -2652,7 +2641,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -2736,7 +2724,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -3092,7 +3079,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -3173,7 +3159,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -3308,7 +3293,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3388,7 +3372,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3468,7 +3451,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3548,7 +3530,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3628,7 +3609,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3708,7 +3688,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3788,7 +3767,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -5300,7 +5278,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5361,7 +5338,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5422,7 +5398,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5483,7 +5458,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5568,7 +5542,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5629,7 +5602,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5690,7 +5662,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: None,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -6517,7 +6488,6 @@
                                       "distinct_id"
                                     ],
                                     hidden: False,
-                                    join_function: None,
                                     join_table: {
                                       fields: {
                                         distinct_id: {
@@ -6598,7 +6568,6 @@
                               "distinct_id"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 distinct_id: {
@@ -6859,7 +6828,6 @@
                                       "fingerprint"
                                     ],
                                     hidden: False,
-                                    join_function: None,
                                     join_table: {
                                       fields: {
                                         fingerprint: {
@@ -6937,7 +6905,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 fingerprint: {
@@ -7576,7 +7543,6 @@
                                           "distinct_id"
                                         ],
                                         hidden: False,
-                                        join_function: None,
                                         join_table: {
                                           fields: {
                                             distinct_id: {
@@ -7660,7 +7626,6 @@
                                   "distinct_id"
                                 ],
                                 hidden: False,
-                                join_function: None,
                                 join_table: {
                                   fields: {
                                     distinct_id: {
@@ -8016,7 +7981,6 @@
                                           "fingerprint"
                                         ],
                                         hidden: False,
-                                        join_function: None,
                                         join_table: {
                                           fields: {
                                             fingerprint: {
@@ -8097,7 +8061,6 @@
                                   "fingerprint"
                                 ],
                                 hidden: False,
-                                join_function: None,
                                 join_table: {
                                   fields: {
                                     fingerprint: {
@@ -8232,7 +8195,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8312,7 +8274,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8392,7 +8353,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8472,7 +8432,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8552,7 +8511,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8632,7 +8590,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8712,7 +8669,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: None,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -9502,7 +9458,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -9586,7 +9541,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -9942,7 +9896,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -10023,7 +9976,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -10158,7 +10110,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10238,7 +10189,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10318,7 +10268,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10398,7 +10347,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10478,7 +10426,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10558,7 +10505,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10638,7 +10584,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11147,7 +11092,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -11231,7 +11175,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -11587,7 +11530,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: None,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -11668,7 +11610,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: None,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -11803,7 +11744,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11883,7 +11823,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11963,7 +11902,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12043,7 +11981,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12123,7 +12060,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12203,7 +12139,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12283,7 +12218,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -14631,7 +14565,6 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: None,
                 join_table: "persons",
                 resolver: "persons",
                 resolver_params: {},
@@ -14644,7 +14577,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14924,7 +14856,6 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: None,
                 join_table: "persons",
                 resolver: "persons",
                 resolver_params: {},
@@ -14937,7 +14868,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: None,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -15213,7 +15143,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: None,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15491,7 +15420,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: None,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15616,7 +15544,6 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: None,
                 join_table: "persons",
                 resolver: "persons",
                 resolver_params: {},
