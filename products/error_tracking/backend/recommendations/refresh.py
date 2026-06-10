@@ -9,6 +9,8 @@ from django.utils import timezone
 import structlog
 from posthoganalytics import capture_exception
 
+from posthog.models import Team
+
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.recommendations import RECOMMENDATIONS
 from products.error_tracking.backend.recommendations.base import Recommendation
@@ -141,6 +143,20 @@ def refresh_teams_recommendations_batched(team_ids: list[int], on_progress: Call
     """
     now = timezone.now()
     types = [rec.type for rec in RECOMMENDATIONS]
+
+    # Team ids come from a ClickHouse scan of recent events, which retains events for teams
+    # that have since been deleted from Postgres. Writing a recommendation row for such a team
+    # violates the team_id foreign key and (since it's a single INSERT) fails the whole batch,
+    # so drop the deleted teams before any writes.
+    existing_team_ids = list(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    if len(existing_team_ids) != len(team_ids):
+        logger.info(
+            "error_tracking_recommendation_skipped_deleted_teams",
+            skipped=len(team_ids) - len(existing_team_ids),
+        )
+    team_ids = existing_team_ids
+    if not team_ids:
+        return 0
 
     def fetch_rows() -> dict[tuple[int, str], ErrorTrackingRecommendation]:
         return {
