@@ -7,17 +7,15 @@ import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
 // Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
+const createStoriesPathFor = (path: string): string => `../../../${path}/**/*.stories.@(js|jsx|ts|tsx)`
+
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.mdx',
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../products/**/frontend/**/*.mdx',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../products/**/mcp/**/*.mdx',
-        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../services/mcp/src/ui-apps/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../packages/quill/packages/charts/src/**/*.mdx',
-        '../../../packages/quill/packages/charts/src/**/*.stories.@(js|jsx|ts|tsx)',
+        createStoriesPathFor('frontend/src'),
+        createStoriesPathFor('products/**/frontend'),
+        createStoriesPathFor('products/**/mcp/apps'),
+        createStoriesPathFor('services/mcp/src/ui-apps'),
+        createStoriesPathFor('packages/quill/packages/charts/src'),
     ],
 
     addons: [
