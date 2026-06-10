@@ -69,6 +69,15 @@ logger = structlog.get_logger(__name__)
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
+def _event_config_has_event_or_action(event_config: dict) -> bool:
+    # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+    # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
+    # actions set) are real and kept. Shared by the wait_until_condition and conversion strips so the
+    # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
+    filters = event_config.get("filters") or {}
+    return bool(filters.get("events") or filters.get("actions"))
+
+
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
@@ -328,6 +337,13 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
+            # Drop "events to wait for" entries that target neither events nor actions. An empty
+            # event filter compiles to always-true bytecode, which would wake the job on every
+            # incoming event and bypass the property condition. The UI can leave such an entry
+            # behind when the last event is removed; "nothing targeted" must mean "nothing wakes
+            # this", not "everything". Action-based entries (events empty, actions set) are kept.
+            wait_events = [ec for ec in wait_events if _event_config_has_event_or_action(ec)]
+            data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
                 if filters is not None:
@@ -629,6 +645,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
+            # Forward guard for the legacy bad shape (see migration 0009): an event-based conversion
+            # goal stored as an object in `conversion.filters` (e.g. {"events": [...], "source": "events"})
+            # belongs in `conversion.events`. `conversion.filters` is an array of property filters, so the
+            # object both crashes the property picker and is invisible to the matcher. Relocate it here so
+            # no client (web UI, API, MCP) can persist the malformed shape; it then compiles through the
+            # conversion.events path below.
+            if isinstance(filters, dict) and filters.get("events"):
+                data["conversion"]["events"] = [*(conversion.get("events") or []), {"filters": filters}]
+                data["conversion"]["filters"] = []
+                filters = []
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
                 if self.context.get("is_draft"):
@@ -644,7 +670,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
-            for event_config in conversion.get("events") or []:
+            # Drop conversion "events" entries that target neither events nor actions, for the same
+            # always-true reason as the wait_until_condition guard above: an empty entry would mark
+            # every incoming event as a conversion. Action-based entries (events empty, actions set)
+            # are kept.
+            conversion_events = [ec for ec in (conversion.get("events") or []) if _event_config_has_event_or_action(ec)]
+            data["conversion"]["events"] = conversion_events
+            for event_config in conversion_events:
                 event_filters = event_config.get("filters")
                 if event_filters is not None:
                     event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
