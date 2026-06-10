@@ -770,6 +770,33 @@ Repeated block`)
         expect(reconciled.document.nodes[0].id).toEqual(previous.nodes[0].id)
     })
 
+    it('preserves list item identity when serialized list edits reconcile', () => {
+        const previous = parseMarkdownNotebook(`- list again
+- and again`)
+        const previousList = previous.nodes[0]
+
+        expect(previousList.type).toEqual('list')
+
+        if (previousList.type !== 'list') {
+            throw new Error('expected list node')
+        }
+
+        previousList.items[1].id = 'stable-second-item'
+        const next = parseMarkdownNotebook(`- list again
+- and again edited`)
+
+        const result = reconcileNotebookDocuments(previous, next)
+        const nextList = result.document.nodes[0]
+
+        expect(nextList.type).toEqual('list')
+
+        if (nextList.type !== 'list') {
+            throw new Error('expected list node')
+        }
+
+        expect(nextList.items[1].id).toEqual('stable-second-item')
+    })
+
     it('sanitizes edited HTML into supported inline nodes', () => {
         const element = document.createElement('div')
         element.innerHTML = 'Hello <strong>bold</strong> <script>alert(1)</script><u>underlined</u>'
@@ -863,6 +890,28 @@ Initial draft with more local typing`
 
 - list again
 - and again`
+        const localMarkdown = `# hi
+
+- list again
+- and again
+- a`
+
+        const result = mergeNotebookMarkdownChanges({ baseMarkdown, localMarkdown, remoteMarkdown })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual(localMarkdown)
+    })
+
+    it('keeps a locally typed list item when a blank autosave echo returns', () => {
+        const baseMarkdown = `# hi
+
+- list again
+- and again`
+        const remoteMarkdown = `# hi
+
+- list again
+- and again
+-`
         const localMarkdown = `# hi
 
 - list again

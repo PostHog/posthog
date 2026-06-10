@@ -490,6 +490,9 @@ export function MarkdownNotebook({
             return
         }
 
+        const restoreSelectionRequest = notebookRef.current
+            ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
+            : null
         setDocument((currentDocument) => {
             const nextDocument = parseMarkdownNotebook(value)
             const reconciledDocument = ensureEditableNotebookDocument(
@@ -498,6 +501,9 @@ export function MarkdownNotebook({
             documentRef.current = reconciledDocument
             return reconciledDocument
         })
+        if (restoreSelectionRequest) {
+            restoreSelectionRef.current = restoreSelectionRequest
+        }
         setDebugMarkdown(value)
         historyRef.current = { undo: [], redo: [] }
         lastSerializedValueRef.current = value

@@ -307,8 +307,17 @@ function mergeNotebookBlockNodeText(
         return null
     }
 
+    const reconciledMergedDocument = reconcileNotebookDocuments(
+        { type: 'doc', nodes: [localNode], errors: [] },
+        mergedDocument
+    ).document
+    const mergedNode = reconciledMergedDocument.nodes[0]
+    if (!mergedNode) {
+        return null
+    }
+
     return {
-        ...mergedDocument.nodes[0],
+        ...mergedNode,
         id: localNode.id,
     }
 }

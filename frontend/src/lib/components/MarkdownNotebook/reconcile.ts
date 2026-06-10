@@ -1,4 +1,10 @@
-import { NotebookBlockNode, NotebookDocument, NotebookReconcileChange } from './types'
+import {
+    NotebookBlockNode,
+    NotebookDocument,
+    NotebookListBlockNode,
+    NotebookListItem,
+    NotebookReconcileChange,
+} from './types'
 import {
     cloneNotebookNode,
     ensureUniqueNodeIds,
@@ -34,6 +40,7 @@ export function reconcileNotebookDocuments(
     preserveExactFingerprintIds(previousEntries, nextNodes)
     preserveStableComponentIds(previousEntries, nextNodes)
     preserveSimilarNodeIds(previousEntries, nextNodes)
+    preserveListItemIds(previousDocument.nodes, nextNodes)
     const uniqueNextNodes = ensureUniqueNodeIds(nextNodes)
 
     const document: NotebookDocument = {
@@ -133,6 +140,87 @@ function getStableComponentKey(node: NotebookBlockNode): string | null {
     }
 
     return `${node.tagName}:${id}`
+}
+
+function preserveListItemIds(previousNodes: NotebookBlockNode[], nextNodes: NotebookBlockNode[]): void {
+    const previousById = new Map(previousNodes.map((node) => [node.id, node]))
+
+    nextNodes.forEach((nextNode) => {
+        if (nextNode.type !== 'list') {
+            return
+        }
+
+        const previousNode = previousById.get(nextNode.id)
+        if (previousNode?.type !== 'list') {
+            return
+        }
+
+        preserveListNodeItemIds(previousNode, nextNode)
+    })
+}
+
+function preserveListNodeItemIds(previousNode: NotebookListBlockNode, nextNode: NotebookListBlockNode): void {
+    const previousMatchedIndexes = new Set<number>()
+    const nextMatchedIndexes = new Set<number>()
+    const previousExactIndexesByFingerprint = new Map<string, number[]>()
+
+    previousNode.items.forEach((item, index) => {
+        if (!item.id) {
+            return
+        }
+
+        const fingerprint = getListItemIdentityFingerprint(item)
+        previousExactIndexesByFingerprint.set(fingerprint, [
+            ...(previousExactIndexesByFingerprint.get(fingerprint) ?? []),
+            index,
+        ])
+    })
+
+    nextNode.items.forEach((item, index) => {
+        const fingerprint = getListItemIdentityFingerprint(item)
+        const previousIndexes = previousExactIndexesByFingerprint.get(fingerprint)
+        const previousIndex = previousIndexes?.find((candidateIndex) => !previousMatchedIndexes.has(candidateIndex))
+        if (previousIndex === undefined) {
+            return
+        }
+
+        const previousItem = previousNode.items[previousIndex]
+        if (!previousItem?.id) {
+            return
+        }
+
+        item.id = previousItem.id
+        previousMatchedIndexes.add(previousIndex)
+        nextMatchedIndexes.add(index)
+    })
+
+    if (previousNode.items.length !== nextNode.items.length) {
+        return
+    }
+
+    nextNode.items.forEach((item, index) => {
+        if (nextMatchedIndexes.has(index) || previousMatchedIndexes.has(index)) {
+            return
+        }
+
+        const previousItem = previousNode.items[index]
+        if (!previousItem?.id) {
+            return
+        }
+
+        item.id = previousItem.id
+        previousMatchedIndexes.add(index)
+        nextMatchedIndexes.add(index)
+    })
+}
+
+function getListItemIdentityFingerprint(item: NotebookListItem): string {
+    return JSON.stringify({
+        children: item.children,
+        depth: item.depth,
+        ordered: item.ordered,
+        start: item.start,
+    })
 }
 
 function preserveSimilarNodeIds(previousEntries: PreviousNodeEntry[], nextNodes: NotebookBlockNode[]): void {
