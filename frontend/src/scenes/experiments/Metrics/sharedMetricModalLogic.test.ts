@@ -9,10 +9,11 @@ import { initKeaTests } from '~/test/init'
 import { METRIC_CONTEXTS } from './experimentMetricModalLogic'
 import { MODAL_PAGE_SIZE, sharedMetricModalLogic } from './sharedMetricModalLogic'
 
-const metric = (id: number, kind: NodeKind = NodeKind.ExperimentMetric): any => ({
+const metric = (id: number, kind: NodeKind = NodeKind.ExperimentMetric, tags: string[] = []): any => ({
     id,
     name: `metric ${id}`,
     query: { kind },
+    tags,
 })
 
 describe('sharedMetricModalLogic', () => {
@@ -129,5 +130,130 @@ describe('sharedMetricModalLogic', () => {
             logic.actions.loadSharedMetrics()
         }).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({ hasAnyCompatibleSharedMetrics: false })
+    })
+
+    it('selectMetricsByTag loads every remaining page, then selects compatible metrics carrying the tag', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
+                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
+                    if (offset === 0) {
+                        return [
+                            200,
+                            {
+                                count: 3,
+                                next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}`,
+                                previous: null,
+                                // metric 2 carries "main" but is a trends query → not compatible, must be skipped
+                                results: [
+                                    metric(1, NodeKind.ExperimentMetric, ['main']),
+                                    metric(2, NodeKind.ExperimentTrendsQuery, ['main']),
+                                ],
+                            },
+                        ]
+                    }
+                    // metric 3 lives on page 2 — it would be silently skipped without the load-all walk
+                    return [
+                        200,
+                        {
+                            count: 3,
+                            next: null,
+                            previous: null,
+                            results: [metric(3, NodeKind.ExperimentMetric, ['main'])],
+                        },
+                    ]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ canLoadMore: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectMetricsByTag('main', [])
+        })
+            .toDispatchActions(['loadAllSharedMetrics', 'loadAllSharedMetricsSuccess', 'setSelectedMetricIds'])
+            .toMatchValues({ selectedMetricIds: [1, 3], canLoadMore: false })
+    })
+
+    it('selectAllMetrics loads every page and selects all compatible metrics except already-added ones', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
+                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
+                    if (offset === 0) {
+                        return [
+                            200,
+                            {
+                                count: 3,
+                                next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}`,
+                                previous: null,
+                                results: [metric(10), metric(11)],
+                            },
+                        ]
+                    }
+                    return [200, { count: 3, next: null, previous: null, results: [metric(12)] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.selectAllMetrics([11])
+        })
+            .toDispatchActions(['loadAllSharedMetrics', 'loadAllSharedMetricsSuccess', 'setSelectedMetricIds'])
+            .toMatchValues({ selectedMetricIds: [10, 12] })
+    })
+
+    it('quick-select resolves immediately without re-fetching when every page is already loaded', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': () => [
+                    200,
+                    {
+                        count: 2,
+                        next: null,
+                        previous: null,
+                        results: [metric(1, NodeKind.ExperimentMetric, ['main']), metric(2)],
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                canLoadMore: false,
+                compatibleSharedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 2 })],
+            })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectMetricsByTag('main', [])
+        })
+            .toDispatchActions(['setSelectedMetricIds'])
+            .toNotHaveDispatchedActions(['loadAllSharedMetrics'])
+            .toMatchValues({ selectedMetricIds: [1] })
+    })
+
+    it('toggleMetricSelected and clearSelectedMetricIds manage the selection', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleMetricSelected(1)
+            logic.actions.toggleMetricSelected(2)
+        }).toMatchValues({ selectedMetricIds: [1, 2] })
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleMetricSelected(1)
+        }).toMatchValues({ selectedMetricIds: [2] })
+
+        await expectLogic(logic, () => {
+            logic.actions.clearSelectedMetricIds()
+        }).toMatchValues({ selectedMetricIds: [] })
     })
 })

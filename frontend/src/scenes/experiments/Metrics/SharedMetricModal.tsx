@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -32,13 +31,20 @@ export function SharedMetricModal({
         canLoadMore,
         sharedMetricsResponseLoading,
         hasAnyCompatibleSharedMetrics,
+        selectedMetricIds,
     } = useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal, setSearchTerm, loadNextSharedMetrics } = useActions(sharedMetricModalLogic)
+    const {
+        closeSharedMetricModal,
+        setSearchTerm,
+        loadNextSharedMetrics,
+        toggleMetricSelected,
+        clearSelectedMetricIds,
+        selectAllMetrics,
+        selectMetricsByTag,
+    } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
-
-    const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
 
     if (!compatibleSharedMetrics) {
         return null
@@ -51,11 +57,11 @@ export function SharedMetricModal({
     }
 
     const closeModal = (): void => {
-        setSelectedMetricIds([])
         closeSharedMetricModal()
     }
 
     const alreadyAddedIds = new Set(experiment.saved_metrics.map((savedMetric) => savedMetric.saved_metric))
+    const excludeIds = Array.from(alreadyAddedIds)
 
     // Already-added metrics stay visible but are not selectable.
     const selectableMetrics = compatibleSharedMetrics.filter((metric: SharedMetric) => !alreadyAddedIds.has(metric.id))
@@ -88,7 +94,7 @@ export function SharedMetricModal({
                                     .filter((metric): metric is SharedMetric => metric !== undefined)
 
                                 onSave(metrics, context)
-                                setSelectedMetricIds([])
+                                clearSelectedMetricIds()
                             }}
                             type="primary"
                             disabledReason={addSharedMetricDisabledReason()}
@@ -121,8 +127,10 @@ export function SharedMetricModal({
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                // Quick-select loads any unfetched pages first, so guard against re-clicks mid-load.
+                                disabledReason={sharedMetricsResponseLoading ? 'Loading metrics…' : undefined}
                                 onClick={() => {
-                                    setSelectedMetricIds(selectableMetrics.map((metric: SharedMetric) => metric.id))
+                                    selectAllMetrics(excludeIds)
                                 }}
                             >
                                 All
@@ -132,7 +140,7 @@ export function SharedMetricModal({
                                     size="xsmall"
                                     type="secondary"
                                     onClick={() => {
-                                        setSelectedMetricIds([])
+                                        clearSelectedMetricIds()
                                     }}
                                 >
                                     Clear
@@ -143,12 +151,9 @@ export function SharedMetricModal({
                                     key={index}
                                     size="xsmall"
                                     type="secondary"
+                                    disabledReason={sharedMetricsResponseLoading ? 'Loading metrics…' : undefined}
                                     onClick={() => {
-                                        setSelectedMetricIds(
-                                            selectableMetrics
-                                                .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                .map((metric: SharedMetric) => metric.id)
-                                        )
+                                        selectMetricsByTag(tag, excludeIds)
                                     }}
                                 >
                                     {tag}
@@ -168,14 +173,8 @@ export function SharedMetricModal({
                                             type="checkbox"
                                             disabled={alreadyAddedIds.has(metric.id)}
                                             checked={selectedMetricIds.includes(metric.id)}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setSelectedMetricIds([...selectedMetricIds, metric.id])
-                                                } else {
-                                                    setSelectedMetricIds(
-                                                        selectedMetricIds.filter((id) => id !== metric.id)
-                                                    )
-                                                }
+                                            onChange={() => {
+                                                toggleMetricSelected(metric.id)
                                             }}
                                         />
                                     ),
