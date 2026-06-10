@@ -56,6 +56,7 @@ class Product(StrEnum):
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
