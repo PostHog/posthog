@@ -1,6 +1,6 @@
 import { cn } from '@posthog/quill-primitives'
 
-export const CARD_SURFACE = 'rounded-lg border border-primary bg-surface-primary'
+export const CARD_SURFACE = 'rounded-lg border border-primary bg-surface-secondary'
 
 export function Card({
     children,

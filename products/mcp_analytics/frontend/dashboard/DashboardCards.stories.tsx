@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
-import '@posthog/quill-primitives/styles.css'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
@@ -118,6 +117,13 @@ const KPIS: KPIData = {
 const meta: Meta = {
     title: 'Scenes-App/MCP Analytics/Dashboard Cards',
     parameters: { layout: 'padded' },
+    decorators: [
+        (Story) => (
+            <div data-quill>
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 

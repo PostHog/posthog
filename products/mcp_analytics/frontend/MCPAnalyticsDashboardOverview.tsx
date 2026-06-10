@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
-import '@posthog/quill-primitives/styles.css'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
@@ -41,7 +40,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
-        <div className="flex flex-col gap-10">
+        <div className="flex flex-col gap-10" data-quill>
             <section>
                 <h2 className="mb-4 text-xl font-semibold text-primary">This week's key metrics</h2>
                 <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
