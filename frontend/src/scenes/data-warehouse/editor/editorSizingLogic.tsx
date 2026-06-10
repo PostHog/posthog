@@ -100,7 +100,7 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             (desiredSize) => Math.max(desiredSize || NAVIGATOR_DEFAULT_WIDTH, MINIMUM_NAVIGATOR_WIDTH),
         ],
         queryPaneHeight: [
-            (s, p) => [s.queryPaneDesiredSize, p.queryPaneDefaultHeight],
+            (s) => [s.queryPaneDesiredSize, (_, props: EditorSizingLogicProps) => props.queryPaneDefaultHeight],
             (queryPaneDesiredSize, queryPaneDefaultHeight) =>
                 Math.max(
                     queryPaneDesiredSize || queryPaneDefaultHeight || DEFAULT_QUERY_PANE_HEIGHT,
