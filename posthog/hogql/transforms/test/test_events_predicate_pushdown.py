@@ -41,10 +41,11 @@ from posthog.hogql.transforms.events_predicate_pushdown import (
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.cohort.util import recalculate_cohortpeople
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.models.utils import uuid7
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import recalculate_cohortpeople
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

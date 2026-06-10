@@ -42,7 +42,7 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     const useSingleExec =
         mode === 'cli' ||
         (mode !== 'tools' &&
-            (clientProfile.isCodingAgent() ||
+            (clientProfile.isCliModeEnabled() ||
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
     return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec }

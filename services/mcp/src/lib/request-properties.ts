@@ -1,7 +1,7 @@
 // Shared request-properties extraction. Both runtimes parse the same headers
 // and query params into the same shape, so the logic lives here.
 
-import { hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
 
@@ -55,7 +55,7 @@ export function parseRequestProperties(
     const url = new URL(request.url)
     const params = url.searchParams
 
-    const token = request.headers.get('Authorization')?.split(' ')[1] ?? ''
+    const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
 
     return {

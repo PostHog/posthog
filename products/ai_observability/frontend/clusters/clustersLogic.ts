@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -85,21 +85,15 @@ export interface ScatterDataset {
         | 'triangle'
 }
 
-export interface ClustersLogicProps {
-    tabId?: string
-}
+export type ClustersLogicProps = Record<string, never>
 
 export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'ai_observability', 'frontend', 'clusters', 'clustersLogic']),
     props({} as ClustersLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: ClustersLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
-        actions: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
-            ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
-        ],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
+        actions: [aiObservabilitySharedLogic, ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState']],
     })),
 
     actions({
