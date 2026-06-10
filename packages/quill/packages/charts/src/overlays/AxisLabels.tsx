@@ -1,14 +1,13 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
+import { GUTTER_GAP } from '../core/hooks/useChartMargins'
 import { autoFormatterFor } from '../core/scales'
-import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
+import { AXIS_LABEL_FONT, getTextMeasureCtx, measureLabelWidth, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
-    /** Formatter for the right y-axis. Falls back to `yTickFormatter` if not provided. */
-    yRightTickFormatter?: (value: number) => string
     /** The *unresolved* user y-tick formatter (config). When set, every stacked axis uses it; when
      *  unset, each axis auto-formats against its own ticks. Only consulted for the multi-axis path. */
     userYTickFormatter?: (value: number) => string
@@ -134,8 +133,16 @@ const TICK_STYLE_BASE: React.CSSProperties = {
 }
 
 const TICK_GAP = 8
-/** Horizontal gap between stacked value-axis gutters on the same side. */
-const GUTTER_GAP = 12
+
+/** One stacked value-axis gutter: its ticks, scale, side, and outward pixel offset from the plot edge. */
+interface Gutter {
+    key: string
+    side: 'left' | 'right'
+    offset: number
+    ticks: number[]
+    scale: (v: number) => number
+    formatter: (v: number) => string
+}
 
 interface ChartBox {
     width: number
@@ -242,7 +249,6 @@ export const AxisLabels = React.memo(function AxisLabels({
         if (hideYAxis || orientation === 'horizontal') {
             return []
         }
-        type Gutter = { key: string; side: 'left' | 'right'; offset: number; ticks: number[]; scale: (v: number) => number; formatter: (v: number) => string } // prettier-ignore
         if (!scales.yAxes) {
             return [
                 {
@@ -255,20 +261,8 @@ export const AxisLabels = React.memo(function AxisLabels({
                 },
             ] satisfies Gutter[]
         }
-        const measure = getTextMeasureCtx()
-        if (measure) {
-            measure.font = AXIS_LABEL_FONT
-        }
-        const widthOf = (ticks: number[], formatter: (v: number) => string): number => {
-            if (!measure) {
-                return 0
-            }
-            let widest = 0
-            for (const t of ticks) {
-                widest = Math.max(widest, measure.measureText(formatter(t)).width)
-            }
-            return widest
-        }
+        const widthOf = (ticks: number[], formatter: (v: number) => string): number =>
+            ticks.reduce((widest, t) => Math.max(widest, measureLabelWidth(formatter(t))), 0)
         let leftCum = 0
         let rightCum = 0
         const gutters: Gutter[] = []

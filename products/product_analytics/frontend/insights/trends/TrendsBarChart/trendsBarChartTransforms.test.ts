@@ -74,16 +74,13 @@ describe('buildTrendsBarTimeSeries', () => {
         expect(series[0].label).toBe('')
     })
 
-    it('assigns every series the default axis when showMultipleYAxes is off', () => {
+    it.each([
+        { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
+    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
         const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
-        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED })
-        expect(series.map((s) => s.yAxisId)).toEqual(['left', 'left', 'left'])
-    })
-
-    it('puts each series past the first on its own axis when showMultipleYAxes is on', () => {
-        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
-        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes: true })
-        expect(series.map((s) => s.yAxisId)).toEqual(['left', 'y1', 'y2'])
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
+        expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
 })
 

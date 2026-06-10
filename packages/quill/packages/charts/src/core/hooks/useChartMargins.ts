@@ -16,8 +16,9 @@ const Y_LABEL_RIGHT_PADDING = 12
 // Gutter left of the y-axis labels so the widest label doesn't sit flush at the plot's left edge
 // and clip against the chart wrapper's `overflow: hidden`.
 const Y_LABEL_LEFT_GUTTER = 6
-/** Horizontal gap reserved between stacked value-axis gutters on the same side (matches AxisLabels). */
-const GUTTER_GAP = 12
+/** Horizontal gap between stacked value-axis gutters on the same side — shared by the margin
+ *  reservation here and the gutter rendering in AxisLabels so the two can't drift. */
+export const GUTTER_GAP = 12
 const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
 const Y_AXIS_TITLE_MARGIN = 24

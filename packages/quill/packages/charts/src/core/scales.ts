@@ -219,6 +219,26 @@ export function orderedAxisPositions(series: Series[]): { axisId: string; positi
     return ordered.map((axisId, i) => ({ axisId, position: i % 2 === 0 ? 'left' : 'right' }))
 }
 
+/** Bucket visible series by axis id in a single O(series) pass so per-axis scale builders look
+ *  their series up instead of re-filtering the whole list per axis (which is O(series²) when each
+ *  series has its own axis, as in `showMultipleYAxes`). */
+export function groupVisibleSeriesByAxis(series: Series[]): Map<string, Series[]> {
+    const byAxis = new Map<string, Series[]>()
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const id = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bucket = byAxis.get(id)
+        if (bucket) {
+            bucket.push(s)
+        } else {
+            byAxis.set(id, [s])
+        }
+    }
+    return byAxis
+}
+
 export function createScales(
     series: Series[],
     labels: string[],
@@ -245,10 +265,10 @@ export function createScales(
         return { x, y }
     }
 
+    const byAxis = groupVisibleSeriesByAxis(series)
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
     positions.forEach(({ axisId, position }, axisIndex) => {
-        const axisSeries = series.filter((s) => !s.visibility?.excluded && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
-        const scale = createYScale(axisSeries, dimensions, {
+        const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
@@ -484,11 +504,11 @@ export function createBarScales(
     const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
     const positions = orderedAxisPositions(visibleSeries)
     if (barLayout === 'grouped' && positions.length > 1) {
+        const byAxis = groupVisibleSeriesByAxis(visibleSeries)
         const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
         positions.forEach(({ axisId, position }, axisIndex) => {
-            const axisSeries = visibleSeries.filter((s) => (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
             const scale = buildBarValueScale(
-                axisSeries,
+                byAxis.get(axisId) ?? [],
                 valueRange,
                 tickCount,
                 'grouped',
