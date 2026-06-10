@@ -747,6 +747,30 @@ async def initialize_self_capture_api_token():
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
 
+        # PostHogConfig.ready() only wires up the flag-definition cache provider and loads
+        # flag definitions when posthoganalytics is enabled at that point — true for WSGI
+        # (self-capture initialized synchronously in ready()) but NOT for ASGI, where
+        # self-capture is deferred to here. Without this, the ASGI process has no local flag
+        # definitions and falls back to a remote flags call against SITE_URL (unreachable
+        # server-side in dev), so internal feature_enabled() checks always return False.
+        # Mirror the ready() setup so ASGI evaluates flags from HyperCache like WSGI does.
+        from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            HyperCacheFlagProvider,
+        )
+
+        explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+        if explicit_team_id:
+            provider = HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+        elif settings.SELF_CAPTURE and not settings.E2E_TESTING:
+            provider = HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
+        else:
+            provider = HyperCacheFlagProvider.for_static_team(2)
+
+        posthoganalytics.flag_definition_cache_provider = provider  # ty: ignore[invalid-assignment]
+
+        if posthoganalytics.feature_flag_definitions() is None:
+            await sync_to_async(posthoganalytics.load_feature_flags)()
+
 
 BOTH_DEFAULTS_PRESENT_TTL_SECONDS = 24 * 60 * 60
 ONE_DEFAULT_PRESENT_TTL_SECONDS = 30 * 60
