@@ -76,7 +76,7 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
-    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
+    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {

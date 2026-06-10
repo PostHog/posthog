@@ -1,6 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -12,13 +11,11 @@ import type { messageTemplateSceneLogicType } from './messageTemplateSceneLogicT
 export interface MessageTemplateSceneLogicProps {
     id: string
     messageId?: string | null
-    tabId?: string
 }
 
 export const messageTemplateSceneLogic = kea<messageTemplateSceneLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateSceneLogic']),
     props({} as MessageTemplateSceneLogicProps),
-    tabAwareScene(),
     selectors({
         breadcrumbs: [
             (_, p) => [p.id],

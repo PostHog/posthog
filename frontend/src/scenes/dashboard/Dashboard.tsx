@@ -2,9 +2,6 @@ import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -75,13 +72,10 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        refreshAnalysisResult,
-        analysisRating,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useFileSystemLogView({
@@ -122,37 +116,6 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                     })}
                 >
                     <DashboardOverridesBanner />
-
-                    {refreshAnalysisResult && (
-                        <LemonBanner
-                            type="info"
-                            onClose={() => setRefreshAnalysisResult(null)}
-                            className="mb-4 [&>.flex]:items-start"
-                            hideIcon
-                        >
-                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
-                            <div className="flex items-center gap-0.5 mt-2">
-                                {analysisRating ? (
-                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsUp />}
-                                            tooltip="Helpful"
-                                            onClick={() => setAnalysisRating('up')}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsDown />}
-                                            tooltip="Not helpful"
-                                            onClick={() => setAnalysisRating('down')}
-                                        />
-                                    </>
-                                )}
-                            </div>
-                        </LemonBanner>
-                    )}
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

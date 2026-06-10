@@ -16,39 +16,37 @@ import vercelSdk from './default_recipes/vercel_sdk.yaml?raw'
 import wrappers from './default_recipes/wrappers.yaml?raw'
 import { Recipe } from './spec/recipe'
 
-const RECIPE_SOURCES = {
-    anthropic,
-    cajole,
-    compatArray,
+// Order here determines deafult recipe order
+const RECIPE_SOURCES: readonly string[] = [
     dispatcherEntry,
-    langchain,
-    langchainEnvelope,
+    compatArray,
     litellm,
+    langchainEnvelope,
+    langchain,
+    vercelSdk,
     openaiChat,
     openaiResponses,
-    otel,
     typedAgentItems,
-    vercelSdk,
+    anthropic,
+    otel,
     wrappers,
-}
+    cajole,
+]
 
-const RECIPES: Recipe[] = Object.entries(RECIPE_SOURCES).map(([name, source]) => {
+const RECIPES: Recipe[] = []
+const seenIds = new Set<string>()
+for (const [index, source] of RECIPE_SOURCES.entries()) {
+    let recipe: Recipe
     try {
-        return compileRecipe(parseYaml(source))
+        recipe = compileRecipe(parseYaml(source))
     } catch (err) {
-        throw new Error(`Loading recipe ${name}: ${err instanceof Error ? err.message : String(err)}`)
+        throw new Error(`Loading recipe #${index}: ${err instanceof Error ? err.message : String(err)}`)
     }
-})
-
-// Dispatch is first-match-wins over priority order, so two recipes sharing a
-// priority would have an undefined relative order. Fail loudly instead.
-const seenPriorities = new Map<number, string>()
-for (const recipe of RECIPES) {
-    const clash = seenPriorities.get(recipe.priority)
-    if (clash !== undefined) {
-        throw new Error(`Recipe priority ${recipe.priority} is used by both '${clash}' and '${recipe.id}'`)
+    if (seenIds.has(recipe.id)) {
+        throw new Error(`Duplicate recipe id '${recipe.id}'`)
     }
-    seenPriorities.set(recipe.priority, recipe.id)
+    seenIds.add(recipe.id)
+    RECIPES.push(recipe)
 }
 
 export function loadRecipes(): Recipe[] {

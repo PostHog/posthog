@@ -6,13 +6,15 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin
+from django.contrib.admin import helpers
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 
 
 class OAuthApplicationForm(forms.ModelForm):
@@ -90,6 +92,26 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
+    actions = ("revoke_all_sessions",)
+
+    @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
+    def revoke_all_sessions(self, request, queryset):
+        # Irreversible and app-wide (signs out every user/connection), so gate it behind an
+        # interstitial confirmation instead of firing on the first click.
+        if request.POST.get("confirm"):
+            count = queryset.count()
+            for application in queryset:
+                revoke_application_sessions(application)
+            self.message_user(request, f"Revoked all sessions for {count} application(s).")
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Revoke all sessions",
+            "queryset": queryset,
+            "opts": self.model._meta,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+        }
+        return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"
@@ -111,7 +133,14 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return ("id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url")
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url"]
+            if obj.is_cimd_client:
+                # A CIMD client's scope ceiling is derived from its own metadata document and
+                # re-applied on every refresh, so a manual edit here would be silently reverted.
+                # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
+                # apps; to cut off an abusive one, block its metadata URL rather than editing scopes.
+                readonly.append("scopes")
+            return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
 
@@ -123,6 +152,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 "provisioning_active",
                 "provisioning_skip_existing_user_consent",
                 "provisioning_can_issue_deep_links",
+                "provisioning_issues_personal_api_key",
                 "provisioning_can_create_accounts",
                 "provisioning_can_provision_resources",
                 "provisioning_rate_limit_account_requests",

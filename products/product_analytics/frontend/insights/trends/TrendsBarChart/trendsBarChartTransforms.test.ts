@@ -4,6 +4,7 @@ import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/q
 
 import {
     buildTrendsBarAggregatedSeries,
+    buildTrendsBarChartModel,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
     type TrendsBarResultLike,
@@ -40,6 +41,17 @@ describe('buildTrendsBarTimeSeries', () => {
         }
     )
 
+    // The inlined hex dimming must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
+    // a non-hex color is passed through unchanged (the one intentional divergence from hexToRGBA).
+    it.each([
+        { base: '#ff0000', expected: hexToRGBA('#ff0000', 0.5) },
+        { base: '#f00', expected: hexToRGBA('#f00', 0.5) },
+        { base: 'not-a-hex', expected: 'not-a-hex' },
+    ])('dims a compare-previous bar for $base', ({ base, expected }) => {
+        const series = buildTrendsBarTimeSeries([makeResult({ compare_label: 'previous' })], { getColor: () => base })
+        expect(series[0].color).toBe(expected)
+    })
+
     it('marks a series excluded when getHidden returns true', () => {
         const series = buildTrendsBarTimeSeries([makeResult()], {
             getColor: () => RED,
@@ -60,6 +72,15 @@ describe('buildTrendsBarTimeSeries', () => {
     it('falls back to empty string label when result label is null', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
+    })
+
+    it.each([
+        { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
+    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
+        expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
 })
 
@@ -247,15 +268,16 @@ describe('buildTrendsBarAggregatedSeries', () => {
 
 describe('buildTrendsBarTimeSeriesConfig', () => {
     it.each([
-        { isPercentStackView: false, isGrouped: false, expected: 'stacked' },
-        { isPercentStackView: false, isGrouped: true, expected: 'grouped' },
-        { isPercentStackView: true, isGrouped: false, expected: 'percent' },
-        { isPercentStackView: true, isGrouped: true, expected: 'percent' },
+        { isPercentStackView: false, isGrouped: false, expected: 'stacked', expectedDiverging: true },
+        { isPercentStackView: false, isGrouped: true, expected: 'grouped', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: false, expected: 'percent', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: true, expected: 'percent', expectedDiverging: false },
     ])(
-        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected',
-        ({ isPercentStackView, isGrouped, expected }) => {
+        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected / divergingStack=$expectedDiverging',
+        ({ isPercentStackView, isGrouped, expected, expectedDiverging }) => {
             const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView, isGrouped })
             expect(cfg.barLayout).toBe(expected)
+            expect(cfg.divergingStack).toBe(expectedDiverging)
         }
     )
 
@@ -340,5 +362,55 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         })
         expect(cfg.valueLabels).toEqual({ formatter })
         expect(cfg.tooltip).toEqual({ pinnable: true, placement: 'top' })
+    })
+})
+
+describe('buildTrendsBarChartModel', () => {
+    const results: TrendsBarResultLike[] = [
+        { id: 'a', label: 'Pageview', data: [1, 2, 3] },
+        { id: 'b', label: 'Signup', data: [4, 5, 6] },
+    ]
+
+    it('assembles series + config and passes the host labels through', () => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: ['Mon', 'Tue', 'Wed'],
+            isPercentStackView: false,
+            isGrouped: false,
+        })
+
+        expect(model.labels).toEqual(['Mon', 'Tue', 'Wed'])
+        expect(model.series.map((s) => s.key)).toEqual(['a', 'b'])
+        expect(model.series[0].data).toEqual([1, 2, 3])
+        expect(model.series[0].color).toBe(RED)
+        expect(model.config.barLayout).toBe('stacked')
+    })
+
+    it.each([
+        { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
+        { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
+        { isGrouped: false, isPercentStackView: true, expected: 'percent' },
+        { isGrouped: true, isPercentStackView: true, expected: 'percent' },
+    ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: [],
+            isGrouped,
+            isPercentStackView,
+        })
+        expect(model.config.barLayout).toBe(expected)
+    })
+
+    it('forwards an x-axis tick formatter into the config', () => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: [],
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisTickFormatter: (value) => `~${value}`,
+        })
+        const { tickFormatter } = model.config.xAxis!
+        expect(tickFormatter).toBeTruthy()
+        expect(tickFormatter!('2024-01-01', 0)).toBe('~2024-01-01')
     })
 })

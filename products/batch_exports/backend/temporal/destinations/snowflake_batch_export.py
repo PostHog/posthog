@@ -900,7 +900,7 @@ class SnowflakeClient:
         exists_ok: bool = True,
         delete: bool = True,
         not_found_ok: bool = True,
-    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
             await self.create_table(table)

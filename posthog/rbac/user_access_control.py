@@ -52,10 +52,14 @@ NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+# We need to restrict this for HogQL access control which uses `NOT IN (...)`
+ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
+
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "endpoint",
     "experiment",
     "external_data_source",
     "warehouse_objects",
@@ -289,6 +293,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "endpointversion":
+        return "endpoint"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":

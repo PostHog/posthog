@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -89,18 +88,9 @@ export const NewAzureBlobExport: Story = {
     },
 }
 
-// BigQuery has two variants gated on BATCH_EXPORTS_BIGQUERY_INTEGRATION: the JSON key-file
-// upload (flag off) and the IntegrationChoice picker (flag on).
 export const NewBigQueryExport: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('bigquery'),
-    },
-}
-
-export const NewBigQueryExportWithIntegration: Story = {
-    parameters: {
-        pageUrl: urls.batchExportNew('bigquery'),
-        featureFlags: [FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION],
     },
 }
 
