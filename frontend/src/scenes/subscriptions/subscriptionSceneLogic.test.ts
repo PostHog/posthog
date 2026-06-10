@@ -321,6 +321,8 @@ describe('subscriptionSceneLogic', () => {
         logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
+        // The thanks flash is transient — after a remount the row goes straight to the recorded option.
+        expect(logic.values.recentlyThankedDeliveries).toEqual({})
 
         logic.unmount()
         featureFlagLogic.unmount()
@@ -349,6 +351,13 @@ describe('subscriptionSceneLogic', () => {
             feedback: 'negative',
             source: 'in_app',
         })
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
+        // Thanks flashes first, then expiry settles the row into the recorded option.
+        expect(logic.values.recentlyThankedDeliveries).toEqual({ 'd-9': true })
+        await expectLogic(logic, () => {
+            logic.actions.expireDeliveryThanks('d-9')
+        }).toFinishAllListeners()
+        expect(logic.values.recentlyThankedDeliveries).toEqual({})
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
 
         logic.unmount()

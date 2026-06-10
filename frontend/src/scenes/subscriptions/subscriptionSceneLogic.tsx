@@ -37,6 +37,9 @@ export type SubscriptionSceneLogicProps = {
 export type DeliveryFeedback = 'positive' | 'negative'
 export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
 
+// How long the per-row "Thanks!" flash shows before settling into the recorded option.
+export const FEEDBACK_THANKS_DISPLAY_MS = 3000
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined
@@ -67,6 +70,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             feedback,
             source,
         }),
+        expireDeliveryThanks: (deliveryId: string) => ({ deliveryId }),
     }),
     reducers({
         deliveringSubscriptionId: [
@@ -90,6 +94,18 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             { persist: true },
             {
                 submitDeliveryFeedback: (state, { deliveryId, feedback }) => ({ ...state, [deliveryId]: feedback }),
+            },
+        ],
+        // Transient (not persisted): drives the brief "Thanks!" flash before the row settles
+        // into showing the recorded option.
+        recentlyThankedDeliveries: [
+            {} as Record<string, true>,
+            {
+                submitDeliveryFeedback: (state, { deliveryId }) => ({ ...state, [deliveryId]: true as const }),
+                expireDeliveryThanks: (state, { deliveryId }) => {
+                    const { [deliveryId]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -183,7 +199,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         submitDeliveryFeedback: ({ deliveryId, feedback, source }) => {
             posthog.capture('ai_report_feedback', {
                 subscription_id: parseInt(props.id, 10),
@@ -195,6 +211,11 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             if (source !== 'in_app') {
                 lemonToast.success('Thanks for your feedback')
             }
+            // Per-delivery key so spamming replaces the previous timer instead of stacking.
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.expireDeliveryThanks(deliveryId), FEEDBACK_THANKS_DISPLAY_MS)
+                return () => clearTimeout(timerId)
+            }, `deliveryThanks-${deliveryId}`)
         },
         setDeliveryStatusFilter: () => {
             if (values.deliveriesEnabled && values.subscription) {

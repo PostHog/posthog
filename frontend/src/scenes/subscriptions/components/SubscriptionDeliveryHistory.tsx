@@ -198,6 +198,7 @@ const deliveryColumns = buildDeliveryColumns()
 
 function buildFeedbackColumn(
     deliveryFeedback: Record<string, DeliveryFeedback>,
+    recentlyThankedDeliveries: Record<string, true>,
     onDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback) => void
 ): LemonTableColumns<SubscriptionDeliveryApi>[number] {
     return {
@@ -208,8 +209,27 @@ function buildFeedbackColumn(
             if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
                 return <span className="text-secondary">—</span>
             }
-            if (deliveryFeedback[row.id]) {
+            if (recentlyThankedDeliveries[row.id]) {
                 return <span className="text-secondary whitespace-nowrap">Thanks!</span>
+            }
+            const recorded = deliveryFeedback[row.id]
+            if (recorded) {
+                return (
+                    <Tooltip
+                        title={
+                            recorded === 'positive'
+                                ? 'You marked this report as useful'
+                                : 'You marked this report as not useful'
+                        }
+                    >
+                        <span
+                            className="text-secondary inline-flex p-1"
+                            data-attr="subscription-delivery-feedback-recorded"
+                        >
+                            {recorded === 'positive' ? <IconThumbsUp /> : <IconThumbsDown />}
+                        </span>
+                    </Tooltip>
+                )
             }
             return (
                 <div className="flex items-center gap-1">
@@ -305,8 +325,10 @@ export type SubscriptionDeliveryHistoryProps = {
     testDeliveryLoading?: boolean
     /** When set (AI-prompt subscriptions), completed rows show thumbs up/down feedback buttons. */
     onDeliveryFeedback?: (deliveryId: string, feedback: DeliveryFeedback) => void
-    /** Feedback already given in this session, keyed by delivery id — those rows show a "Thanks" state. */
+    /** Feedback already recorded (persisted per browser), keyed by delivery id — those rows show the chosen option. */
     deliveryFeedback?: Record<string, DeliveryFeedback>
+    /** Deliveries thanked moments ago — those rows briefly show "Thanks!" before settling into the chosen option. */
+    recentlyThankedDeliveries?: Record<string, true>
     /**
      * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
      * on first render. Used exclusively by visual regression tests to capture the
@@ -325,6 +347,7 @@ export function SubscriptionDeliveryHistory({
     testDeliveryLoading = false,
     onDeliveryFeedback,
     deliveryFeedback = {},
+    recentlyThankedDeliveries = {},
     __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
@@ -338,7 +361,7 @@ export function SubscriptionDeliveryHistory({
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
     const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
     const columns = onDeliveryFeedback
-        ? [...deliveryColumns, buildFeedbackColumn(deliveryFeedback, onDeliveryFeedback)]
+        ? [...deliveryColumns, buildFeedbackColumn(deliveryFeedback, recentlyThankedDeliveries, onDeliveryFeedback)]
         : deliveryColumns
 
     return (

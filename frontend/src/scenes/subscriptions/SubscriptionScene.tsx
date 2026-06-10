@@ -82,6 +82,7 @@ export function SubscriptionScene(): JSX.Element {
         deliveringSubscriptionId,
         deliveryStatusFilter,
         deliveryFeedback,
+        recentlyThankedDeliveries,
     } = useValues(subscriptionSceneLogic)
     const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
         useActions(subscriptionSceneLogic)
@@ -123,6 +124,7 @@ export function SubscriptionScene(): JSX.Element {
                                     : undefined
                             }
                             deliveryFeedback={deliveryFeedback}
+                            recentlyThankedDeliveries={recentlyThankedDeliveries}
                         />
                     ) : null}
                 </div>
