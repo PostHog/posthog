@@ -1,12 +1,17 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { actionsModel } from '~/models/actionsModel'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterHeadless } from '../headless'
+import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { DataWarehousePopoverField, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
@@ -361,6 +366,57 @@ export const DefaultSurfaceWithRecents: Story = {
         docs: {
             description: {
                 story: 'The default "All" surface staff land on, brought in line with the pill variant: recents lead, then pinned, then the cross-tab content in fixed (learnable) order. Recent/pinned rows are tagged with their source (e.g. "Events - recent"), and the category dropdown exposes Recent and Pinned alongside the content categories so they stay navigable.',
+            },
+        },
+    },
+}
+
+function SeedBareKeyRecent(): null {
+    useMountedLogic(recentTaxonomicFiltersLogic)
+    useOnMountEffect(() => {
+        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.EventProperties,
+            groupName: 'Event properties',
+            value: '$browser',
+            item: { name: '$browser' },
+            teamId: MOCK_TEAM_ID,
+            propertyFilter: {
+                type: PropertyFilterType.Event,
+                key: '$browser',
+                operator: PropertyOperator.Exact,
+                value: 'Chrome',
+            },
+        })
+    })
+    return null
+}
+
+function BareKeyRecentsContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    return (
+        <div className="flex flex-col gap-3 max-w-2xl">
+            <SeedBareKeyRecent />
+            <TaxonomicFilterHeadless.Root
+                bindRootProps={false}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.EventProperties]}
+                groupType={TaxonomicFilterGroupType.RecentFilters}
+            >
+                <div className="border rounded overflow-hidden w-[360px] bg-surface-primary">
+                    <TaxonomicFilterHeadless.Panel />
+                </div>
+            </TaxonomicFilterHeadless.Root>
+        </div>
+    )
+}
+
+export const RecentsBareKeyExpansion: Story = {
+    render: () => <BareKeyRecentsContainer />,
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-list-recent_filters"]' },
+        docs: {
+            description: {
+                story: 'A complete recent (`$browser = Chrome`) surfaces twice in the recents list: the bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows. Rendered through the headless Panel scoped to RecentFilters so the surface is synchronous (no content fetch, preview pane, or autofocus) and the snapshot stays pixel-stable.',
             },
         },
     },
