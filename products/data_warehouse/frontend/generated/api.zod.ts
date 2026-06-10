@@ -93,13 +93,17 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -180,13 +184,17 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -267,13 +275,17 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -354,13 +366,17 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -441,13 +457,17 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -528,13 +548,17 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -615,13 +639,17 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                value: zod.unknown().describe("Comparison value; must match the column's type."),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                value: zod
+                    .unknown()
+                    .describe(
+                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    ),
             })
         )
         .nullish()
         .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -995,8 +1023,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .array(
                         zod.object({
                             column: zod.string(),
-                            operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
-                            value: zod.unknown().describe("Comparison value; must match the column's type."),
+                            operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                            value: zod
+                                .unknown()
+                                .describe(
+                                    "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                                ),
                         })
                     )
                     .nullish()
