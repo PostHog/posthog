@@ -225,11 +225,11 @@ class TestStorage(APIBaseTest):
             ("builtin_connection_reset", ConnectionResetError("Connection reset by peer"), True),
             (
                 "urllib3_new_connection",
-                NewConnectionError(None, "Failed to establish a new connection"),  # type: ignore[arg-type]
+                NewConnectionError(None, "Failed to establish a new connection"),
                 True,
             ),
             ("value_error", ValueError("something else"), False),
-            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject"), False),  # type: ignore[arg-type]
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject"), False),
         ]
     )
     def test_is_transient_connection_error(self, _name, error, expected):
@@ -270,3 +270,13 @@ class TestStorage(APIBaseTest):
             with self.assertRaises(ObjectStorageError):
                 storage.write("test-bucket", "test-key", b"content", None)
             mock_capture.assert_not_called()
+
+    def test_write_captures_genuine_error(self):
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = ValueError("not a connection problem")
+        storage = ObjectStorage(mock_client)
+
+        with patch("posthog.storage.object_storage.capture_exception") as mock_capture:
+            with self.assertRaises(ObjectStorageError):
+                storage.write("test-bucket", "test-key", b"content", None)
+            mock_capture.assert_called_once()
