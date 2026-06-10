@@ -129,7 +129,7 @@
                 {
                     "properties": {
                         "bytecode": {
-                            "description": "Compiled server-side from 'filters'. Do not set."
+                            "description": "Compiled server-side from 'filters'. Do not set; ignored if sent."
                         },
                         "events": {
                             "description": "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
