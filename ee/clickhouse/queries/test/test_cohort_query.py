@@ -1004,7 +1004,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, _, _ = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p2.uuid] == [r[0] for r in res]
 
@@ -1081,7 +1081,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 }
             )
 
-            res, _, _ = execute(filter, self.team)
+            res = execute(filter, self.team)
 
             assert [p1.uuid] == [r[0] for r in res]
 
