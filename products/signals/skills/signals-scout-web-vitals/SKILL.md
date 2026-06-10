@@ -45,12 +45,12 @@ Web vitals are unusual among scout surfaces in two ways, and both shape how you 
 The four metrics and their bands (p75 is the standard the bands are defined for; the
 product UI defaults to p90 but the thresholds below are p75 semantics):
 
-| Metric | Good   | Needs improvement | Poor    | Property                  |
-| ------ | ------ | ----------------- | ------- | ------------------------- |
-| LCP    | ≤ 2500 | 2500–4000         | > 4000  | `$web_vitals_LCP_value` (ms) |
-| INP    | ≤ 200  | 200–500           | > 500   | `$web_vitals_INP_value` (ms) |
-| CLS    | ≤ 0.1  | 0.1–0.25          | > 0.25  | `$web_vitals_CLS_value` (score) |
-| FCP    | ≤ 1800 | 1800–3000         | > 3000  | `$web_vitals_FCP_value` (ms) |
+| Metric | Good   | Needs improvement | Poor   | Property                        |
+| ------ | ------ | ----------------- | ------ | ------------------------------- |
+| LCP    | ≤ 2500 | 2500–4000         | > 4000 | `$web_vitals_LCP_value` (ms)    |
+| INP    | ≤ 200  | 200–500           | > 500  | `$web_vitals_INP_value` (ms)    |
+| CLS    | ≤ 0.1  | 0.1–0.25          | > 0.25 | `$web_vitals_CLS_value` (score) |
+| FCP    | ≤ 1800 | 1800–3000         | > 3000 | `$web_vitals_FCP_value` (ms)    |
 
 There is no TTFB metric in `$web_vitals` — these four are the whole surface. Read
 [`references/remediation.md`](references/remediation.md) when you're ready to write a
@@ -88,14 +88,14 @@ Three cheap reads cold-start a run:
 
 ### Profile shape — band × volume × trend
 
-| Pattern                                                      | What it usually means                                          |
-| ------------------------------------------------------------ | -------------------------------------------------------------- |
-| One page's p75 in `poor`, high volume, flat history          | **Standing-poor** — chronically slow route; emit on absolute   |
-| One page crosses good/needs→poor in 24h vs its 13d history   | **Band-crossing regression** — deploy/content change; date it  |
-| One page worsens sharply within a band, high volume          | **In-band regression** — early warning before it crosses       |
-| Every page's p75 steps together                              | Population / CDN / third-party shift — one bundled finding max  |
-| p75 swings run-to-run on a low-sample page                   | Percentile noise — gate it out, don't emit                     |
-| All pages comfortably in `good`                              | Nothing here today — close out                                 |
+| Pattern                                                    | What it usually means                                          |
+| ---------------------------------------------------------- | -------------------------------------------------------------- |
+| One page's p75 in `poor`, high volume, flat history        | **Standing-poor** — chronically slow route; emit on absolute   |
+| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — deploy/content change; date it  |
+| One page worsens sharply within a band, high volume        | **In-band regression** — early warning before it crosses       |
+| Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled finding max |
+| p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't emit                     |
+| All pages comfortably in `good`                            | Nothing here today — close out                                 |
 
 ### Explore
 
@@ -117,6 +117,7 @@ SELECT
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY   -- future-clock guard; client clocks lie
   AND properties.$web_vitals_LCP_value IS NOT NULL
 GROUP BY path
 HAVING samples_7d >= 1000          -- enough for a stable weekly p75
@@ -183,6 +184,7 @@ SELECT properties.$device_type AS device,
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 1 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY   -- future-clock guard; client clocks lie
   AND properties.$web_vitals_LCP_value IS NOT NULL
 GROUP BY device, country
 ORDER BY samples DESC
@@ -237,7 +239,7 @@ For each candidate finding:
 
 Cross-check `inbox-reports-list` before emitting. **Sibling courtesy:** acquisition and
 404/bounce site-health belong to `signals-scout-web-analytics`; whole-site metric
-anomalies on watched dashboards to `signals-scout-anomaly-detection`; the *absence* of
+anomalies on watched dashboards to `signals-scout-anomaly-detection`; the _absence_ of
 vitals capture (a config gap) to `signals-scout-health-checks`. Your unique angle is the
 per-page metric value against the threshold.
 
