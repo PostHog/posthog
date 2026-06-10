@@ -352,6 +352,7 @@ async def test_alert_activity_retry_budgets_capped_inside_execution_timeout():
         if activity is notify_alert:
             captured["notify"] = kwargs
             return None
+        captured["prepare"] = kwargs
         return MagicMock(action=PrepareAction.EVALUATE)
 
     with patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity):
@@ -366,7 +367,7 @@ async def test_alert_activity_retry_budgets_capped_inside_execution_timeout():
             )
         )
 
-    assert captured.keys() == {"evaluate", "notify"}
+    assert captured.keys() == {"prepare", "evaluate", "notify"}
     for kwargs in captured.values():
         assert kwargs["schedule_to_close_timeout"] == ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT
         assert kwargs["schedule_to_close_timeout"] < CHECK_ALERT_EXECUTION_TIMEOUT

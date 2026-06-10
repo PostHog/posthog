@@ -145,6 +145,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )
 
