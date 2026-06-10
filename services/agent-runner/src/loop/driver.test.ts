@@ -174,6 +174,10 @@ async function run(
         inputs: new PgSessionQueue(pool),
         bus: driverTestBus,
         logs: driverTestLogs,
+        // approvals is mandatory — runSession refuses to run without it.
+        // Tests exercising the gate override via `over`; the rest just need a
+        // real store wired so gating stays on (no ungated fast path).
+        approvals: new PgApprovalStore(pool),
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
         ...over,
@@ -189,6 +193,16 @@ describe('driver runSession', () => {
             async searchPersons() {
                 return { persons: [] }
             },
+        })
+    })
+
+    describe('approval gating is fail-closed', () => {
+        it('refuses to run without an approval store wired', async () => {
+            // Overriding approvals to undefined must crash, not silently run
+            // every requires_approval tool ungated.
+            await expect(run(makeRev(), makeSession(), { approvals: undefined })).rejects.toThrow(
+                /approvals is required/
+            )
         })
     })
 

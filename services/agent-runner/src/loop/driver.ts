@@ -125,10 +125,12 @@ export interface RunSessionDeps {
     analytics?: AnalyticsSink
     /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
     useGatewayCost?: boolean
-    /** Approval-gated tool store. When set, gated tools queue instead of
+    /** Approval-gated tool store. MANDATORY — gated tools queue instead of
      * executing and resume via the decided-marker path in getSteeringMessages.
-     * When absent, gated tools run normally (pre-approval default). */
-    approvals?: ApprovalStore
+     * `runSession` throws if it's missing rather than running gated tools
+     * ungated (a `requires_approval` flag that silently does nothing is a
+     * security hole). No mock variant. */
+    approvals: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
     /**
      * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
@@ -209,6 +211,13 @@ export type RunOutcome =
     | { state: 'failed'; reason: string; turns: number }
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
+    // Fail-closed: never run a session with approval gating disabled. `Worker`
+    // already guards at construction; this catches any direct `runSession`
+    // caller (tests, future entrypoints) so a `requires_approval` tool can
+    // never silently dispatch ungated.
+    if (!deps.approvals) {
+        throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
+    }
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
     })
@@ -384,14 +393,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
 
         // Keep each tool's real execute, then swap gated tools for the queue path.
         // The real execute is what an approved call runs on resume (the human has
-        // already cleared the gate). Gating is active only when an approvals store
-        // is wired; otherwise gated tools run normally (the pre-approval default).
+        // already cleared the gate). `approvals` is mandatory (runSession throws
+        // otherwise), so gating is unconditional — there is no ungated fast path.
         const realExecute = new Map<string, RealToolExecute>()
         for (const tool of tools) {
             // Tools are named with their original id.
             realExecute.set(tool.name, tool.execute as RealToolExecute)
         }
-        if (deps.approvals) {
+        {
             const approvals = deps.approvals
             for (const tool of tools) {
                 const id = tool.name
@@ -771,8 +780,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 })
                                 continue
                             }
-                            const requestId = deps.approvals ? approvalMarkerRequestId(msg) : null
-                            if (!requestId || !deps.approvals) {
+                            const requestId = approvalMarkerRequestId(msg)
+                            if (!requestId) {
                                 // Plain steering input (e.g. /send) — consume it.
                                 out.push(msg)
                                 if (msg.role === 'user') {

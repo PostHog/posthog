@@ -23,6 +23,7 @@ import {
     InProcessSandboxPool,
     KafkaLogSink,
     newTestPrefix,
+    PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
@@ -36,7 +37,7 @@ const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import type { McpTransportFactory } from '../loop/mcp-clients'
-import { Worker } from './worker'
+import { Worker, type WorkerDeps } from './worker'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -105,6 +106,12 @@ describe('Worker', () => {
         }
     })
 
+    it('refuses to construct without an approval store (fail-closed)', () => {
+        // The constructor must crash rather than run a worker that silently
+        // skips every requires_approval gate.
+        expect(() => new Worker({} as unknown as WorkerDeps)).toThrow(/approvals is required/)
+    })
+
     it('claims a session, runs it, marks it completed', async () => {
         const revisions = new PgRevisionStore(pool)
         const bundle = bundleStore
@@ -152,6 +159,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('hi back')]),
@@ -221,6 +229,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({ ACME_KEY: 'topsecret' }),
             resolveModel: () => fauxModel([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
@@ -314,6 +323,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
@@ -382,6 +392,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
@@ -453,6 +464,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('would never run')]),
@@ -583,6 +595,7 @@ describe('Worker', () => {
                 broker: new SecretBroker(),
                 bus: workerTestBus,
                 logs: workerTestLogs,
+                approvals: new PgApprovalStore(pool),
                 resolveIntegrations: async () => ({}),
                 resolveSecrets: async () => ({}),
                 resolveModel: () => fauxModel([endTurn('would never run')]),
@@ -691,6 +704,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: stubBus as unknown as RedisSessionEventBus,
             logs: stubLogs as unknown as KafkaLogSink,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             // Pick a deterministic pre-runSession failure — `resolveSecrets`
             // throws before the driver runs.
@@ -737,6 +751,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([]),
@@ -772,6 +787,7 @@ describe('Worker', () => {
             broker: new SecretBroker(),
             bus: workerTestBus,
             logs: workerTestLogs,
+            approvals: new PgApprovalStore(pool),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([]),

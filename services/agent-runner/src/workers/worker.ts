@@ -140,11 +140,13 @@ export interface WorkerDeps {
     useGatewayCost?: boolean
     /**
      * Approval-gated tools store (see
-     * docs/agent-platform/plans/approval-gated-tools.md). Required for
-     * `requires_approval` in spec.tools to do anything — when absent the
-     * dispatcher behaves as if no tools were gated.
+     * docs/agent-platform/plans/approval-gated-tools.md). MANDATORY and
+     * fail-closed: `requires_approval` in spec.tools is a security control, so
+     * the store must always be wired — an unwired store silently disables every
+     * gate (the bug this used to be). The `Worker` constructor throws when it's
+     * missing; there is no mock / in-memory variant by design.
      */
-    approvals?: ApprovalStore
+    approvals: ApprovalStore
     /**
      * Builds the deep link the synthetic queued tool_result surfaces to
      * the model. Wire from config so prod hits the real domain.
@@ -228,6 +230,16 @@ export class Worker {
     private readonly inflight = new Map<string, Promise<void>>()
 
     constructor(private readonly deps: WorkerDeps) {
+        // Fail-closed: the approval store is a security control, not an optional
+        // capability. Boot crashes here rather than silently running every
+        // `requires_approval` tool ungated. Guarded at runtime (not just the
+        // type) so a JS caller / test that omits it can't slip a gate-less
+        // worker into production.
+        if (!deps.approvals) {
+            throw new Error(
+                'WorkerDeps.approvals is required — refusing to start with approval gating disabled. Wire a PgApprovalStore.'
+            )
+        }
         this.maxConcurrency = Math.max(1, deps.maxConcurrency ?? 8)
     }
 
