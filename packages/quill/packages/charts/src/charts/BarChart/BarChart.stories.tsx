@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+// Force snapshot refresh after axis baseline + hover control changes
 import type { BarChartConfig, BarFillStyle, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
