@@ -193,6 +193,7 @@ class CustomSignalAgent:
         self._assignees: list[CustomAgentAssignee] | None = None
         self._actionability: ActionabilityAssessment | None = None
         self._priority: PriorityAssessment | None = None
+        self._extra_artefacts: list[tuple[str, str]] = []
         self._persisted_reports: list[PersistedCustomAgentReport] = []
 
     # ------------------------------------------------------------------
@@ -281,6 +282,16 @@ class CustomSignalAgent:
 
     def register_assignees(self, assignees: list[CustomAgentAssignee]) -> None:
         self._assignees = list(assignees)
+
+    def register_artefact(self, artefact_type: str, content: str) -> None:
+        """Attach an extra artefact to the next persisted report (e.g. the agent's full
+        structured research output as ``signal_finding``, so it is queryable afterwards).
+
+        ``artefact_type`` must be a valid ``SignalReportArtefact.ArtefactType`` value.
+        """
+        if not content.strip():
+            raise ValueError("artefact content must not be empty")
+        self._extra_artefacts.append((artefact_type, content))
 
     # ------------------------------------------------------------------
     # 4. Likely to be overridden (prompt customization)
@@ -461,6 +472,7 @@ Rules:
             final_report=final,
             repo_selection=self._resolved_repository,
             task_id=task_id,
+            extra_artefacts=list(self._extra_artefacts),
         )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted, final)
@@ -509,6 +521,7 @@ Rules:
         self._assignees = None
         self._actionability = None
         self._priority = None
+        self._extra_artefacts = []
 
     def _final_report(self) -> CustomAgentFinalReport:
         missing = []

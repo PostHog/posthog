@@ -22,8 +22,14 @@ def create_custom_agent_ready_report(
     final_report: CustomAgentFinalReport,
     repo_selection: RepoSelectionResult,
     task_id: str | None = None,
+    extra_artefacts: list[tuple[str, str]] | None = None,
 ) -> PersistedCustomAgentReport:
-    """Create a final READY report plus compatible artefacts in one transaction."""
+    """Create a final READY report plus compatible artefacts in one transaction.
+
+    ``extra_artefacts``: optional ``(artefact_type, content)`` pairs the agent registered
+    (e.g. its full structured research output as ``signal_finding``) — persisted alongside
+    the standard component artefacts.
+    """
     with transaction.atomic():
         report = SignalReport.objects.create(
             team_id=team_id,
@@ -64,6 +70,15 @@ def create_custom_agent_ready_report(
                     report=report,
                     type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                     content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
+                )
+            )
+        for artefact_type, content in extra_artefacts or []:
+            artefacts.append(
+                SignalReportArtefact(
+                    team_id=team_id,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType(artefact_type),
+                    content=content,
                 )
             )
         SignalReportArtefact.objects.bulk_create(artefacts)
