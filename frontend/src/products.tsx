@@ -627,7 +627,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description:
             'Open PRs are the unit of work \u2014 track CI health, throughput, and where engineering hours go.',
-        iconType: 'metrics',
+        iconType: 'health',
     },
     ErrorTracking: {
         projectBased: true,
@@ -1536,7 +1536,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.ENGINEERING_ANALYTICS],
         category: ProductItemCategory.UNRELEASED,
         type: 'engineering_analytics',
-        iconType: 'metrics' as FileSystemIconType,
+        iconType: 'health' as FileSystemIconType,
         iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,

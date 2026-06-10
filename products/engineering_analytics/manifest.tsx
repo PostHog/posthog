@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
             name: 'CI analytics',
             layout: 'app-container',
             description: 'Open PRs are the unit of work — track CI health, throughput, and where engineering hours go.',
-            iconType: 'metrics',
+            iconType: 'health',
         },
     },
     routes: {
@@ -39,7 +39,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',
-            iconType: 'metrics' as FileSystemIconType,
+            iconType: 'health' as FileSystemIconType,
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
