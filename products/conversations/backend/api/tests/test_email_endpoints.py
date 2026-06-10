@@ -1193,6 +1193,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
 
         support_comment = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
 
+        assert isinstance(support_comment.item_context, dict)
         assert support_comment.item_context["from_email"] is True
         assert support_comment.item_context["author_type"] == "support"
         assert EmailOutboxMessage.objects.filter(comment=support_comment).count() == 0
@@ -1210,6 +1211,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         )
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["from_email"] is True
         assert comment.item_context["author_type"] == "customer"
 

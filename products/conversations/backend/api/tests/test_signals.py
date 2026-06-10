@@ -443,37 +443,25 @@ class TestEmailReplySignalGuard(BaseTest):
             email_subject="Help",
         )
 
-    def test_from_email_comment_does_not_create_outbox(self, mock_on_commit):
+    @parameterized.expand(
+        [
+            ("inbound_team_email_blocked", "support", True, True, 0),
+            ("in_app_agent_reply_sent", "support", False, True, 1),
+            ("customer_email_blocked", "customer", True, True, 0),
+        ]
+    )
+    def test_email_outbox_guard(self, _name, author_type, from_email, has_created_by, expected_count, mock_on_commit):
+        ctx: dict = {"author_type": author_type, "is_private": False}
+        if from_email:
+            ctx["from_email"] = True
+
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.email_ticket.id),
-            content="Inbound team reply via email",
-            created_by=self.user,
-            item_context={"author_type": "support", "is_private": False, "from_email": True},
+            content="test message",
+            created_by=self.user if has_created_by else None,
+            item_context=ctx,
         )
 
-        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 0
-
-    def test_agent_reply_without_from_email_creates_outbox(self, mock_on_commit):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.email_ticket.id),
-            content="In-app agent reply",
-            created_by=self.user,
-            item_context={"author_type": "support", "is_private": False},
-        )
-
-        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 1
-
-    def test_customer_comment_does_not_create_outbox(self, mock_on_commit):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.email_ticket.id),
-            content="Customer follow-up",
-            item_context={"author_type": "customer", "is_private": False, "from_email": True},
-        )
-
-        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 0
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
