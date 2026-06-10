@@ -71,6 +71,9 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
+                              |CodePrSnapshot
+                              |CodeWorkflowConfig
+                              |CodeWorkstream
                               |Cohort
                               |Comment
                               |Conversation
@@ -121,6 +124,7 @@ rules:
                               |Evaluation
                               |Experiment
                               |ExperimentHoldout
+                              |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
@@ -205,6 +209,7 @@ rules:
                               |SignalSourceConfig
                               |SignalScoutConfig
                               |SignalScoutRun
+                              |SignalScoutEmission
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -309,6 +314,9 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
+                        |CodePrSnapshot
+                        |CodeWorkflowConfig
+                        |CodeWorkstream
                         |Cohort
                         |Comment
                         |Conversation
@@ -359,6 +367,7 @@ rules:
                         |Evaluation
                         |Experiment
                         |ExperimentHoldout
+                        |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
                         |ExportedAsset
                         |ExportedRecording
@@ -439,6 +448,7 @@ rules:
                         |SignalSourceConfig
                         |SignalScoutConfig
                         |SignalScoutRun
+                        |SignalScoutEmission
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -568,6 +578,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -634,6 +645,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership

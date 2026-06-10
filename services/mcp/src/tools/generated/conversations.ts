@@ -39,6 +39,8 @@ const conversationsTicketsList = (): ToolBase<
                 sla: params.sla,
                 status: params.status,
                 tags: params.tags,
+                tags_all: params.tags_all,
+                tags_exclude: params.tags_exclude,
             },
         })
         const filtered = {

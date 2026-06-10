@@ -183,9 +183,9 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Add a markdown text tile to a dashboard.
-
-Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
-or annotations between insight tiles to give the dashboard structure.
+ *
+ * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+ * or annotations between insight tiles to give the dashboard structure.
  */
 export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
@@ -246,10 +246,10 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Soft-delete a single tile from a dashboard.
-
-Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-use the dashboard delete endpoint instead.
+ *
+ * Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+ * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+ * use the dashboard delete endpoint instead.
  */
 export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
@@ -535,7 +535,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .min(1)
                                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
-                                    .describe('Maximum number of issues to return.'),
+                                    .describe('Maximum number of issues to return (page size).'),
                                 orderBy: zod
                                     .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
                                     .describe(
@@ -561,6 +561,51 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'Issue status filter.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
                                     ),
+                                assignee: zod
+                                    .union([
+                                        zod.object({
+                                            id: zod
+                                                .union([zod.string(), zod.number(), zod.null()])
+                                                .describe('User ID or role UUID to filter by.'),
+                                            type: zod
+                                                .enum(['user', 'role'])
+                                                .describe('* `user` - user\n* `role` - role')
+                                                .describe(
+                                                    'Assignee target type: user or role.\n\n* `user` - user\n* `role` - role'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
+                                widgetFilters: zod
+                                    .record(
+                                        zod.string(),
+                                        zod.object({
+                                            filterId: zod
+                                                .string()
+                                                .describe('Filter UUID; must match the widgetFilters map key.'),
+                                            propertyName: zod
+                                                .string()
+                                                .describe('Event property key (for example $environment).'),
+                                            optionId: zod
+                                                .string()
+                                                .describe('Selected option id from the filter definition.'),
+                                            operator: zod
+                                                .string()
+                                                .describe(
+                                                    'Property filter operator (for example exact, is_not, icontains).'
+                                                ),
+                                            value: zod
+                                                .unknown()
+                                                .optional()
+                                                .describe('Filter value as a string, list of strings, or null.'),
+                                        })
+                                    )
+                                    .optional()
+                                    .describe(
+                                        "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here."
+                                    ),
                                 dateRange: zod
                                     .union([
                                         zod.object({
@@ -581,7 +626,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.null(),
                                     ])
                                     .optional()
-                                    .describe('Optional relative date range override.'),
+                                    .describe('Relative date range for issues (date_from only on widgets).'),
                                 filterTestAccounts: zod
                                     .boolean()
                                     .optional()
@@ -699,6 +744,34 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ])
                                     .optional()
                                     .describe('Optional relative date range override.'),
+                                widgetFilters: zod
+                                    .record(
+                                        zod.string(),
+                                        zod.object({
+                                            filterId: zod
+                                                .string()
+                                                .describe('Filter UUID; must match the widgetFilters map key.'),
+                                            propertyName: zod
+                                                .string()
+                                                .describe('Event property key (for example $environment).'),
+                                            optionId: zod
+                                                .string()
+                                                .describe('Selected option id from the filter definition.'),
+                                            operator: zod
+                                                .string()
+                                                .describe(
+                                                    'Property filter operator (for example exact, is_not, icontains).'
+                                                ),
+                                            value: zod
+                                                .unknown()
+                                                .optional()
+                                                .describe('Filter value as a string, list of strings, or null.'),
+                                        })
+                                    )
+                                    .optional()
+                                    .describe(
+                                        "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here."
+                                    ),
                                 filterTestAccounts: zod
                                     .boolean()
                                     .optional()

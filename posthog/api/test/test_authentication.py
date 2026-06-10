@@ -38,8 +38,8 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    ProjectSecretAPIKeyUser,
+    TeamSecretTokenAuthentication,
+    TeamSecretTokenUser,
 )
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
@@ -1912,7 +1912,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
 
-class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()  # Call the setup from APIBaseTest
         self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
@@ -1920,7 +1920,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
     def test_authenticate_with_valid_secret_api_key_in_header(self):
-        # Simulate a request with a valid secret API key
+        # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
             "/",
             data=None,
@@ -1929,17 +1929,17 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         )
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
         assert result is not None
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_valid_secret_api_key_in_body(self):
-        # Simulate a request with a valid secret API key
+        # Simulate a request with a valid team secret token
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
@@ -1948,13 +1948,13 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
         request.parsers = [JSONParser()]  # Explicitly set JSONParser
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
         assert result is not None
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
@@ -1962,27 +1962,27 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
-        # Simulate a request with an invalid secret API key
+        # Simulate a request with an invalid team secret token
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_without_secret_api_key(self):
-        # Simulate a request without a secret API key
+        # Simulate a request without a team secret token
         wsgi_request = self.factory.get("/")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
@@ -1998,12 +1998,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
@@ -2017,12 +2017,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     @parameterized.expand(
@@ -2039,7 +2039,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
@@ -2492,7 +2492,7 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
             set_known_device_cookie(response, request.user)
         File "posthog/helpers/user_devices.py", in set_known_device_cookie
             KNOWN_DEVICE_COOKIE.format(user_id=user.id),
-        AttributeError: 'ProjectSecretAPIKeyUser' object has no attribute 'id'
+        AttributeError: 'TeamSecretTokenUser' object has no attribute 'id'
 
     Drives the real ASGI middleware chain via httpx + ASGITransport (patterned after
     posthog-python's integration_tests/django5). Sync `Client` skips the ASGI app and so

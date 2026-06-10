@@ -40,7 +40,19 @@ def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
     currencies = []
 
     # Load the CSV file
-    with open(os.path.join(os.path.dirname(__file__), "historical.csv")) as f:
+    csv_path = os.path.join(os.path.dirname(__file__), "historical.csv")
+    if not os.path.exists(csv_path):
+        # `historical.csv` is a large (~9MB) git-tracked asset that ships with the repo.
+        # When it's missing the checkout is incomplete (e.g. a partial/sparse clone or a
+        # sandboxed environment that skipped large files), not a logic bug — so surface an
+        # actionable message instead of a bare FileNotFoundError from `open` below.
+        raise FileNotFoundError(
+            f"Exchange rate data file not found at {csv_path}. "
+            "This file is tracked in git and required to backfill ClickHouse exchange rates; "
+            "ensure your checkout includes it (a partial or sparse clone may have skipped it)."
+        )
+
+    with open(csv_path) as f:
         reader = csv.reader(f)
 
         # Get header row with currency codes
