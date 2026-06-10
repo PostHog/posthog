@@ -737,18 +737,6 @@ class UserAccessControl:
     # Resource level - checking conditions for the resource type
     # ------------------------------------------------------------
 
-    def _own_resource_access_level(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
-        """Resource-level access from this resource's OWN rows only (no parent inheritance).
-        Returns None when the resource has no resource-level rows of its own."""
-        filters = self._access_controls_filters_for_resource(resource)
-        access_controls = self._get_access_controls(filters)
-        if not access_controls:
-            return None
-        return max(
-            access_controls,
-            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        ).access_level
-
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
         Access levels are strings - the order of which is determined at run time.
@@ -758,22 +746,6 @@ class UserAccessControl:
         an explicit child rule (allow or deny) overrides the parent umbrella, and a child
         with no rule of its own inherits the parent's level.
         """
-
-        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
-        if parent_resource:
-            if self._organization_membership is None:
-                return None
-            # Org admins always have resource level access
-            if self.is_organization_admin:
-                return highest_access_level(resource)
-
-            if not self.access_controls_supported:
-                return self.access_level_for_resource(parent_resource)
-
-            child_level = self._own_resource_access_level(resource)
-            if child_level is not None:
-                return child_level
-            return self.access_level_for_resource(parent_resource)
 
         # These are resources which we don't have resource level access controls for
         if resource == "organization" or resource == "project" or resource == "plugin":
@@ -791,10 +763,23 @@ class UserAccessControl:
             # If access controls aren't supported, then return the default access level
             return default_access_level(resource)
 
-        own_level = self._own_resource_access_level(resource)
-        if own_level is None:
-            return default_access_level(resource)
-        return own_level
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+
+        if access_controls:
+            return max(
+                access_controls,
+                key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
+            ).access_level
+
+        # No resource-level rules of its own, using the parent resource's rules
+        # (e.g. warehouse_table -> warehouse_objects)
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.access_level_for_resource(parent_resource)
+
+        # Fall back to the default if there are no access controls for either the child or parent resource
+        return default_access_level(resource)
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
@@ -806,9 +791,9 @@ class UserAccessControl:
         # separately via specific_access_level_for_object.
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
-            return self.has_access_levels_for_resource(parent_resource) or (
-                self._own_resource_access_level(resource) is not None
-            )
+            filters = self._access_controls_filters_for_resource(resource)
+            access_controls = self._get_access_controls(filters)
+            return self.has_access_levels_for_resource(parent_resource) or bool(access_controls)
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
