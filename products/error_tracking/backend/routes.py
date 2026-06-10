@@ -10,6 +10,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSettingsViewSet,
+    ErrorTrackingSigningKeyViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -107,5 +108,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/git-provider-file-links",
         GitProviderFileLinksViewSet,
         "project_error_tracking_git_provider_file_links",
+        ["team_id"],
+    )
+    routers.register_legacy_dual_route(
+        r"error_tracking/signing_keys",
+        ErrorTrackingSigningKeyViewSet,
+        "project_error_tracking_signing_key",
         ["team_id"],
     )

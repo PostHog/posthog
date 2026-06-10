@@ -8,6 +8,7 @@ from .query import ErrorTrackingQueryViewSet
 from .recommendations import ErrorTrackingRecommendationViewSet
 from .releases import ErrorTrackingReleaseViewSet
 from .settings import ErrorTrackingSettingsViewSet
+from .signing_keys import ErrorTrackingSigningKeyViewSet
 from .spike_detection_config import ErrorTrackingSpikeDetectionConfigViewSet
 from .spike_events import ErrorTrackingSpikeEventViewSet
 from .stack_frames import ErrorTrackingStackFrameViewSet
@@ -29,5 +30,6 @@ __all__ = [
     "ErrorTrackingSpikeEventViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",
+    "ErrorTrackingSigningKeyViewSet",
     "GitProviderFileLinksViewSet",
 ]

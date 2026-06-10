@@ -246,6 +246,34 @@ class ErrorTrackingSymbolSet(UUIDTModel):
         db_table = "posthog_errortrackingsymbolset"
 
 
+class ErrorTrackingSigningKey(UUIDTModel):
+    """An Ed25519 *public* key registered by a customer so ingestion (cymbal) can verify that a
+    signed `$exception` event genuinely came from their backend. The customer holds the private
+    key in their backend SDK; only the public key is stored here (safe at rest). cymbal reads
+    this table directly to look a team's keys up by `key_id`."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Stable short fingerprint of the public key: base64url(sha256(raw_pubkey))[:16]. The signing
+    # SDK derives the same id from its private key and stamps it on the event for lookup.
+    key_id = models.TextField(null=False, blank=False)
+    # PEM-encoded Ed25519 public key (SubjectPublicKeyInfo).
+    public_key = models.TextField(null=False, blank=False)
+    label = models.TextField(null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "key_id"], name="unique_signing_key_id_per_team"),
+        ]
+        db_table = "posthog_errortrackingsigningkey"
+
+
 class ErrorTrackingAssignmentRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
