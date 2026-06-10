@@ -3534,6 +3534,12 @@ export function MarkdownNotebook({
     const handleRootEditableKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         // Keyboard editing is dispatched from the root editing host based on the current selection: in real
         // browsers key events target the canvas (nested contenteditable blocks are not separate editing hosts).
+        // Events from native editable elements (e.g. the AI prompt textarea) are excluded, because the DOM
+        // selection can still point at a previously focused block.
+        if (event.target instanceof HTMLElement && isNativeEditableElement(event.target)) {
+            return
+        }
+
         if (mode === 'edit' && event.key === 'Tab' && !event.altKey && !event.metaKey && !event.ctrlKey) {
             const inlineEditableElement = getInlineEditableElementForSelection(
                 window.getSelection(),
