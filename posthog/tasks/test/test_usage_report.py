@@ -5297,6 +5297,58 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_final[0][1], baseline_count + 1)
 
+    def test_gateway_ai_events_excluded_from_billable_ai_count(self) -> None:
+        """AI Gateway generations ($ai_gateway: true) are billed via the gateway's own ledger, so
+        they must be excluded from the AIO billable event count; normal SDK generations stay counted."""
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        # setUp already created 10 AI events for self.team, none gateway-originated.
+        baseline = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+        self.assertEqual(baseline[0][1], 10)
+
+        # Gateway-originated generations must NOT be counted.
+        for i in range(4):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"gateway_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 4),
+                properties={
+                    "$ai_model": "claude-3",
+                    "$ai_provider": "anthropic",
+                    "$ai_gateway": True,
+                    "$ai_ingestion_source": "gateway",
+                },
+                person_mode="full",
+            )
+
+        # Normal client generations (no $ai_gateway) must still be counted.
+        for i in range(2):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"sdk_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 8),
+                properties={"$ai_model": "gpt-4", "$ai_provider": "openai"},
+                person_mode="full",
+            )
+
+        # A client passing $ai_gateway: false is explicitly billed (not excluded).
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="sdk_user_explicit_false",
+            timestamp=self.begin + relativedelta(hours=11),
+            properties={"$ai_model": "gpt-4", "$ai_provider": "openai", "$ai_gateway": False},
+            person_mode="full",
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+        # 10 baseline + 2 SDK + 1 explicit-false = 13; the 4 gateway events are excluded.
+        self.assertEqual(result[0][1], 13)
+
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period

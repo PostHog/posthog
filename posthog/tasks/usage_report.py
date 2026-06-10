@@ -1102,11 +1102,20 @@ def get_teams_with_ai_event_count_in_period(
     end: datetime,
 ) -> list[tuple[int, int]]:
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
+        # Gateway-originated generations ($ai_gateway: true) are billed by the AI Gateway's own
+        # ledger, so excluding them here stops the same call being double-billed when it also lands
+        # as an $ai_generation event (gateway-emitted or SDK/OTel double-capture). Events are kept,
+        # only the billable count drops. NOTE: $ai_gateway is a client-settable event property and is
+        # not (yet) enforced server-side at ingestion, so this is forgeable — the robust fix is for
+        # billing to reconcile against the gateway's trusted ledger rather than this property.
         return sync_execute(
             """
             SELECT team_id, COUNT() as count
             FROM events
-            WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE event IN %(ai_events)s
+                AND timestamp >= %(begin)s
+                AND timestamp < %(end)s
+                AND NOT JSONExtractBool(properties, '$ai_gateway')
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
