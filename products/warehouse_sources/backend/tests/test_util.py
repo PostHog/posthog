@@ -16,44 +16,42 @@ from products.warehouse_sources.backend.models.util import (
 
 
 class TestColumnPositions(BaseTest):
-    def test_stamp_assigns_positions_in_insertion_order(self):
-        columns: dict[str, Any] = {
-            "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-            "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-            "source_product": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-        }
-
+    @parameterized.expand(
+        [
+            (
+                "assigns_positions_in_insertion_order",
+                {
+                    "content": {"clickhouse": "String"},
+                    "id": {"clickhouse": "String"},
+                    "source_product": {"clickhouse": "String"},
+                },
+                {"content": 0, "id": 1, "source_product": 2},
+            ),
+            (
+                "preserves_existing_positions_and_appends_new",
+                {
+                    "new_column": {"clickhouse": "String"},
+                    "id": {"clickhouse": "String", "position": 1},
+                    "content": {"clickhouse": "String", "position": 0},
+                },
+                {"new_column": 2, "id": 1, "content": 0},
+            ),
+            (
+                "leaves_old_style_string_columns_untouched",
+                {
+                    "id": "String",
+                    "content": {"clickhouse": "String"},
+                },
+                {"id": None, "content": 0},
+            ),
+        ]
+    )
+    def test_stamp_column_positions(self, _name, columns: dict[str, Any], expected_positions: dict[str, int | None]):
         stamp_column_positions(columns)
 
-        assert {name: value["position"] for name, value in columns.items()} == {
-            "content": 0,
-            "id": 1,
-            "source_product": 2,
-        }
-
-    def test_stamp_preserves_existing_positions_and_appends_new(self):
-        columns: dict[str, Any] = {
-            "new_column": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-            "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 1},
-            "content": {"hogql": "StringDatabaseField", "clickhouse": "String", "position": 0},
-        }
-
-        stamp_column_positions(columns)
-
-        assert columns["content"]["position"] == 0
-        assert columns["id"]["position"] == 1
-        assert columns["new_column"]["position"] == 2
-
-    def test_stamp_leaves_old_style_string_columns_untouched(self):
-        columns: dict[str, Any] = {
-            "id": "String",
-            "content": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-        }
-
-        stamp_column_positions(columns)
-
-        assert columns["id"] == "String"
-        assert columns["content"]["position"] == 0
+        assert {
+            name: (value.get("position") if isinstance(value, dict) else None) for name, value in columns.items()
+        } == expected_positions
 
     @parameterized.expand(
         [

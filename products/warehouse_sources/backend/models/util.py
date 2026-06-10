@@ -56,13 +56,18 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
     return table
 
 
-def stamp_column_positions(columns: dict[str, Any]) -> dict[str, Any]:
-    """Persist each dict-style column's position so its order survives a database round-trip.
+def stamp_column_positions(columns: dict[str, Any]) -> None:
+    """Persist each dict-style column's position (in place) so its order survives a database
+    round-trip.
 
     Postgres stores the ``columns`` JSONField as jsonb, which does not preserve object key
     order (keys come back sorted by length, then bytewise). Entries that already carry a
     position keep it; unstamped entries are appended in iteration order after the highest
     existing position. Old-style string entries cannot carry a position and are left as-is.
+
+    A legacy row saved without its columns being recomputed gets positions stamped in its
+    current (jsonb) iteration order — output-identical to the unstamped behavior, and the
+    next columns refresh builds a fresh dict and restamps the true order.
     """
     existing_positions = [
         value["position"]
@@ -74,7 +79,6 @@ def stamp_column_positions(columns: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, dict) and not isinstance(value.get("position"), int):
             value["position"] = next_position
             next_position += 1
-    return columns
 
 
 def columns_in_position_order(columns: dict[str, Any]) -> list[tuple[str, Any]]:
