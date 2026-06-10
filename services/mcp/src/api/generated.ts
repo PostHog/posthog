@@ -11518,14 +11518,14 @@ export namespace Schemas {
 
     /**
      * * `web_analytics` - Web analytics
-    * `product_analytics` - Product analytics
-    * `session_replay` - Session replay
-    * `surveys` - Surveys
-    * `feature_flags` - Feature flags
-    * `experiments` - Experiments
-    * `error_tracking` - Error tracking
-    * `data_warehouse` - Data warehouse
-    * `other` - Other
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other
      */
     export type TopicEnum = typeof TopicEnum[keyof typeof TopicEnum];
 
@@ -11567,16 +11567,16 @@ export namespace Schemas {
          */
       readonly title: string | null;
       /** Product domain the conversation is about, classified from the first question.
-
-      * `web_analytics` - Web analytics
-      * `product_analytics` - Product analytics
-      * `session_replay` - Session replay
-      * `surveys` - Surveys
-      * `feature_flags` - Feature flags
-      * `experiments` - Experiments
-      * `error_tracking` - Error tracking
-      * `data_warehouse` - Data warehouse
-      * `other` - Other */
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
       readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
@@ -11620,16 +11620,16 @@ export namespace Schemas {
          */
       readonly title: string | null;
       /** Product domain the conversation is about, classified from the first question.
-
-      * `web_analytics` - Web analytics
-      * `product_analytics` - Product analytics
-      * `session_replay` - Session replay
-      * `surveys` - Surveys
-      * `feature_flags` - Feature flags
-      * `experiments` - Experiments
-      * `error_tracking` - Error tracking
-      * `data_warehouse` - Data warehouse
-      * `other` - Other */
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
       readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
@@ -29083,16 +29083,16 @@ export namespace Schemas {
          */
       readonly title?: string | null;
       /** Product domain the conversation is about, classified from the first question.
-
-      * `web_analytics` - Web analytics
-      * `product_analytics` - Product analytics
-      * `session_replay` - Session replay
-      * `surveys` - Surveys
-      * `feature_flags` - Feature flags
-      * `experiments` - Experiments
-      * `error_tracking` - Error tracking
-      * `data_warehouse` - Data warehouse
-      * `other` - Other */
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
       readonly topic?: TopicEnum | null;
       readonly user?: UserBasic;
       /** @nullable */

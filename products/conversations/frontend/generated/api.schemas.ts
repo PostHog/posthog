@@ -22,14 +22,14 @@ export const ConversationStatusApi = {
 
 /**
  * * `web_analytics` - Web analytics
- * `product_analytics` - Product analytics
- * `session_replay` - Session replay
- * `surveys` - Surveys
- * `feature_flags` - Feature flags
- * `experiments` - Experiments
- * `error_tracking` - Error tracking
- * `data_warehouse` - Data warehouse
- * `other` - Other
+ * * `product_analytics` - Product analytics
+ * * `session_replay` - Session replay
+ * * `surveys` - Surveys
+ * * `feature_flags` - Feature flags
+ * * `experiments` - Experiments
+ * * `error_tracking` - Error tracking
+ * * `data_warehouse` - Data warehouse
+ * * `other` - Other
  */
 export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
 
@@ -124,16 +124,16 @@ export interface ConversationMinimalApi {
      */
     readonly title: string | null
     /** Product domain the conversation is about, classified from the first question.
-
-  * `web_analytics` - Web analytics
-  * `product_analytics` - Product analytics
-  * `session_replay` - Session replay
-  * `surveys` - Surveys
-  * `feature_flags` - Feature flags
-  * `experiments` - Experiments
-  * `error_tracking` - Error tracking
-  * `data_warehouse` - Data warehouse
-  * `other` - Other */
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
     readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
@@ -235,16 +235,16 @@ export interface ConversationApi {
      */
     readonly title: string | null
     /** Product domain the conversation is about, classified from the first question.
-
-  * `web_analytics` - Web analytics
-  * `product_analytics` - Product analytics
-  * `session_replay` - Session replay
-  * `surveys` - Surveys
-  * `feature_flags` - Feature flags
-  * `experiments` - Experiments
-  * `error_tracking` - Error tracking
-  * `data_warehouse` - Data warehouse
-  * `other` - Other */
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
     readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
@@ -300,16 +300,16 @@ export interface PatchedConversationApi {
      */
     readonly title?: string | null
     /** Product domain the conversation is about, classified from the first question.
-
-  * `web_analytics` - Web analytics
-  * `product_analytics` - Product analytics
-  * `session_replay` - Session replay
-  * `surveys` - Surveys
-  * `feature_flags` - Feature flags
-  * `experiments` - Experiments
-  * `error_tracking` - Error tracking
-  * `data_warehouse` - Data warehouse
-  * `other` - Other */
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
     readonly topic?: TopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
