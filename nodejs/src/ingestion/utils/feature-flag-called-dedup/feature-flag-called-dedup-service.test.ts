@@ -1,6 +1,7 @@
 import { RedisPool } from '../../../types'
 import {
     RedisFeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
     parseFeatureFlagCalledDedupConfig,
 } from './feature-flag-called-dedup-service'
@@ -9,6 +10,7 @@ interface MockRedis {
     pipeline: jest.Mock
     exec: jest.Mock
     set: jest.Mock
+    get: jest.Mock
 }
 
 const createMockRedisPool = (
@@ -16,12 +18,18 @@ const createMockRedisPool = (
 ): { pool: RedisPool; redis: MockRedis } => {
     const pipeline = {
         set: jest.fn().mockReturnThis(),
+        get: jest.fn().mockReturnThis(),
         exec:
             execResults instanceof Error
                 ? jest.fn().mockRejectedValue(execResults)
                 : jest.fn().mockResolvedValue(execResults),
     }
-    const redis = { pipeline: jest.fn().mockReturnValue(pipeline), exec: pipeline.exec, set: pipeline.set }
+    const redis = {
+        pipeline: jest.fn().mockReturnValue(pipeline),
+        exec: pipeline.exec,
+        set: pipeline.set,
+        get: pipeline.get,
+    }
     const pool = {
         acquire: jest.fn().mockResolvedValue(redis),
         release: jest.fn().mockResolvedValue(undefined),
@@ -57,6 +65,43 @@ describe('RedisFeatureFlagCalledDedupService', () => {
             const config = parseFeatureFlagCalledDedupConfig('garbage', '*', '', 600)
 
             expect(config.mode).toBe('disabled')
+        })
+
+        it('treats wildcard excluded teams as disabled', () => {
+            const config = parseFeatureFlagCalledDedupConfig('drop', '*', '*', 600)
+
+            expect(config.mode).toBe('disabled')
+            expect(config.excludedTeams).toEqual([])
+        })
+
+        it.each([[0], [-5], [NaN]])('falls back to disabled on invalid ttl %p', (ttlSeconds) => {
+            const config = parseFeatureFlagCalledDedupConfig('drop', '*', '', ttlSeconds)
+
+            expect(config.mode).toBe('disabled')
+        })
+    })
+
+    describe('createFeatureFlagCalledDedupService', () => {
+        const envConfig = (mode: string) => ({
+            INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: mode,
+            INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '*',
+            INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
+            INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 3600,
+        })
+
+        it('returns undefined when disabled', () => {
+            const { pool } = createMockRedisPool([])
+
+            expect(createFeatureFlagCalledDedupService(pool, envConfig('disabled'))).toBeUndefined()
+        })
+
+        it('returns a service with the configured mode otherwise', () => {
+            const { pool } = createMockRedisPool([])
+
+            const service = createFeatureFlagCalledDedupService(pool, envConfig('drop'))
+
+            expect(service).toBeInstanceOf(RedisFeatureFlagCalledDedupService)
+            expect(service?.mode).toBe('drop')
         })
     })
 
@@ -115,55 +160,110 @@ describe('RedisFeatureFlagCalledDedupService', () => {
     })
 
     describe('claimKeys', () => {
-        it('returns empty for no keys', async () => {
+        it('returns empty for no claims', async () => {
             const { service, redis } = createService([])
 
             expect(await service.claimKeys([])).toEqual([])
             expect(redis.pipeline).not.toHaveBeenCalled()
         })
 
-        it('maps OK replies to claimed and null replies to duplicates', async () => {
+        it('maps fresh claims to true and foreign claims to false', async () => {
             const { service, redis } = createService([
                 [null, 'OK'],
+                [null, 'uuid-1'],
                 [null, null],
+                [null, 'other-uuid'],
             ])
 
-            expect(await service.claimKeys(['key-1', 'key-2'])).toEqual([true, false])
-            expect(redis.set).toHaveBeenCalledWith('key-1', '1', 'EX', 3600, 'NX')
-            expect(redis.set).toHaveBeenCalledWith('key-2', '1', 'EX', 3600, 'NX')
+            expect(
+                await service.claimKeys([
+                    { key: 'key-1', claimId: 'uuid-1' },
+                    { key: 'key-2', claimId: 'uuid-2' },
+                ])
+            ).toEqual([true, false])
+            expect(redis.set).toHaveBeenCalledWith('key-1', 'uuid-1', 'EX', 3600, 'NX')
+            expect(redis.set).toHaveBeenCalledWith('key-2', 'uuid-2', 'EX', 3600, 'NX')
+            expect(redis.get).toHaveBeenCalledWith('key-1')
+            expect(redis.get).toHaveBeenCalledWith('key-2')
+        })
+
+        it('recognizes its own prior claim on redelivery', async () => {
+            // SET NX loses to the claim made by a previous delivery of the same
+            // event, but the stored claim id matches, so the event still passes.
+            const { service } = createService([
+                [null, null],
+                [null, 'uuid-1'],
+            ])
+
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
         })
 
         it('resolves duplicate keys within one call in order', async () => {
-            // Redis executes pipelined SET NX commands sequentially, so the first
-            // occurrence of a repeated key replies 'OK' and later ones reply null.
+            // Redis executes pipelined commands sequentially, so the first
+            // occurrence of a repeated key claims it and later ones read the
+            // first occurrence's claim id.
             const { service, redis } = createService([
                 [null, 'OK'],
+                [null, 'uuid-a'],
                 [null, null],
+                [null, 'uuid-a'],
             ])
 
-            expect(await service.claimKeys(['key-1', 'key-1'])).toEqual([true, false])
+            expect(
+                await service.claimKeys([
+                    { key: 'key-1', claimId: 'uuid-a' },
+                    { key: 'key-1', claimId: 'uuid-b' },
+                ])
+            ).toEqual([true, false])
             expect(redis.set).toHaveBeenCalledTimes(2)
         })
 
         it('fails open when the pipeline throws', async () => {
             const { service } = createService(new Error('redis down'))
 
-            expect(await service.claimKeys(['key-1', 'key-2'])).toEqual([true, true])
+            expect(
+                await service.claimKeys([
+                    { key: 'key-1', claimId: 'uuid-1' },
+                    { key: 'key-2', claimId: 'uuid-2' },
+                ])
+            ).toEqual([true, true])
         })
 
         it('fails open when the pipeline returns no results', async () => {
             const { service } = createService(null)
 
-            expect(await service.claimKeys(['key-1'])).toEqual([true])
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
         })
 
-        it('fails open per command on command errors', async () => {
+        it('fails open when the pipeline returns the wrong number of results', async () => {
+            const { service } = createService([[null, 'OK']])
+
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
+        })
+
+        it('fails open per claim on SET command errors', async () => {
             const { service } = createService([
                 [new Error('boom'), null],
+                [null, 'other-uuid'],
                 [null, null],
+                [null, 'other-uuid'],
             ])
 
-            expect(await service.claimKeys(['key-1', 'key-2'])).toEqual([true, false])
+            expect(
+                await service.claimKeys([
+                    { key: 'key-1', claimId: 'uuid-1' },
+                    { key: 'key-2', claimId: 'uuid-2' },
+                ])
+            ).toEqual([true, false])
+        })
+
+        it('fails open per claim on GET command errors', async () => {
+            const { service } = createService([
+                [null, null],
+                [new Error('boom'), null],
+            ])
+
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
         })
 
         it('fails open when acquiring a client fails', async () => {
@@ -176,7 +276,7 @@ describe('RedisFeatureFlagCalledDedupService', () => {
                 config: parseFeatureFlagCalledDedupConfig('drop', '*', '', 3600),
             })
 
-            expect(await service.claimKeys(['key-1'])).toEqual([true])
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
         })
     })
 })

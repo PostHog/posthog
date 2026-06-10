@@ -1,14 +1,22 @@
 import { createHash } from 'crypto'
+import { Redis } from 'ioredis'
 
 import { RedisPool } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
-import { parseTeamsList } from '../../event-processing/split-ai-events-step'
+import { IngestionConsumerConfig } from '../../config'
+import { parseTeamsList } from '../parse-teams-list'
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 
 const REDIS_KEY_PREFIX = '@posthog/ff-called-dedup/'
 
-export type FeatureFlagCalledDedupMode = 'disabled' | 'shadow' | 'drop'
+const FEATURE_FLAG_CALLED_DEDUP_MODES = ['disabled', 'shadow', 'drop'] as const
+
+export type FeatureFlagCalledDedupMode = (typeof FEATURE_FLAG_CALLED_DEDUP_MODES)[number]
+
+function isFeatureFlagCalledDedupMode(mode: string): mode is FeatureFlagCalledDedupMode {
+    return (FEATURE_FLAG_CALLED_DEDUP_MODES as readonly string[]).includes(mode)
+}
 
 export interface FeatureFlagCalledDedupConfig {
     mode: FeatureFlagCalledDedupMode
@@ -25,13 +33,29 @@ export function parseFeatureFlagCalledDedupConfig(
     excludedTeams: string,
     ttlSeconds: number
 ): FeatureFlagCalledDedupConfig {
-    if (mode !== 'disabled' && mode !== 'shadow' && mode !== 'drop') {
+    let parsedMode: FeatureFlagCalledDedupMode = 'disabled'
+    if (isFeatureFlagCalledDedupMode(mode)) {
+        parsedMode = mode
+    } else {
         logger.warn('Invalid INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE, falling back to disabled', { mode })
-        mode = 'disabled'
     }
     const excluded = parseTeamsList(excludedTeams)
+    if (excluded === '*') {
+        // An operator reaching for '*' as an exclude-everyone switch means "off";
+        // the escape hatch on a data-dropping feature must not fail toward dropping.
+        logger.warn('INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS is "*", disabling dedup')
+        parsedMode = 'disabled'
+    }
+    if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+        // An invalid TTL would make every SET ... EX command error, silently
+        // disabling dedup behind a stream of Redis errors.
+        logger.warn('Invalid INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS, falling back to disabled', {
+            ttlSeconds,
+        })
+        parsedMode = 'disabled'
+    }
     return {
-        mode: mode as FeatureFlagCalledDedupMode,
+        mode: parsedMode,
         teams: parseTeamsList(teams),
         excludedTeams: excluded === '*' ? [] : excluded,
         ttlSeconds,
@@ -57,10 +81,24 @@ export function featureFlagCalledDedupKey(
         groups && typeof groups === 'object' && !Array.isArray(groups)
             ? Object.entries(groups as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
             : null
+    // teamId is also in the hash so the digest alone is tenant-scoped, even if
+    // a future code path assembles a key without the prefix.
     const hash = createHash('sha256')
-        .update(JSON.stringify([distinctId, flagKey, response ?? null, normalizedGroups]))
+        .update(JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups]))
         .digest('base64url')
     return `${REDIS_KEY_PREFIX}${teamId}:${hash}`
+}
+
+/** One keep-first claim for a $feature_flag_called exposure. */
+export interface FeatureFlagCalledDedupClaim {
+    key: string
+    /**
+     * Stable identity of the claiming event (its uuid). At-least-once Kafka
+     * delivery can replay a batch whose claims already succeeded but whose
+     * events were never written; the claim id lets the replay recognize its
+     * own claims instead of dropping those events as duplicates.
+     */
+    claimId: string
 }
 
 /**
@@ -70,12 +108,13 @@ export interface FeatureFlagCalledDedupService {
     mode: FeatureFlagCalledDedupMode
     isEnabledForTeam(teamId: number): boolean
     /**
-     * Claims each key, returning one boolean per key: true if this caller is
-     * the first to claim it (the event should pass), false if it was already
-     * claimed (duplicate). Duplicate keys within one call resolve in order —
-     * the first occurrence claims, later ones are duplicates.
+     * Claims each key, returning one boolean per claim: true if the event
+     * should pass (first to claim the key, or the key holds this event's own
+     * claim id from a prior delivery), false if another event already claimed
+     * it (duplicate). Duplicate keys within one call resolve in order — the
+     * first occurrence claims, later ones are duplicates.
      */
-    claimKeys(keys: string[]): Promise<boolean[]>
+    claimKeys(claims: FeatureFlagCalledDedupClaim[]): Promise<boolean[]>
 }
 
 export interface RedisFeatureFlagCalledDedupServiceOptions {
@@ -83,12 +122,13 @@ export interface RedisFeatureFlagCalledDedupServiceOptions {
     config: FeatureFlagCalledDedupConfig
 }
 
-export interface FeatureFlagCalledDedupEnvConfig {
-    INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
-    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: string
-    INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: string
-    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
-}
+export type FeatureFlagCalledDedupEnvConfig = Pick<
+    IngestionConsumerConfig,
+    | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE'
+    | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS'
+    | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS'
+    | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS'
+>
 
 /**
  * Builds the dedup service from ingestion config, or undefined when the dedup
@@ -111,18 +151,28 @@ export function createFeatureFlagCalledDedupService(
 }
 
 /**
- * Redis-backed keep-first claims: `SET key 1 NX EX ttl`. The first event for a
- * tuple wins the claim, every later event within the TTL window loses it. All
- * Redis failures fail open (everything is treated as claimed) — a dedup outage
- * must never suppress events.
+ * Redis-backed keep-first claims: `SET key <claimId> NX EX ttl` paired with a
+ * `GET`. The first event for a tuple wins the claim; a later event passes only
+ * when the stored claim id is its own (the same event redelivered by Kafka),
+ * otherwise it loses the claim for the TTL window.
+ *
+ * Redis failures that reject fail open (everything is treated as claimed) — a
+ * dedup outage must never suppress events. Connectivity loss does not reject:
+ * pool clients use `maxRetriesPerRequest: -1`, so commands queue until the
+ * shared client error watchdog kills the process; the 30s timeoutGuard below
+ * only logs.
  */
 export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedupService {
     private redisPool: RedisPool
     private config: FeatureFlagCalledDedupConfig
+    private teams: Set<number> | '*'
+    private excludedTeams: Set<number>
 
     constructor(options: RedisFeatureFlagCalledDedupServiceOptions) {
         this.redisPool = options.redisPool
         this.config = options.config
+        this.teams = options.config.teams === '*' ? '*' : new Set(options.config.teams)
+        this.excludedTeams = new Set(options.config.excludedTeams)
     }
 
     get mode(): FeatureFlagCalledDedupMode {
@@ -130,38 +180,51 @@ export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedu
     }
 
     isEnabledForTeam(teamId: number): boolean {
-        if (this.config.excludedTeams.includes(teamId)) {
+        if (this.excludedTeams.has(teamId)) {
             return false
         }
-        return this.config.teams === '*' || this.config.teams.includes(teamId)
+        return this.teams === '*' || this.teams.has(teamId)
     }
 
-    async claimKeys(keys: string[]): Promise<boolean[]> {
-        if (keys.length === 0) {
+    async claimKeys(claims: FeatureFlagCalledDedupClaim[]): Promise<boolean[]> {
+        if (claims.length === 0) {
             return []
         }
 
-        const failOpen = keys.map(() => true)
+        const failOpen = claims.map(() => true)
         const startTime = performance.now()
         const timeout = timeoutGuard('Feature flag called dedup claim delayed. Waiting over 30 sec.', {
-            count: keys.length,
+            count: claims.length,
         })
-        let client
+        let client: Redis | undefined
         try {
             client = await this.redisPool.acquire()
             const pipeline = client.pipeline()
-            for (const key of keys) {
-                pipeline.set(key, '1', 'EX', this.config.ttlSeconds, 'NX')
+            for (const claim of claims) {
+                pipeline.set(claim.key, claim.claimId, 'EX', this.config.ttlSeconds, 'NX')
+                pipeline.get(claim.key)
             }
             const results = await pipeline.exec()
-            if (!results || results.length !== keys.length) {
+            if (!results || results.length !== claims.length * 2) {
                 featureFlagCalledDedupRedisOpsTotal.labels('error').inc()
                 return failOpen
             }
             featureFlagCalledDedupRedisOpsTotal.labels('success').inc()
             // SET ... NX replies 'OK' when the key was set (claimed) and null
-            // when it already existed. A per-command error also fails open.
-            return results.map(([err, value]) => err !== null || value === 'OK')
+            // when it already existed; the paired GET then tells us whether
+            // the existing claim is this event's own (a redelivery). Any
+            // per-command error fails open.
+            return claims.map((claim, index) => {
+                const [setError, setValue] = results[index * 2]
+                const [getError, getValue] = results[index * 2 + 1]
+                if (setError !== null || setValue === 'OK') {
+                    return true
+                }
+                if (getError !== null) {
+                    return true
+                }
+                return getValue === claim.claimId
+            })
         } catch (error) {
             logger.warn('Redis error in feature flag called dedup claim, failing open', { error })
             featureFlagCalledDedupRedisOpsTotal.labels('error').inc()

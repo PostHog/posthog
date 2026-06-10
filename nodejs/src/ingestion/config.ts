@@ -173,6 +173,7 @@ export type IngestionConsumerConfig = {
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: string
     /** Comma-separated team IDs never deduped, even when TEAMS is '*' */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: string
+    /** Claim TTL: the keep-first dedup window */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
 
     // AI event splitting config
@@ -293,8 +294,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '',
 
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
-
-        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 24 * 60 * 60,
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,

@@ -3,6 +3,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '../../types'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import {
+    FeatureFlagCalledDedupClaim,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
 } from '../utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
@@ -20,53 +21,63 @@ export interface DedupeFeatureFlagCalledStepInput {
  * first copy carries signal, so the survivors preserve experiment exposure
  * and last_called_at semantics while the bulk of the volume is dropped.
  *
+ * Claims are tagged with the event uuid, so a batch replayed by at-least-once
+ * Kafka delivery recognizes its own claims from a failed prior attempt
+ * instead of dropping events that were never written.
+ *
  * Must run after cookieless processing (which rewrites event.distinct_id) and
  * before person processing, so dropped events skip the person and ClickHouse
  * writes entirely.
  *
  * In 'shadow' mode the claim is made and counted but nothing is dropped. If no
- * service is provided or the mode is 'disabled', this step is a passthrough.
- * Redis failures fail open inside the service: every event passes.
+ * service is provided, this step is a passthrough. Redis failures fail open
+ * inside the service: every event passes.
  */
 export function createDedupeFeatureFlagCalledStep<T extends DedupeFeatureFlagCalledStepInput>(
     dedupService?: FeatureFlagCalledDedupService
 ) {
     return async function dedupeFeatureFlagCalledStep(inputs: T[]): Promise<PipelineResult<T>[]> {
-        if (!dedupService || dedupService.mode === 'disabled' || inputs.length === 0) {
+        if (!dedupService || inputs.length === 0) {
             return inputs.map((input) => ok(input))
         }
 
-        const keyPerInput: (string | null)[] = inputs.map((input) => {
+        const claimPerInput: (FeatureFlagCalledDedupClaim | null)[] = inputs.map((input) => {
             if (input.event.event !== '$feature_flag_called' || !dedupService.isEnabledForTeam(input.team.id)) {
                 return null
             }
             const properties = input.event.properties ?? {}
             const flagKey = properties['$feature_flag']
-            if (typeof flagKey !== 'string') {
+            // Without a uuid there is no stable claim identity, so pass the event through.
+            if (typeof flagKey !== 'string' || !input.event.uuid) {
                 return null
             }
-            return featureFlagCalledDedupKey(
-                input.team.id,
-                input.event.distinct_id,
-                flagKey,
-                properties['$feature_flag_response'],
-                properties['$groups']
-            )
+            return {
+                key: featureFlagCalledDedupKey(
+                    input.team.id,
+                    input.event.distinct_id,
+                    flagKey,
+                    properties['$feature_flag_response'],
+                    properties['$groups']
+                ),
+                claimId: input.event.uuid,
+            }
         })
 
-        const keys = keyPerInput.filter((key): key is string => key !== null)
-        if (keys.length === 0) {
+        const claims = claimPerInput.filter((claim): claim is FeatureFlagCalledDedupClaim => claim !== null)
+        if (claims.length === 0) {
             return inputs.map((input) => ok(input))
         }
 
-        const claimed = await dedupService.claimKeys(keys)
+        const claimed = await dedupService.claimKeys(claims)
 
-        let cursor = 0
+        // `claimed` has exactly one entry per non-null claim, in input order.
+        // A missing entry fails open: a short result must never drop events.
+        let claimIndex = 0
         return inputs.map((input, index) => {
-            if (keyPerInput[index] === null) {
+            if (claimPerInput[index] === null) {
                 return ok(input)
             }
-            const isFirst = claimed[cursor++]
+            const isFirst = claimed[claimIndex++] ?? true
             if (isFirst) {
                 featureFlagCalledDedupEventsTotal.labels('first_seen').inc()
                 return ok(input)
