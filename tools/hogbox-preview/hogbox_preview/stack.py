@@ -70,12 +70,18 @@ class PostHogPreviewStack:
         image: str | None = None,
         repo_dir: str | None = None,
         seed_demo_data: bool = True,
+        reset_db: bool = False,
     ):
         self.backend = backend
         self.branch = branch
         self.image = image or self.IMAGE
         self.repo_dir = repo_dir or self.REPO_DIR
         self.seed_demo_data = seed_demo_data
+        # reset_db wipes pg + clickhouse before migrating, so the DB is migrated
+        # fresh by `image` rather than inheriting a snapshot's drifted DB. Needed
+        # when baking a coherent golden (or pointing an existing box at a
+        # different image); a plain restore-and-go leaves it False.
+        self.reset_db = reset_db
 
     # --- public API ----------------------------------------------------------
     def bring_up(self) -> str:
@@ -86,6 +92,8 @@ class PostHogPreviewStack:
             self.checkout_branch(self.branch)
         self.write_override(url)
         self.pull_image()
+        if self.reset_db:
+            self.reset_database()
         self.up_services()
         self.migrate()
         if self.seed_demo_data:
@@ -112,8 +120,30 @@ class PostHogPreviewStack:
         body = _OVERRIDE_YAML.format(image=self.image, url=url, secret_key=secrets.token_urlsafe(50))
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", body)
 
-    def pull_image(self) -> None:
-        self.backend.run_long(f"docker pull {self.image}", name="pull", timeout=1800)
+    def pull_image(self, *, attempts: int = 3) -> None:
+        # ghcr pulls flake (TLS handshake timeouts mid-layer); retry. docker
+        # resumes from already-pulled layers, so a retry is cheap.
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                self.backend.run_long(f"docker pull {self.image}", name="pull", timeout=1800)
+                return
+            except RuntimeError as e:
+                last = e
+        raise RuntimeError(f"docker pull {self.image} failed after {attempts} attempts: {last}")
+
+    def reset_database(self) -> None:
+        # Drop the snapshot's pre-migrated DB so migrate() rebuilds it fresh and
+        # coherent with `image`. Postgres keeps its data in a named volume that
+        # survives container recreation, so the volume must be removed by name;
+        # ClickHouse is volume-less, so recreating its container is enough.
+        cmd = (
+            f"cd {self.repo_dir} && "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} stop db clickhouse web ; "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} rm -f db clickhouse web ; "
+            "docker volume rm posthog_postgres-15-data || true"
+        )
+        self.backend.run_long(cmd, name="reset-db", timeout=300)
 
     def up_services(self) -> None:
         services = " ".join([*self.DEPS, "web"])

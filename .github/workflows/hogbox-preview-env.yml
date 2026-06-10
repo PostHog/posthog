@@ -1,0 +1,157 @@
+# Hogbox Preview Environment (per-PR PostHog on a hogland hogbox)
+#
+# Restores the pre-baked "preview golden" snapshot (PostHog already migrated +
+# seeded on a stable image), points it at the PR's own image, runs only the
+# delta migrations, and posts the reachable URL on the PR. Tear-down on close.
+#
+# This is the productionised successor to ci-hogbox-preview.yml (the connectivity
+# probe). It drives tools/hogbox-preview — the layer (hogland) is swappable; the
+# stack recipe is not. See tools/hogbox-preview/README.md.
+#
+# --- WHY THE DELTA MIGRATE (not --reset-db) -------------------------------------
+# The golden is baked ONCE (tools/hogbox-preview up --reset-db --image <stable>),
+# so its pg+CH are already migrated AND demo-data seeded. A per-PR run restores
+# that, pulls the PR image (ghcr.io/posthog/posthog:pr-<n>, built by the image
+# pipeline like hobby-ci uses), and runs `migrate` — which applies only the PR's
+# *unapplied* migrations on top of the seeded DB. That keeps each preview off the
+# heavy full-migrate path (which is both slow and the load that destabilised
+# boxes — see hogland docs/agent-memory/observation_box_corruption_under_heavy_io).
+# If a PR's migrations are incompatible with the baseline, fall back to --reset-db
+# (full migrate + reseed) for that PR.
+#
+# --- PREREQS (tracked out of band) ----------------------------------------------
+#   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
+#   - vars.HOGBOX_GOLDEN_SNAPSHOT = snap-...                 (from the bake)
+#   - secrets.HOGBOX_SSH_KEY = the golden's box ssh private key (for in-box exec)
+#   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
+#     TrustMapping for PostHog/posthog on prod-us
+#   - the `hogland` CLI available to the runner (see "Install hogland CLI" — TODO:
+#     publish a release binary or `go install` target; today built from source)
+#   - PRs opt in with the `hogbox-preview` label (mirrors hobby's label gate)
+
+name: Hogbox Preview Environment
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled, closed]
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: PR number to (re)build a preview for
+                required: true
+
+concurrency:
+    group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    id-token: write # mint OIDC for the tailnet join AND the hogplane token
+    pull-requests: write # sticky preview comment
+
+env:
+    # prod-us: the golden lives here and the box edge is live here.
+    HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
+    HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
+    PR: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+
+jobs:
+    # ----------------------------------------------------------------------------
+    preview:
+        name: build preview
+        # Opt-in via label; skip the close event (that's the cleanup job).
+        if: >-
+            github.event.action != 'closed' &&
+            (github.event_name == 'workflow_dispatch' ||
+             contains(github.event.pull_request.labels.*.name, 'hogbox-preview'))
+        runs-on: ubuntu-24.04
+        timeout-minutes: 40
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Connect to Tailscale (tag:hogland-ci)
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+
+            - name: Mint hogland OIDC token
+              run: |
+                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed"; exit 1; }
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+
+            # TODO: distribute the hogland CLI properly (release binary or a pinned
+            # `go install github.com/posthog/hog/cmd/hogland@<rev>`). The tool shells
+            # out to it for provisioning; it authenticates via HOG_TOKEN + --host.
+            - name: Install hogland CLI
+              run: echo "::error::wire up hogland CLI acquisition (release binary or go install)"; exit 1
+
+            - name: Write box ssh key
+              run: |
+                  install -m 700 -d ~/.ssh
+                  printf '%s\n' "${{ secrets.HOGBOX_SSH_KEY }}" > ~/.ssh/hogbox
+                  chmod 600 ~/.ssh/hogbox
+
+            - name: Build preview
+              id: build
+              run: |
+                  out=$(python -m hogbox_preview \
+                    --host "$HOG_HOST" --cli hogland \
+                    --image "ghcr.io/posthog/posthog:pr-${PR}" \
+                    --name "preview-pr-${PR}" \
+                    --snapshot "${{ vars.HOGBOX_GOLDEN_SNAPSHOT }}" \
+                    --ssh-key ~/.ssh/hogbox \
+                    up --no-seed)   # golden is already seeded; delta-migrate the PR on top
+                  echo "$out"
+                  echo "url=$(echo "$out" | sed -n 's/^url=//p')" >> "$GITHUB_OUTPUT"
+              working-directory: tools/hogbox-preview
+
+            - name: Comment preview URL
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const marker = '<!-- hogbox-preview-comment -->';
+                      const url = '${{ steps.build.outputs.url }}';
+                      const body = `${marker}\n### 🦔 Hogbox preview\n\nPostHog for this PR is up at ${url}\n\n` +
+                        `Log in: \`test@posthog.com\` / \`12345678\` (demo data). Tailnet only.`;
+                      const { data: comments } = await github.rest.issues.listComments(
+                        { ...context.repo, issue_number: process.env.PR });
+                      const existing = comments.find(c => c.body.includes(marker));
+                      if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: process.env.PR, body });
+
+    # ----------------------------------------------------------------------------
+    cleanup:
+        name: tear down preview
+        if: github.event.action == 'closed'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Connect to Tailscale (tag:hogland-ci)
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+            - name: Mint hogland OIDC token
+              run: |
+                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+            - name: Install hogland CLI
+              run: echo "::error::wire up hogland CLI acquisition"; exit 1
+            - name: Destroy preview box
+              run: |
+                  # Find the box by its deterministic name and delete it.
+                  id=$(hogland --host "$HOG_HOST" box list | jq -r \
+                    ".[] | select(.spec.name==\"preview-pr-${PR}\") | .id" | head -1)
+                  [ -n "$id" ] && hogland --host "$HOG_HOST" box delete "$id" || echo "no preview box for PR ${PR}"

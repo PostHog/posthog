@@ -37,6 +37,7 @@ def build_backend(args: argparse.Namespace) -> HoglandBackend:
         ssh_key=args.ssh_key,
         box_id=getattr(args, "box_id", None),
         cli=args.cli,
+        name=args.name,
     )
 
 
@@ -46,6 +47,7 @@ def build_stack(backend: HoglandBackend, args: argparse.Namespace) -> PostHogPre
         branch=getattr(args, "branch", None),
         image=args.image,
         seed_demo_data=not getattr(args, "no_seed", False),
+        reset_db=getattr(args, "reset_db", False),
     )
 
 
@@ -107,12 +109,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--image", default=PostHogPreviewStack.IMAGE, help="published posthog image")
     p.add_argument("--ssh-key", default=None, help="ssh private key for the box (default: ssh default)")
     p.add_argument("--cli", default="hogland", help="hogland CLI binary/path")
+    p.add_argument(
+        "--name", default="posthog-preview", help="box name (must be unique among live boxes; e.g. preview-pr-123)"
+    )
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
     up = sub.add_parser("up", help="provision + bring PostHog up (one-shot)")
+    up.add_argument("--box-id", default=None, help="reuse an existing box instead of restoring a new one")
     up.add_argument("--branch", default=None, help="posthog branch to check out in the box")
-    up.add_argument("--no-seed", action="store_true", help="skip demo-data seeding (manage.py n)")
+    up.add_argument("--no-seed", action="store_true", help="skip demo-data seeding (generate_demo_data)")
+    up.add_argument(
+        "--reset-db",
+        action="store_true",
+        help="wipe pg+clickhouse first, so they migrate fresh & coherent with --image (use when baking a golden)",
+    )
     up.add_argument("--destroy", action="store_true", help="tear the box down after (smoke-test mode)")
     up.set_defaults(func=cmd_up)
 

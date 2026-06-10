@@ -11,6 +11,7 @@ data plane (exec/write_file) is plain ssh via ``SSHBackend``.
 from __future__ import annotations
 
 import json
+import time
 import subprocess
 
 from .backend import SSHBackend, SSHTarget
@@ -58,28 +59,42 @@ class HoglandBackend(SSHBackend):
     def provision(self) -> None:
         if self._box_id:  # reuse an existing box
             self._view = json.loads(self._cli("box", "get", self._box_id))
-            return
-        out = self._cli(
-            "box",
-            "create",
-            "--snapshot-id",
-            self.snapshot,
-            "--cpus",
-            str(self.cpus),
-            "--memory-mib",
-            str(self.memory_mib),
-            "--disk-gib",
-            str(self.disk_gib),
-            "--web-port",
-            str(self.web_port),
-            "--name",
-            self.name,
-            "--timeout",
-            "10m",
-        )
-        # `box create` waits until running and prints the final box JSON.
-        self._view = json.loads(out)
-        self._box_id = self._view["id"]
+        else:
+            out = self._cli(
+                "box",
+                "create",
+                "--snapshot-id",
+                self.snapshot,
+                "--cpus",
+                str(self.cpus),
+                "--memory-mib",
+                str(self.memory_mib),
+                "--disk-gib",
+                str(self.disk_gib),
+                "--web-port",
+                str(self.web_port),
+                "--name",
+                self.name,
+                "--timeout",
+                "10m",
+            )
+            # `box create` waits until running and prints the final box JSON.
+            self._view = json.loads(out)
+            self._box_id = self._view["id"]
+        # `running` means the VM booted, not that sshd is accepting yet — a
+        # restored box needs a few seconds before the first exec/write_file.
+        self._wait_ssh_ready()
+
+    def _wait_ssh_ready(self, *, timeout: int = 180, interval: int = 5) -> None:
+        deadline = time.time() + timeout
+        last = ""
+        while time.time() < deadline:
+            r = self.exec("echo ready", timeout=15)
+            if r.ok and "ready" in r.stdout:
+                return
+            last = (r.stderr or r.stdout).strip()
+            time.sleep(interval)
+        raise RuntimeError(f"ssh on {self._box_id} not ready within {timeout}s (last: {last})")
 
     def _require_view(self) -> dict:
         if self._view is None:
