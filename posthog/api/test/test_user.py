@@ -844,6 +844,44 @@ class TestUserAPI(APIBaseTest):
         assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
         mock_send_email_change_emails.assert_not_called()
 
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.pending_email = "alice@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        # No password-backend session is handed out for an SSO-enforced account; they must log in via SSO.
+        mock_login.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_initial_email_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.email = "alice@example.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        mock_login.assert_not_called()
+
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
