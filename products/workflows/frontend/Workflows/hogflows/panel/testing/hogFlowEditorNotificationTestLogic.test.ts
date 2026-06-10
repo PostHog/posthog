@@ -1,5 +1,4 @@
-import { resetContext } from 'kea'
-import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,10 +22,6 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
-
-        resetContext({
-            plugins: [testUtilsPlugin],
-        })
 
         useMocks({
             get: {

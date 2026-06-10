@@ -932,9 +932,12 @@ def finalize_deletion_request(
     else:
         next_status = RequestStatus.COMPLETED
 
+    # Accept FAILED in addition to IN_PROGRESS: when an op fails the failure hook flips the request
+    # to FAILED, so re-running the job from the failed op in Dagster (where load_* is reused and not
+    # re-executed) leaves it FAILED. Allowing FAILED here lets that re-run finalize the request.
     DataDeletionRequest.objects.filter(
         pk=deletion_request.request_id,
-        status=RequestStatus.IN_PROGRESS,
+        status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
     ).update(status=next_status, updated_at=timezone.now())
 
     context.log.info(f"Deletion request {deletion_request.request_id} marked as {next_status.value}.")
@@ -948,9 +951,11 @@ def finalize_person_removal(
     """Mark a person_removal request as COMPLETED."""
     from django.utils import timezone
 
+    # Accept FAILED too so a Dagster re-run after a mid-job failure (where the failure hook already
+    # flipped the request to FAILED) can still finalize it. See finalize_deletion_request.
     DataDeletionRequest.objects.filter(
         pk=person_removal.request_id,
-        status=RequestStatus.IN_PROGRESS,
+        status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
     ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
 
     context.log.info(f"Person removal request {person_removal.request_id} marked as completed.")

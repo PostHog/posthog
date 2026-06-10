@@ -3,8 +3,8 @@ import { useMemo } from 'react'
 
 import type { QuickFilter } from '~/types'
 
-import type { WidgetFilterConfigRecord } from '../widget_types/configSchemas'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../widget_types/configSchemas'
+import type { WidgetFilterConfigRecord } from '../generated/widget-configs.zod'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../widget_types/widgetConfigShared'
 
 export function WidgetTileFiltersBar({ children, dataAttr }: { children: ReactNode; dataAttr: string }): JSX.Element {
     return (
