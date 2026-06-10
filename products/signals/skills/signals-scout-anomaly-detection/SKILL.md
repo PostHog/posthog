@@ -11,16 +11,11 @@ description: >
   clears the confidence bar, otherwise it updates the baseline memory and closes out
   empty. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
-  Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes plus
-  signal_scout_internal:write (scratchpad + emit) and notebook:write (write-up artifact).
-  Uses the signals-scout MCP family
-  (project-profile-get, runs-list, runs-retrieve, scratchpad-search/-remember/-forget,
-  emit-signal) plus dashboard/insight tools (insights-trending-retrieve, insight-get,
-  insight-query, dashboards-get-all, dashboard-get, dashboard-insights-run, insights-list),
-  alert-simulate (the anomaly-detection simulator — primary scorer for saved insights),
-  notebooks-create / notebooks-destroy (the durable write-up that backs each emitted
-  finding, removed if the emit is preflight-skipped),
-  execute-sql, read-data-schema, inbox-reports-list.
+  Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
+  plus signal_scout_internal:write (scratchpad + emit) and notebook:write (the notebook
+  write-up behind each finding). Assumes the signals-scout MCP tool family plus the
+  dashboard/insight, alert-simulate, and notebook tools listed in the body's MCP tools
+  section.
 metadata:
   owner_team: signals
   scope: anomaly_detection

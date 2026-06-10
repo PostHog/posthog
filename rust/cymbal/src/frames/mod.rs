@@ -20,6 +20,7 @@ use crate::{
         php::RawPHPFrame,
         python::RawPythonFrame,
         ruby::RawRubyFrame,
+        rust::RawRustFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_source_line,
@@ -74,6 +75,8 @@ pub enum RawFrame {
     Dart(RawDartFrame),
     #[serde(rename = "apple")]
     Apple(RawAppleFrame),
+    #[serde(rename = "rust")]
+    Rust(RawRustFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -109,6 +112,7 @@ impl RawFrame {
             RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
+            RawFrame::Rust(frame) => (to_vec(Ok(frame.into())), "rust"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
             RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
             RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
@@ -119,7 +123,7 @@ impl RawFrame {
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
-                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index));
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index, debug_images));
             fs
         });
 
@@ -161,11 +165,12 @@ impl RawFrame {
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
             | RawFrame::Apple(_)
+            | RawFrame::Rust(_)
             | RawFrame::Custom(_) => None,
         }
     }
 
-    pub fn raw_id(&self, team_id: i32) -> RawFrameId {
+    pub fn raw_id(&self, team_id: i32, debug_images: &[AppleDebugImage]) -> RawFrameId {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
@@ -173,18 +178,24 @@ impl RawFrame {
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
+            RawFrame::Rust(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
             RawFrame::Dart(raw) => raw.frame_id(),
-            RawFrame::Apple(raw) => raw.frame_id(),
+            RawFrame::Apple(raw) => raw.frame_id(debug_images),
         };
 
         RawFrameId::new(hash_id, team_id)
     }
 
-    pub fn frame_id(&self, team_id: i32, index: usize) -> FrameId {
-        self.raw_id(team_id).to_full(index as i32)
+    pub fn frame_id(
+        &self,
+        team_id: i32,
+        index: usize,
+        debug_images: &[AppleDebugImage],
+    ) -> FrameId {
+        self.raw_id(team_id, debug_images).to_full(index as i32)
     }
 
     pub fn is_suspicious(&self) -> bool {
@@ -445,7 +456,7 @@ fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
 
 #[cfg(test)]
 mod test {
-    use crate::frames::RawFrame;
+    use crate::frames::{Frame, RawFrame};
 
     #[test]
     fn ensure_custom_frames_work() {
@@ -466,6 +477,62 @@ mod test {
         match frame {
             RawFrame::Custom(_) => {}
             _ => panic!("Expected a custom frame"),
+        }
+    }
+
+    #[test]
+    fn ensure_rust_frames_work() {
+        let data = r#"
+            {
+            "function": "checkout::payment::charge",
+            "module": "checkout::payment",
+            "filename": "src/main.rs",
+            "resolved": true,
+            "in_app": true,
+            "lineno": 42,
+            "platform": "rust"
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::Rust(frame) => {
+                let resolved: Frame = (&frame).into();
+                let resolved_frame_id = frame.frame_id();
+                assert_eq!(resolved.lang, "rust");
+                assert_eq!(resolved.mangled_name, "checkout::payment::charge");
+                assert_eq!(
+                    resolved.resolved_name.as_deref(),
+                    Some("checkout::payment::charge")
+                );
+                assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                assert_eq!(resolved.module.as_deref(), Some("checkout::payment"));
+                assert_eq!(resolved.line, Some(42));
+                assert_eq!(resolved.context, None);
+
+                let unresolved_data = data.replace("\"resolved\": true,", "\"resolved\": false,");
+                let unresolved_frame: RawFrame = serde_json::from_str(&unresolved_data).unwrap();
+                match unresolved_frame {
+                    RawFrame::Rust(frame) => assert_eq!(frame.frame_id(), resolved_frame_id),
+                    _ => panic!("Expected a rust frame"),
+                }
+
+                let missing_function_data =
+                    data.replace("\"function\": \"checkout::payment::charge\",\n", "");
+                let missing_function_frame: RawFrame =
+                    serde_json::from_str(&missing_function_data).unwrap();
+                match missing_function_frame {
+                    RawFrame::Rust(frame) => {
+                        let resolved: Frame = (&frame).into();
+                        assert_eq!(resolved.mangled_name, "");
+                        assert_eq!(resolved.resolved_name, None);
+                        assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                        assert_eq!(resolved.line, Some(42));
+                    }
+                    _ => panic!("Expected a rust frame"),
+                }
+            }
+            _ => panic!("Expected a rust frame"),
         }
     }
 }
