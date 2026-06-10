@@ -38,6 +38,7 @@ SELECT
     toString(properties.$mcp_duration_ms) AS duration_ms_raw
 FROM events
 WHERE event = {event}
+    AND timestamp >= {date_from}
     AND properties.$mcp_session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
@@ -306,6 +307,7 @@ def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCa
         _MCP_TOOL_CALLS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
         },
     )
