@@ -117,7 +117,7 @@ let res := fetch(f'https://googleads.googleapis.com/v21/customers/{splitByString
 if (res.status >= 400) {
     throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
 } else if (not empty(res.body.partialFailureError)) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError.message}')
+    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError}')
 }
 `,
     inputs_schema: [

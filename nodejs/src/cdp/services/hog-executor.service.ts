@@ -796,12 +796,26 @@ export class HogExecutorService {
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
 
+            // Read the body so retryable failures (e.g. 429/5xx) keep their detail in the logs
+            // instead of being dumped unread. text() drains the stream like dump() would, and the
+            // read is cached so the non-retry path below still passes the full body to the VM.
+            let responseBody: string | undefined
+            try {
+                responseBody = await fetchResponse?.text()
+            } catch {
+                responseBody = undefined
+            }
+
             let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
                 fetchResponse?.status ?? '(none)'
             }.`
 
             if (fetchError) {
                 message += ` Error: ${fetchError.message}.`
+            }
+
+            if (responseBody) {
+                message += ` Response: ${responseBody.slice(0, 1000)}.`
             }
 
             if (canRetry) {
@@ -812,7 +826,6 @@ export class HogExecutorService {
 
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             if (canRetry && result.invocation.state.attempts < maxRetries) {
-                await fetchResponse?.dump()
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })

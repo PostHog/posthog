@@ -1108,7 +1108,7 @@ describe('Hog Executor', () => {
             // Should be scheduled for retry
             expect(result.invocation.state.attempts).toBe(1)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1500ms.',
+                'HTTP fetch failed on attempt 1 with status code 500. Response: test server error body. Retrying in 1500ms.',
             ])
             expect(result.invocation.queuePriority).toBe(1) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
@@ -1118,7 +1118,7 @@ describe('Hog Executor', () => {
             result = await executor.executeFetch(result.invocation)
             expect(result.invocation.state.attempts).toBe(2)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2500ms.',
+                'HTTP fetch failed on attempt 2 with status code 500. Response: test server error body. Retrying in 2500ms.',
             ])
             expect(result.invocation.queuePriority).toBe(2) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
@@ -1126,7 +1126,7 @@ describe('Hog Executor', () => {
             // Execute the final retry
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+                'HTTP fetch failed on attempt 3 with status code 500. Response: test server error body. Retrying in 3500ms.',
             ])
             // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)

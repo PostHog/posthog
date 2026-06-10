@@ -159,6 +159,48 @@ describe('google template', () => {
         )
     })
 
+    it('surfaces per-conversion partial failure details', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            {
+                oauth: {
+                    access_token: 'access-token',
+                },
+                customerId: '1231231234/5675675678',
+                conversionActionId: '123456789',
+            },
+            createAdDestinationPayload()
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: {
+                partialFailureError: {
+                    code: 3,
+                    message: 'Multiple errors in service call.',
+                    details: [
+                        {
+                            errors: [
+                                {
+                                    errorCode: { conversionUploadError: 'TOO_RECENT_CONVERSION_CLICK_DATE' },
+                                    message: 'The click occurred too recently.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toMatchInlineSnapshot(
+            `"Error from googleads.googleapis.com (status 200): {'code': 3, 'message': 'Multiple errors in service call.', 'details': [{'errors': [{'errorCode': {'conversionUploadError': 'TOO_RECENT_CONVERSION_CLICK_DATE'}, 'message': 'The click occurred too recently.'}]}]}"`
+        )
+    })
+
     it('handles missing gclid', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
