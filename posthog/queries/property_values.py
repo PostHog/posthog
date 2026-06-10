@@ -80,9 +80,6 @@ def get_property_values_for_key(
 
 
 # property_values_distributed routes to the aggregated table on the aux cluster.
-# DISTINCT, not GROUP BY + sum(property_count): lets LIMIT early-terminate on
-# high-cardinality keys instead of reading every value to rank by count. Mirrors the
-# events-scan semantics (unordered distinct values, shortest-first when searching).
 SELECT_EVENT_PROPERTY_VALUES_FROM_AGGREGATED_TABLE_SQL = """
 SELECT DISTINCT property_value
 FROM property_values_distributed
@@ -91,7 +88,6 @@ WHERE team_id = %(team_id)s
     AND property_key = %(key)s
     AND last_seen >= now() - INTERVAL 7 DAY
     {value_filter}
-{order_by_clause}
 LIMIT 10
 """
 
@@ -104,17 +100,13 @@ def get_event_property_values_from_aggregated_table(key: str, team: Team, value:
 
         params: dict = {"team_id": team.pk, "key": key}
         value_filter = ""
-        order_by_clause = ""
         if value:
             escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             value_filter = "AND lower(property_value) LIKE %(value)s"
             params["value"] = f"%{escaped.lower()}%"
-            order_by_clause = "ORDER BY length(property_value)"
 
         result = insight_sync_execute(
-            SELECT_EVENT_PROPERTY_VALUES_FROM_AGGREGATED_TABLE_SQL.format(
-                value_filter=value_filter, order_by_clause=order_by_clause
-            ),
+            SELECT_EVENT_PROPERTY_VALUES_FROM_AGGREGATED_TABLE_SQL.format(value_filter=value_filter),
             params,
             query_type="get_event_property_values_from_aggregated_table",
             team_id=team.pk,

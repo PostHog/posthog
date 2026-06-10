@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from requests import Request, Response
+from requests.adapters import HTTPAdapter
 
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.intercom.intercom import (
     _company_segments_generator,
     _conversation_parts_generator,
     _iter_companies,
+    _make_intercom_session,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -283,20 +285,44 @@ class TestSubstreamGenerators:
         assert segments[0]["company_id"] == "co1"
         assert segments[1]["company_id"] == "co2"
 
-    def test_iter_companies_follows_next_url(self):
-        next_url = f"{INTERCOM_API_BASE}/companies/list?cursor=2"
+    def test_iter_companies_follows_next_url_with_post(self):
+        # `/companies/list` is POST-only; its `pages.next` URL carries the page
+        # cursor in the query string. Following it with GET 404s in production,
+        # so every page — including subsequent ones — must be a POST carrying
+        # the same body.
+        next_url = f"{INTERCOM_API_BASE}/companies/list?per_page=60&page=2"
         mock_session = mock.MagicMock()
         mock_session.post.side_effect = [
             _make_response({"data": [{"id": "co1"}], "pages": {"next": next_url}}),
-        ]
-        mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co2"}], "pages": {}}),
         ]
 
         companies = list(_iter_companies(mock_session))
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
-        assert mock_session.get.call_args_list[0].args[0] == next_url
+        # Second page is POSTed to the next-page URL with the same body — not
+        # GET (the production 404 this guards against).
+        assert mock_session.post.call_args_list[1].args[0] == next_url
+        assert mock_session.post.call_args_list[1].kwargs["json"] == {
+            "per_page": INTERCOM_ENDPOINTS["companies"].page_size
+        }
+        assert mock_session.get.call_count == 0
+
+
+class TestSubstreamSessionRetries:
+    def test_idempotent_search_posts_are_retryable(self):
+        # The substream walk reaches `/conversations/search` and `/companies/list`
+        # via POST. The shared default retry policy excludes POST, so a transient
+        # read timeout on those calls would propagate unretried (unlike the GETs in
+        # the same walk). These POSTs are read-only/idempotent, so the session must
+        # retry them on transient read timeouts and 429/5xx.
+        session = _make_intercom_session("token")
+        retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
+        allowed_methods = cast("frozenset[str]", retry.allowed_methods)
+
+        assert {"GET", "POST"} <= set(allowed_methods)
+        assert retry.total == 3
+        assert 429 in (retry.status_forcelist or ())
 
 
 class TestIntercomSource:

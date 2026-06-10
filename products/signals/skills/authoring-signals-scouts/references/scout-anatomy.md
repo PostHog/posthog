@@ -4,6 +4,15 @@ A scout is a single `SKILL.md` (its body is loaded verbatim as the agent's syste
 plus optional `references/` files read on demand. Keep the body lean and push depth into
 references — every line of the body is a recurring token cost on **every** run.
 
+## Contents
+
+- Naming
+- Frontmatter
+- Body structure (the ten canonical sections)
+- References
+- Skeleton — specialist scout
+- Skeleton — broad / cross-product scout
+
 ## Naming
 
 The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by

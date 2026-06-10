@@ -1096,6 +1096,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("remote configuration", response.json()["detail"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_flag_to_remote_config_persists(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "toggle-to-remote-config",
+                "name": "Toggle To Remote Config",
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertFalse(response.json()["is_remote_configuration"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_remote_configuration"])
+        self.assertTrue(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_without_encryption_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-unencrypted",
+                "name": "RC Unencrypted",
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_remote_configuration"])
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
@@ -2221,6 +2269,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify the stored ciphertext actually round-trips back to the plaintext.
         decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
         self.assertEqual(decrypted, plaintext)
+
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+            ("object", {"key": "value"}),
+        ]
+    )
+    def test_update_encrypted_flag_encrypts_non_string_payload(self, _name, raw_value):
+        # A non-str JSON payload is normalized to a JSON string before encryption,
+        # so it encrypts cleanly instead of raising on `.encode()`.
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": raw_value},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, json.dumps(raw_value))
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(json.loads(decrypted), raw_value)
 
     def test_update_encrypted_flag_downgrade_clears_payload(self):
         flag = self._create_encrypted_flag()
@@ -3466,15 +3547,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team, key="56397-delete-flag", deleted=True
         ).exists()
 
-    def test_soft_delete_flag_blocked_with_active_experiment(self):
+    def test_soft_delete_flag_blocked_with_running_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=now(),
+        )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
+            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
         )
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_soft_delete_flag_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        # Draft and stopped experiments may keep the flag so their history is preserved;
+        # deletion is allowed and the original key is freed up via the tombstone suffix.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-exp-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
@@ -4554,22 +4663,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsInstance(stored_payload, str)
         self.assertEqual(json.loads(stored_payload), {"key": "value"})
 
-        # Other valid JSON types (number, boolean, null, array) should be accepted
-        number_payload = self._create_flag_with_properties(
-            "number-payload-flag",
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+        ]
+    )
+    def test_non_string_payloads_are_normalized_to_json_strings(self, name, raw_value):
+        # Other valid JSON types (number, boolean, null, array) are accepted and
+        # normalized to JSON strings, matching how object payloads are stored.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": 42},
+            payloads={"true": raw_value},
             expected_status=status.HTTP_201_CREATED,
         )
-        self.assertEqual(number_payload.status_code, status.HTTP_201_CREATED)
+        stored = response.json()["filters"]["payloads"]["true"]
+        self.assertIsInstance(stored, str)
+        self.assertEqual(json.loads(stored), raw_value)
 
-        boolean_payload = self._create_flag_with_properties(
-            "boolean-payload-flag",
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_blank_string_payloads_are_rejected(self, name, blank_value):
+        # An empty or whitespace-only string isn't valid JSON (the common "user cleared
+        # the field" case), so it's rejected rather than coerced.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": True},
-            expected_status=status.HTTP_201_CREATED,
+            payloads={"true": blank_value},
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(boolean_payload.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Payload value is not valid JSON")
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
@@ -6484,6 +6615,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
         assert response.json()["experiment_set"] == []
+
+    def test_feature_flag_experiment_set_metadata_includes_running_status(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="metadata-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        running = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Running", feature_flag=flag, start_date=now()
+        )
+        stopped = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stopped",
+            feature_flag=flag,
+            start_date=now() - timedelta(days=1),
+            end_date=now(),
+        )
+        draft = Experiment.objects.create(team=self.team, created_by=self.user, name="Draft", feature_flag=flag)
+
+        response = self.client.get(f"/api/projects/@current/feature_flags/{flag.id}")
+        assert response.status_code == 200
+        # Only a running experiment is flagged as such; the frontend uses this to gate flag deletion
+        running_by_id = {exp["id"]: exp["is_running"] for exp in response.json()["experiment_set_metadata"]}
+        assert running_by_id == {running.id: True, stopped.id: False, draft.id: False}
 
     def test_bulk_keys_valid_ids(self):
         """Test that valid IDs return correct key mapping"""
@@ -10845,8 +11002,8 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def test_bulk_delete_validates_experiments(self):
-        """Test that flags linked to active experiments are rejected."""
+    def test_bulk_delete_validates_running_experiments(self):
+        """Test that flags linked to running experiments are rejected."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -10858,6 +11015,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             name="Test Experiment",
             feature_flag=flag,
             created_by=self.user,
+            start_date=now(),
         )
 
         response = self.client.post(
@@ -10874,6 +11032,38 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Verify flag is NOT deleted
         flag.refresh_from_db()
         assert flag.deleted is False
+
+    def test_bulk_delete_allows_flag_linked_to_stopped_experiment(self):
+        """Flags linked to stopped/draft experiments can be deleted while preserving experiment history."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="stopped_experiment_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Stopped Experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=now(),
+            end_date=now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert len(data["errors"]) == 0
+
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        # Key is freed up for reuse
+        assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
