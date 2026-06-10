@@ -1,3 +1,4 @@
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -34,7 +35,11 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.api.subscription import AI_PROMPT_VALIDATION_ERRORED_EVENT, AI_PROMPT_VALIDATION_FAILED_EVENT
+from ee.api.subscription import (
+    AI_PROMPT_VALIDATION_ERRORED_EVENT,
+    AI_PROMPT_VALIDATION_FAILED_EVENT,
+    SubscriptionSerializer,
+)
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -2579,6 +2584,13 @@ class TestAISubscriptionAPI(APILicensedTest):
                 status.HTTP_201_CREATED,
                 AI_PROMPT_VALIDATION_ERRORED_EVENT,
             ),
+            (
+                # the overall save-validation deadline surfaces as future.result()'s TimeoutError
+                "overall_deadline_fails_open",
+                FuturesTimeoutError("validation deadline exceeded"),
+                status.HTTP_201_CREATED,
+                AI_PROMPT_VALIDATION_ERRORED_EVENT,
+            ),
         ]
     )
     @patch("ee.api.subscription.posthoganalytics.capture")
@@ -2660,6 +2672,16 @@ class TestAISubscriptionAPI(APILicensedTest):
             assert stored_prompt == "Show me churn by plan"
         else:
             assert stored_prompt == "What are the biggest event gains week-over-week?"
+
+    def test_skips_validation_when_request_user_has_no_distinct_id(self, mock_is_cloud, mock_flag, mock_sync):
+        # No authenticated user to attribute the LLM call to — validation is left to run time, not blocked.
+        request = MagicMock()
+        request.user.distinct_id = None
+        serializer = SubscriptionSerializer(context={"request": request})
+
+        serializer._validate_ai_prompt_plannable({"prompt": "Weekly pageviews summary"}, None)
+
+        self.mock_validate_prompt.assert_not_called()
 
     def test_non_ai_subscription_never_calls_prompt_validation(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)

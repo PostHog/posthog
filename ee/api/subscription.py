@@ -451,10 +451,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return attrs
 
     def _validate_ai_prompt_plannable(self, attrs: dict, existing: Optional[Subscription]) -> None:
-        """Run the pipeline's planner-level prompt check at save time so an unusable prompt
-        fails the write immediately instead of auto-disabling at the first scheduled run.
-        Only a genuine rejection blocks the save; transient LLM/infra errors FAIL OPEN —
-        the run-time auto-disable path remains the backstop."""
+        """A genuine prompt rejection blocks the save; transient LLM/infra errors FAIL OPEN — the run-time auto-disable path remains the backstop."""
         if "prompt" not in attrs:
             return  # update that doesn't touch the prompt
         prompt = attrs["prompt"]  # already stripped and length-checked by _validate_ai_content
@@ -465,9 +462,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if not getattr(user, "distinct_id", None):
             return  # no authenticated user to attribute the LLM call to — leave it to run time
         subscription_id = existing.id if existing else None
+        team = self.context["get_team"]()
         try:
             validate_prompt_plannable(
-                team=self.context["get_team"](),
+                team=team,
                 user=user,
                 prompt=prompt,
                 trace_correlation_id=subscription_id,
@@ -485,7 +483,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         except Exception as exc:
             logger.warning(
                 "ai_subscription.prompt_validation_errored",
-                team_id=self.context.get("team_id"),
+                team_id=team.id,
                 subscription_id=subscription_id,
                 exc_info=True,
             )
@@ -494,8 +492,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             )
 
     def _capture_prompt_validation_event(self, event: str, reason: str, subscription_id: Optional[int]) -> None:
-        organization = self.context["get_organization"]()
         try:
+            organization = self.context["get_organization"]()
             posthoganalytics.capture(
                 distinct_id=self._caller_distinct_id(),
                 event=event,

@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,8 +15,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
-    _PLANNER_LLM_TIMEOUT_SECONDS,
+    PLANNER_LLM_TIMEOUT_SECONDS,
     PROMPT_MAX_LENGTH,
+    PROMPT_SAVE_VALIDATION_LLM_MAX_RETRIES,
     PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS,
     PromptRejectedError,
     _event_property_names,
@@ -294,7 +296,9 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
 
-        assert mock_chat.call_args.kwargs["timeout"] == _PLANNER_LLM_TIMEOUT_SECONDS
+        assert mock_chat.call_args.kwargs["timeout"] == PLANNER_LLM_TIMEOUT_SECONDS
+        # None resolves to the client's default retry count in MaxChatMixin.model_post_init.
+        assert mock_chat.call_args.kwargs["max_retries"] is None
         assert mock_chat.call_args.kwargs["posthog_properties"]["stage"] == "plan"
 
 
@@ -310,6 +314,7 @@ class TestValidatePromptPlannable(APIBaseTest):
         validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
 
         assert mock_chat.call_args.kwargs["timeout"] == PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS
+        assert mock_chat.call_args.kwargs["max_retries"] == PROMPT_SAVE_VALIDATION_LLM_MAX_RETRIES
         assert mock_chat.call_args.kwargs["posthog_properties"]["stage"] == "save_validation"
 
     @parameterized.expand(
@@ -339,6 +344,18 @@ class TestValidatePromptPlannable(APIBaseTest):
         self, mock_chat: MagicMock, _mock_top: object
     ) -> None:
         mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = TimeoutError("llm timed out")
+
+        with pytest.raises(TimeoutError):
+            validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
+
+    @patch(f"{_SG}.PROMPT_SAVE_VALIDATION_OVERALL_TIMEOUT_SECONDS", 0.01)
+    @patch(f"{_SG}.build_context_blob")
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_times_out_when_validation_exceeds_overall_deadline(
+        self, mock_chat: MagicMock, mock_build: MagicMock
+    ) -> None:
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = self._VALID_PLAN
+        mock_build.side_effect = lambda *args, **kwargs: time.sleep(0.2) or "context"
 
         with pytest.raises(TimeoutError):
             validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")

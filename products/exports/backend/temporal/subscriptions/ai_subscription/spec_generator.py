@@ -1,6 +1,7 @@
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from django.db.models import F, Q
 
@@ -53,14 +54,20 @@ EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
-_PLANNER_LLM_TIMEOUT_SECONDS = 90.0
+PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 # Save-time validation runs inside an API request, so it gets a much tighter LLM budget than the
 # pipeline's planner call — callers fail open on timeout.
 PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS = 15.0
+# Single LLM attempt at save time — the client's default retries would multiply the budget per attempt.
+PROMPT_SAVE_VALIDATION_LLM_MAX_RETRIES = 0
+# Bounds the whole save-time check (context build + one LLM attempt), not just the LLM call.
+PROMPT_SAVE_VALIDATION_OVERALL_TIMEOUT_SECONDS = 25.0
 # Only sets the "suggested analysis window" context line for the save-time planner call; the real
 # window is derived from the subscription's cadence at run time.
 SAVE_VALIDATION_WINDOW_DAYS = 7
+
+_SAVE_VALIDATION_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ai-sub-save-validation")
 
 
 class PromptRejectedError(ValueError):
@@ -295,8 +302,9 @@ def generate_query_plan(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]] = None,
-    llm_timeout: float = _PLANNER_LLM_TIMEOUT_SECONDS,
-    stage: str = "plan",
+    llm_timeout: float = PLANNER_LLM_TIMEOUT_SECONDS,
+    llm_max_retries: Optional[int] = None,
+    stage: Literal["plan", "save_validation"] = "plan",
 ) -> QueryPlan:
     # `user is None` is enforced at the public entry points (`generate_ai_report` raises;
     # `validate_prompt_plannable` requires it by type). Don't repeat the check.
@@ -306,6 +314,8 @@ def generate_query_plan(
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=llm_timeout,
+        # None resolves to the client's default retry count (MaxChatMixin.model_post_init).
+        max_retries=llm_max_retries,
         user=user,
         team=team,
         billable=True,
@@ -332,19 +342,26 @@ def validate_prompt_plannable(
 ) -> None:
     # Save-time mirror of the pipeline's planner stage (sanitize + plan), minus the event-selection
     # pass and any query execution, so save-time acceptance and run-time rejection can't drift.
-    # Raises PromptRejectedError on a genuine rejection; any other exception (LLM timeout, infra
+    # Raises PromptRejectedError on a genuine rejection; any other exception (timeout, infra
     # failure) is transient and callers are expected to fail open.
     cleaned = sanitize_prompt(prompt)
-    context_blob = build_context_blob(team, SAVE_VALIDATION_WINDOW_DAYS)
-    generate_query_plan(
-        cleaned_prompt=cleaned,
-        context_blob=context_blob,
-        team=team,
-        user=user,
-        trace_correlation_id=trace_correlation_id,
-        llm_timeout=PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS,
-        stage="save_validation",
-    )
+
+    def _build_and_plan() -> None:
+        context_blob = build_context_blob(team, SAVE_VALIDATION_WINDOW_DAYS)
+        generate_query_plan(
+            cleaned_prompt=cleaned,
+            context_blob=context_blob,
+            team=team,
+            user=user,
+            trace_correlation_id=trace_correlation_id,
+            llm_timeout=PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS,
+            llm_max_retries=PROMPT_SAVE_VALIDATION_LLM_MAX_RETRIES,
+            stage="save_validation",
+        )
+
+    # On timeout the orphaned worker keeps running, but it's bounded by the LLM/ClickHouse server-side timeouts.
+    future = _SAVE_VALIDATION_EXECUTOR.submit(_build_and_plan)
+    future.result(timeout=PROMPT_SAVE_VALIDATION_OVERALL_TIMEOUT_SECONDS)
 
 
 def build_enriched_prompt(
