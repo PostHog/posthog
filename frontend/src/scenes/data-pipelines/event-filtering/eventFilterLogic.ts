@@ -212,6 +212,46 @@ export function normalizeRootToGroup(node: FilterNode): FilterNode {
     return { type: 'or', children: [node] }
 }
 
+/**
+ * Mirror of prune_filter_tree in posthog/models/event_filter_config.py.
+ * Removes empty groups and incomplete (empty-value) conditions, collapses
+ * single-child groups, and keeps an and/or group at the root. Returns null when
+ * nothing meaningful is left — i.e. the filter is effectively empty.
+ *
+ * This is what makes "Empty groups are removed automatically on save" honest:
+ * clearing out a condition (or deleting its row) lets the filter save cleanly
+ * rather than failing validation on the leftover empty node.
+ */
+export function pruneFilterTree(node: FilterNode): FilterNode | null {
+    const pruned = pruneNode(node)
+    if (pruned !== null && pruned.type !== 'and' && pruned.type !== 'or') {
+        return { type: 'or', children: [pruned] }
+    }
+    return pruned
+}
+
+function pruneNode(node: FilterNode): FilterNode | null {
+    switch (node.type) {
+        case 'condition':
+            return !node.value || node.value.trim() === '' ? null : node
+        case 'not': {
+            const child = pruneNode(node.child)
+            return child === null ? null : { ...node, child }
+        }
+        case 'and':
+        case 'or': {
+            const children = node.children.map(pruneNode).filter((child): child is FilterNode => child !== null)
+            if (children.length === 0) {
+                return null
+            }
+            if (children.length === 1) {
+                return children[0]
+            }
+            return { ...node, children }
+        }
+    }
+}
+
 // --- Immutable tree updates ---
 
 /**
@@ -257,26 +297,26 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         addChild: (pathKeys: TreePath) => ({ pathKeys }),
         removeChild: (pathKeys: TreePath, childIndex: number) => ({ pathKeys, childIndex }),
         convertToGroup: (pathKeys: TreePath, groupType: 'and' | 'or') => ({ pathKeys, groupType }),
+        // Reset the whole filter (empty tree, disabled) and save — i.e. delete it
+        clearFilter: true,
         // Test case management
         addTestCase: true,
         removeTestCase: (index: number) => ({ index }),
         updateTestCase: (index: number, updates: Partial<TestCase>) => ({ index, updates }),
     }),
 
-    forms(({ values }) => ({
+    forms(({ values, actions }) => ({
         filterForm: {
             defaults: DEFAULT_FORM,
             errors: ({ filter_tree, mode, test_cases }: EventFilterFormValues) => ({
                 // Validation errors go on `mode` (a string field) rather than `filter_tree`
                 // because kea-forms expects errors on object fields to be DeepPartialMap, not strings.
+                // Validate against the pruned tree — empty groups and incomplete conditions are
+                // removed on save, so they should never block it (that was the "delete" bug).
                 mode: (() => {
-                    if (mode !== 'disabled' && !treeHasConditions(filter_tree)) {
-                        return 'Filter must have at least one condition to be activated'
-                    }
-                    if (treeHasConditions(filter_tree) && treeHasEmptyValues(filter_tree)) {
-                        return 'All conditions must have a value'
-                    }
-                    if (mode === 'live' && treeHasConditions(filter_tree) && test_cases.length === 0) {
+                    const pruned = pruneFilterTree(filter_tree)
+                    const hasConditions = pruned !== null && treeHasConditions(pruned)
+                    if (mode === 'live' && hasConditions && test_cases.length === 0) {
                         return 'Add at least one test case before going live'
                     }
                     return undefined
@@ -285,18 +325,33 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             submit: async (formValues) => {
                 const { currentTeamId } = values
 
-                // Safety: downgrade to dry_run if tests are failing
-                if (formValues.mode === 'live' && !values.allTestsPass && formValues.test_cases.length > 0) {
-                    formValues = { ...formValues, mode: 'dry_run' }
+                const pruned = pruneFilterTree(formValues.filter_tree)
+                const hasConditions = pruned !== null && treeHasConditions(pruned)
+
+                // No conditions left — the filter is effectively cleared, so disable it.
+                // Otherwise downgrade live → dry_run when tests are failing.
+                let mode = formValues.mode
+                let filterTree: FilterNode = pruned ?? { type: 'or', children: [] }
+                if (!hasConditions) {
+                    mode = 'disabled'
+                    filterTree = { type: 'or', children: [] }
+                } else if (mode === 'live' && !values.allTestsPass && formValues.test_cases.length > 0) {
+                    mode = 'dry_run'
                 }
 
-                // Strip _key from test cases before sending to the API
                 const payload = {
-                    ...formValues,
+                    mode,
+                    filter_tree: filterTree,
+                    // Strip _key from test cases before sending to the API
                     test_cases: formValues.test_cases.map(({ _key, ...tc }) => tc),
                 }
                 await api.create(`api/environments/${currentTeamId}/event_filter/`, payload)
-                lemonToast.success('Event filter saved')
+
+                // Reflect the pruned/downgraded result back into the form so the UI
+                // matches what was actually saved (empty rows disappear, mode updates).
+                actions.setFilterFormValue('filter_tree', normalizeRootToGroup(filterTree))
+                actions.setFilterFormValue('mode', mode)
+                lemonToast.success(hasConditions ? 'Event filter saved' : 'Event filter cleared')
             },
         },
     })),
@@ -404,6 +459,12 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                 children: [node],
             }))
             actions.setFilterFormValue('filter_tree', newTree)
+        },
+        clearFilter: () => {
+            actions.setFilterFormValue('filter_tree', { type: 'or', children: [] })
+            actions.setFilterFormValue('mode', 'disabled')
+            actions.setFilterFormValue('test_cases', [])
+            actions.submitFilterForm()
         },
         addTestCase: () => {
             const newCases = [

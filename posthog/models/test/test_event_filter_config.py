@@ -173,6 +173,25 @@ class TestPruneFilterTree(SimpleTestCase):
         cond = _cond()
         self.assertEqual(prune_filter_tree(_or(_and(_or(cond)))), _or(cond))
 
+    @parameterized.expand(
+        [
+            ("empty_value", _or(_cond(value="")), None),
+            ("whitespace_value", _or(_cond(value="  ")), None),
+            ("not_empty_value", _not(_cond(value="")), None),
+        ]
+    )
+    def test_removes_incomplete_conditions(self, _name: str, tree: dict, expected: dict | None):
+        self.assertEqual(prune_filter_tree(tree), expected)
+
+    def test_drops_incomplete_condition_keeps_sibling(self):
+        tree = _or(_cond(value="pageview"), _cond(value=""))
+        self.assertEqual(prune_filter_tree(tree), _or(_cond(value="pageview")))
+
+    def test_malformed_node_is_left_for_validation(self):
+        # Pruning must not crash on non-object input — it wraps it so the
+        # validator can report a clean structural error.
+        self.assertEqual(prune_filter_tree("not-an-object"), {"type": "or", "children": ["not-an-object"]})
+
 
 class TestPruneFilterTreePreservesGroupRoot(SimpleTestCase):
     """
@@ -424,6 +443,24 @@ class TestEventFilterConfigModel(BaseTest):
         assert config.filter_tree is not None
         self.assertIn(config.filter_tree["type"], ("and", "or"))
         self.assertEqual(config.filter_tree["children"], [_cond("distinct_id", "contains", "bot")])
+
+    def test_save_prunes_incomplete_conditions(self):
+        # An empty-value condition is dropped on save rather than rejected, so a
+        # filter can be cleared by emptying its conditions.
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.DRY_RUN,
+            filter_tree=_or(_cond(value="pageview"), _cond(value="")),
+        )
+        self.assertEqual(config.filter_tree, _or(_cond(value="pageview")))
+
+    def test_save_clears_filter_tree_when_all_conditions_empty(self):
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.DISABLED,
+            filter_tree=_or(_cond(value="")),
+        )
+        self.assertIsNone(config.filter_tree)
 
     def test_save_rejects_invalid_filter_tree(self):
         with self.assertRaises(ValidationError):

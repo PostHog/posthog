@@ -14,6 +14,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
@@ -36,9 +37,9 @@ export const scene: SceneExport = {
 }
 
 export function EventFilterScene(): JSX.Element {
-    const { filterForm, isFilterFormSubmitting, allTestsPass, filterFormErrors, showFilterFormErrors } =
+    const { filterForm, isFilterFormSubmitting, allTestsPass, filterFormErrors, showFilterFormErrors, conditionCount } =
         useValues(eventFilterLogic)
-    const { setFilterFormValue, submitFilterForm, updateTreeNode } = useActions(eventFilterLogic)
+    const { setFilterFormValue, submitFilterForm, updateTreeNode, clearFilter } = useActions(eventFilterLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [showExpression, setShowExpression] = useState(false)
     const nodeIds = useRef(new NodeIdMap()).current
@@ -199,8 +200,8 @@ export function EventFilterScene(): JSX.Element {
                                 <p className="text-muted text-sm mb-0">
                                     Build a filter expression. Drag conditions and groups to reorder or move between
                                     groups. Maximum {EVENT_FILTER_MAX_CONDITIONS} conditions and{' '}
-                                    {EVENT_FILTER_MAX_DEPTH} levels of nesting. Empty groups are removed automatically
-                                    on save.
+                                    {EVENT_FILTER_MAX_DEPTH} levels of nesting. Empty groups and incomplete conditions
+                                    are removed automatically on save. Removing all conditions disables the filter.
                                 </p>
                             </div>
                             <LemonButton
@@ -269,6 +270,18 @@ export function EventFilterScene(): JSX.Element {
                         <LemonButton type="primary" onClick={() => submitFilterForm()} loading={isFilterFormSubmitting}>
                             Save
                         </LemonButton>
+                        {conditionCount > 0 && (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                icon={<IconTrash />}
+                                disabled={isFilterFormSubmitting}
+                                onClick={() => clearFilter()}
+                                data-attr="delete-event-filter"
+                            >
+                                Delete filter
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             </Form>

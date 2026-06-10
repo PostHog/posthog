@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event_filter_config import (
     EventFilterConfig,
+    prune_filter_tree,
     run_test_cases,
     validate_filter_tree,
     validate_test_cases,
@@ -50,9 +51,15 @@ class EventFilterConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate_filter_tree(self, value: object) -> object:
-        if value:
-            validate_filter_tree(value)
-        return value
+        # Prune empty groups and incomplete conditions before validating, so
+        # clearing a filter's conditions saves cleanly instead of erroring. The
+        # pruned tree is what gets persisted (None once everything is removed).
+        if not value:
+            return value
+        pruned = prune_filter_tree(value)
+        if pruned is not None:
+            validate_filter_tree(pruned)
+        return pruned
 
     def validate_test_cases(self, value: object) -> object:
         if value:

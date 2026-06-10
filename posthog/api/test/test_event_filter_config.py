@@ -156,6 +156,24 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filter_tree"], _or(_cond()))
 
+    def test_create_prunes_incomplete_conditions(self):
+        # Clearing a condition's value drops it on save instead of erroring, so
+        # users can remove a filter (the reported "All conditions must have a
+        # value" bug).
+        tree = _or(_cond(value="$pageview"), _cond(value=""))
+        response = self.client.post(self._url(), data={"filter_tree": tree}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["filter_tree"], _or(_cond(value="$pageview")))
+
+    def test_create_clears_filter_tree_when_all_conditions_empty(self):
+        self._seed_config()
+
+        response = self.client.post(self._url(), data={"filter_tree": _or(_cond(value=""))}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["filter_tree"])
+
     def test_create_timestamps_are_read_only(self):
         response = self.client.post(
             self._url(),
@@ -195,6 +213,14 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(data["type"], "validation_error")
         self.assertEqual(data["attr"], "filter_tree__filter_tree")
         self.assertIn("field must be one of", data["detail"])
+
+    def test_rejects_malformed_filter_tree(self):
+        # Pruning runs before validation now; a non-object tree must still be a
+        # clean 400, not a 500.
+        response = self.client.post(self._url(), data={"filter_tree": "not-an-object"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
 
     def test_rejects_invalid_test_cases(self):
         response = self.client.post(

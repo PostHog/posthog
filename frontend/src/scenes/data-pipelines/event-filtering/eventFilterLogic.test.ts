@@ -1,8 +1,15 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     countConditions,
+    eventFilterLogic,
     evaluateFilterTree,
     FilterNode,
     normalizeRootToGroup,
+    pruneFilterTree,
     treeHasConditions,
     treeHasEmptyValues,
     updateAtPath,
@@ -320,6 +327,42 @@ describe('countConditions', () => {
     })
 })
 
+describe('pruneFilterTree', () => {
+    // Mirrors the backend prune_filter_tree tests — empty groups, incomplete
+    // conditions, and single-child collapse, always keeping a group at the root.
+    it.each([
+        ['empty or returns null', or(), null],
+        ['empty and returns null', and(), null],
+        ['empty-value condition returns null', or(cond('event_name', 'exact', '')), null],
+        ['whitespace-value condition returns null', or(cond('event_name', 'exact', '  ')), null],
+        ['not wrapping empty-value condition returns null', not(cond('event_name', 'exact', '')), null],
+    ])('%s', (_name, tree, expected) => {
+        expect(pruneFilterTree(tree)).toBe(expected)
+    })
+
+    it('drops the empty-value condition but keeps the filled sibling', () => {
+        const tree = or(cond('event_name', 'exact', 'pageview'), cond('event_name', 'exact', ''))
+        expect(pruneFilterTree(tree)).toEqual(or(cond('event_name', 'exact', 'pageview')))
+    })
+
+    it('collapses single-child groups but keeps a group root', () => {
+        expect(pruneFilterTree(or(and(or(cond('event_name', 'exact', 'pageview')))))).toEqual(
+            or(cond('event_name', 'exact', 'pageview'))
+        )
+    })
+
+    it('wraps a bare-condition result in an OR group', () => {
+        expect(pruneFilterTree(and(cond('distinct_id', 'contains', 'bot')))).toEqual(
+            or(cond('distinct_id', 'contains', 'bot'))
+        )
+    })
+
+    it('leaves a fully valid multi-condition tree unchanged', () => {
+        const tree = and(cond('event_name', 'exact', 'pageview'), cond('distinct_id', 'contains', 'bot'))
+        expect(pruneFilterTree(tree)).toEqual(tree)
+    })
+})
+
 describe('treeHasEmptyValues', () => {
     it.each([
         ['filled condition', cond('event_name', 'exact', 'pageview'), false],
@@ -332,5 +375,69 @@ describe('treeHasEmptyValues', () => {
         ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
+    })
+})
+
+describe('eventFilterLogic submit and clear', () => {
+    let savedPayload: Record<string, any> | null = null
+
+    beforeEach(() => {
+        savedPayload = null
+        useMocks({
+            get: { '/api/environments/:team_id/event_filter/': () => [204, null] },
+            post: {
+                '/api/environments/:team_id/event_filter/': async (req) => {
+                    savedPayload = (await req.json()) as Record<string, any>
+                    return [200, { id: 'abc', ...savedPayload }]
+                },
+            },
+        })
+        initKeaTests()
+        eventFilterLogic.mount()
+    })
+
+    it('prunes incomplete conditions before saving', async () => {
+        const logic = eventFilterLogic
+        logic.actions.setFilterFormValue('mode', 'dry_run')
+        logic.actions.setFilterFormValue(
+            'filter_tree',
+            or(cond('event_name', 'exact', 'pageview'), cond('event_name', 'exact', ''))
+        )
+
+        await expectLogic(logic, () => logic.actions.submitFilterForm()).toFinishAllListeners()
+
+        expect(savedPayload).not.toBeNull()
+        expect(savedPayload!.mode).toBe('dry_run')
+        expect(savedPayload!.filter_tree).toEqual(or(cond('event_name', 'exact', 'pageview')))
+    })
+
+    it('disables the filter when all conditions are removed', async () => {
+        const logic = eventFilterLogic
+        logic.actions.setFilterFormValue('mode', 'live')
+        logic.actions.setFilterFormValue('filter_tree', or())
+
+        await expectLogic(logic, () => logic.actions.submitFilterForm()).toFinishAllListeners()
+
+        expect(savedPayload).not.toBeNull()
+        expect(savedPayload!.mode).toBe('disabled')
+        expect(savedPayload!.filter_tree).toEqual(or())
+    })
+
+    it('clearFilter resets the form and saves a disabled, empty filter', async () => {
+        const logic = eventFilterLogic
+        logic.actions.setFilterFormValue('mode', 'live')
+        logic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', 'pageview')))
+        logic.actions.setFilterFormValue('test_cases', [
+            { _key: 'k1', event_name: 'pageview', distinct_id: '', expected_result: 'drop' },
+        ])
+
+        await expectLogic(logic, () => logic.actions.clearFilter()).toFinishAllListeners()
+
+        expect(savedPayload).not.toBeNull()
+        expect(savedPayload!.mode).toBe('disabled')
+        expect(savedPayload!.filter_tree).toEqual(or())
+        expect(savedPayload!.test_cases).toEqual([])
+        expect(logic.values.filterForm.mode).toBe('disabled')
+        expect(logic.values.conditionCount).toBe(0)
     })
 })

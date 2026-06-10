@@ -81,26 +81,38 @@ class EventFilterConfig(UUIDTModel):
         super().save(*args, **kwargs)
 
 
-def prune_filter_tree(node: dict) -> dict | None:
+def prune_filter_tree(node: object) -> dict | None:
     """
-    Remove empty groups and collapse single-child groups, keeping an and/or
-    group at the root.
+    Remove empty groups and incomplete (empty-value) conditions, collapse
+    single-child groups, and keep an and/or group at the root.
 
     The tree editor can only add conditions or groups inside a group node, so a
     bare condition (or NOT) at the root leaves the user with no "Add condition"
     button. We prune freely, then wrap a non-group root in an OR as a final pass.
     """
     pruned = _prune_node(node)
-    if pruned is not None and pruned.get("type") not in ("and", "or"):
+    if pruned is None:
+        return None
+    if not isinstance(pruned, dict) or pruned.get("type") not in ("and", "or"):
         return {"type": "or", "children": [pruned]}
     return pruned
 
 
-def _prune_node(node: dict) -> dict | None:
-    """Remove empty groups and collapse single-child groups, depth-first."""
+def _prune_node(node: object) -> object | None:
+    """Remove empty groups and incomplete conditions, collapse single-child groups, depth-first."""
+    if not isinstance(node, dict):
+        # Leave malformed nodes in place so validation reports the structural error.
+        return node
+
     node_type = node.get("type")
 
     if node_type == "condition":
+        # An empty-value condition is incomplete — drop it like an empty group.
+        # This mirrors the editor's "Empty groups are removed automatically on
+        # save" promise and lets users clear a filter by emptying its conditions.
+        value = node.get("value")
+        if not isinstance(value, str) or value.strip() == "":
+            return None
         return node
 
     if node_type == "not":
@@ -110,7 +122,7 @@ def _prune_node(node: dict) -> dict | None:
         return {**node, "child": child}
 
     if node_type in ("and", "or"):
-        children: list[dict] = []
+        children: list[object] = []
         for child in node.get("children", []):
             pruned_child = _prune_node(child)
             if pruned_child is not None:
