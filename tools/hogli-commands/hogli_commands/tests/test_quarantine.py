@@ -191,6 +191,19 @@ def test_adapter_skip_mode_applies_skip_marker(tmp_path: Path) -> None:
     assert item.marker_names() == ["quarantine", "skip"]
 
 
+def test_adapter_most_specific_selector_wins(tmp_path: Path) -> None:
+    entries = [
+        raw_entry(id="posthog/api/test/test_foo.py", mode="run"),
+        raw_entry(id="posthog/api/test/test_foo.py::TestFoo::test_bar", mode="skip"),
+    ]
+    path = write_file(tmp_path / "q.json", entries)
+    narrow = FakeItem("posthog/api/test/test_foo.py::TestFoo::test_bar")
+    broad = FakeItem("posthog/api/test/test_foo.py::TestFoo::test_other")
+    apply_quarantine_markers([narrow, broad], path=path)  # type: ignore[arg-type]
+    assert narrow.marker_names() == ["quarantine", "skip"]
+    assert broad.marker_names() == ["quarantine", "xfail"]
+
+
 def test_adapter_is_idempotent_across_double_registration(tmp_path: Path) -> None:
     path = write_file(tmp_path / "q.json", [raw_entry()])
     item = FakeItem("posthog/api/test/test_foo.py::TestFoo::test_bar")

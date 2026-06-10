@@ -76,12 +76,12 @@ def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days:
         issue=issue,
         mode=mode,
     )
-    entries = [e for e in result.entries if e.id != selector_id] + [entry]
+    entries = [e for e in result.entries if (e.id, e.runner) != (entry.id, entry.runner)] + [entry]
     path.write_text(core.render(entries, result.extras))
     click.echo(f"Quarantined '{selector_id}' (mode: {mode}) until {entry.expires.isoformat()}.")
 
 
-@quarantine.command(name="remove", help="Remove a quarantine entry (succeeds even if absent).")
+@quarantine.command(name="remove", help="Remove a quarantine entry for every runner (succeeds even if absent).")
 @click.argument("selector_id", metavar="ID")
 @click.pass_obj
 def remove(path: Path, selector_id: str) -> None:
@@ -133,3 +133,9 @@ def check(path: Path, grace_days: int) -> None:
     if violations:
         raise SystemExit(1)
     click.echo(f"{path.name} OK ({len(result.entries)} entries).")
+
+
+# Direct invocation needs only click + stdlib (used by test-quarantine.yml to
+# avoid installing the full dev environment): python -m hogli_commands.quarantine.cli
+if __name__ == "__main__":
+    quarantine()

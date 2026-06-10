@@ -23,7 +23,7 @@
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
-const { analyzeSchemaImpact } = require('./schema-impact')
+const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -172,10 +172,28 @@ function loadQuarantinedSkipProducts(todayISO) {
 function loadBaseQuarantinedSkipProducts(base, todayISO) {
     // Fail-open: file absent at base (or unreadable ref) means nothing was quarantined there.
     try {
-        return quarantinedSkipProducts(execFileSync('git', ['show', `${base}:${QUARANTINE_FILE}`], TURBO_EXEC_OPTS), todayISO)
+        const raw = readBaseSchema(base, QUARANTINE_FILE)
+        return raw === null ? new Set() : quarantinedSkipProducts(raw, todayISO)
     } catch {
         return new Set()
     }
+}
+
+// Warn on names matching no real product (catches the dash/underscore mixup:
+// the dir is batch_exports but the product is batch-exports), then drop the
+// rest from the matrix.
+function dropProducts(products, allProducts, names, label) {
+    const allProductSet = new Set(allProducts)
+    for (const name of names) {
+        if (!allProductSet.has(name)) {
+            console.error(
+                `::warning::${label}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
+            )
+        }
+    }
+    const remaining = products.filter((p) => !names.has(p))
+    console.error(`${label}: ${[...names].join(',')} — dropped ${products.length - remaining.length} product(s)`)
+    return remaining
 }
 
 function loadTestDurations() {
@@ -467,42 +485,20 @@ if (legacyChanged) {
 // running, and blocking on, a product whose tests are temporarily too flaky.
 const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
 if (skipProducts.size > 0) {
-    // Warn loudly on a name that matches no real product (checked against the
-    // full product list, not just the affected ones) — catches the dash/
-    // underscore mixup where the dir is batch_exports but the product is
-    // batch-exports, which would otherwise silently skip nothing.
-    const allProductSet = new Set(allProducts)
-    for (const name of skipProducts) {
-        if (!allProductSet.has(name)) {
-            console.error(`::warning::SKIP_PRODUCT_TESTS: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`)
-        }
-    }
-    const before = products.length
-    products = products.filter((p) => !skipProducts.has(p))
-    console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
+    products = dropProducts(products, allProducts, skipProducts, 'SKIP_PRODUCT_TESTS')
 }
 
 const todayISO = new Date().toISOString().slice(0, 10)
 const quarantinedProducts = loadQuarantinedSkipProducts(todayISO)
 if (quarantinedProducts.size > 0) {
-    const allProductSet = new Set(allProducts)
-    for (const name of quarantinedProducts) {
-        if (!allProductSet.has(name)) {
-            console.error(
-                `::warning::${QUARANTINE_FILE}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
-            )
-        }
-    }
-    const before = products.length
-    products = products.filter((p) => !quarantinedProducts.has(p))
-    console.error(
-        `Quarantined products (mode: skip): ${[...quarantinedProducts].join(',')} — dropped ${before - products.length} product(s)`
-    )
+    products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
 }
 
-// Un-quarantining must re-run the suite: Turbo doesn't see .test_quarantine.json
-// as a product input, so products whose active skip-quarantine was lifted since
-// the merge base are forced into the matrix.
+// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
+// filter already forces a full run on any PR touching the quarantine file, so
+// this diff against the merge base rarely changes the outcome — it is the
+// backstop that keeps product re-runs correct if that coarse trigger is ever
+// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)

@@ -41,6 +41,10 @@ Selector grammar (``id``, pytest):
   covers its parameterized variants, and partial names never match)
 - ``product:<dashed-name>``: everything under ``products/<name_with_underscores>/``
 
+When several entries match the same test, the most specific (longest)
+selector wins — so a narrow ``mode: skip`` entry overrides a broad
+``mode: run`` one.
+
 Nodeids are repo-root-relative in every PostHog pytest invocation (product
 suites pass ``--rootdir ../..``), so one id format works everywhere.
 
@@ -212,8 +216,15 @@ def product_path_prefix(selector: str) -> str:
 
 
 def find_match(entries: list[Entry], test_id: str) -> Entry | None:
-    """First entry (in file order, i.e. sorted by id) whose selector covers ``test_id``."""
-    return next((e for e in entries if selector_matches(e.id, test_id)), None)
+    """The most specific (longest) matching selector wins, so a narrow
+    ``mode: skip`` entry can override a broad ``mode: run`` one. Ties keep
+    file order (sorted by id)."""
+    matches = [e for e in entries if selector_matches(e.id, test_id)]
+    return max(matches, key=lambda e: len(_expanded_selector(e.id)), default=None)
+
+
+def _expanded_selector(selector: str) -> str:
+    return product_path_prefix(selector) if selector.startswith(_PRODUCT_SELECTOR_PREFIX) else selector
 
 
 def render(entries: list[Entry], extras: dict[str, Any] | None = None) -> str:
@@ -225,22 +236,21 @@ def render(entries: list[Entry], extras: dict[str, Any] | None = None) -> str:
 
 
 def _entry_to_dict(entry: Entry) -> dict[str, Any]:
-    raw: dict[str, Any] = {
+    out: dict[str, Any] = {
         "id": entry.id,
         "runner": entry.runner,
         "reason": entry.reason,
         "owner": entry.owner,
+        **({"issue": entry.issue} if entry.issue else {}),
         "added": entry.added.isoformat(),
         "expires": entry.expires.isoformat(),
         "mode": entry.mode,
-        **entry.extras,
     }
-    if entry.issue:
-        raw["issue"] = entry.issue
-    return {k: raw[k] for k in (*_ENTRY_FIELDS, *sorted(entry.extras)) if k in raw}
+    out.update(sorted(entry.extras.items()))
+    return out
 
 
-def validate_selector(selector: str, runner: str, repo_root: Path = REPO_ROOT) -> str | None:
+def validate_selector(selector: str, runner: str) -> str | None:
     """Selector validity for known runners; returns a violation message or None.
 
     Only pytest selectors have rules today; other runners' grammars belong to
@@ -254,9 +264,9 @@ def validate_selector(selector: str, runner: str, repo_root: Path = REPO_ROOT) -
             # turbo-discover compares dashed product names; the underscored
             # directory form would silently skip nothing there.
             return "use the dashed product name (e.g. 'batch-exports'), not the directory form"
-        product_dir = repo_root / product_path_prefix(selector)
+        product_dir = REPO_ROOT / product_path_prefix(selector)
         if not product_dir.is_dir():
-            return f"no directory {product_dir.relative_to(repo_root)} — is the product name right?"
+            return f"no directory {product_dir.relative_to(REPO_ROOT)} — is the product name right?"
         return None
     if selector.startswith("/") or selector.startswith("\\"):
         return "must be repo-root-relative, not absolute"

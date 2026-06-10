@@ -9,7 +9,6 @@ duration/outcome keep flowing to the JUnit→OTLP pipeline; ``mode: skip`` →
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -17,7 +16,7 @@ import pytest
 from hogli_commands.quarantine import core
 
 
-def apply_quarantine_markers(items: list[pytest.Item], path: Path | None = None, today: date | None = None) -> None:
+def apply_quarantine_markers(items: list[pytest.Item], path: Path | None = None) -> None:
     """Mark quarantined items. Fail-open: any problem with the quarantine file
     is reported on stderr and quarantine is disabled — collection never breaks.
 
@@ -29,7 +28,7 @@ def apply_quarantine_markers(items: list[pytest.Item], path: Path | None = None,
         result = core.load(path or core.QUARANTINE_PATH)
         for message in result.errors:
             sys.stderr.write(f"[quarantine] disabled entry: {message}\n")
-        entries = core.active_entries(result.entries, runner="pytest", today=today or core.today_utc())
+        entries = core.active_entries(result.entries, runner="pytest", today=core.today_utc())
         if not entries:
             return
         for item in items:
