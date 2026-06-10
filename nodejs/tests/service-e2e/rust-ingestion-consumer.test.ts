@@ -11,7 +11,7 @@ import {
 import path from 'path'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -68,6 +68,14 @@ interface KafkaOutputEvent {
     team_id: number
 }
 
+type TopicWatermarks = { partition: number; offsets: WatermarkOffsets }[]
+
+// Per-test isolation state. Each test produces to a unique input topic and reads only the
+// output-topic messages produced after the watermarks captured at the start of the test,
+// so we never delete the shared topics that ClickHouse's Kafka consumers subscribe to.
+let currentIngestionTopic = KAFKA_EVENTS_PLUGIN_INGESTION
+let outputTopicStartWatermarks = new Map<string, TopicWatermarks>()
+
 describe('Rust ingestion consumer with Node ingestion API workers', () => {
     let clickhouse: Clickhouse
     let services: ServiceProcess[] = []
@@ -79,10 +87,15 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
     })
 
     beforeEach(async () => {
-        await resetKafka()
+        currentIngestionTopic = createKafkaTestTopicName(KAFKA_EVENTS_PLUGIN_INGESTION)
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, currentIngestionTopic])
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
         await waitForClickHouseKafkaConsumer(clickhouse)
+        outputTopicStartWatermarks = await captureTopicStartWatermarks([
+            KAFKA_EVENTS_JSON,
+            KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+        ])
     })
 
     afterEach(async () => {
@@ -92,6 +105,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         ])
         services = []
         proxies = []
+        outputTopicStartWatermarks = new Map()
     })
 
     afterAll(async () => {
@@ -227,11 +241,11 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             expectKafkaOutputEvents(await readTopicMessages(KAFKA_EVENTS_JSON, validEvents.length), validEvents)
             const [dlqMessage] = await readTopicMessages(KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, 1)
             expectDlqMessage(dlqMessage, {
-                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                topic: currentIngestionTopic,
                 event: 'rust node e2e mixed validity event',
                 uuid: invalidUuid,
             })
-            await expectCommittedOffsetsAtTopicEnd(groupId, KAFKA_EVENTS_PLUGIN_INGESTION, events.length)
+            await expectCommittedOffsetsAtTopicEnd(groupId, currentIngestionTopic, events.length)
             await waitForOffsetCommitCount(rustConsumer, rustMetricsPort, 2)
         } finally {
             await producer.disconnect()
@@ -490,7 +504,7 @@ function startRustIngestionConsumer(
             ...serviceProcessEnv(),
             RUST_LOG: 'info',
             KAFKA_HOSTS: 'localhost:9092',
-            INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+            INGESTION_CONSUMER_CONSUME_TOPIC: currentIngestionTopic,
             INGESTION_CONSUMER_GROUP_ID: groupId,
             // Rust's generic KAFKA_CONSUMER_* parser maps this name to invalid rdkafka key "offset.reset".
             KAFKA_CONSUMER_OFFSET_RESET: undefined,
@@ -622,7 +636,7 @@ async function produceEvents(producer: KafkaProducerWrapper, events: TestEvent[]
     for (const event of events) {
         const message = toProducerMessage(createKafkaMessageWithCaptureHeaders(event, TEST_TEAM_TOKEN))
         await producer.produce({
-            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+            topic: currentIngestionTopic,
             key: message.key ?? null,
             value: typeof message.value === 'string' ? Buffer.from(message.value) : message.value,
             headers: message.headers,
@@ -652,7 +666,7 @@ async function waitForEvents(clickhouse: Clickhouse, events: TestEvent[]): Promi
 async function assertKafkaIngestionState(groupId: string, expectedEvents: TestEvent[]): Promise<void> {
     const outputMessages = await readTopicMessages(KAFKA_EVENTS_JSON, expectedEvents.length)
     expectKafkaOutputEvents(outputMessages, expectedEvents)
-    await expectCommittedOffsetsAtTopicEnd(groupId, KAFKA_EVENTS_PLUGIN_INGESTION, expectedEvents.length)
+    await expectCommittedOffsetsAtTopicEnd(groupId, currentIngestionTopic, expectedEvents.length)
 }
 
 async function waitForTopicMessageCount(topic: string, expectedCount: number): Promise<void> {
@@ -660,7 +674,7 @@ async function waitForTopicMessageCount(topic: string, expectedCount: number): P
         `rust-node-e2e-count-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         async (consumer) => {
             await waitForExpect(async () => {
-                expect(await getTopicMessageCount(consumer, topic)).toBe(expectedCount)
+                expect(countSinceBaseline(topic, await getTopicWatermarks(consumer, topic))).toBe(expectedCount)
             }, 30_000)
         }
     )
@@ -675,7 +689,7 @@ async function readTopicMessages(topic: string, expectedCount: number): Promise<
                 watermarks.map(({ partition, offsets }) => ({
                     topic,
                     partition,
-                    offset: offsets.lowOffset,
+                    offset: baselineStartOffset(topic, partition, offsets.lowOffset),
                 }))
             )
 
@@ -718,18 +732,44 @@ async function waitForTopicMessageCountAndGetWatermarks(
     consumer: KafkaConsumer,
     topic: string,
     expectedCount: number
-): Promise<{ partition: number; offsets: WatermarkOffsets }[]> {
-    let watermarks: { partition: number; offsets: WatermarkOffsets }[] = []
+): Promise<TopicWatermarks> {
+    let watermarks: TopicWatermarks = []
     await waitForExpect(async () => {
         watermarks = await getTopicWatermarks(consumer, topic)
-        expect(sumWatermarkMessageCount(watermarks)).toBe(expectedCount)
+        expect(countSinceBaseline(topic, watermarks)).toBe(expectedCount)
     }, 30_000)
 
     return watermarks
 }
 
-async function getTopicMessageCount(consumer: KafkaConsumer, topic: string): Promise<number> {
-    return sumWatermarkMessageCount(await getTopicWatermarks(consumer, topic))
+// Snapshots each topic's per-partition high offsets so later reads can isolate the
+// messages produced during a single test, even though the topic is shared across tests.
+async function captureTopicStartWatermarks(topics: string[]): Promise<Map<string, TopicWatermarks>> {
+    return await withKafkaConsumer(
+        `rust-node-e2e-watermarks-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        async (consumer) => {
+            const entries = await Promise.all(
+                topics.map(async (topic) => [topic, await getTopicWatermarks(consumer, topic)] as const)
+            )
+            return new Map(entries)
+        }
+    )
+}
+
+// The offset a test's reads should start from for a topic/partition: the high offset
+// captured at the start of the test, or the current low offset for topics without a baseline.
+function baselineStartOffset(topic: string, partition: number, fallbackLowOffset: number): number {
+    const baseline = outputTopicStartWatermarks.get(topic)?.find((entry) => entry.partition === partition)
+    return baseline?.offsets.highOffset ?? fallbackLowOffset
+}
+
+// Counts only the messages produced after the captured start watermarks for a topic.
+function countSinceBaseline(topic: string, watermarks: TopicWatermarks): number {
+    return watermarks.reduce(
+        (sum, { partition, offsets }) =>
+            sum + offsets.highOffset - baselineStartOffset(topic, partition, offsets.lowOffset),
+        0
+    )
 }
 
 async function getTopicWatermarks(
