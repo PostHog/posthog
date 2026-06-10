@@ -35,6 +35,15 @@ Importing a viewset module also runs its `@receiver` decorators, so the eager ro
 With the lazy router, those connect only when the router is first built — so any process that never builds it (celery, temporal, `migrate`, shell) silently loses them.
 Wire receivers from the owning app's `AppConfig.ready()` instead, so they connect at setup.
 
+### 4. Garbage collection deferred during boot
+
+Boot allocations are almost all permanent — modules, classes, registries, the generated pydantic schema — so the cyclic GC has nothing useful to reclaim while `django.setup()` runs, yet allocation thresholds trigger ~470 collections during it (~300ms of pauses, single gen2 passes up to ~100ms).
+The entrypoints that own a setup (`manage.py`, `posthog/wsgi.py`, `posthog/asgi.py`) wrap it in `gc.disable()` → boot → `gc.freeze()` → `gc.enable()`.
+The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free, and maximizes copy-on-write page sharing when a prototype process forks workers.
+There is deliberately no `gc.collect()` before the freeze: a full pass over the boot heap costs ~210ms and reclaims only ~4% of objects (a few MB), so the garbage is frozen along with everything else.
+The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
+Celery's `django.setup()` happens inside its Django fixup, not in an entrypoint we own, so celery workers do not get the window yet.
+
 ## The regression guard
 
 `posthog/test/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
@@ -95,6 +104,10 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 - Import cost breakdown: `python -X importtime` + `tuna` for the tree.
   Rank modules by _self_ time for leaf cost, _cumulative_ for subtree cost.
   **Not** pyinstrument — it smears import cost across `importlib._bootstrap` frames.
+- **Importtime self-times can lie: a GC pause lands on whatever module happens to be executing.**
+  A ~100ms gen2 collection fires wherever the allocation counter crosses its threshold, and `importtime` books it as that module's self-time — a 400-line module of dict literals showed 117ms, and the phantom _migrates between modules when import order changes_ (two runs of the same code attributed it to two different modules).
+  Before deferring a suspiciously expensive module, sanity-check it: a pure-Python module with no heavy imports should cost microseconds.
+  The decisive test is re-capturing with `gc.disable()` in front — if the cost vanishes, the module is innocent and the finding is GC, not imports.
 - Finding the _trigger_ of a heavy load: monkeypatch `builtins.__import__` to print the stack the first time the target module is imported.
   A profile shows cost but never whether it is _removable_ — confirm with an A/B, because a module is often reachable by more than one path and cutting one changes nothing.
 - Import _structure_, when a deferral is blocked: `grimp` builds the module import graph.

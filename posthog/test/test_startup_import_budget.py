@@ -1,5 +1,6 @@
 import sys
 import subprocess
+from pathlib import Path
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
@@ -267,3 +268,27 @@ def test_mcp_tool_registry_loads_cold_without_import_cycle() -> None:
         f"first — which no longer happens at django.setup(). Defer the offending import. Subprocess stderr:\n"
         f"{result.stderr[-2000:]}"
     )
+
+
+# The boot entrypoints (manage.py, wsgi.py, asgi.py) disable cyclic GC around django.setup()
+# and freeze the survivors — boot allocations are ~all permanent, so collecting them only adds
+# pauses (~300ms). The dangerous failure mode is the window not closing: GC left disabled means
+# unbounded cycle growth in a long-lived process. This boots through manage.py and asserts both
+# ends of the window.
+def test_boot_gc_window_reenables_and_freezes() -> None:
+    manage_py = Path(__file__).parents[2] / "manage.py"
+    probe = (
+        "import gc; "
+        "assert gc.isenabled(), 'GC left disabled after boot'; "
+        "count = gc.get_freeze_count(); "
+        "assert count > 100_000, f'boot objects not frozen (freeze count {count})'; "
+        "print('GC_BOOT_OK')"
+    )
+    result = subprocess.run(
+        [sys.executable, str(manage_py), "shell", "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"manage.py shell failed:\n{result.stderr[-2000:]}"
+    assert "GC_BOOT_OK" in result.stdout, result.stdout[-500:]

@@ -1,3 +1,4 @@
+import gc
 import os
 
 # Django Imports
@@ -100,4 +101,13 @@ def task_run_event_ingest_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+# Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
+# pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
+# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# process forks workers. See docs/internal/django-startup-time.md.
+gc.disable()
+try:
+    application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+finally:
+    gc.freeze()
+    gc.enable()
