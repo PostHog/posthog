@@ -5,6 +5,8 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
@@ -12,12 +14,13 @@ from posthog.hogql import ast
 
 def validate_uuid_param(value: str | None, name: str) -> None:
     # Malformed values otherwise reach ClickHouse and fail the whole query with CANNOT_PARSE_UUID.
+    # DRF's ValidationError, not Django's: the query API only maps the DRF one to a 400.
     if value is None:
         return
     try:
         UUID(value)
     except ValueError:
-        raise ValidationError(f"{name} must be a valid UUID")
+        raise DRFValidationError(f"{name} must be a valid UUID")
 
 
 def search_tokenizer(query: str) -> list[str]:

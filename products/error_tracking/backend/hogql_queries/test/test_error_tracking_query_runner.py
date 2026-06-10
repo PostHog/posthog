@@ -14,11 +14,11 @@ from posthog.test.base import (
 )
 from unittest import TestCase
 
-from django.core.exceptions import ValidationError
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DateRange,

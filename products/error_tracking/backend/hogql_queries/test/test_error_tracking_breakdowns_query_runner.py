@@ -7,7 +7,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import BreakdownValue, DateRange, ErrorTrackingBreakdownsQuery
 
