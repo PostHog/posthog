@@ -7,8 +7,6 @@ from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import MaterializationMode, PersonsOnEventsMode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
 from posthog.hogql.base import AST
@@ -48,6 +46,7 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema_enums import MaterializationMode, PersonsOnEventsMode
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 

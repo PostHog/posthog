@@ -4,8 +4,6 @@ from typing import Literal, Optional, cast
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
@@ -29,6 +27,7 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
+from posthog.schema_enums import PersonsOnEventsMode
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:

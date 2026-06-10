@@ -5,8 +5,6 @@ from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
@@ -27,6 +25,7 @@ from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema_enums import PropertyGroupsMode
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
