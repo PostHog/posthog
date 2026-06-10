@@ -26,6 +26,7 @@ import {
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -43,6 +44,12 @@ import { draftsLogic } from '../draftsLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
+export interface DataWarehouseAccessControlModalProps {
+    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resourceId: string
+    name: string
+}
 
 export interface FuseSearchMatch {
     // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
@@ -1336,6 +1343,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        openAccessControlModal: (accessControlModalProps: DataWarehouseAccessControlModalProps) => ({
+            accessControlModalProps,
+        }),
+        closeAccessControlModal: true,
     }),
     connect(() => ({
         values: [
@@ -1394,6 +1405,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as string | null,
             {
                 setEditingDraft: (_, { draftId }) => draftId,
+            },
+        ],
+        accessControlModalProps: [
+            null as DataWarehouseAccessControlModalProps | null,
+            {
+                openAccessControlModal: (_, { accessControlModalProps }) => accessControlModalProps,
+                closeAccessControlModal: () => null,
             },
         ],
         selectedSchema: [
