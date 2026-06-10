@@ -17,6 +17,7 @@ import {
     CheckSquareIcon,
     ExternalLinkIcon,
     LibraryIcon,
+    LineChartIcon,
     Loader2Icon,
     LogOutIcon,
     MonitorIcon,
@@ -257,6 +258,7 @@ function Sidebar(): React.ReactElement {
     const pathname = usePathname() ?? '/'
     const isHome = pathname === '/'
     const isAgents = pathname.startsWith('/agents')
+    const isAnalytics = pathname.startsWith('/analytics')
     const isApprovals = pathname.startsWith('/approvals')
     const isRegistry = pathname.startsWith('/registry')
     const isBilling = pathname.startsWith('/billing')
@@ -296,6 +298,21 @@ function Sidebar(): React.ReactElement {
                     }
                 >
                     <BotIcon className="h-4 w-4" />
+                </Link>
+            </SidebarTooltip>
+
+            <SidebarTooltip label="Analytics">
+                <Link
+                    href="/analytics"
+                    aria-label="Analytics"
+                    aria-current={isAnalytics ? 'page' : undefined}
+                    className={
+                        isAnalytics
+                            ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-accent text-foreground'
+                            : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }
+                >
+                    <LineChartIcon className="h-4 w-4" />
                 </Link>
             </SidebarTooltip>
 

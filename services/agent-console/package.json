@@ -20,6 +20,7 @@
     "dependencies": {
         "@posthog/agent-chat": "workspace:*",
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-tokens": "workspace:*",
         "iron-session": "^8.0.4",
         "lucide-react": "^0.577.0",

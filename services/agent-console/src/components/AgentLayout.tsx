@@ -28,7 +28,7 @@ import { useSessionTeamId } from '@/components/session-context'
 import { listAgentApprovals, listMemoryFiles, listSessionsForAgent } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 
-const TABS = ['overview', 'configuration', 'sessions', 'approvals', 'memory'] as const
+const TABS = ['overview', 'configuration', 'sessions', 'observability', 'approvals', 'memory'] as const
 type TabKey = (typeof TABS)[number]
 
 interface TabDef {
@@ -42,6 +42,7 @@ const TAB_DEFS: TabDef[] = [
     { key: 'overview', label: 'Overview', path: '' },
     { key: 'configuration', label: 'Configuration', path: '/configuration' },
     { key: 'sessions', label: 'Sessions', path: '/sessions' },
+    { key: 'observability', label: 'Observability', path: '/observability' },
     { key: 'approvals', label: 'Approvals', path: '/approvals' },
     { key: 'memory', label: 'Memory', path: '/memory' },
 ]

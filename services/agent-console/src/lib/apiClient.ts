@@ -109,6 +109,28 @@ export class ApiError extends Error {
     }
 }
 
+/* ── HogQL (AI observability rollups) ────────────────────────────── */
+
+/** Minimal shape of a `HogQLQuery` response from `/query/`. */
+export interface HogqlResult {
+    results: unknown[][]
+    columns: string[]
+}
+
+/**
+ * Run a read-only HogQL query against the team's own project. Used by the
+ * analytics dashboard to roll up the agents' `$ai_*` observability events
+ * (captured into this team's project by the runner). Requires the `query:read`
+ * OAuth scope; the same-origin proxy forwards the user's token.
+ */
+export async function runHogql(teamId: number, query: string): Promise<HogqlResult> {
+    const res = await postJson<{ query: { kind: string; query: string } }, Partial<HogqlResult>>(
+        posthogUrl(teamId, '/query/'),
+        { query: { kind: 'HogQLQuery', query } }
+    )
+    return { results: res.results ?? [], columns: res.columns ?? [] }
+}
+
 /* ── Applications ────────────────────────────────────────────────── */
 
 export async function listAgents(

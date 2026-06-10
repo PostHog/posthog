@@ -128,7 +128,18 @@ async function proxy(url: string, init: RequestInit, session: SessionPayload): P
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${session.accessToken}`)
     try {
-        return await fetch(url, { ...init, headers })
+        const res = await fetch(url, { ...init, headers })
+        // undici transparently decompresses the upstream body, but the
+        // `content-encoding` / `content-length` headers still describe the
+        // *compressed* bytes. Forwarding them makes the browser try to gunzip
+        // already-plaintext JSON (ERR_CONTENT_DECODING_FAILED) — which only
+        // bites once a response is big enough for Django to gzip it (e.g. the
+        // `/query/` rollups). Strip them; keep the body stream so SSE still
+        // passes through unbuffered.
+        const outHeaders = new Headers(res.headers)
+        outHeaders.delete('content-encoding')
+        outHeaders.delete('content-length')
+        return new Response(res.body, { status: res.status, statusText: res.statusText, headers: outHeaders })
     } catch (err) {
         // Network-layer failure — upstream is down, DNS failed, etc.
         // Surface as a clean 502 with an actionable body so the dock

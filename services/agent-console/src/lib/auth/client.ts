@@ -29,6 +29,9 @@ const SCOPES = [
     'agents:read',
     'agents:write',
     'ai_gateway:read',
+    // Read-only HogQL over the team's own events — powers the analytics
+    // dashboard's rollups over the agents' `$ai_*` observability events.
+    'query:read',
 ].join(' ')
 
 export function getOAuthClient(): OAuthClient {
