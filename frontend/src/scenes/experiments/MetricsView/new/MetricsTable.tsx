@@ -51,6 +51,7 @@ export function MetricsTable({
         removeMetricBreakdown,
         removeMetric,
         removeSharedMetricFromExperiment,
+        moveMetric,
     } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
@@ -149,6 +150,9 @@ export function MetricsTable({
                                         return
                                     }
                                     removeMetric(metric.uuid, isSecondary ? 'secondary' : 'primary')
+                                }}
+                                onMoveMetric={() => {
+                                    moveMetric(metric, isSecondary ? 'secondary' : 'primary')
                                 }}
                                 onBreakdownChange={(breakdown) => {
                                     if (!metric.uuid) {

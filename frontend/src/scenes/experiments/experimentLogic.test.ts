@@ -434,6 +434,121 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('moveMetric', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('moves an inline metric from primary to secondary', async () => {
+            const primaryMetric = {
+                kind: 'ExperimentMetric',
+                uuid: 'primary-metric-uuid',
+                name: 'Primary metric',
+            } as unknown as ExperimentMetric
+            const otherPrimaryMetric = {
+                kind: 'ExperimentMetric',
+                uuid: 'other-primary-uuid',
+                name: 'Other primary metric',
+            } as unknown as ExperimentMetric
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric],
+                metrics_secondary: [],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            api.update.mockResolvedValue(testExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetric(primaryMetric, 'primary')
+            }).toDispatchActions(['updateExperiment'])
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    metrics: [otherPrimaryMetric],
+                    metrics_secondary: [primaryMetric],
+                })
+            )
+        })
+
+        it('moves an inline metric from secondary to primary', async () => {
+            const secondaryMetric = {
+                kind: 'ExperimentMetric',
+                uuid: 'secondary-metric-uuid',
+                name: 'Secondary metric',
+            } as unknown as ExperimentMetric
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [],
+                metrics_secondary: [secondaryMetric],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            api.update.mockResolvedValue(testExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetric(secondaryMetric, 'secondary')
+            }).toDispatchActions(['updateExperiment'])
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    metrics: [secondaryMetric],
+                    metrics_secondary: [],
+                })
+            )
+        })
+
+        it('moves a shared metric by flipping its saved-metric link type', async () => {
+            const sharedMetricId = 123
+            const testExperiment = {
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: sharedMetricId,
+                        name: 'Shared metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary' },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            api.update.mockResolvedValue(testExperiment)
+
+            const sharedDisplayMetric = {
+                kind: 'ExperimentMetric',
+                uuid: 'shared-metric-uuid',
+                isSharedMetric: true,
+                sharedMetricId,
+            } as unknown as ExperimentMetric
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetric(sharedDisplayMetric, 'primary')
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [{ id: sharedMetricId, metadata: { type: 'secondary' } }],
+                })
+            )
+        })
+    })
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }

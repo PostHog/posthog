@@ -771,6 +771,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
+        moveMetric: (metric: ExperimentMetric, sourceContext: 'primary' | 'secondary') => ({ metric, sourceContext }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
@@ -2165,6 +2166,53 @@ export const experimentLogic = kea<experimentLogicType>([
                 [field]: filtered,
                 update_feature_flag_params: false,
             })
+        },
+        moveMetric: async ({ metric, sourceContext }) => {
+            const targetType = sourceContext === 'primary' ? 'secondary' : 'primary'
+
+            // Shared metrics live in saved_metrics; moving one just flips its link type.
+            // The backend keeps the ordering arrays in sync from the type change.
+            if (metric.isSharedMetric && metric.sharedMetricId) {
+                const savedMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
+                    id: sharedMetric.saved_metric,
+                    metadata:
+                        sharedMetric.saved_metric === metric.sharedMetricId
+                            ? { ...sharedMetric.metadata, type: targetType }
+                            : sharedMetric.metadata,
+                }))
+
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    saved_metrics_ids: savedMetricsIds,
+                    update_feature_flag_params: false,
+                })
+
+                actions.loadExperiment({ triggeredBy: 'config_change' })
+                return
+            }
+
+            // Inline metrics move between the two arrays. The backend syncs the
+            // ordering arrays from the changed metric lists, appending to the target.
+            if (!metric.uuid) {
+                return
+            }
+
+            const sourceField = sourceContext === 'primary' ? 'metrics' : 'metrics_secondary'
+            const targetField = sourceContext === 'primary' ? 'metrics_secondary' : 'metrics'
+            const movedMetric = (values.experiment[sourceField] || []).find((m) => m.uuid === metric.uuid)
+            if (!movedMetric) {
+                return
+            }
+
+            const remainingMetrics = (values.experiment[sourceField] || []).filter((m) => m.uuid !== metric.uuid)
+            const targetMetrics = [...(values.experiment[targetField] || []), movedMetric]
+
+            actions.updateExperiment({
+                [sourceField]: remainingMetrics,
+                [targetField]: targetMetrics,
+                update_feature_flag_params: false,
+            })
+            // Both lists changed, so refresh results for the moved metric's new context.
+            actions.refreshExperimentResults(true, 'config_change')
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
