@@ -8,17 +8,17 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { FilterPill } from '../../components/FilterPill'
-import { ObservationResultSummary, ObservationMetricusTag } from '../../components/ObservationCard'
+import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import {
     OBSERVATIONS_PAGE_SIZE,
-    ObservationMetricusValue,
+    ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
 
-const STATUS_OPTIONS: { value: ObservationMetricusValue; label: string }[] = [
+const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
     { value: 'ineligible', label: 'Ineligible' },
@@ -84,20 +84,20 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationsPage,
         observationsTotal,
         observationsSort,
-        observationMetricusFilter,
+        observationStatusFilter,
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
         hasActiveObservationFilters,
         availableTags,
-        observationMetrics,
+        observationStats,
         scanner,
     } = useValues(logic)
     const {
         loadObservations,
         setObservationsPage,
         setObservationsSort,
-        setObservationMetricusFilter,
+        setObservationStatusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
@@ -121,9 +121,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
-            title: 'Metricus',
+            title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationMetricusTag status={obs.status} errorReason={obs.error_reason} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',
@@ -195,13 +195,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 </p>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        {(observationMetrics.total > 0 || hasActiveObservationFilters) && (
+                        {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
-                                <FilterPill<ObservationMetricusValue>
-                                    label="Metricus"
+                                <FilterPill<ObservationStatusValue>
+                                    label="Status"
                                     options={STATUS_OPTIONS}
-                                    value={observationMetricusFilter}
-                                    onChange={setObservationMetricusFilter}
+                                    value={observationStatusFilter}
+                                    onChange={setObservationStatusFilter}
                                 />
                                 <FilterPill<ObservationTriggeredByValue>
                                     label="Triggered by"
@@ -249,24 +249,24 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             />
                         </Tooltip>
                     </div>
-                    {observationMetrics.total > 0 && (
+                    {observationStats.total > 0 && (
                         <div className="flex gap-4 text-sm">
-                            <Metric label="Total" value={observationMetrics.total} />
-                            {observationMetrics.successRate !== null && (
+                            <Metric label="Total" value={observationStats.total} />
+                            {observationStats.successRate !== null && (
                                 <Metric
                                     label="Success rate"
-                                    value={`${observationMetrics.successRate}%`}
+                                    value={`${observationStats.successRate}%`}
                                     valueClass="text-success"
                                 />
                             )}
-                            {observationMetrics.failed > 0 && (
-                                <Metric label="Failed" value={observationMetrics.failed} valueClass="text-danger" />
+                            {observationStats.failed > 0 && (
+                                <Metric label="Failed" value={observationStats.failed} valueClass="text-danger" />
                             )}
-                            {observationMetrics.ineligible > 0 && (
-                                <Metric label="Ineligible" value={observationMetrics.ineligible} />
+                            {observationStats.ineligible > 0 && (
+                                <Metric label="Ineligible" value={observationStats.ineligible} />
                             )}
-                            {observationMetrics.inFlight > 0 && (
-                                <Metric label="In flight" value={observationMetrics.inFlight} />
+                            {observationStats.inFlight > 0 && (
+                                <Metric label="In flight" value={observationStats.inFlight} />
                             )}
                         </div>
                     )}
@@ -289,7 +289,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
                 nouns={['observation', 'observations']}
-                emptyMetrice={
+                emptyState={
                     <div className="p-6 text-center text-muted">
                         {hasActiveObservationFilters
                             ? 'No observations match your filters.'
