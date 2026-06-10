@@ -55,7 +55,8 @@ function errorRateClass(rate: number): string {
 }
 
 function CategoryScopeBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare } = useValues(mcpAnalyticsToolQualityLogic)
+    const { availableCategories, availableCategoriesLoading, selectedCategories, scopeShare } =
+        useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedCategories } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
@@ -69,6 +70,7 @@ function CategoryScopeBar(): JSX.Element {
                     value={selectedCategories}
                     onChange={setSelectedCategories}
                     options={availableCategories.map((category) => ({ key: category, label: category }))}
+                    loading={availableCategoriesLoading}
                     placeholder="All categories"
                     data-attr="mcp-tool-quality-category-scope"
                 />
