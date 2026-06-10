@@ -7187,6 +7187,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `sandbox` - sandbox
      * * `user_interview` - user_interview
+     * * `customer_analytics` - customer_analytics
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -7204,6 +7205,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
       UserInterview: 'user_interview',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface AggregatedSpanRow {
@@ -17722,11 +17724,18 @@ export namespace Schemas {
 
     export type FeatureFlagFilters = { [key: string]: unknown };
 
-    export type FeatureFlagExperimentSetMetadataItem = { [key: string]: unknown };
-
     export type FeatureFlagSurveys = { [key: string]: unknown };
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
+
+    export interface FeatureFlagExperimentSetMetadata {
+      /** ID of the experiment linked to this flag. */
+      id: number;
+      /** Name of the experiment linked to this flag. */
+      name: string;
+      /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
+      is_running: boolean;
+    }
 
     /**
      * * `feature_flags` - feature_flags
@@ -17769,7 +17778,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
-      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown;
@@ -18263,6 +18272,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -29920,6 +29934,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface PatchedFileSystem {

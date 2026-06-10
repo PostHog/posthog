@@ -15,6 +15,10 @@ export const CHART_COLORS = [
 // Picks a palette color by index, wrapping when there are more series than colors.
 export const colorAt = (index: number): string => CHART_COLORS[index % CHART_COLORS.length]!
 
+// Single brand blue for every funnel step's converted bar — the bar height already encodes
+// conversion, so distinct per-step colors would only add noise.
+export const FUNNEL_COLOR = '#1d4aff'
+
 // Single mid-gray for axis labels — readable on both light and dark hosts. Claude
 // Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host
 // theme and adapt at runtime.

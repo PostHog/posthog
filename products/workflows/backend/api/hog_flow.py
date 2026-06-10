@@ -14,6 +14,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -701,6 +702,13 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at", "status"]
 
 
+class HogFlowPagination(LimitOffsetPagination):
+    # Bumped from the global default of 100 so the workflows list page loads all flows in one
+    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
+    default_limit = 200
+    max_limit = 500
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
@@ -723,6 +731,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "bulk_delete",
     ]
     queryset = HogFlow.objects.all()
+    pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"

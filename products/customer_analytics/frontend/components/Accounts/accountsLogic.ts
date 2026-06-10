@@ -18,12 +18,22 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { ACCOUNTS_HOGQL_DEFAULT_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_HOGQL_DEFAULT_SELECT,
+    ACCOUNTS_NAME_COLUMN,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
+import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
+
+// Revealing an off-screen account triggers an async refetch, so its row may not
+// be in the DOM yet — poll briefly for it before scrolling.
+const SCROLL_TO_ACCOUNT_POLL_MS = 100
+const SCROLL_TO_ACCOUNT_MAX_ATTEMPTS = 40
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -127,6 +137,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
             accountsOverviewTilesLogic,
             ['setTileFilter'],
+            accountsExpansionLogic,
+            ['openAccountTab'],
         ],
     })),
     actions({
@@ -152,6 +164,12 @@ export const accountsLogic = kea<accountsLogicType>([
         roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         replaceAccount: (account: AccountApi) => ({ account }),
+        openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
+            accountId,
+            externalId,
+            name,
+            tab,
+        }),
     }),
     reducers({
         searchInput: [
@@ -384,7 +402,7 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setSearchInput: async ({ query }, breakpoint) => {
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.setSearchQuery(query)
@@ -516,6 +534,64 @@ export const accountsLogic = kea<accountsLogicType>([
             } finally {
                 actions.roleUpdateFinished(accountId, role)
             }
+        },
+        openAccount: ({ accountId, externalId, name, tab }) => {
+            const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })
+            const results = (dataNode?.values.response as { results?: unknown[] } | undefined)?.results
+            const rows = Array.isArray(results) ? results : []
+            const nameIndex = values.visibleColumnNames.indexOf(ACCOUNTS_NAME_COLUMN)
+            const isVisible =
+                nameIndex >= 0 &&
+                rows.some((row) => {
+                    const cell = Array.isArray(row) ? (row as unknown[])[nameIndex] : undefined
+                    return !!cell && typeof cell === 'object' && (cell as { id?: string }).id === accountId
+                })
+            // Reveal the account if it isn't currently shown, so the expanded row actually renders.
+            if (!isVisible) {
+                if (values.tagsFilter.length > 0) {
+                    actions.setTagsFilter([])
+                }
+                if (values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(false)
+                }
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
+                }
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
+                }
+                if (values.accountOwnerFilter.length > 0) {
+                    actions.setAccountOwnerFilter([])
+                }
+                const term = externalId || name
+                if (term) {
+                    actions.setSearchQuery(term)
+                }
+            }
+            actions.openAccountTab(accountId, tab)
+            // Keyed so a second open cancels a still-pending scroll. One-shot, so
+            // it opts out of pause-on-hidden rather than re-scrolling on tab return.
+            cache.disposables.add(
+                () => {
+                    let attempts = 0
+                    let timer: number | undefined
+                    const scrollWhenReady = (): void => {
+                        const row = document.querySelector(`[data-account-id="${accountId}"]`)
+                        if (row) {
+                            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            return
+                        }
+                        attempts += 1
+                        if (attempts < SCROLL_TO_ACCOUNT_MAX_ATTEMPTS) {
+                            timer = window.setTimeout(scrollWhenReady, SCROLL_TO_ACCOUNT_POLL_MS)
+                        }
+                    }
+                    scrollWhenReady()
+                    return () => window.clearTimeout(timer)
+                },
+                'scrollToAccount',
+                { pauseOnPageHidden: false }
+            )
         },
     })),
     afterMount(() => {

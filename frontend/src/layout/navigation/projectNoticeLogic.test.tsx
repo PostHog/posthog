@@ -1,8 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { render } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -199,6 +203,62 @@ describe('projectNoticeLogic', () => {
             await expectLogic(verifyEmailLogic, () => {
                 verifyEmailLogic.actions.requestVerificationLink('test-uuid')
             }).toDispatchActions(['requestVerificationLink', 'requestVerificationLinkSuccess'])
+
+            logic.unmount()
+        })
+    })
+
+    describe('reverse proxy banner CTA navigation', () => {
+        let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            getDateSpy.mockRestore()
+        })
+
+        // The CTA used to be a mid-sentence inline <Link> in the banner message — a small, fragile
+        // click target. A user clicked it and nothing happened (no navigation, no autocapture). It now
+        // lives in the banner's `action` prop as a real button; this asserts that button still routes.
+        it('navigates to the reverse proxy settings when the banner CTA is clicked', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
+            logic.actions.loadRecordsSuccess([])
+
+            expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
+
+            const notice = logic.values.projectNotice
+            const { container } = render(
+                <LemonBanner type={notice?.type || 'info'} action={notice?.action} onClose={notice?.onClose}>
+                    {notice?.message}
+                </LemonBanner>
+            )
+
+            // The banner renders the action at two responsive breakpoints, both sharing the data-attr.
+            const cta = container.querySelector<HTMLElement>('[data-attr="missing-reverse-proxy-settings_link"]')
+            expect(cta).not.toBeNull()
+
+            await userEvent.click(cta!)
+
+            // Routing prefixes the current project, so assert the settings target rather than an exact path.
+            expect(router.values.location.pathname).toMatch(/\/settings\/organization-proxy$/)
 
             logic.unmount()
         })
