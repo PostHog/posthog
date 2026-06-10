@@ -165,6 +165,7 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
 
 export const messagingTemplatesCreateBodyNameMax = 400
 
+export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyTypeMax = 24
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
@@ -178,9 +179,9 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
             templating: zod
                 .enum(['hog', 'liquid'])
                 .describe('\* `hog` - hog\n\* `liquid` - liquid')
-                .optional()
+                .default(messagingTemplatesCreateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Use 'liquid' for new templates.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -226,6 +227,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
 
 export const messagingTemplatesUpdateBodyNameMax = 400
 
+export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesUpdateBodyTypeMax = 24
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
@@ -239,9 +241,9 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
             templating: zod
                 .enum(['hog', 'liquid'])
                 .describe('\* `hog` - hog\n\* `liquid` - liquid')
-                .optional()
+                .default(messagingTemplatesUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Use 'liquid' for new templates.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -287,6 +289,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
 
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
+export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -301,9 +304,9 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
             templating: zod
                 .enum(['hog', 'liquid'])
                 .describe('\* `hog` - hog\n\* `liquid` - liquid')
-                .optional()
+                .default(messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Use 'liquid' for new templates.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([

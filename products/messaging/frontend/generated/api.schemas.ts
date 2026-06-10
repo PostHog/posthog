@@ -108,7 +108,7 @@ export interface EmailTemplateApi {
 }
 
 export interface MessageTemplateContentApi {
-    /** Templating language for subject/html/text. Use 'liquid' for new templates.
+    /** Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.
 
   * `hog` - hog
   * `liquid` - liquid */

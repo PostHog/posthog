@@ -38,7 +38,8 @@
                     "description": "Email message content. Replaced as a whole on update — send the complete object."
                 },
                 "templating": {
-                    "description": "Templating language for subject/html/text. Use 'liquid' for new templates.\n\n* `hog` - hog\n* `liquid` - liquid",
+                    "default": "liquid",
+                    "description": "Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n* `hog` - hog\n* `liquid` - liquid",
                     "enum": ["hog", "liquid"],
                     "type": "string"
                 }

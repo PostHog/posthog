@@ -22979,7 +22979,7 @@ export namespace Schemas {
     }
 
     export interface MessageTemplateContent {
-      /** Templating language for subject/html/text. Use 'liquid' for new templates.
+      /** Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.
 
       * `hog` - hog
       * `liquid` - liquid */

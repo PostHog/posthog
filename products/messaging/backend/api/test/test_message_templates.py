@@ -42,7 +42,11 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert template["id"] == str(self.message_template.id)
         assert template["name"] == "Test Template"
         assert template["description"] == "Test description"
-        assert template["content"] == {"email": {"subject": "Test Subject", "text": "Test Body"}}
+        # templating is injected by the serializer default for legacy rows that never stored it
+        assert template["content"] == {
+            "templating": "liquid",
+            "email": {"subject": "Test Subject", "text": "Test Body"},
+        }
         assert template["type"] == "email"
 
     def test_retrieve_message_template(self):
@@ -53,7 +57,10 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert template["id"] == str(self.message_template.id)
         assert template["name"] == "Test Template"
         assert template["description"] == "Test description"
-        assert template["content"] == {"email": {"subject": "Test Subject", "text": "Test Body"}}
+        assert template["content"] == {
+            "templating": "liquid",
+            "email": {"subject": "Test Subject", "text": "Test Body"},
+        }
         assert template["type"] == "email"
 
     def test_cannot_access_other_teams_templates(self):
@@ -112,6 +119,21 @@ class TestMessageTemplatesAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
+
+    def test_create_defaults_templating_to_liquid(self):
+        """Authored HTML is full of braces (CSS, Liquid) — anything not explicitly
+        'liquid' is hog-transpiled downstream, where '{' is syntax and compilation fails."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "No templating set",
+                "content": {"email": {"subject": "Hi", "html": "<style>.a{color:red}</style><p>{{ greeting }}</p>"}},
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["content"]["templating"] == "liquid"
 
     def test_cannot_bind_template_to_other_teams_message_category_via_patch(self):
         """Regression: PATCH must not accept a MessageCategory pk owned by a different team."""

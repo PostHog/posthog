@@ -43,8 +43,8 @@ class EmailTemplateSerializer(serializers.Serializer):
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
         choices=["hog", "liquid"],
-        required=False,
-        help_text="Templating language for subject/html/text. Use 'liquid' for new templates.",
+        default="liquid",
+        help_text="Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.",
     )
     email = EmailTemplateSerializer(
         required=False,
