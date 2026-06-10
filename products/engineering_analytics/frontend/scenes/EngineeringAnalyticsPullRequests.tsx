@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonInput,
+    LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
@@ -11,7 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber, pluralize } from 'lib/utils'
 
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
@@ -99,17 +100,22 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 </span>
             ),
         },
-        {
-            title: 'Open→merge',
-            key: 'openToMerge',
-            align: 'right',
-            sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap text-secondary">
-                    {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
-                </span>
-            ),
-        },
+        // Only merged PRs carry an open→merge duration, so the column is pure noise on the open-PRs view.
+        ...(stateFilter === 'open'
+            ? []
+            : ([
+                  {
+                      title: 'Open→merge',
+                      key: 'openToMerge',
+                      align: 'right',
+                      sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
+                      render: (_, row) => (
+                          <span className="text-xs whitespace-nowrap text-secondary">
+                              {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
+                          </span>
+                      ),
+                  },
+              ] satisfies LemonTableColumns<PullRequestRow>)),
     ]
 
     return (
@@ -118,7 +124,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 <StatCard
                     label="Open PRs"
                     value={cards ? humanFriendlyNumber(cards.openPrs) : '—'}
-                    caption={cards ? `across ${humanFriendlyNumber(cards.repos)} repos` : ' '}
+                    caption={cards ? `across ${pluralize(cards.repos, 'repo')}` : ' '}
                     loading={cardsLoading}
                 />
                 <StatCard
@@ -173,14 +179,17 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     allowClear
                     options={repoOptions.map((r) => ({ value: r, label: r }))}
                 />
-                <LemonSelect
-                    size="small"
-                    placeholder="Author: anyone"
-                    value={author}
-                    onChange={setAuthor}
-                    allowClear
-                    options={authorOptions.map((a) => ({ value: a, label: a }))}
-                />
+                <div className="w-48">
+                    <LemonInputSelect
+                        mode="single"
+                        size="small"
+                        placeholder="Author: anyone"
+                        value={author ? [author] : []}
+                        onChange={(values) => setAuthor(values[0] ?? null)}
+                        options={authorOptions.map((a) => ({ key: a, label: a }))}
+                        data-attr="engineering-analytics-author-filter"
+                    />
+                </div>
             </div>
 
             <LemonTable
@@ -191,6 +200,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}#${row.number}`}
                 loading={pullRequestsLoading && filteredPullRequests.length === 0}
                 useURLForSorting={false}
+                pagination={{ pageSize: 50 }}
                 emptyState="No pull requests match these filters."
                 nouns={['pull request', 'pull requests']}
             />

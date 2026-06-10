@@ -82,6 +82,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 rowKey="workflowName"
                 loading={workflowHealthLoading && workflowHealth.length === 0}
                 useURLForSorting={false}
+                pagination={{ pageSize: 50 }}
                 emptyState="No workflow runs in the last 30 days."
                 nouns={['workflow', 'workflows']}
             />

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -53,20 +53,20 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                 description={TAB_DESCRIPTIONS[activeTab]}
                 resourceType={{ type: 'health' }}
                 actions={
-                    <>
-                        <LemonTag type="completion">Alpha</LemonTag>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={refresh}
-                            loading={anyLoading}
-                            disabledReason={anyLoading ? 'Loading…' : undefined}
-                        >
-                            Refresh
-                        </LemonButton>
-                    </>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={refresh}
+                        loading={anyLoading}
+                        disabledReason={anyLoading ? 'Loading…' : undefined}
+                    >
+                        Refresh
+                    </LemonButton>
                 }
             />
+            <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
+                CI analytics is in alpha — metrics are limited to CI events, and details may change.
+            </LemonBanner>
             <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
