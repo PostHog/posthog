@@ -1481,7 +1481,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             payload = _janitor().decide_approval(
                 approval_id,
                 decision=body.validated_data["decision"],
-                decided_by=str(request.user.pk) if request.user and request.user.is_authenticated else "",
+                # decision_by is a UUID column — send the user's uuid, not the
+                # integer pk (which fails as "invalid input syntax for type uuid").
+                decided_by=str(request.user.uuid) if request.user and request.user.is_authenticated else "",
                 edited_args=body.validated_data.get("edited_args"),
                 reason=body.validated_data.get("reason"),
             )
