@@ -18,6 +18,7 @@ export type SessionState = {
 export type CachedUser = ApiUser
 export type CachedOrg = Schemas.OrganizationBasic
 export type CachedProject = Schemas.ProjectBackwardCompat
+export type CachedAgentNotice = Schemas.AgentNotice
 
 export type State = {
     projectId: string | undefined
@@ -31,6 +32,7 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
+    agentNoticesDelivered: string[] | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -39,7 +41,9 @@ export type State = {
     Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &
     Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
-    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined>
+    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'agentNotices'>, CachedAgentNotice[] | undefined> &
+    Record<PrefixedString<'agentNoticesFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

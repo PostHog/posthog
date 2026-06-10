@@ -60,6 +60,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        agentNoticesEnabled: false,
         ...overrides,
     }
 }
@@ -145,6 +146,63 @@ describe('ToolExecutor', () => {
             expect(text).toContain('execute-sql')
             expect(text).toContain('organization-get')
             expect(text).not.toContain('feature-flag-get-all')
+        })
+    })
+
+    describe('agent notice injection', () => {
+        function makeNoticeState(sessionStore: Map<string, unknown>): ResolvedState {
+            const base = makeState([], { useSingleExec: true, agentNoticesEnabled: true })
+            const notice = {
+                id: 'notice-1',
+                message: 'The materialization bug you hit was fixed.',
+                feature_flag_key: null,
+                starts_at: new Date(Date.now() - 3600_000).toISOString(),
+                expires_at: new Date(Date.now() + 3600_000).toISOString(),
+                created_at: new Date(Date.now() - 3600_000).toISOString(),
+            }
+            base.requestContext = { ...base.requestContext, mcpSessionId: 'mcp-sess-1' }
+            ;(base.reqCtx as any).sessionCache = {
+                get: vi.fn(async (k: string) => sessionStore.get(k)),
+                set: vi.fn(async (k: string, v: unknown) => {
+                    sessionStore.set(k, v)
+                }),
+            }
+            ;(base.context as any).stateManager = {
+                getCachedOrFetchAgentNotices: vi.fn(async () => [notice]),
+            }
+            return base
+        }
+
+        it('appends the notice to the first successful exec call only', async () => {
+            const sessionStore = new Map<string, unknown>()
+
+            const first = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                makeNoticeState(sessionStore)
+            )) as any
+            const firstText = first.content.map((c: any) => c.text).join('\n')
+            expect(firstText).toContain('<posthog-notice>')
+            expect(firstText).toContain('The materialization bug you hit was fixed.')
+
+            const second = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                makeNoticeState(sessionStore)
+            )) as any
+            const secondText = second.content.map((c: any) => c.text).join('\n')
+            expect(secondText).not.toContain('<posthog-notice>')
+        })
+
+        it('does not inject when the flag is off', async () => {
+            const sessionStore = new Map<string, unknown>()
+            const state = makeNoticeState(sessionStore)
+            state.agentNoticesEnabled = false
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                state
+            )) as any
+
+            expect(result.content.map((c: any) => c.text).join('\n')).not.toContain('<posthog-notice>')
         })
     })
 

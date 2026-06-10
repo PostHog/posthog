@@ -10,6 +10,7 @@ export enum AnalyticsEvent {
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
     MCP_TOOL_CALL = 'mcp_tool_call', // matching @posthog/mcp-analytics
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
+    MCP_AGENT_NOTICE_DELIVERED = 'mcp agent notice delivered',
 }
 
 // Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server

@@ -485,6 +485,7 @@ export class ApiClient {
                     },
                 }
             },
+
         }
     }
 
@@ -515,6 +516,16 @@ export class ApiClient {
         return {
             get: async ({ projectId }: { projectId: string }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
                 return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`)
+            },
+
+            agentNotices: ({ projectId }: { projectId: string }) => {
+                return {
+                    list: async (): Promise<Result<Schemas.AgentNotice[]>> => {
+                        return this.fetchJson<Schemas.AgentNotice[]>(
+                            `${this.baseUrl}/api/projects/${projectId}/agent_notices/`
+                        )
+                    },
+                }
             },
 
             propertyDefinitions: async ({

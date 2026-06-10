@@ -1,4 +1,5 @@
 import { MCPClientProfile } from '@/lib/client-detection'
+import { MCP_AGENT_NOTICES_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -36,7 +37,8 @@ export interface ResolvedState {
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
     distinctId: string
-    renderUiEnabled: boolean
+    renderUiEnabled: boolean;
+    agentNoticesEnabled: boolean
 }
 
 // ─── Pure helpers ───
@@ -112,7 +114,7 @@ export class RequestStateResolver {
         // `mcp-render-ui` isn't a catalog tool flag, but it rides the same batched
         // evaluation and lives in the same map so the instructions layer can gate
         // the rendering prompt section on it (like `mcp-feedback-tool`).
-        const allFlagKeys = [...toolFlagKeys, RENDER_UI_FEATURE_FLAG]
+        const allFlagKeys = [...new Set([...toolFlagKeys, RENDER_UI_FEATURE_FLAG, MCP_AGENT_NOTICES_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -200,6 +202,7 @@ export class RequestStateResolver {
             scopeGatedTools,
             distinctId,
             renderUiEnabled,
+            agentNoticesEnabled: mergedFlags[MCP_AGENT_NOTICES_FLAG] === true,
         }
     }
 

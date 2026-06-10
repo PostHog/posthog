@@ -1,5 +1,6 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
+import { maybeInjectAgentNotice } from '@/lib/agent-notices'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import {
     handleToolError,
@@ -71,7 +72,7 @@ export class ToolExecutor {
         }
 
         if (toolName === 'exec') {
-            return this.callExecTool(params, state)
+            return maybeInjectAgentNotice(await this.callExecTool(params, state), state, toolName)
         }
 
         if (toolName === 'render-ui') {
@@ -94,7 +95,7 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
-        return this.callTool(
+        const result = await this.callTool(
             {
                 name: toolName,
                 schema: preBuilt.base.schema,
@@ -104,6 +105,7 @@ export class ToolExecutor {
             params,
             state
         )
+        return maybeInjectAgentNotice(result, state, toolName)
     }
 
     private async callTool(

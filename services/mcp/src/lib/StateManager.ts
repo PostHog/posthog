@@ -6,7 +6,7 @@ import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
+import type { CachedAgentNotice, CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
@@ -128,7 +128,10 @@ export class StateManager {
         // with no `current_organization` / `current_team` (newly provisioned
         // accounts, users who left their last org) — fall through to the
         // scoped-org fallback below when either is missing.
-        if (activeOrganization && (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))) {
+        if (
+            activeOrganization &&
+            (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))
+        ) {
             return activeTeam
                 ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
                 : { organizationId: activeOrganization.id }
@@ -310,6 +313,28 @@ export class StateManager {
             fetchedAtKey: `cachedOrgFetchedAt:${orgId}` as const,
             fetcher: async () => {
                 const result = await this._api.organizations().get({ orgId })
+                if (!result.success) {
+                    throw result.error
+                }
+                return result.data
+            },
+        })
+    }
+
+    async getCachedOrFetchAgentNotices(): Promise<CachedAgentNotice[] | undefined> {
+        // Best-effort: a session without resolvable project context simply gets no notices.
+        let projectId: string
+        try {
+            projectId = await this.getProjectId()
+        } catch {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'agent_notices',
+            cacheKey: `agentNotices:${projectId}` as const,
+            fetchedAtKey: `agentNoticesFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.projects().agentNotices({ projectId }).list()
                 if (!result.success) {
                     throw result.error
                 }

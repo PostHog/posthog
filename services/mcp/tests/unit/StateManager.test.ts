@@ -493,6 +493,59 @@ describe('StateManager', () => {
         )
     })
 
+    describe('getCachedOrFetchAgentNotices', () => {
+        const mockNotice = {
+            id: 'notice-1',
+            message: 'A fix shipped.',
+            feature_flag_key: null,
+            starts_at: '2026-06-01T00:00:00Z',
+            expires_at: '2026-12-01T00:00:00Z',
+            created_at: '2026-06-01T00:00:00Z',
+        }
+
+        function mockNoticesApi(listFn: ReturnType<typeof vi.fn>): void {
+            ;(stateManager as any)._api = {
+                projects: () => ({ agentNotices: () => ({ list: listFn }) }),
+            }
+        }
+
+        it('returns undefined when no project context can be resolved', async () => {
+            vi.spyOn(stateManager, 'getProjectId').mockRejectedValue(new Error('no project'))
+            const list = vi.fn()
+            mockNoticesApi(list)
+
+            const result = await stateManager.getCachedOrFetchAgentNotices()
+
+            expect(result).toBeUndefined()
+            expect(list).not.toHaveBeenCalled()
+        })
+
+        it('fetches notices once and serves the cache afterwards', async () => {
+            await cache.set('projectId', '123')
+            const list = vi.fn().mockResolvedValue({ success: true, data: [mockNotice] })
+            mockNoticesApi(list)
+
+            const first = await stateManager.getCachedOrFetchAgentNotices()
+            const second = await stateManager.getCachedOrFetchAgentNotices()
+
+            expect(first).toEqual([mockNotice])
+            expect(second).toEqual([mockNotice])
+            expect(list).toHaveBeenCalledOnce()
+        })
+
+        it('returns the stale cached value when the fetch fails', async () => {
+            await cache.set('projectId', '123')
+            await cache.set('agentNotices:123' as any, [mockNotice] as any)
+            await cache.set('agentNoticesFetchedAt:123' as any, (Date.now() - 11 * 60 * 1000) as any)
+            const list = vi.fn().mockResolvedValue({ success: false, error: new Error('boom') })
+            mockNoticesApi(list)
+
+            const result = await stateManager.getCachedOrFetchAgentNotices()
+
+            expect(result).toEqual([mockNotice])
+        })
+    })
+
     describe('getProjectId', () => {
         it('should return cached projectId if available', async () => {
             await cache.set('projectId', 'cached-project-id')
