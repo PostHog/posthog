@@ -381,7 +381,7 @@ function InlineNotebookAIRunner({
     onError: (request: InlineNotebookAIRequest) => void
 }): JSX.Element {
     const maxLogicProps = useMemo<maxLogicType['props']>(
-        () => ({ panelId: request.panelId, initialFrontendConversationId: request.chatId }),
+        () => ({ panelId: request.panelId, initialFrontendConversationId: request.chatId, syncUrl: false }),
         [request.chatId, request.panelId]
     )
     const maxLogicInstance = maxLogic(maxLogicProps)
@@ -846,7 +846,7 @@ function NotebookAIChatById({
 }): JSX.Element {
     const panelId = getInlineNotebookAIPanelId(chatId, loadOlderMessages ? 'full' : 'inline')
     const maxLogicProps = useMemo<maxLogicType['props']>(
-        () => ({ panelId, initialFrontendConversationId: chatId }),
+        () => ({ panelId, initialFrontendConversationId: chatId, syncUrl: false }),
         [chatId, panelId]
     )
     const maxLogicInstance = maxLogic(maxLogicProps)
