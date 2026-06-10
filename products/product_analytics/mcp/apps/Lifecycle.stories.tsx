@@ -1,35 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
+import { CHART_THEME, lifecycleColor } from '@posthog/mcp-ui'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { ChartTheme } from '@posthog/quill-charts'
 
 import {
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
     type TrendsLifecycleResultLike,
 } from '../../frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
-
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_THEME: ChartTheme = {
-    colors: ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626'],
-    backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
-    gridColor: 'rgba(128,128,128,0.2)',
-    crosshairColor: 'rgba(128,128,128,0.5)',
-    tooltipBackground: '#ffffff',
-    tooltipColor: '#111827',
-}
-
-// Conventional lifecycle bucket colors — mirrors LIFECYCLE_COLORS in the MCP chart theme.
-const LIFECYCLE_COLORS: Record<string, string> = {
-    new: '#1d4aff',
-    returning: '#388600',
-    resurrecting: '#a56eff',
-    dormant: '#db3707',
-}
-const lifecycleColor = (status: string | undefined): string => LIFECYCLE_COLORS[status ?? 'new'] ?? LIFECYCLE_COLORS.new
 
 const LABELS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
 
