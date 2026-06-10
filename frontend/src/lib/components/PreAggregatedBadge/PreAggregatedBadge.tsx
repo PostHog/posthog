@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconBolt, IconDatabaseBolt } from '@posthog/icons'
 
@@ -7,7 +7,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export type PreAggregatedBadgeVariant = 'preagg' | 'precomputed'
 export type PreAggregatedBadgePosition = 'top-right' | 'bottom-right'
@@ -18,6 +17,9 @@ const QUERY_ENGINE_DOCS_URL = 'https://posthog.com/docs/web-analytics/faq#what-d
 interface PreAggregatedBadgeProps {
     variant?: PreAggregatedBadgeVariant
     position?: PreAggregatedBadgePosition
+    // Optional opt-out wired by the host (the web analytics page). Keeps this component scene-agnostic:
+    // when omitted, the tooltip just drops the "always query live data" shortcut.
+    onDisable?: () => void
 }
 
 const POSITION_CLASS: Record<PreAggregatedBadgePosition, string> = {
@@ -33,17 +35,19 @@ function PreAggregatedTooltip(): JSX.Element {
     )
 }
 
-function PrecomputedTooltip(): JSX.Element {
-    const { setUseWebAnalyticsPrecompute } = useActions(webAnalyticsLogic)
-
+function PrecomputedTooltip({ onDisable }: { onDisable?: () => void }): JSX.Element {
     return (
         <div className="flex flex-col gap-1 max-w-xs">
             <span>Loaded from a pre-computed state instead of running a live query against all events.</span>
             <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
-                {' · '}
-                <Link onClick={() => setUseWebAnalyticsPrecompute(false)}>Always query live data</Link>
+                {onDisable && (
+                    <>
+                        {' · '}
+                        <Link onClick={onDisable}>Always query live data</Link>
+                    </>
+                )}
             </span>
         </div>
     )
@@ -52,6 +56,7 @@ function PrecomputedTooltip(): JSX.Element {
 export function PreAggregatedBadge({
     variant = 'preagg',
     position = 'top-right',
+    onDisable,
 }: PreAggregatedBadgeProps = {}): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const isPrecomputed = variant === 'precomputed'
@@ -66,7 +71,10 @@ export function PreAggregatedBadge({
     const iconClassName = isPrecomputed ? 'text-muted w-4 h-4' : 'text-warning w-4 h-4'
 
     return (
-        <Tooltip interactive title={isPrecomputed ? <PrecomputedTooltip /> : <PreAggregatedTooltip />}>
+        <Tooltip
+            interactive
+            title={isPrecomputed ? <PrecomputedTooltip onDisable={onDisable} /> : <PreAggregatedTooltip />}
+        >
             <div className={clsx('absolute z-10', POSITION_CLASS[position])}>
                 <Icon className={iconClassName} />
             </div>
