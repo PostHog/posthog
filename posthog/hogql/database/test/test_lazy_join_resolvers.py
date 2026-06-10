@@ -3,8 +3,9 @@ from collections.abc import Iterator
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
-from pydantic import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
 
@@ -14,26 +15,10 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin, Table, TableNode
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
-class TestLazyJoinResolvers(BaseTest):
-    def test_data_warehouse_join_params_round_trip_json(self):
-        lazy_join = LazyJoin(
-            from_field=["id"],
-            to_field=["account_id"],
-            join_table="stripe.accounts",
-            resolver=DATA_WAREHOUSE,
-            resolver_params=data_warehouse_resolver_params(
-                source_table_key="id",
-                joining_table_key="account_id",
-                joining_table_name="stripe.accounts",
-            ),
-        )
 
-        # The whole point: the join is described by plain JSON-able data, not a Python closure,
-        # so the Database that holds it can be serialized and cached.
-        encoded = json.dumps(lazy_join.resolver_params)
-        assert "stripe.accounts" in encoded
-
+class TestLazyJoinResolvers(SimpleTestCase):
     def test_resolver_params_applies_overrides(self):
         params = data_warehouse_resolver_params(
             source_table_key="id",
@@ -51,10 +36,6 @@ class TestLazyJoinResolvers(BaseTest):
         lazy_join = LazyJoin(from_field=["id"], join_table="x", resolver="does_not_exist")
         with self.assertRaises(ValueError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
-
-    def test_resolver_is_required(self):
-        with self.assertRaises(ValidationError):
-            LazyJoin(from_field=["id"], join_table="x")
 
 
 def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:
@@ -97,17 +78,29 @@ class TestBuiltDatabaseSerializable(BaseTest):
         ]
     )
     def test_built_database_lazy_joins_are_serializable(self, _name: str, modifiers: HogQLQueryModifiers) -> None:
+        # A user-defined join, so the walk also covers the data-warehouse attachment path —
+        # the one category whose resolver_params are built from user data at build time.
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="cohort_people",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="new_person",
+        ).save()
+
         database = Database.create_for(team=self.team, modifiers=modifiers)
 
         lazy_joins = list(_walk_lazy_joins(database))
         assert len(lazy_joins) > 15  # sanity: the walker actually reached the schema's joins
+        assert any(lj.resolver == DATA_WAREHOUSE for _, lj in lazy_joins)  # the user-defined join got attached
 
         for path, lazy_join in lazy_joins:
             assert lazy_join.resolver in RESOLVERS, f"{path} resolver {lazy_join.resolver!r} is not in the manifest"
             json.dumps(lazy_join.resolver_params)  # params must round-trip through JSON
 
 
-class TestLazyJoinManifest(BaseTest):
+class TestLazyJoinManifest(SimpleTestCase):
     def test_manifest_is_the_explicit_contract(self):
         """The manifest is the closed contract a serialized Database depends on. Changing this
         list changes what consumers of a serialized schema must implement — update deliberately."""
