@@ -2854,7 +2854,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
         )
 
-        assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+        # Smoothing is a rolling average and must stay fractional — flooring it back to integers
+        # collapses low-count series into a flat integer step instead of a smooth line.
+        assert response.results[0]["data"] == pytest.approx(
+            [1, 0.5, 2 / 3, 1.25, 1.2, 1, 8 / 7, 1, 8 / 7, 1, 5 / 7, 4 / 7]
+        )
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier(self, patch_create_default_modifiers_for_team):

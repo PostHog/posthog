@@ -269,13 +269,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 expr=parse_expr(
                     """
                     arrayMap(
-                        i -> floor(arrayAvg(
+                        i -> arrayAvg(
                             arraySlice(
                                 total_array,
                                 greatest(i-{smoothing_interval} + 1, 1),
                                 least(i, {smoothing_interval})
                             )
-                        )),
+                        ),
                         arrayEnumerate(total_array)
                     )
                 """,
