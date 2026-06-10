@@ -3852,6 +3852,10 @@ snapshots:
         hash: v1.k794b7964.923aafaf8e1bce9f1caa2410cd58f7378ff97f8e9fb569e0ce18b45dfb885ff8.osZQjoZOyTIkZuiFFYz_vt8LWPp7oKhCd1an1UQjLwM
     mcp-apps-funnels--three-step--light:
         hash: v1.k794b7964.18bd10f06238debddaf314abc41971a2a811e0cc74174b10b3f224ed7df15066.8JtCrE123e2LAu3dIKIT_F0E_u29Q2wT-UKli7kracs
+    mcp-apps-lifecycle--grouped--light:
+        hash: v1.k794b7964.b8247c9b7542fdbcf8fe7f6c7a6adfca0e1548cbd5ae90c1a8373e810eb50065.2lEwgzg2R0L_DFCuop8tC15_oQUPrv3JVnXJMviUHbw
+    mcp-apps-lifecycle--stacked--light:
+        hash: v1.k794b7964.ce5ea9f9ffda7e65851691f582f798735e08bc196c038595243ad3a16cd116e6.LXzplsYjLiccg71arqdyvRVsdq9fzUG6lVLFWfG86g8
     mcp-apps-surveys--active-popover--light:
         hash: v1.k794b7964.c47633461e9a437f0761e09f795eb793b02ed0bac4489ce757a5837dbaa3f847.wclUgXFjBkoHXJLNP2R3ncawfRArgVyVEUWbIiQve0o
     mcp-apps-surveys--completed--light:
