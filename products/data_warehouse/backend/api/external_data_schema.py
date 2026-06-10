@@ -40,6 +40,7 @@ from products.data_warehouse.backend.direct_postgres import hide_direct_postgres
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
+    reconcile_webhook_events,
 )
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
@@ -122,6 +123,10 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
         instance.status = ExternalDataSchema.Status.FAILED
         instance.save(update_fields=["status"])
+
+
+# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
+CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -515,6 +520,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         was_sync_time_of_day_updated = False
         source = instance.source
 
+        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
+        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
+        # frequency the schema will actually end up with — the new value if one is supplied, else
+        # the existing interval — against the sync type it will end up with. This also catches
+        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        resulting_frequency = sync_frequency
+        if not resulting_frequency and instance.sync_frequency_interval is not None:
+            resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
+            raise ValidationError(
+                "A 1-minute sync frequency is only available for CDC schemas. "
+                "The fastest frequency for other sync types is 5 minutes."
+            )
+
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
@@ -728,6 +748,31 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
                         "You can set up the webhook manually from the Webhook tab."
                     )
+            else:
+                # Deferred to keep the provider call out of the surrounding transaction.
+                # Fully non-fatal: the table is already enabled by the time this runs, so any
+                # failure (bad creds, provider 403, network) must never propagate — it would
+                # otherwise 500 the post-commit hook on the bulk path, or roll back the enable
+                # on the single-update path. Data still flows once the user fixes provider events.
+                def reconcile() -> None:
+                    try:
+                        reconcile_result = reconcile_webhook_events(
+                            source_impl, config, hog_fn_result, schema.team_id, [schema.name]
+                        )
+                        if not reconcile_result.success:
+                            logger.warning(
+                                "Failed to reconcile webhook events on schema enable",
+                                error=reconcile_result.error,
+                                schema_id=str(schema.id),
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Error reconciling webhook events on schema enable",
+                            error=str(e),
+                            schema_id=str(schema.id),
+                        )
+
+                self._run_temporal_side_effect(reconcile)
         except ValidationError:
             raise
         except Exception as e:

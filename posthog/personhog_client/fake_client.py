@@ -469,6 +469,17 @@ class FakePersonHogClient:
                     return group_pb2.GetGroupTypeMappingByDashboardIdResponse(mapping=m)
         return group_pb2.GetGroupTypeMappingByDashboardIdResponse()
 
+    def count_group_type_mappings(
+        self, request: group_pb2.CountGroupTypeMappingsRequest
+    ) -> group_pb2.CountGroupTypeMappingsResponse:
+        self.calls.append(_Call("count_group_type_mappings", request))
+        counts = []
+        for team_id, team_mappings in self._group_type_mappings_by_team.items():
+            if team_mappings:
+                counts.append(group_pb2.GroupTypeMappingCount(team_id=team_id, count=len(team_mappings)))
+        counts.sort(key=lambda c: c.team_id)
+        return group_pb2.CountGroupTypeMappingsResponse(counts=counts)
+
     def update_group_type_mapping(
         self, request: group_pb2.UpdateGroupTypeMappingRequest
     ) -> group_pb2.UpdateGroupTypeMappingResponse:

@@ -106,7 +106,7 @@ def _value_changed(instance: Team, snapshot_attr: str, field_name: str) -> bool:
 
 
 def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
-    if not settings.FLAGS_REDIS_URL:
+    if not settings.AI_GATEWAY_REDIS_URL:
         return
 
     old_api_token: str | None = instance.__dict__.get(_LOADED_API_TOKEN_ATTR)
@@ -153,7 +153,7 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
 
 
 def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
-    if not settings.FLAGS_REDIS_URL:
+    if not settings.AI_GATEWAY_REDIS_URL:
         return
 
     kinds = ["redis"] if settings.TEST else None

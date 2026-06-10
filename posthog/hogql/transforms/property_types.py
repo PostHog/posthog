@@ -123,6 +123,23 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             }
         )
 
+    if context.type_observability is not None:
+        context.type_observability.record_property_definition_lookup(
+            property_source="event",
+            known_count=len(event_properties),
+            total_count=len(property_finder.event_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="person",
+            known_count=len(person_properties),
+            total_count=len(property_finder.person_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="group",
+            known_count=len(group_properties),
+            total_count=sum(len(properties) for properties in property_finder.group_properties.values()),
+        )
+
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     context.property_swapper = PropertySwapper(
         timezone=timezone,

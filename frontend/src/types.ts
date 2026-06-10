@@ -36,7 +36,7 @@ import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
@@ -283,6 +283,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -503,6 +504,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_cta_shown?: boolean
     is_hipaa?: boolean
     members_can_invite?: boolean
+    members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
@@ -527,6 +529,10 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+    has_id_jag?: boolean
+    id_jag_issuer_url?: string | null
+    id_jag_jwks_url?: string | null
+    id_jag_allowed_clients?: string[]
 }
 
 export interface SCIMRequestLogType {
@@ -648,6 +654,7 @@ export interface CorrelationConfigType {
 
 export interface ProjectType extends ProjectBasicType {
     created_at: string
+    is_pending_deletion: boolean
 }
 
 export interface TeamSurveyConfigType {
@@ -690,6 +697,9 @@ export interface ConversationsSettings {
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
+    slack_notify_on_join?: boolean
+    slack_notify_on_leave?: boolean
+    slack_alert_channel_id?: string | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -794,7 +804,12 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    workflows_config: WorkflowsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
+}
+
+export interface WorkflowsConfig {
+    capture_workflows_engagement_events: boolean
 }
 
 export interface ProductIntentType {
@@ -2791,6 +2806,8 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    /** Optional emoji shown in place of the default badge when surfacing the annotation. */
+    emoji?: string | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3260,6 +3277,10 @@ export interface TrendResult {
     persons_urls?: { url: string }[]
     persons?: Person
     filter?: TrendsFilterType
+    /** Series order set by the query runner: the action order for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows).
+     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    order?: number
 }
 
 interface Person {
@@ -4144,8 +4165,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    experiment_set_metadata: { id: number; name: string }[] | null
-    features: EarlyAccessFeatureType[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
+    features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
@@ -4240,6 +4261,17 @@ export interface EarlyAccessFeatureType {
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
+}
+
+/** Shape served by MinimalEarlyAccessFeatureSerializer (camelCase keys), e.g. as `FeatureFlagType.features`. */
+export interface MinimalEarlyAccessFeatureType {
+    id: string
+    name: string
+    description: string
+    stage: EarlyAccessFeatureStage
+    documentationUrl: string
+    flagKey: string | null
+    payload?: Record<string, any>
 }
 
 export interface UserBlastRadiusType {
@@ -4337,10 +4369,6 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     email_service_available: boolean
     slack_service: {
-        available: boolean
-        client_id?: string
-    }
-    posthog_code_slack_service: {
         available: boolean
         client_id?: string
     }
@@ -4669,6 +4697,8 @@ export interface Experiment {
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
         }
         cuped?: {
             enabled?: boolean
@@ -4800,6 +4830,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
+    homepage?: SceneTab | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -5106,17 +5138,28 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
-// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
+// Value map for the above — kept a distinct name from the type so kea-typegen still imports
+// the type correctly (a const+type sharing a name drops it from generated `import type` lines).
+export const SubscriptionResourceTypes = {
+    Insight: 'insight',
+    Dashboard: 'dashboard',
+    AiPrompt: 'ai_prompt',
+} as const satisfies Record<string, SubscriptionResourceType>
+
+// TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.
 // This hand-written interface predates the generated type and now requires
 // dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
+    resource_type: SubscriptionResourceType
     insight?: number
     dashboard?: number
     insight_short_id?: string | null
     resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
+    prompt?: string | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5152,13 +5195,13 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
-    'slack-posthog-code',
     'salesforce',
     'hubspot',
     'google-pubsub',
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-search-console',
     'google-sheets',
     'linkedin-ads',
     'snapchat',
@@ -5633,6 +5676,7 @@ export enum ActivityScope {
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
+    SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
 }
 
 export type CommentType = {
@@ -5887,6 +5931,8 @@ export interface WebhookInfo {
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
+    // Desired provider events not yet on the webhook (manual setup, or created before a new table).
+    missing_events?: string[]
 }
 
 export interface DataModelingJob {
@@ -5970,6 +6016,12 @@ export interface ExternalDataSourceSyncSchema {
      * available. The UI should disable selection and surface this string when set.
      */
     permission_error?: string | null
+    /**
+     * Advisory warning when row-level security is active for the sync role on this table:
+     * the sync may read fewer rows than the table contains, and the gap can't be measured.
+     * `null`/undefined = no warning. Unlike `permission_error` this does NOT block selection.
+     */
+    rls_warning?: string | null
     /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
@@ -6111,11 +6163,6 @@ export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     integration?: number
     config: {
-        project_id: string
-        private_key: string
-        private_key_id: string
-        client_email: string
-        token_uri: string
         dataset_id: string
         table_id: string
         exclude_events: string[]

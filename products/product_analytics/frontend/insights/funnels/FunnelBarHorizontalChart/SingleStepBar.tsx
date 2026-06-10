@@ -6,13 +6,13 @@ import {
     type ChartTheme,
     type PointClickData,
     type TooltipContext,
-} from 'lib/hog-charts'
+} from '@posthog/quill-charts'
 
 import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
     type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
-} from './funnelBarHorizontalTransforms'
+} from '../shared/funnelBarHorizontalShared'
 
 const BAR_CORNER_RADIUS = 4
 

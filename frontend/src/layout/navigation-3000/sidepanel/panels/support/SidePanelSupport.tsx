@@ -37,7 +37,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const StatusPageAlert = (): JSX.Element | null => {
-    const { status, statusDescription } = useValues(incidentStatusLogic)
+    const { status, statusDescription, statusPageUrl } = useValues(incidentStatusLogic)
 
     if (status === 'operational') {
         return null
@@ -55,7 +55,7 @@ const StatusPageAlert = (): JSX.Element | null => {
                 <IconWarning className="text-warning w-5 h-5 shrink-0 mt-0.5" />
                 <div className="flex-1">
                     <p className="font-semibold mb-1">
-                        <Link to="https://posthogstatus.com" target="_blank">
+                        <Link to={statusPageUrl} target="_blank">
                             {description}
                         </Link>
                     </p>
@@ -63,7 +63,7 @@ const StatusPageAlert = (): JSX.Element | null => {
                         <p className="mb-1">We're aware of an issue that may be affecting your PostHog experience.</p>
                         <p className="mb-0">
                             You may wish to check our{' '}
-                            <Link to="https://posthogstatus.com" target="_blank">
+                            <Link to={statusPageUrl} target="_blank">
                                 current status
                             </Link>{' '}
                             before contacting support.

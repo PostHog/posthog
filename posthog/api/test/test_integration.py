@@ -4,6 +4,7 @@ import json
 import time
 import hashlib
 from datetime import timedelta
+from urllib.parse import quote
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -16,7 +17,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.integration import IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -35,6 +36,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
@@ -302,7 +304,10 @@ class TestEmailIntegration:
         assert integration.created_by == self.user
 
         mock_client.create_email_domain.assert_called_once_with(
-            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+            "posthog.com",
+            mail_from_subdomain="youmustnothavelikedmyemail",
+            team_id=self.team.id,
+            org_team_ids=[self.team.id],
         )
 
     @patch("posthog.models.integration.SESProvider")
@@ -1012,7 +1017,6 @@ class TestIntegrationAPIKeyAccess:
         "kind,scope,expected_status,expected_detail_substring",
         [
             ("slack", "integration:read", status.HTTP_200_OK, None),
-            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
             # GitHub and Twilio resolve via the queryset, but the channels action's kind
             # guard rejects them with a 400 before SlackIntegration is constructed.
@@ -1184,8 +1188,8 @@ class TestIntegrationAPIKeyAccess:
             ("", ["C1", "C2", "C3"], False),
             # Pagination beyond the dataset returns an empty page.
             ("?limit=10&offset=10", [], False),
-            # Search + offset combine: "e" matches general+engineering in input order, offset=1 yields engineering.
-            ("?search=e&limit=1&offset=1", ["C3"], False),
+            # Search + offset combine: "gen" fuzzy-matches general+engineering, offset=1 yields engineering.
+            ("?search=gen&limit=1&offset=1", ["C3"], False),
         ],
         ids=["default-no-params", "offset-past-end", "search-with-offset"],
     )
@@ -1253,6 +1257,93 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert [channel["id"] for channel in data["channels"]] == expected_ids
         assert data["has_more"] is expected_has_more
+
+    @pytest.mark.parametrize(
+        "search,expected_ids",
+        [
+            # "team-product" (C2) is a weaker fuzzy match on "product", so it ranks below the exact hit.
+            ("product analytics", ["C1", "C2"]),
+            ("product_analytics", ["C1", "C2"]),
+            ("analytics product", ["C1", "C2"]),
+            ("prod analy", ["C1"]),
+            ("analytcs", ["C1"]),
+            ("product-analytics", ["C1", "C2"]),
+            ("team", ["C2", "C3"]),
+            ("C2", ["C2"]),
+            ("nonexistent channel", []),
+        ],
+        ids=[
+            "spaces-match-hyphens",
+            "underscores-match-hyphens",
+            "reordered-tokens",
+            "partial-tokens",
+            "typo-tolerant",
+            "exact-hyphenated",
+            "shared-token-multi-match",
+            "channel-id-paste",
+            "no-match",
+        ],
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_fuzzy_search(
+        self,
+        mock_slack_class,
+        search: str,
+        expected_ids: list[str],
+        client: HttpClient,
+    ):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SEARCH",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {
+                "id": "C1",
+                "name": "product-analytics",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C2",
+                "name": "team-product",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C3",
+                "name": "team-design",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = f"test_key_slack_search_{search}".replace(" ", "_").replace("-", "_")
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/?search={quote(search)}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [channel["id"] for channel in data["channels"]] == expected_ids
 
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
@@ -3204,3 +3295,112 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestSlackPostHogCodeKindDeprecated:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_slack_posthog_code_integration_rejected(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "slack-posthog-code", "config": {}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "deprecated" in json.dumps(response.json()).lower()
+        assert not Integration.objects.filter(team=self.team, kind="slack-posthog-code").exists()
+
+    def test_validate_kind_rejects_slack_posthog_code(self):
+        serializer = IntegrationSerializer(data={"kind": "slack-posthog-code", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+        assert "deprecated" in str(serializer.errors["kind"]).lower()
+
+    def test_validate_kind_accepts_other_kinds(self):
+        # Sanity check — the validator must not reject unrelated kinds.
+        serializer = IntegrationSerializer(data={"kind": "slack", "config": {}})
+
+        serializer.is_valid()
+        assert "kind" not in serializer.errors
+
+
+class TestGitHubIntegrationUninstall:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_github_integration(self, installation_id: str = "12345") -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": installation_id},
+            sensitive_config={"access_token": "ghs_token"},
+            integration_id=installation_id,
+            created_by=self.user,
+        )
+
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    def test_destroy_github_uninstalls_and_cleans_up_personal_when_last_team_reference(
+        self, mock_uninstall, client: HttpClient
+    ):
+        mock_uninstall.return_value = True
+        integration = self._create_github_integration("12345")
+        personal = UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_uninstall.assert_called_once_with("12345")
+        assert not Integration.objects.filter(id=integration.id).exists()
+        # Last team reference removed → the App is uninstalled, so personal integrations go too.
+        assert not UserIntegration.objects.filter(id=personal.id).exists()
+
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    def test_destroy_github_skips_uninstall_when_other_team_reference_exists(self, mock_uninstall, client: HttpClient):
+        integration = self._create_github_integration("12345")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        Integration.objects.create(
+            team=other_team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+        personal = UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_uninstall.assert_not_called()
+        assert not Integration.objects.filter(id=integration.id).exists()
+        # Another team still uses the installation, so it stays installed and personal survives.
+        assert UserIntegration.objects.filter(id=personal.id).exists()
+
+    @patch(
+        "posthog.api.integration.GitHubIntegration.uninstall_app_installation",
+        side_effect=Exception("GitHub API error"),
+    )
+    def test_destroy_github_still_deletes_when_uninstall_fails(self, _mock_uninstall, client: HttpClient):
+        integration = self._create_github_integration("12345")
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()

@@ -9,28 +9,15 @@ from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
+
+from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY as _RSA_KEY
 
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
 HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
-
-
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
-_RSA_KEY = _generate_rsa_key()
 
 
 @pytest.mark.requires_secrets
@@ -59,6 +46,9 @@ class ProvisioningTestBase(APIBaseTest):
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
                 "provisioning_can_issue_deep_links": True,
+                # The test app stands in for the grandfathered legacy Stripe app, which is
+                # the one app that still mints a provisioned PAT.
+                "provisioning_issues_personal_api_key": True,
             },
         )
 

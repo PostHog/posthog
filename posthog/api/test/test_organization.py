@@ -16,6 +16,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -235,6 +236,41 @@ class TestOrganizationAPI(APIBaseTest):
         # Verify the value didn't change
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.members_can_invite, current_value)
+
+    def test_cannot_update_members_can_create_projects_without_feature(self):
+        """members_can_create_projects is gated behind the ORGANIZATION_INVITE_SETTINGS entitlement for now."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        current_value = self.organization.members_can_create_projects
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": not current_value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_create_projects, current_value)
+
+    def test_can_update_members_can_create_projects_with_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"}
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.members_can_create_projects)
 
     def test_cannot_update_enforce_2fa_without_feature(self):
         """Test that enforce_2fa cannot be updated without TWO_FACTOR_ENFORCEMENT feature."""

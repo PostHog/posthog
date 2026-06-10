@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
@@ -65,13 +65,14 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         refreshDashboardWidgets,
-        updateWidgetTileMetadata,
-        updateWidgetTileConfig,
+        scheduleRefreshDashboardWidgets,
+        applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
+    const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
@@ -491,6 +492,7 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         dashboardId={dashboard?.id}
+                                        canEditDashboard={canEditDashboard}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
@@ -500,8 +502,18 @@ export function DashboardItems(): JSX.Element {
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }
-                                        onUpdateConfig={(config) => updateWidgetTileConfig({ tile, config })}
-                                        onUpdateMetadata={(metadata) => updateWidgetTileMetadata({ tile, ...metadata })}
+                                        onRefreshWidgetData={scheduleRefreshDashboardWidgets}
+                                        onApplyWidgetIssueMetadataChange={(tileId, issueId, delta, context) => {
+                                            applyWidgetIssueMetadataChange({
+                                                tileId,
+                                                issueId,
+                                                delta,
+                                                context,
+                                            })
+                                        }}
+                                        onUpdateWidgetTile={async (patch) => {
+                                            await updateWidgetTile({ tile, ...patch })
+                                        }}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}

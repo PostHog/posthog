@@ -27,6 +27,7 @@ from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -82,6 +83,7 @@ class GenerateEmbeddingOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -144,6 +146,7 @@ def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeE
 
 
 async def generate_search_queries(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -166,10 +169,12 @@ async def generate_search_queries(
         return [truncate_query_to_token_limit(q) for q in result.queries]
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.7,
+        stage="query_generation",
     )
 
 
@@ -179,6 +184,9 @@ class GenerateSearchQueriesInput:
     source_product: str
     source_type: str
     signal_type_examples: list[SignalTypeExample]
+    # Optional with a default so workflows mid-flight across a deploy (whose activity input was
+    # serialized before this field existed) still deserialize; missing => gateway key owner's team.
+    team_id: int | None = None
 
 
 @dataclass
@@ -188,10 +196,12 @@ class GenerateSearchQueriesOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
         queries = await generate_search_queries(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -405,6 +415,7 @@ Write a PR title covering ALL the above signals (existing + new), then judge if 
 
 
 async def match_signal_to_report(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -456,10 +467,12 @@ async def match_signal_to_report(
         )
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.2,
+        stage="match",
     )
 
 
@@ -471,14 +484,18 @@ class MatchSignalToReportInput:
     queries: list[str]
     query_results: list[list[SignalCandidate]]
     report_contexts: dict[str, ReportContext]
+    # Optional with a default for deploy-time backward compatibility — see GenerateSearchQueriesInput.
+    team_id: int | None = None
 
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -515,6 +532,7 @@ class FetchReportContextsOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -562,6 +580,7 @@ class VerifyMatchSpecificityOutput:
 
 
 async def verify_match_specificity(
+    team_id: int,
     new_signal_description: str,
     new_signal_source_product: str,
     new_signal_source_type: str,
@@ -578,10 +597,12 @@ async def verify_match_specificity(
     )
 
     specificity = await call_llm(
+        team_id=team_id,
         system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
         user_prompt=specificity_prompt,
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
+        stage="specificity",
     )
 
     return VerifyMatchSpecificityOutput(
@@ -593,10 +614,12 @@ async def verify_match_specificity(
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
         result = await verify_match_specificity(
+            team_id=input.team_id,
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
@@ -637,6 +660,7 @@ class AssignAndEmitSignalInput:
     match_result: MatchResult
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
+    remediation: Optional[dict] = None
 
 
 @dataclass
@@ -649,6 +673,7 @@ class AssignAndEmitSignalOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
@@ -679,6 +704,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "weight": input.weight,
                         "report_id": report_id,
                         "extra": input.extra,
+                        "remediation": input.remediation,
                         "deleted": True,
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -743,6 +769,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 "weight": input.weight,
                 "report_id": report_id,
                 "extra": input.extra,
+                "remediation": input.remediation,
             }
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -940,6 +967,7 @@ async def _process_signal_batch(
             workflow.execute_activity(
                 generate_search_queries_activity,
                 GenerateSearchQueriesInput(
+                    team_id=team_id,
                     description=s.description,
                     source_product=s.source_product,
                     source_type=s.source_type,
@@ -1056,6 +1084,7 @@ async def _process_signal_batch(
             match_result = await workflow.execute_activity(
                 match_signal_to_report_activity,
                 MatchSignalToReportInput(
+                    team_id=team_id,
                     description=signal.description,
                     source_product=signal.source_product,
                     source_type=signal.source_type,
@@ -1130,6 +1159,7 @@ async def _process_signal_batch(
                     embedding=signal_embeddings[i].embedding,
                     match_result=match_result,
                     updated_title=updated_title,
+                    remediation=signal.remediation,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),

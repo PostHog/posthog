@@ -5,7 +5,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
@@ -23,10 +23,12 @@ impl PersonLookup for PostgresStorage {
         person_id: i64,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_person_by_id".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -55,10 +57,12 @@ impl PersonLookup for PostgresStorage {
 
     async fn get_person_by_uuid(&self, team_id: i64, uuid: Uuid) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_person_by_uuid".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -96,10 +100,12 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_ids".to_string()),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -150,6 +156,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_ids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -168,10 +175,12 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_uuids".to_string()),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -222,6 +231,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_uuids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -235,6 +245,7 @@ impl PersonLookup for PostgresStorage {
         distinct_id: &str,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -242,6 +253,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -281,6 +293,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -288,6 +301,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -366,6 +380,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_in_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             found.len() as f64,
         );
@@ -382,10 +397,12 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "delete_persons".to_string()),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -442,6 +459,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -449,6 +467,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -505,6 +524,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -512,6 +532,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -551,6 +572,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_cross_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -606,6 +628,7 @@ async fn delete_persons_by_ids_chunk(
         ),
         ("pool".to_string(), "bulk_primary".to_string()),
         ("client".to_string(), client.to_string()),
+        ("method".to_string(), current_method_name().to_string()),
     ];
     let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
 
@@ -632,6 +655,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         did_result.rows_affected() as f64,
     );
@@ -657,6 +681,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         result.rows_affected() as f64,
     );

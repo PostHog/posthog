@@ -117,9 +117,36 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
 
 
+BULK_UPDATE_STATUS_MAX_IDS = 500
+
+
+class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=Status.choices,
+        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.",
+    )
+
+
+class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets whose status actually changed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets whose status changed.",
+    )
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
+
+
+MAX_TAG_FILTER_VALUES = 50
 
 
 class TicketPersonSerializer(serializers.Serializer):
@@ -223,6 +250,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
 
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
+    scope_object_read_actions = ["list", "retrieve", "unread_count"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
@@ -346,7 +375,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 tags_list = json.loads(tags_param)
                 if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_all_param = self.request.query_params.get("tags_all")
+        if tags_all_param:
+            try:
+                tags_all_list = json.loads(tags_all_param)
+                if isinstance(tags_all_list, list) and tags_all_list:
+                    # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
+                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
+                        queryset = queryset.filter(tagged_items__tag__name=tag_name)
+                    queryset = queryset.distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_exclude_param = self.request.query_params.get("tags_exclude")
+        if tags_exclude_param:
+            try:
+                tags_exclude_list = json.loads(tags_exclude_param)
+                if isinstance(tags_exclude_list, list) and tags_exclude_list:
+                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
 
@@ -527,7 +577,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 "tags",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.',
+                description='JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_all",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_exclude",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.',
             ),
             OpenApiParameter(
                 "order_by",
@@ -653,10 +715,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         try:
             if status_changed:
-                capture_ticket_status_changed(instance, old_status, new_status)
+                capture_ticket_status_changed(instance, old_status, new_status, actor=request.user, actor_type="user")
 
             if priority_changed:
-                capture_ticket_priority_changed(instance, old_priority, new_priority)
+                capture_ticket_priority_changed(
+                    instance, old_priority, new_priority, actor=request.user, actor_type="user"
+                )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
@@ -741,6 +805,92 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
+        """Emit analytics + activity log for a single ticket status change.
+
+        Called from both ``update()`` and ``bulk_update_status()`` to keep
+        event-tracking logic in one place.
+        """
+        try:
+            capture_ticket_status_changed(ticket, old_status, new_status, actor=request.user, actor_type="user")
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="status",
+                            before=old_status,
+                            after=new_status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+    @extend_schema(
+        request=BulkUpdateStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_update_status(self, request, *args, **kwargs):
+        """Update the status of multiple tickets in a single request.
+
+        Only tickets belonging to the current team are affected; other-team UUIDs
+        are silently ignored.  Tickets already in the requested status are skipped.
+        """
+        serializer = BulkUpdateStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        new_status: str = serializer.validated_data["status"]
+
+        changed: list[tuple[Ticket, str]] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            for ticket in tickets:
+                old_status = ticket.status
+                if old_status == new_status:
+                    continue
+                ticket.status = new_status
+                ticket.save(update_fields=["status", "updated_at"])
+                changed.append((ticket, old_status))
+
+        def _emit_bulk_side_effects() -> None:
+            if any(old == "resolved" or new_status == "resolved" for _, old in changed):
+                invalidate_unread_count_cache(self.team_id)
+
+            for ticket, old_status in changed:
+                self._emit_status_change_side_effects(request, ticket, old_status, new_status)
+
+            if changed:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk status updated",
+                        {"count": len(changed), "ticket_status": new_status},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+        transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
         request=None,
@@ -1029,6 +1179,6 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
             else:
                 assignee_type = None
                 assignee_id = None
-            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+            capture_ticket_assigned(ticket, assignee_type, assignee_id, actor=user, actor_type="user")
         except Exception as e:
             capture_exception(e, {"ticket_id": str(ticket.id)})

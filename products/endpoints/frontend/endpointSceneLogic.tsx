@@ -1,12 +1,9 @@
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { getTabSceneParams, updateTabUrl } from 'lib/logic/scenes/tabSceneUtils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
@@ -18,10 +15,6 @@ import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
-
-export interface EndpointSceneLogicProps {
-    tabId: string
-}
 
 // Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
 const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
@@ -116,12 +109,10 @@ export interface MaterializationPreview {
 }
 
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
-    props({} as EndpointSceneLogicProps),
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
-    tabAwareScene(),
-    connect((props: EndpointSceneLogicProps) => ({
+    connect(() => ({
         actions: [
-            endpointLogic({ tabId: props.tabId }),
+            endpointLogic(),
             [
                 'loadEndpoint',
                 'loadEndpointSuccess',
@@ -131,7 +122,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 'updateEndpointSuccess',
             ],
         ],
-        values: [endpointLogic({ tabId: props.tabId }), ['endpoint', 'endpointLoading']],
+        values: [endpointLogic(), ['endpoint', 'endpointLoading']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
@@ -148,6 +139,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
+        toggleMaterializationFromMenu: true,
     }),
     reducers({
         localQuery: [
@@ -334,7 +326,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values, props, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         keepSqlEditorMounted: ({ editorTabId }) => {
             // Already holding a mount for this editor
             if (cache.sqlEditorTabId === editorTabId) {
@@ -354,10 +346,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.setPayloadJson(initialPayload)
             actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
 
-            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
+            const { searchParams, hashParams } = router.values
 
-            // Load tab-specific data
-            if (searchParams.tab === EndpointTab.VERSIONS && endpoint?.name) {
+            // Versions populate the File → Open version submenu, so always load them.
+            if (endpoint?.name) {
                 actions.loadVersions(endpoint.name)
             }
             if (searchParams.tab === EndpointTab.CONFIGURATION && endpoint?.name) {
@@ -374,7 +366,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     } catch {
                         // Version not found, clear the param
                         const { version: _, ...nextSearchParams } = searchParams
-                        updateTabUrl(props.tabId, urls.endpoint(endpoint.name), nextSearchParams, hashParams)
+                        router.actions.replace(urls.endpoint(endpoint.name), nextSearchParams, hashParams)
                         actions.setViewingVersion(null)
                     }
                 } else {
@@ -396,6 +388,23 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
         setBucketOverride: () => {
             actions.loadMaterializationPreview()
+        },
+        toggleMaterializationFromMenu: () => {
+            if (!values.endpoint?.name) {
+                return
+            }
+            const baseIsMaterialized =
+                values.viewingVersion?.is_materialized ?? values.endpoint?.is_materialized ?? false
+            const effective = values.isMaterialized ?? baseIsMaterialized
+            actions.setActiveTab(EndpointTab.CONFIGURATION)
+            actions.setIsMaterialized(!effective)
+            // Drive the URL so Configuration is loaded if/when LemonTabs is gone.
+            const { searchParams, hashParams } = router.values
+            router.actions.replace(
+                urls.endpoint(values.endpoint.name),
+                { ...searchParams, tab: EndpointTab.CONFIGURATION },
+                hashParams
+            )
         },
         setViewingVersion: ({ version }) => {
             // Reset local state so viewed version's data shows through
@@ -432,12 +441,11 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             }
 
             // Update URL when viewing version changes
-            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
+            const { searchParams, hashParams } = router.values
             if (values.endpoint?.name) {
                 const { version: _, ...nextSearchParams } = searchParams
                 if (version && version.version !== values.endpoint.current_version) {
-                    updateTabUrl(
-                        props.tabId,
+                    router.actions.replace(
                         urls.endpoint(values.endpoint.name),
                         {
                             ...nextSearchParams,
@@ -447,7 +455,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     )
                 } else {
                     // Clear version param when going back to current version
-                    updateTabUrl(props.tabId, urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
+                    router.actions.replace(urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
                 }
             }
         },
@@ -469,7 +477,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             }
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.endpoint(':name')]: ({ name }: { name?: string }, _, __, currentLocation, previousLocation) => {
             const { searchParams } = router.values
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
@@ -504,7 +512,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                             .get(name, versionParam)
                             .then((versionData) => {
                                 // Only apply if this is still the requested version
-                                const currentParam = getTabSceneParams(props.tabId).searchParams.version
+                                const currentParam = router.values.searchParams.version
                                 if (currentParam && parseInt(currentParam, 10) === requestedVersion) {
                                     actions.setViewingVersion(versionData)
                                 }

@@ -20,7 +20,13 @@ from products.conversations.backend.tasks import process_supporthog_event
 logger = structlog.get_logger(__name__)
 
 # Event types we handle for support tickets
-SUPPORT_EVENT_TYPES = ["app_mention", "message", "reaction_added"]
+SUPPORT_EVENT_TYPES = [
+    "app_mention",
+    "message",
+    "reaction_added",
+    "member_joined_channel",
+    "member_left_channel",
+]
 
 
 def _team_for_slack_workspace(slack_team_id: str) -> Team | None:

@@ -6,12 +6,15 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { RecordingSegment } from '~/types'
+import { ExporterFormat, RecordingSegment } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -940,6 +943,24 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('exportRecording', () => {
+        it('uses the player skip-inactivity setting', () => {
+            // setRootFrame clears innerHTML, so append the iframe after it runs
+            const rootFrame = document.createElement('div')
+            logic.actions.setRootFrame(rootFrame)
+            rootFrame.appendChild(document.createElement('iframe'))
+
+            playerSettingsLogic.actions.setSkipInactivitySetting(false)
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            logic.actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, 3600)
+
+            expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
+            expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
+            startReplayExportSpy.mockRestore()
         })
     })
 })

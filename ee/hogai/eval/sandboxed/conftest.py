@@ -72,6 +72,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
+        # NodeKeywords forbids __delitem__ in newer pytest — the own_markers
+        # mutation above is what actually strips the marker; this pop is a
+        # legacy belt-and-braces that's a no-op when not supported.
+        try:
+            item.keywords.pop("django_db", None)
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -83,7 +90,7 @@ def django_db_setup(
     django_db_keepdb: bool,
     django_db_createdb: bool,
     django_db_modify_db_settings: None,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Create the eval test DB even though eval items have no django_db marker."""
     from django.test.utils import setup_databases, teardown_databases
 
@@ -109,7 +116,7 @@ def django_db_setup(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None, None, None]:  # noqa: F811
+def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None]:  # noqa: F811
     """Use one committed eval database instead of per-test transactions."""
     django_db_blocker.unblock()
     yield
@@ -201,7 +208,7 @@ def _django_live_server(_sandboxed_eval_database_access):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
+def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path]:
     """Build local skills once per session; bind-mount into every sandbox.
 
     Uses a content-hash cache so repeat runs skip the build when nothing has
@@ -227,7 +234,7 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+def _temporal_test_server() -> Generator[tuple[str, str, str]]:
     """Start an isolated Temporal dev server for sandboxed eval workflows."""
     loop = asyncio.new_event_loop()
     temporal_namespace = settings.TEMPORAL_NAMESPACE
@@ -258,7 +265,7 @@ def _sandbox_settings(
     _django_live_server: object,
     _llm_gateway: object,
     _temporal_test_server: tuple[str, str, str],
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
@@ -503,6 +510,10 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
+
+    Runs the Node-native Hono server via ``pnpm dev:hono``. In production the
+    Cloudflare Worker is now a proxy that forwards to a regional Hono
+    deployment, so Hono is what real users hit.
     """
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -511,30 +522,24 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     api_url = str(_django_live_server)
 
+    # The Hono server reads config directly from process env — no wrangler
+    # --var wiring needed. PORT picks the listen port; the dev:hono script
+    # bundles via esbuild then spawns Node on the bundle.
     env = {
         **os.environ,
         "POSTHOG_API_BASE_URL": api_url,
         "MCP_APPS_BASE_URL": f"http://localhost:{MCP_PORT}",
         "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL": api_url,
         "NODE_ENV": "development",
+        "PORT": str(MCP_PORT),
+        "HOST": "0.0.0.0",
     }
 
-    # Wrangler's .dev.vars file (committed) overrides process env, so we must
-    # pass --var on the CLI to point the MCP at our in-process Django test DB.
-    wrangler_vars = [
-        f"POSTHOG_API_BASE_URL:{api_url}",
-        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
-        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
-    ]
-    var_args: list[str] = []
-    for v in wrangler_vars:
-        var_args.extend(["--var", v])
-
-    logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
+    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
     _, stop = _LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+        cmd=["pnpm", "dev:hono"],
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",

@@ -5,7 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '../../kafka/consumer'
 import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -79,10 +79,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-hogflow-subscription-matcher-consumer',
-            topic: KAFKA_EVENTS_JSON,
-        })
+        // A waker only needs events that arrive after a job parks, never history, so start at the
+        // head: auto.offset.reset=latest makes a fresh consumer group begin at the tip instead of
+        // replaying the clickhouse_events_json backlog (unconsumable at prod volume).
+        this.kafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-consumer',
+                topic: KAFKA_EVENTS_JSON,
+            },
+            { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+        )
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
         // string means it would silently consume the event stream and wake nothing. Fail
@@ -224,6 +230,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // event, which is what makes property-based waits event-driven rather than polled.
         const context = { hogFlowId: hogflowId, actionId: action.id }
         for (const eventConfig of action.config.events ?? []) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
@@ -235,6 +244,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
@@ -258,6 +270,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // ANY/ANY would match a job whose team and distinct_id came from two different
         // events in the batch (a cross-team false-positive candidate). The function_id
         // filter further scopes to flows the matcher can act on.
+        //
+        // We deliberately do NOT filter by queue_name: a parked wait can sit on a queue
+        // other than 'hogflow'. When a step (e.g. email) routes the invocation to a
+        // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
+        // filter would silently miss it. function_id already scopes to hogflow jobs, and
+        // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
         let result
         try {
@@ -265,7 +283,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
@@ -273,7 +290,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
              SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
@@ -430,6 +446,15 @@ type IndexedBatch = {
     personIds: string[]
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
+}
+
+// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
+// it would match every incoming event. Action-based entries (events empty, actions set) are real
+// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
+// in one place.
+function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; actions?: unknown[] } }): boolean {
+    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
 }
 
 // Skip teams whose hogflows have no wait_until_condition step and no event-based

@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import (
@@ -23,7 +24,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -57,6 +58,50 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def _ticket_with_tags(self, *tag_names):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="-".join(tag_names) or "untagged",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+        for name in tag_names:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            ticket.tagged_items.create(tag=tag)
+        return ticket
+
+    def _list_ids(self, **params):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["id"] for r in response.json()["results"]}
+
+    @parameterized.expand(
+        [
+            ("tags_matches_any", {"tags": '["alpha", "beta"]'}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("tags_all_matches_every", {"tags_all": '["alpha", "beta"]'}, {"alpha_beta"}),
+            ("tags_exclude_drops_tagged", {"tags_exclude": '["gamma"]'}, {"alpha_beta", "alpha"}),
+            (
+                "tags_all_composes_with_tags_exclude",
+                {"tags_all": '["alpha"]', "tags_exclude": '["beta"]'},
+                {"alpha"},
+            ),
+            ("malformed_json_ignored", {"tags_all": "not-json"}, {"alpha_beta", "alpha", "beta_gamma"}),
+            ("oversized_list_capped_not_500", {"tags_all": json.dumps([f"t{i}" for i in range(200)])}, set()),
+        ]
+    )
+    def test_filter_tags(self, mock_on_commit, _name, params, expected_keys):
+        # Expectations are fixture keys rather than ids (tickets don't exist at decorator
+        # time); the response is projected onto the fixture, which also keeps the untagged
+        # setUp ticket out of the comparison.
+        fixture = {
+            "alpha_beta": self._ticket_with_tags("alpha", "beta"),
+            "alpha": self._ticket_with_tags("alpha"),
+            "beta_gamma": self._ticket_with_tags("beta", "gamma"),
+        }
+        ids = self._list_ids(**params)
+        self.assertEqual({key for key, ticket in fixture.items() if str(ticket.id) in ids}, expected_keys)
 
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(
@@ -681,6 +726,127 @@ class TestTicketAPI(APIBaseTest):
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
                 self.assertIn("person", ticket_data)
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateStatus(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_status/"
+
+    def test_bulk_update_status(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["updated"], 3)
+        self.assertEqual(set(data["ids"]), set(ids))
+        for t in self.tickets:
+            t.refresh_from_db()
+            self.assertEqual(t.status, Status.OPEN)
+
+    def test_skips_tickets_already_in_target_status(self, mock_on_commit):
+        self.tickets[0].status = Status.OPEN
+        self.tickets[0].save(update_fields=["status"])
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        other_ticket.refresh_from_db()
+        self.assertEqual(other_ticket.status, Status.NEW)
+
+    def test_creates_activity_log_entries(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            activity="updated",
+        )
+        self.assertEqual(logs.count(), 2)
+        logged_ids = {log.item_id for log in logs}
+        self.assertEqual(logged_ids, set(ids))
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_invalidates_cache_on_resolved_transition(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_no_cache_invalidation_without_resolved(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        mock_invalidate.assert_not_called()
+
+    def test_rejects_empty_ids(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [], "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_invalid_status(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "status": "bogus"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTicketAssignment(APIBaseTest):
@@ -1477,3 +1643,60 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+
+class TestTicketPersonalAPIKeyScopes(APIBaseTest):
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+    @parameterized.expand(
+        [
+            ("list_with_read", "list", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("list_with_write", "list", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("retrieve_with_read", "retrieve", "get", True, ["ticket:read"], status.HTTP_200_OK),
+            ("retrieve_with_write", "retrieve", "get", True, ["ticket:write"], status.HTTP_200_OK),
+            ("unread_count_with_read", "unread_count", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("unread_count_with_write", "unread_count", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("list_wrong_scope", "list", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("retrieve_wrong_scope", "retrieve", "get", True, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("unread_count_wrong_scope", "unread_count", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
+        self._auth_with_pak(scopes)
+
+        base = f"/api/projects/{self.team.id}/conversations/tickets/"
+        if use_detail:
+            url = f"{base}{self.ticket.id}/"
+        elif action in ("list",):
+            url = base
+        else:
+            url = f"{base}{action}/"
+
+        response = getattr(self.client, method)(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_write_actions(self, _name, action, scopes, expected_status):
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
+        response = self.client.post(url, {}, format="json")
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"

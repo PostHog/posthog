@@ -12,7 +12,6 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -42,6 +41,7 @@ from posthog.tasks.email import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 

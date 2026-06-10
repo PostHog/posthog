@@ -46,4 +46,19 @@
             gap: 2rem;
         }
     }
+
+    // Dashboard widget setup prompts: stay stacked even in wide tiles.
+    &--stacked {
+        [data-attr^='product-introduction'] > div {
+            flex-direction: column !important;
+
+            @container widget-card (min-width: 36rem) {
+                flex-direction: column !important;
+            }
+        }
+
+        .flex.flex-wrap.gap-2 {
+            justify-content: center;
+        }
+    }
 }
