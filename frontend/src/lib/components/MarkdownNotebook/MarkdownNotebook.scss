@@ -1311,3 +1311,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     min-height: 8rem;
     overflow: hidden;
 }
+
+.MarkdownNotebook__real-node-content--resizeable {
+    resize: vertical;
+}

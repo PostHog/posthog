@@ -30,8 +30,9 @@ import '../Nodes/NotebookNodeTaskCreate'
 import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic } from 'kea'
-import { type CSSProperties, useCallback, useEffect, useMemo } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
@@ -287,7 +288,9 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
 
 export function RealNotebookNodeComponent({
     node,
+    mode,
     updateProps,
+    deleteNode,
     forceEditing = false,
     editOnly = false,
 }: NotebookComponentRenderProps & { forceEditing?: boolean; editOnly?: boolean }): JSX.Element {
@@ -301,8 +304,9 @@ export function RealNotebookNodeComponent({
     return (
         <MountedRealNotebookNodeComponent
             node={node}
-            mode={forceEditing ? 'edit' : 'view'}
+            mode={mode}
             updateProps={updateProps}
+            deleteNode={deleteNode}
             editOnly={editOnly}
             forceEditing={forceEditing}
             notebookNodeType={notebookNodeType}
@@ -313,6 +317,7 @@ export function RealNotebookNodeComponent({
 
 export function MountedRealNotebookNodeComponent({
     node,
+    mode,
     updateProps,
     editOnly,
     forceEditing,
@@ -325,6 +330,7 @@ export function MountedRealNotebookNodeComponent({
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const contentRef = useRef<HTMLDivElement | null>(null)
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
         [forceEditing, node.id, node.props, notebookNodeType, options]
@@ -367,9 +373,31 @@ export function MountedRealNotebookNodeComponent({
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
     const showContent = !editOnly || !Settings
-    const contentStyle: CSSProperties | undefined = options.resizeable
-        ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
-        : undefined
+    const isResizeable =
+        mode === 'edit' &&
+        (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
+    const contentStyle: CSSProperties | undefined =
+        isResizeable || attributes.height
+            ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+            : undefined
+
+    // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
+    // table or visualization keeps its size after reloads.
+    const handleResizeStart = useCallback((): void => {
+        if (!isResizeable) {
+            return
+        }
+
+        const initialHeight = contentRef.current?.style.height
+        const handleResizeEnd = (): void => {
+            window.removeEventListener('mouseup', handleResizeEnd)
+            const nextHeight = contentRef.current?.style.height
+            if (nextHeight && nextHeight !== initialHeight && contentRef.current) {
+                updateAttributes({ height: contentRef.current.clientHeight })
+            }
+        }
+        window.addEventListener('mouseup', handleResizeEnd)
+    }, [isResizeable, updateAttributes])
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -381,7 +409,15 @@ export function MountedRealNotebookNodeComponent({
                         </div>
                     ) : null}
                     {showContent ? (
-                        <div className="MarkdownNotebook__real-node-content" style={contentStyle}>
+                        <div
+                            ref={contentRef}
+                            className={clsx(
+                                'MarkdownNotebook__real-node-content',
+                                isResizeable && 'MarkdownNotebook__real-node-content--resizeable'
+                            )}
+                            style={contentStyle}
+                            onMouseDown={handleResizeStart}
+                        >
                             <Component attributes={attributes} updateAttributes={updateAttributes} />
                         </div>
                     ) : null}
