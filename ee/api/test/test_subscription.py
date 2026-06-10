@@ -2686,6 +2686,17 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_preview_report_for_non_ai_subscription_returns_404(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("insight")
+        delivery = self._create_delivery_row(sub_id)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(delivery.id)},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand(
         [
             ("missing", None),

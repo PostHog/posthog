@@ -273,13 +273,18 @@ describe('subscriptionLogic', () => {
             expect(newLogic.values.aiPreviewLoading).toBe(false)
         })
 
-        it('kicks off a preview run and starts polling with the returned delivery id', async () => {
+        it('kicks off a preview run and immediately polls with the returned delivery id', async () => {
             mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            mockPoll.mockResolvedValue({ status: 'starting', ai_report: null, error: null })
             existingLogic.actions.generateAiPreview()
             await expectLogic(existingLogic)
-                .toDispatchActions([existingLogic.actionCreators.startAiPreviewPolling('delivery-1')])
+                .toDispatchActions([
+                    existingLogic.actionCreators.startAiPreviewPolling('delivery-1'),
+                    existingLogic.actionCreators.loadAiPreviewReport('delivery-1'),
+                ])
                 .toFinishListeners()
             expect(mockKickoff).toHaveBeenCalledWith(expect.any(String), 1, { preview: true })
+            expect(mockPoll).toHaveBeenCalledWith(expect.any(String), 1, { delivery_id: 'delivery-1' })
             expect(existingLogic.values.aiPreviewLoading).toBe(true)
             expect(existingLogic.values.aiPreviewError).toBeNull()
         })
@@ -311,6 +316,12 @@ describe('subscriptionLogic', () => {
                 'skipped run without error detail',
                 { status: 'skipped', ai_report: null, error: null },
                 null,
+                "Preview generation was skipped — this can happen when your organization is over its AI credit budget. Check the subscription owner's inbox for details.",
+            ],
+            [
+                'failed run without error detail',
+                { status: 'failed', ai_report: null, error: null },
+                null,
                 'Preview generation did not produce a report. Please try again.',
             ],
         ])('stops polling and renders the outcome of a %s', async (_name, report, expectedMarkdown, expectedError) => {
@@ -331,7 +342,12 @@ describe('subscriptionLogic', () => {
                 'a still-starting run',
                 () => mockPoll.mockResolvedValue({ status: 'starting', ai_report: null, error: null }),
             ],
-            ['a transient poll failure', () => mockPoll.mockRejectedValue(new ApiError('Not found', 404))],
+            [
+                'a 404 before the workflow creates the delivery row',
+                () => mockPoll.mockRejectedValue(new ApiError('Not found', 404)),
+            ],
+            ['a transient server error', () => mockPoll.mockRejectedValue(new ApiError('Bad gateway', 502))],
+            ['a network failure', () => mockPoll.mockRejectedValue(new Error('NetworkError'))],
         ])('keeps polling through %s', async (_name, setupPoll) => {
             mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
             setupPoll()
@@ -342,6 +358,22 @@ describe('subscriptionLogic', () => {
             await expectLogic(existingLogic).toFinishListeners().toNotHaveDispatchedActions(['stopAiPreviewPolling'])
             expect(existingLogic.values.aiPreviewLoading).toBe(true)
             expect(existingLogic.values.aiPreviewError).toBeNull()
+        })
+
+        it('stops polling and surfaces the error when the poll endpoint returns a 403', async () => {
+            mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            mockPoll.mockRejectedValue(
+                new ApiError('You need query access to view AI report previews.', 403, undefined, {
+                    type: 'permission_denied',
+                    detail: 'You need query access to view AI report previews.',
+                })
+            )
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic)
+                .toDispatchActions(['startAiPreviewPolling', 'loadAiPreviewReport', 'stopAiPreviewPolling'])
+                .toFinishListeners()
+            expect(existingLogic.values.aiPreviewLoading).toBe(false)
+            expect(existingLogic.values.aiPreviewError).toBe('You need query access to view AI report previews.')
         })
 
         it('gives up with an error once the polling window elapses', async () => {

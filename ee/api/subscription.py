@@ -750,6 +750,11 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
     )
 
 
+def _is_ai_prompt_subscription(subscription: Subscription) -> bool:
+    """In-memory mirror of _subscription_is_ai_prompt for an already-loaded row."""
+    return bool(subscription.prompt)
+
+
 class SubscriptionTestDeliveryRequestSerializer(serializers.Serializer):
     preview = serializers.BooleanField(
         default=False,
@@ -1022,7 +1027,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request_serializer = SubscriptionTestDeliveryRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         preview = request_serializer.validated_data["preview"]
-        if preview and not _subscription_is_ai_prompt(subscription.id, self.team_id):
+        if preview and not _is_ai_prompt_subscription(subscription):
             raise ValidationError({"preview": ["Preview is only supported for AI subscriptions."]})
 
         # Preview runs pre-assign the delivery row id so the client can poll it immediately.
@@ -1111,6 +1116,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         # enforce actual query access before handing back query-derived report content.
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise exceptions.PermissionDenied("You need query access to view AI report previews.")
+        # Previews only exist for AI subscriptions — same gate as the test-delivery kick-off.
+        if not _is_ai_prompt_subscription(subscription):
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         try:
             delivery_uuid = uuid.UUID(request.query_params.get("delivery_id", ""))
@@ -1126,7 +1134,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         serializer = SubscriptionPreviewReportSerializer(
             {
                 "status": delivery.status,
-                "ai_report": delivery.content_snapshot.get("ai_report"),
+                "ai_report": (delivery.content_snapshot or {}).get("ai_report"),
                 "error": _delivery_error_message(delivery),
             }
         )

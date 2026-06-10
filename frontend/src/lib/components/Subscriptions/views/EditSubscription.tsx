@@ -722,19 +722,22 @@ function EditSubscriptionForm({
                                         onClick={generateAiPreview}
                                         loading={aiPreviewLoading}
                                         disabledReason={
-                                            !isEditing
-                                                ? 'Save the subscription first to generate a preview'
-                                                : aiPreviewLoading
-                                                  ? 'Preview generation is already running'
-                                                  : undefined
+                                            !isEditing ? 'Save the subscription first to generate a preview' : undefined
                                         }
                                     >
                                         Generate preview
                                     </LemonButton>
 
+                                    {!aiPreviewLoading && !aiPreviewError && !aiPreviewMarkdown && (
+                                        <div className="mt-2 text-sm text-secondary">
+                                            Generate a sample report to see what subscribers will receive.
+                                        </div>
+                                    )}
+
                                     {aiPreviewLoading && (
                                         <div className="mt-2 text-sm text-secondary">
-                                            Generating preview… this can take a few minutes. Nothing will be sent.
+                                            Generating preview… this can take a few minutes. Nothing is delivered to
+                                            recipients.
                                         </div>
                                     )}
 
@@ -745,7 +748,7 @@ function EditSubscriptionForm({
                                     )}
 
                                     {aiPreviewMarkdown && (
-                                        <div className="mt-2 border rounded p-3">
+                                        <div className="mt-2 border rounded p-3 max-h-96 overflow-y-auto">
                                             <LemonMarkdown>{aiPreviewMarkdown}</LemonMarkdown>
                                         </div>
                                     )}

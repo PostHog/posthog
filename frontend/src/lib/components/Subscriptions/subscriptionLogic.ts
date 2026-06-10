@@ -360,8 +360,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
 
         generateAiPreview: async () => {
-            // Previews run against the saved subscription, so an unsaved one has nothing to preview
-            // (the button is also disabled in that state).
+            // Previews run against the saved subscription, so an unsaved one has nothing to preview.
             if (props.id === 'new' || values.aiPreviewLoading) {
                 return
             }
@@ -388,6 +387,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const id = setInterval(() => actions.loadAiPreviewReport(deliveryId), AI_PREVIEW_POLL_INTERVAL_MS)
                 return () => clearInterval(id)
             }, 'aiPreviewPoll')
+            // Fast runs render without waiting out the first interval.
+            actions.loadAiPreviewReport(deliveryId)
         },
 
         stopAiPreviewPolling: () => {
@@ -419,14 +420,33 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setAiPreviewLoading(false)
                 if (report.status === SubscriptionDeliveryStatusEnumApi.Completed && report.ai_report) {
                     actions.setAiPreviewMarkdown(report.ai_report)
+                } else if (report.status === SubscriptionDeliveryStatusEnumApi.Skipped) {
+                    actions.setAiPreviewError(
+                        report.error ||
+                            "Preview generation was skipped — this can happen when your organization is over its AI credit budget. Check the subscription owner's inbox for details."
+                    )
                 } else {
                     actions.setAiPreviewError(
                         report.error || 'Preview generation did not produce a report. Please try again.'
                     )
                 }
-            } catch {
-                // Transient poll failure, or the workflow hasn't created the delivery row yet (404)
-                // — keep polling until the timeout above gives up.
+            } catch (e) {
+                // 404 means the workflow hasn't created the delivery row yet, and 5xx/network failures
+                // are transient — keep polling until the timeout above gives up. Other 4xx (auth,
+                // permission) won't heal on retry, so stop and surface them.
+                if (
+                    e instanceof ApiError &&
+                    e.status !== undefined &&
+                    e.status >= 400 &&
+                    e.status < 500 &&
+                    e.status !== 404
+                ) {
+                    actions.stopAiPreviewPolling()
+                    actions.setAiPreviewLoading(false)
+                    actions.setAiPreviewError(
+                        (e.detail || e.message || '').trim() || 'Could not load the preview report. Please try again.'
+                    )
+                }
             }
         },
     })),

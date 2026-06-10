@@ -197,8 +197,7 @@ class CreateDeliveryRecordInputs:
     temporal_workflow_id: str
     idempotency_key: str
     scheduled_at: typing.Optional[str] = None
-    # When set (preview runs), the row is created with this id so the API can return
-    # it to the polling client before the workflow has run.
+    # Pre-assigned id for preview runs (see ProcessSubscriptionWorkflowInputs.delivery_id).
     delivery_id: typing.Optional[str] = None
 
 
