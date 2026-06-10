@@ -161,20 +161,16 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('upcoming selection uses selectionPeriodTimezone for the boundary', async () => {
-        // System time is 17:22 UTC. In America/New_York (UTC-5 in January) the current wall clock
-        // is 12:22, so a 2pm slot on the same day is still in the future there even though it is in
-        // the past in UTC. Without the timezone the picker would wrongly block it.
+        // 17:22 UTC is 12:22 in New York, so a same-day 2pm slot is still upcoming there.
         const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
             granularity: 'minute',
             selectionPeriod: 'upcoming',
             selectionPeriodTimezone: 'America/New_York',
         })
 
-        // choosing the current date defaults the time to the timezone's current wall clock (12:22)
         await clickOnDate('10')
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T12:22:00.000Z'))
 
-        // 2pm is before 5pm UTC but after 12:22 in New York, so it remains selectable
         await clickOnTime({ unit: 'h', value: '2' })
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
     })
