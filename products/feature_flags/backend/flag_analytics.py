@@ -247,17 +247,18 @@ def _enriched_flag_key_expr_sql() -> str:
     return f"`{column.name}`"
 
 
-def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
-    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
-    result = sync_execute(
-        f"""
+def _build_enriched_analytics_query() -> str:
+    return f"""
         SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
         GROUP BY team_id, flag_key
-    """,
-        {"begin": begin, "end": end},
-    )
+    """
+
+
+def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
+    result = sync_execute(_build_enriched_analytics_query(), {"begin": begin, "end": end})
 
     for row in result:
         team_id = row[0]
