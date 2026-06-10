@@ -156,9 +156,12 @@ this command is just the impatient path.
 
 ## API deprecation detector
 
-`run_api_deprecation_detector` inventories third-party API usage in the CDP destination templates —
-every external URL (host + endpoint + version when pinned), deliberately including doc links and
-OAuth scopes. The default mode is read-only — no DB, no network. With `--research`, it launches the
+`run_api_deprecation_detector` inventories third-party API usage across the repo's integration
+surfaces — CDP destination templates, data warehouse import sources, batch exports, and native
+integrations (see `DEFAULT_SCAN_TARGETS` in `../api_deprecation/scanner.py`; adding a surface is one
+`ScanTarget` line). Every external URL is captured (host + endpoint + version when pinned),
+deliberately including doc links and OAuth scopes. The default mode is read-only — no DB, no
+network. With `--research`, it launches the
 `ApiDeprecationAgent` (shared custom-agent workflow, see `../api_deprecation/`), which triages which
 entries are genuine API call sites, researches those against each vendor's official documentation —
 both version-level deprecations and endpoint/product-level sunsets (an endpoint can be sunset while

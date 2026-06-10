@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from products.signals.backend.api_deprecation.extractors import extract_usages, is_test_path
 from products.signals.backend.api_deprecation.research import build_research_initial_prompt
-from products.signals.backend.api_deprecation.scanner import scan_repo
+from products.signals.backend.api_deprecation.scanner import ScanTarget, scan_repo
 from products.signals.backend.api_deprecation.schema import (
     ApiUsage,
     Classification,
@@ -19,7 +19,7 @@ from products.signals.backend.api_deprecation.severity import score_severity, se
 FIXTURES = Path(__file__).parents[1] / "api_deprecation" / "fixtures"
 TODAY = date(2026, 6, 9)
 # Recursive glob so the scan reaches the nested fixtures/nested/tests/ file.
-_GLOBS = ("**/*.template.ts",)
+_TARGETS = (ScanTarget("**/*.template.ts", persisted_per_row=True),)
 
 
 def _usage(version: str | None = "v21.0", endpoint: str = "/{…}/{…}/messages") -> ApiUsage:
@@ -105,7 +105,7 @@ def test_extract_dedupes_repeated_usage_first_line_wins():
 
 
 def test_scan_repo_reports_the_inventory():
-    found = {(u.host, u.version) for u in scan_repo(FIXTURES, _GLOBS)}
+    found = {(u.host, u.version) for u in scan_repo(FIXTURES, _TARGETS)}
     assert {
         ("googleads.googleapis.com", "v21"),
         ("graph.facebook.com", "v21.0"),
@@ -119,11 +119,18 @@ def test_scan_repo_reports_the_inventory():
 
 def test_scan_repo_excludes_test_files():
     # fixtures/nested/tests/stale.template.ts uses v19.0 but lives under a tests/ dir → excluded by default.
-    versions = {(u.host, u.version) for u in scan_repo(FIXTURES, _GLOBS)}
+    versions = {(u.host, u.version) for u in scan_repo(FIXTURES, _TARGETS)}
     assert ("graph.facebook.com", "v19.0") not in versions
     assert ("graph.facebook.com", "v19.0") in {
-        (u.host, u.version) for u in scan_repo(FIXTURES, _GLOBS, include_test_files=True)
+        (u.host, u.version) for u in scan_repo(FIXTURES, _TARGETS, include_test_files=True)
     }
+
+
+def test_scan_repo_sets_persisted_per_row_from_target():
+    # CDP templates bake into HogFunction rows (data migration needed); plain source code does not.
+    plain = (ScanTarget("google.template.ts", persisted_per_row=False),)
+    assert all(not u.persisted_per_row for u in scan_repo(FIXTURES, plain))
+    assert all(u.persisted_per_row for u in scan_repo(FIXTURES, _TARGETS))
 
 
 @pytest.mark.parametrize(
