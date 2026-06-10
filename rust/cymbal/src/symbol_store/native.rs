@@ -314,6 +314,11 @@ impl Parser for NativeProvider {
         // decompress, ZIP expansion, DWARF parse, and symcache conversion.
         // Always offload from the tokio runtime.
         tokio::task::spawn_blocking(move || -> Result<ParsedNativeSymbols, ResolveError> {
+            // Slice selection invariant: CLI dSYM uploads are one single-arch
+            // binary per UUID (fat binaries are thinned at upload), so a
+            // chunk_id lookup always parses the slice it names. The arm64
+            // preference inside the symcache conversion only kicks in for
+            // legacy raw-zip fat uploads, which predate native frames.
             let (zip_data, decompressed_bytes) =
                 match read_symbol_data_with_byte_count::<ElfDebugInfo>(&source) {
                     Ok((elf, bytes)) => (elf.data, bytes),
