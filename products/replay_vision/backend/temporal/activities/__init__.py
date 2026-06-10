@@ -3,6 +3,7 @@ from products.replay_vision.backend.temporal.activities.advance_scanner_watermar
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_summarizer_observation import (
     embed_summarizer_observation_activity,
@@ -30,6 +31,7 @@ __all__ = [
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
+    "count_in_flight_applies_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_summarizer_observation_activity",

@@ -96,7 +96,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             name: '',
             email: '',
             kind: 'feedback',
-            target_area: 'max-ai',
+            target_area: 'posthog-ai',
             severity_level: 'low',
             message: feedbackText,
         })

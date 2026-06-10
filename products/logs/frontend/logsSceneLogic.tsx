@@ -1,11 +1,10 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -36,6 +35,10 @@ import type { logsSceneLogicType } from './logsSceneLogicType'
 
 export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
 
+// Scope the viewer id (and so its persisted state: pinned logs, filters, config) per project.
+// A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
+export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
+
 export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
 const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
@@ -50,37 +53,31 @@ const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null =
     return null
 }
 
-export interface LogsLogicProps {
-    tabId: string
-}
-
 export const logsSceneLogic = kea<logsSceneLogicType>([
-    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
-    tabAwareScene(),
-    connect((props: LogsLogicProps) => ({
+    connect(() => ({
         actions: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setFilters'],
-            logsFilterHistoryLogic({ id: props.tabId }),
+            logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setOrderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setLinkToLogId', 'clearLinkToLogId'],
-            logDetailsModalLogic({ id: props.tabId }),
+            logDetailsModalLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['closeLogDetails'],
         ],
         values: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['orderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
         ],
     })),
@@ -259,10 +256,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
-    }),
-
-    selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
     }),
 
     listeners(({ values, actions, cache }) => ({

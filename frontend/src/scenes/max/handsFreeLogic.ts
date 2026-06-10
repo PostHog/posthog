@@ -18,7 +18,7 @@ export type HandsFreeConnection = 'idle' | 'connecting' | 'connected' | 'reconne
 const SCRIBE_REALTIME_MODEL_ID = 'scribe_v2_realtime'
 
 export interface HandsFreeLogicProps {
-    tabId: string
+    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
 }
 
 interface ScribeConnection {
@@ -67,11 +67,11 @@ async function loadScribeSdk(): Promise<{
 
 export const handsFreeLogic = kea<handsFreeLogicType>([
     props({} as HandsFreeLogicProps),
-    key((props) => props.tabId),
+    key((props) => props.panelId as string),
     path((key) => ['scenes', 'max', 'handsFreeLogic', key]),
 
-    connect(({ tabId }: HandsFreeLogicProps) => ({
-        values: [maxLogic({ tabId }), ['threadLogicKey']],
+    connect(({ panelId }: HandsFreeLogicProps) => ({
+        values: [maxLogic({ panelId }), ['threadLogicKey']],
     })),
 
     actions({
@@ -389,7 +389,10 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
         commitTranscript: ({ text }) => {
             const threadKey = values.threadLogicKey
             const threadLogic = threadKey
-                ? maxThreadLogic.findMounted({ tabId: props.tabId, conversationId: threadKey })
+                ? maxThreadLogic.findMounted({
+                      panelId: props.panelId,
+                      conversationId: threadKey,
+                  })
                 : null
             if (!threadLogic) {
                 actions.setError('Could not find an active conversation to send the message to.')
