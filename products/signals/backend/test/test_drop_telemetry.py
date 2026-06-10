@@ -1,15 +1,43 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from products.signals.backend.temporal.drop_telemetry import (
     CaptureSignalDroppedInput,
     _summarize_drop_error,
+    capture_signal_dropped,
     capture_signal_dropped_activity,
 )
+from products.signals.backend.temporal.types import EmitSignalInputs
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.drop_telemetry"
+
+
+def _make_signal(team_id: int = 1) -> EmitSignalInputs:
+    return EmitSignalInputs(
+        team_id=team_id,
+        source_product="signals_scout",
+        source_type="cross_source_issue",
+        source_id="run:abc:finding:def",
+        description="a finding",
+        weight=0.7,
+        extra={"skill_name": "error-tracking"},
+    )
+
+
+def _make_activity_error(cause: BaseException) -> ActivityError:
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="get_embedding_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
 
 
 @pytest.mark.asyncio
@@ -26,7 +54,11 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
                 stage="grouping_parallel",
                 error_type="OperationalError",
                 error="the connection is closed",
-                extra={"skill_name": "error-tracking", "task_run_id": "task-run-1"},
+                extra={
+                    "skill_name": "error-tracking",
+                    "task_run_id": "task-run-1",
+                    "evidence": [{"nested": "customer content"}],
+                },
             )
         )
 
@@ -42,8 +74,11 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     assert kwargs["properties"]["source_type"] == "cross_source_issue"
     assert kwargs["properties"]["source_id"] == "run:abc:finding:def"
     assert kwargs["properties"]["weight"] == 0.7
-    assert kwargs["properties"]["extra"]["skill_name"] == "error-tracking"
-    assert kwargs["properties"]["extra"]["task_run_id"] == "task-run-1"
+    # extra is flattened to top-level scalars; nested customer-derived content is dropped
+    assert kwargs["properties"]["skill_name"] == "error-tracking"
+    assert kwargs["properties"]["task_run_id"] == "task-run-1"
+    assert "evidence" not in kwargs["properties"]
+    assert "extra" not in kwargs["properties"]
     assert "project" in kwargs["groups"]
 
 
@@ -70,32 +105,64 @@ async def test_capture_failure_is_swallowed(ateam):
     capture_exception.assert_called_once()
 
 
-def _make_activity_error(cause: BaseException) -> ActivityError:
-    error = ActivityError(
-        "Activity task failed",
-        scheduled_event_id=1,
-        started_event_id=2,
-        identity="worker",
-        activity_type="get_embedding_activity",
-        activity_id="1",
-        retry_state=None,
-    )
-    error.__cause__ = cause
-    return error
+@pytest.mark.asyncio
+async def test_helper_noops_when_patch_not_applied():
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.patched", return_value=False),
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+    ):
+        await capture_signal_dropped(_make_signal(), ValueError("boom"), stage="grouping_sequential")
+
+    execute_activity.assert_not_called()
 
 
-class TestSummarizeDropError:
-    def test_plain_exception(self):
-        error_type, message = _summarize_drop_error(ValueError("bad input"))
-        assert error_type == "ValueError"
-        assert message == "bad input"
+@pytest.mark.asyncio
+async def test_helper_schedules_capture_activity():
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.patched", return_value=True),
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+    ):
+        await capture_signal_dropped(_make_signal(team_id=42), ValueError("boom"), stage="grouping_parallel")
 
-    def test_activity_error_unwraps_application_error_type(self):
-        cause = ApplicationError("the connection is closed", type="OperationalError")
-        error_type, message = _summarize_drop_error(_make_activity_error(cause))
-        assert error_type == "OperationalError"
-        assert "the connection is closed" in message
+    execute_activity.assert_called_once()
+    activity_input = execute_activity.call_args.args[1]
+    assert activity_input.team_id == 42
+    assert activity_input.stage == "grouping_parallel"
+    assert activity_input.error_type == "ValueError"
+    assert activity_input.error == "boom"
 
-    def test_message_truncated(self):
-        _, message = _summarize_drop_error(ValueError("x" * 2000))
-        assert len(message) == 500
+
+@pytest.mark.asyncio
+async def test_helper_swallows_activity_failure():
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.patched", return_value=True),
+        patch(
+            f"{PIPELINE_MODULE_PATH}.workflow.execute_activity",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("activity failed"),
+        ),
+    ):
+        await capture_signal_dropped(_make_signal(), ValueError("boom"), stage="grouping_sequential")
+
+
+@pytest.mark.parametrize(
+    "error,expected_type,expected_message",
+    [
+        (ValueError("bad input"), "ValueError", "bad input"),
+        (
+            _make_activity_error(ApplicationError("the connection is closed", type="OperationalError")),
+            "OperationalError",
+            "the connection is closed",
+        ),
+        (
+            _make_activity_error(ApplicationError("untyped failure")),
+            "ApplicationError",
+            "untyped failure",
+        ),
+        (ValueError("x" * 2000), "ValueError", "x" * 500),
+    ],
+)
+def test_summarize_drop_error(error, expected_type, expected_message):
+    error_type, message = _summarize_drop_error(error)
+    assert error_type == expected_type
+    assert expected_message in message
