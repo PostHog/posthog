@@ -58,8 +58,7 @@
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
 
-        // Stretch the editable area to fill the wrapper's min-height so clicking
-        // anywhere in the input focuses it, not just on the first line of text.
+        // Fill the wrapper so clicking anywhere in the input focuses it.
         & > div[contenteditable] {
             flex: 1;
             outline: none;
@@ -68,9 +67,7 @@
                 margin-bottom: 0;
             }
 
-            // Render the tiptap placeholder, which is otherwise only exposed as a
-            // data-placeholder attribute on the empty node. Themed token keeps it
-            // legible in both light and dark mode.
+            // Render the tiptap placeholder (exposed only as a data-placeholder attribute).
             .is-empty:first-child::before {
                 float: left;
                 height: 0;
