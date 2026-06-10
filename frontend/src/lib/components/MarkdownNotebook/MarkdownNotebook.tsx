@@ -1014,34 +1014,13 @@ export function MarkdownNotebook({
             ? Math.max(selectionStart, Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength))
             : selectionStart
 
-        const makeListNode = (
-            items: NotebookListItem[],
-            idSeed: string,
-            idOverride?: string
-        ): NotebookListBlockNode | null => {
-            if (!items.length) {
-                return null
-            }
-
-            const normalizedItems = normalizeListItemDepths(items)
-            const ordered = normalizedItems[0]?.ordered ?? node.ordered
-            return {
-                ...node,
-                id: idOverride ?? makeEmptyParagraph(idSeed).id,
-                ordered,
-                start: getOrderedListStart(normalizedItems, ordered, node.start),
-                items: normalizedItems,
-            }
-        }
-
         if (!textLength && selectionStart === 0 && selectionEnd === 0) {
             if (item.depth > 0) {
-                const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
-                const nextItems = node.items.map((currentItem, index) =>
-                    index >= targetItemIndex && index < subtreeEndIndex
-                        ? { ...currentItem, depth: Math.max(0, currentItem.depth - 1) }
-                        : currentItem
-                )
+                const nextItems = shiftListItemSubtreeDepth(node.items, targetItemIndex, 'out', node.ordered)
+                if (!nextItems) {
+                    return false
+                }
+
                 restoreSelectionRef.current = {
                     nodeId: node.id,
                     listItemIndex: targetItemIndex,
@@ -1058,33 +1037,17 @@ export function MarkdownNotebook({
                 return true
             }
 
-            const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
-            const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
-            const paragraph: NotebookTextBlockNode = {
-                id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
-                type: 'paragraph',
-                children: item.children,
-            }
-            const childItems = node.items
-                .slice(targetItemIndex + 1, subtreeEndIndex)
-                .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
-            const afterListNode = makeListNode(
-                [...childItems, ...node.items.slice(subtreeEndIndex)],
-                `after-list-${node.id}`
-            )
-            const replacementNodes: NotebookBlockNode[] = []
-            if (beforeListNode) {
-                replacementNodes.push(beforeListNode)
-            }
-            replacementNodes.push(paragraph)
-            if (afterListNode) {
-                replacementNodes.push(afterListNode)
+            const replacement = getListItemParagraphReplacement(node, targetItemIndex)
+            if (!replacement) {
+                return false
             }
 
-            restoreSelectionRef.current = { nodeId: paragraph.id, start: 0, end: 0 }
+            restoreSelectionRef.current = { nodeId: replacement.paragraphId, start: 0, end: 0 }
             commitDocument({
                 ...currentDocument,
-                nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+                nodes: nodes.flatMap((currentNode) =>
+                    currentNode.id === node.id ? replacement.replacementNodes : [currentNode]
+                ),
             })
             return true
         }
@@ -1112,6 +1075,188 @@ export function MarkdownNotebook({
             nodes: nodes.map((currentNode) =>
                 currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
             ),
+        })
+        return true
+    }, [commitDocument])
+
+    const shiftListItemDepthAtCurrentSelection = useCallback(
+        (direction: 'in' | 'out'): boolean => {
+            const element = getSelectedInlineEditableElementOfType(
+                notebookRef.current,
+                'MarkdownNotebook__list-item-content'
+            )
+            if (!element) {
+                return false
+            }
+
+            const nodeId = element.dataset.markdownNotebookNodeId
+            const itemIndex = Number(element.dataset.markdownNotebookListItemIndex)
+            if (!nodeId || !Number.isInteger(itemIndex)) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes.find((currentNode) => currentNode.id === nodeId)
+            if (!node || node.type !== 'list') {
+                return false
+            }
+
+            const itemId = element.dataset.markdownNotebookListItemId
+            const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+            const item = node.items[targetItemIndex]
+            if (!item) {
+                return false
+            }
+
+            const nextItems = shiftListItemSubtreeDepth(node.items, targetItemIndex, direction, node.ordered)
+            if (!nextItems) {
+                return false
+            }
+
+            const offset = getCollapsedSelectionRange(element, node.id)?.start ?? 0
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: targetItemIndex,
+                listItemId: item.id,
+                start: offset,
+                end: offset,
+            }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.map((currentNode) =>
+                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                ),
+            })
+            return true
+        },
+        [commitDocument]
+    )
+
+    const deleteListItemAtCurrentSelection = useCallback(
+        (direction: 'backward' | 'forward'): boolean => {
+            const element = getSelectedInlineEditableElementOfType(
+                notebookRef.current,
+                'MarkdownNotebook__list-item-content'
+            )
+            if (!element) {
+                return false
+            }
+
+            const nodeId = element.dataset.markdownNotebookNodeId
+            const itemIndex = Number(element.dataset.markdownNotebookListItemIndex)
+            if (!nodeId || !Number.isInteger(itemIndex)) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes.find((currentNode) => currentNode.id === nodeId)
+            if (!node || node.type !== 'list') {
+                return false
+            }
+
+            const itemId = element.dataset.markdownNotebookListItemId
+            const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+            const item = node.items[targetItemIndex]
+            if (!item) {
+                return false
+            }
+
+            const selection = getCollapsedSelectionRange(element, node.id)
+            if (!selection || selection.start !== 0 || selection.end !== 0) {
+                return false
+            }
+
+            if (direction === 'forward' && getInlineText(item.children).length) {
+                return false
+            }
+
+            if (item.depth > 0) {
+                const nextItems = shiftListItemSubtreeDepth(node.items, targetItemIndex, 'out', node.ordered)
+                if (!nextItems) {
+                    return false
+                }
+
+                restoreSelectionRef.current = {
+                    nodeId: node.id,
+                    listItemIndex: targetItemIndex,
+                    listItemId: item.id,
+                    start: 0,
+                    end: 0,
+                }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                })
+                return true
+            }
+
+            const replacement = getListItemParagraphReplacement(node, targetItemIndex)
+            if (!replacement) {
+                return false
+            }
+
+            restoreSelectionRef.current = { nodeId: replacement.paragraphId, start: 0, end: 0 }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.flatMap((currentNode) =>
+                    currentNode.id === node.id ? replacement.replacementNodes : [currentNode]
+                ),
+            })
+            return true
+        },
+        [commitDocument]
+    )
+
+    const insertTableRowAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(
+            notebookRef.current,
+            'MarkdownNotebook__table-cell-content'
+        )
+        const position = element ? getTableCellPositionFromElement(element) : null
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !position || !nodeId) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'table') {
+            return false
+        }
+
+        if (position.section === 'header' && node.rows.length) {
+            const targetPosition: TableCellPosition = {
+                section: 'body',
+                rowIndex: 0,
+                columnIndex: position.columnIndex,
+            }
+            const cellElement = tableCellRefs.current[getTableCellRefKey(node.id, targetPosition)]
+            if (cellElement) {
+                cellElement.focus()
+                restoreSelection(cellElement, 0, 0)
+            }
+            return true
+        }
+
+        const columnCount = getTableColumnCount(node)
+        const insertIndex =
+            position.section === 'header' ? 0 : Math.max(0, Math.min(position.rowIndex + 1, node.rows.length))
+        const nextRows = node.rows.map((row) => normalizeTableRow(row, columnCount))
+        nextRows.splice(insertIndex, 0, makeEmptyTableRow(columnCount))
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            tableCell: { section: 'body', rowIndex: insertIndex, columnIndex: position.columnIndex },
+            start: 0,
+            end: 0,
+        }
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.map((currentNode) => (currentNode.id === node.id ? { ...node, rows: nextRows } : currentNode)),
         })
         return true
     }, [commitDocument])
@@ -1346,7 +1491,9 @@ export function MarkdownNotebook({
             const nativeEvent = event as InputEvent
             if (
                 nativeEvent.inputType === 'insertParagraph' &&
-                (splitListItemAtCurrentSelection() || splitTextBlockAtCurrentSelection())
+                (splitListItemAtCurrentSelection() ||
+                    insertTableRowAtCurrentSelection() ||
+                    splitTextBlockAtCurrentSelection())
             ) {
                 event.preventDefault()
                 event.stopPropagation()
@@ -1387,7 +1534,12 @@ export function MarkdownNotebook({
             if (
                 (nativeEvent.inputType === 'deleteContentBackward' ||
                     nativeEvent.inputType === 'deleteContentForward') &&
-                deleteTextAtCurrentSelection(nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward')
+                (deleteListItemAtCurrentSelection(
+                    nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
+                ) ||
+                    deleteTextAtCurrentSelection(
+                        nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
+                    ))
             ) {
                 event.preventDefault()
                 event.stopPropagation()
@@ -1411,8 +1563,10 @@ export function MarkdownNotebook({
         notebookElement.addEventListener('beforeinput', handleBeforeInput, true)
         return () => notebookElement.removeEventListener('beforeinput', handleBeforeInput, true)
     }, [
+        deleteListItemAtCurrentSelection,
         deleteSelectedNotebookBlocks,
         deleteTextAtCurrentSelection,
+        insertTableRowAtCurrentSelection,
         mode,
         redoHistory,
         splitListItemAtCurrentSelection,
@@ -2895,6 +3049,42 @@ export function MarkdownNotebook({
         [moveFocusToAdjacentNode]
     )
 
+    const moveTableCellFocusAtCurrentSelection = useCallback(
+        (direction: InsertMenuSelectionDirection): boolean => {
+            const element = getSelectedInlineEditableElementOfType(
+                notebookRef.current,
+                'MarkdownNotebook__table-cell-content'
+            )
+            const position = element ? getTableCellPositionFromElement(element) : null
+            const nodeId = element?.dataset.markdownNotebookNodeId
+            if (!element || !position || !nodeId) {
+                return false
+            }
+
+            const offset = getCollapsedSelectionRange(element, nodeId)?.start ?? 0
+            moveFocusToAdjacentTableCell(nodeId, position, direction, offset)
+            return true
+        },
+        [moveFocusToAdjacentTableCell]
+    )
+
+    const indentCodeBlockAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        window.document.execCommand('insertText', false, '    ')
+        updateNode(nodeId, (currentNode) => {
+            if (currentNode.type !== 'code') {
+                return currentNode
+            }
+            return { ...currentNode, text: element.textContent ?? '' }
+        })
+        return true
+    }, [updateNode])
+
     const selectNotebookContents = (): boolean => {
         const canvasElement = canvasRef.current
         const selection = window.getSelection()
@@ -3494,6 +3684,47 @@ export function MarkdownNotebook({
     }
 
     const handleRootEditableKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        // Keyboard editing is dispatched from the root editing host based on the current selection: in real
+        // browsers key events target the canvas (nested contenteditable blocks are not separate editing hosts).
+        if (mode === 'edit' && event.key === 'Tab' && !event.altKey && !event.metaKey && !event.ctrlKey) {
+            const inlineEditableElement = getInlineEditableElementForSelection(
+                window.getSelection(),
+                event.currentTarget
+            )
+            if (inlineEditableElement?.classList.contains('MarkdownNotebook__list-item-content')) {
+                event.preventDefault()
+                event.stopPropagation()
+                shiftListItemDepthAtCurrentSelection(event.shiftKey ? 'out' : 'in')
+                return
+            }
+            if (inlineEditableElement?.classList.contains('MarkdownNotebook__table-cell-content')) {
+                event.preventDefault()
+                event.stopPropagation()
+                moveTableCellFocusAtCurrentSelection(event.shiftKey ? 'previous' : 'next')
+                return
+            }
+            if (!event.shiftKey && inlineEditableElement?.classList.contains('MarkdownNotebook__code-block')) {
+                event.preventDefault()
+                event.stopPropagation()
+                indentCodeBlockAtCurrentSelection()
+                return
+            }
+        }
+
+        if (
+            mode === 'edit' &&
+            event.key === 'Enter' &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            (splitListItemAtCurrentSelection() || insertTableRowAtCurrentSelection())
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
         if (
             mode === 'edit' &&
             event.target === event.currentTarget &&
@@ -3503,6 +3734,20 @@ export function MarkdownNotebook({
             !event.metaKey &&
             !event.ctrlKey &&
             deleteSelectedNotebookBlocks()
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
+        if (
+            mode === 'edit' &&
+            (event.key === 'Backspace' || event.key === 'Delete') &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward')
         ) {
             event.preventDefault()
             event.stopPropagation()
@@ -3676,8 +3921,6 @@ export function MarkdownNotebook({
                     setTableCellRef: (position, element) => {
                         tableCellRefs.current[getTableCellRefKey(node.id, position)] = element
                     },
-                    getTableCellElement: (position) =>
-                        tableCellRefs.current[getTableCellRefKey(node.id, position)] ?? null,
                     updateNode,
                     replaceNodeWithNodes,
                     deleteNode: () => updateNode(node.id, () => null),
@@ -3691,7 +3934,6 @@ export function MarkdownNotebook({
                     deleteNodeBefore,
                     moveFocusToAdjacentNode,
                     moveFocusToAdjacentListItem,
-                    moveFocusToAdjacentTableCell,
                     openInsertMenu: (query = '') => openInsertMenu(node.id, query),
                     openDetachedInsertMenu: () => openDetachedInsertMenuFromNode(node.id),
                     updateAIPromptQuery: (query) => updateAIPromptQuery(node.id, query),
@@ -3908,7 +4150,6 @@ function renderNode({
     setBlockRef,
     setListItemRef,
     setTableCellRef,
-    getTableCellElement,
     updateNode,
     replaceNodeWithNodes,
     deleteNode,
@@ -3919,7 +4160,6 @@ function renderNode({
     deleteNodeBefore,
     moveFocusToAdjacentNode,
     moveFocusToAdjacentListItem,
-    moveFocusToAdjacentTableCell,
     openInsertMenu,
     openDetachedInsertMenu,
     updateAIPromptQuery,
@@ -3954,7 +4194,6 @@ function renderNode({
     setBlockRef: (element: HTMLElement | null) => void
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
-    getTableCellElement: (position: TableCellPosition) => HTMLElement | null
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
@@ -3967,12 +4206,6 @@ function renderNode({
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
-    moveFocusToAdjacentTableCell: (
-        nodeId: string,
-        position: TableCellPosition,
         direction: InsertMenuSelectionDirection,
         offset: number
     ) => boolean
@@ -4042,7 +4275,6 @@ function renderNode({
                 setBlockRef={setBlockRef}
                 setListItemRef={setListItemRef}
                 updateNode={updateNode}
-                replaceNodeWithNodes={replaceNodeWithNodes}
                 moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
@@ -4058,9 +4290,7 @@ function renderNode({
                 mode={mode}
                 setBlockRef={setBlockRef}
                 setTableCellRef={setTableCellRef}
-                getTableCellElement={getTableCellElement}
                 updateNode={updateNode}
-                moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}
@@ -4191,12 +4421,6 @@ function EditableCodeBlock({
             event.preventDefault()
             deleteNodeAndFocusAdjacent()
             return
-        }
-
-        if (event.key === 'Tab') {
-            event.preventDefault()
-            document.execCommand('insertText', false, '    ')
-            updateText(event.currentTarget.textContent ?? '')
         }
     }
 
@@ -4405,7 +4629,6 @@ function EditableListBlock({
     setBlockRef,
     setListItemRef,
     updateNode,
-    replaceNodeWithNodes,
     moveFocusToAdjacentListItem,
     handleSelectionChange,
     startTextSelectionPointer,
@@ -4416,7 +4639,6 @@ function EditableListBlock({
     setBlockRef: (element: HTMLElement | null) => void
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
-    replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -4466,199 +4688,6 @@ function EditableListBlock({
         children: NotebookInlineNode[]
     ): void => {
         updateListItem(itemIndex, itemId, (item) => ({ ...item, children }))
-    }
-
-    const makeListNode = (
-        items: NotebookListItem[],
-        idSeed: string,
-        idOverride?: string
-    ): NotebookListBlockNode | null => {
-        if (!items.length) {
-            return null
-        }
-
-        const normalizedItems = normalizeListItemDepths(items)
-        const ordered = normalizedItems[0]?.ordered ?? node.ordered
-        return {
-            ...node,
-            id: idOverride ?? makeEmptyParagraph(idSeed).id,
-            ordered,
-            start: getOrderedListStart(normalizedItems, ordered, node.start),
-            items: normalizedItems,
-        }
-    }
-
-    const replaceListItemWithParagraph = (itemIndex: number, itemId?: string, offset: number = 0): void => {
-        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
-        const item = node.items[targetItemIndex]
-        if (!item) {
-            return
-        }
-
-        const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
-        const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
-        const paragraph: NotebookTextBlockNode = {
-            id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
-            type: 'paragraph',
-            children: item.children,
-        }
-        const childItems = node.items
-            .slice(targetItemIndex + 1, subtreeEndIndex)
-            .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
-        const afterListNode = makeListNode(
-            [...childItems, ...node.items.slice(subtreeEndIndex)],
-            `after-list-${node.id}`
-        )
-        const replacementNodes: NotebookBlockNode[] = []
-        if (beforeListNode) {
-            replacementNodes.push(beforeListNode)
-        }
-        replacementNodes.push(paragraph)
-        if (afterListNode) {
-            replacementNodes.push(afterListNode)
-        }
-
-        replaceNodeWithNodes(node.id, replacementNodes)
-        restoreSelectionRef.current = { nodeId: paragraph.id, start: offset, end: offset }
-    }
-
-    const shiftListItemDepth = (
-        itemIndex: number,
-        itemId: string | undefined,
-        direction: 'in' | 'out',
-        offset: number = 0
-    ): boolean => {
-        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
-        const item = node.items[targetItemIndex]
-        if (!item) {
-            return false
-        }
-
-        const maximumDepth = targetItemIndex === 0 ? 0 : node.items[targetItemIndex - 1].depth + 1
-        const nextDepth = direction === 'in' ? Math.min(item.depth + 1, maximumDepth) : Math.max(0, item.depth - 1)
-        const depthDelta = nextDepth - item.depth
-        if (depthDelta === 0) {
-            return false
-        }
-
-        updateNode(node.id, (currentNode) => {
-            if (currentNode.type !== 'list') {
-                return currentNode
-            }
-
-            const currentItemIndex = getListItemIndex(currentNode.items, targetItemIndex, itemId)
-            if (!currentNode.items[currentItemIndex]) {
-                return currentNode
-            }
-            const currentSubtreeEndIndex = getListItemSubtreeEndIndex(currentNode.items, currentItemIndex)
-
-            return {
-                ...currentNode,
-                items: currentNode.items.map((currentItem, index) => {
-                    if (index < currentItemIndex || index >= currentSubtreeEndIndex) {
-                        return currentItem
-                    }
-
-                    const nextItem = { ...currentItem, depth: Math.max(0, currentItem.depth + depthDelta) }
-                    if (index === currentItemIndex && depthDelta > 0 && (nextItem.ordered ?? currentNode.ordered)) {
-                        return { ...nextItem, start: undefined }
-                    }
-
-                    return nextItem
-                }),
-            }
-        })
-        restoreSelectionRef.current = {
-            nodeId: node.id,
-            listItemIndex: targetItemIndex,
-            listItemId: item.id,
-            start: offset,
-            end: offset,
-        }
-        return true
-    }
-
-    const removeListItem = (itemIndex: number, itemId?: string): void => {
-        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
-        const item = node.items[targetItemIndex]
-        if (!item) {
-            return
-        }
-
-        if (item.depth && shiftListItemDepth(targetItemIndex, item.id, 'out', 0)) {
-            return
-        }
-
-        if (item.depth === 0) {
-            replaceListItemWithParagraph(targetItemIndex, item.id, 0)
-            return
-        }
-
-        const nextItems = node.items.filter((_, index) => index !== targetItemIndex)
-        if (!nextItems.length) {
-            const paragraph = makeEmptyParagraph(`after-list-${node.id}`)
-            replaceNodeWithNodes(node.id, [paragraph])
-            restoreSelectionRef.current = { nodeId: paragraph.id, start: 0, end: 0 }
-            return
-        }
-
-        replaceNodeWithNodes(node.id, [{ ...node, items: nextItems }])
-        const nextItemIndex = Math.max(0, Math.min(targetItemIndex, nextItems.length - 1))
-        const nextItem = nextItems[nextItemIndex]
-        restoreSelectionRef.current = {
-            nodeId: node.id,
-            listItemIndex: nextItemIndex,
-            listItemId: nextItem?.id,
-            start: 0,
-            end: 0,
-        }
-    }
-
-    const splitListItem = (itemIndex: number, itemId: string | undefined, offset: number): void => {
-        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
-        const item = node.items[targetItemIndex]
-        if (!item) {
-            return
-        }
-
-        if (!getInlineText(item.children).length) {
-            if (item.depth > 0 && shiftListItemDepth(targetItemIndex, item.id, 'out', 0)) {
-                return
-            }
-
-            replaceListItemWithParagraph(targetItemIndex, item.id, 0)
-            return
-        }
-
-        const nextItem: NotebookListItem = {
-            id: makeListItemId(`split-${node.id}-${item.id ?? String(targetItemIndex)}`),
-            children: [],
-            depth: item.depth,
-            ordered: item.ordered ?? node.ordered,
-        }
-        updateNode(node.id, (currentNode) => {
-            if (currentNode.type !== 'list') {
-                return currentNode
-            }
-
-            const currentItemIndex = getListItemIndex(currentNode.items, targetItemIndex, itemId)
-            const currentItem = currentNode.items[currentItemIndex]
-            if (!currentItem) {
-                return currentNode
-            }
-            const [currentBefore, currentAfter] = splitInlineNodesAt(currentItem.children, offset)
-            const nextItems = [...currentNode.items]
-            nextItems[currentItemIndex] = { ...currentItem, children: currentBefore }
-            nextItems.splice(currentItemIndex + 1, 0, { ...nextItem, children: currentAfter })
-            return { ...currentNode, items: nextItems }
-        })
-        restoreSelectionRef.current = {
-            nodeId: node.id,
-            listItemIndex: targetItemIndex + 1,
-            listItemId: nextItem.id,
-            start: 0,
-            end: 0,
-        }
     }
 
     const getListItemContentElement = (target: EventTarget | Node | null): HTMLElement | null => {
@@ -4790,13 +4819,6 @@ function EditableListBlock({
             return
         }
 
-        if (event.key === 'Tab') {
-            event.preventDefault()
-            const selection = getCollapsedSelectionRange(element, node.id)
-            shiftListItemDepth(details.itemIndex, details.itemId, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
-            return
-        }
-
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             const selection = getCollapsedSelectionRange(element, node.id)
             if (
@@ -4810,47 +4832,6 @@ function EditableListBlock({
             ) {
                 event.preventDefault()
             }
-            return
-        }
-
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            const selection = getCollapsedSelectionRange(element, node.id)
-            splitListItem(
-                details.itemIndex,
-                details.itemId,
-                selection?.start ?? getInlineText(details.item.children).length
-            )
-            return
-        }
-
-        if (event.key === 'Backspace') {
-            const selection = getCollapsedSelectionRange(element, node.id)
-            if (!selection || selection.start !== 0 || selection.end !== 0) {
-                return
-            }
-
-            if (!getInlineText(details.item.children).length) {
-                event.preventDefault()
-                removeListItem(details.itemIndex, details.itemId)
-                return
-            }
-
-            if (details.item.depth > 0 && shiftListItemDepth(details.itemIndex, details.itemId, 'out', 0)) {
-                event.preventDefault()
-                return
-            }
-
-            if (details.item.depth === 0) {
-                event.preventDefault()
-                replaceListItemWithParagraph(details.itemIndex, details.itemId, 0)
-                return
-            }
-        }
-
-        if (event.key === 'Delete' && !getInlineText(details.item.children).length) {
-            event.preventDefault()
-            removeListItem(details.itemIndex, details.itemId)
         }
     }
 
@@ -4999,9 +4980,7 @@ function EditableTableBlock({
     mode,
     setBlockRef,
     setTableCellRef,
-    getTableCellElement,
     updateNode,
-    moveFocusToAdjacentTableCell,
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
@@ -5010,14 +4989,7 @@ function EditableTableBlock({
     mode: NotebookMode
     setBlockRef: (element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
-    getTableCellElement: (position: TableCellPosition) => HTMLElement | null
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
-    moveFocusToAdjacentTableCell: (
-        nodeId: string,
-        position: TableCellPosition,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
@@ -5266,29 +5238,6 @@ function EditableTableBlock({
         }
     }
 
-    const focusTableCell = (position: TableCellPosition, offset: number = 0): void => {
-        const element = getTableCellElement(position)
-        if (element) {
-            element.focus()
-            restoreSelection(element, offset, offset)
-            return
-        }
-        restoreSelectionRef.current = { nodeId: node.id, tableCell: position, start: offset, end: offset }
-    }
-
-    const handleTableCellEnter = (position: TableCellPosition): void => {
-        if (position.section === 'header') {
-            if (!node.rows.length) {
-                addTableRowAfter(-1, position.columnIndex)
-                return
-            }
-            focusTableCell({ section: 'body', rowIndex: 0, columnIndex: position.columnIndex })
-            return
-        }
-
-        addTableRowAfter(position.rowIndex, position.columnIndex)
-    }
-
     const tableLeft = controlLayout?.tableLeft ?? 0
     const tableTop = controlLayout?.tableTop ?? 0
     const tableWidth = controlLayout?.tableWidth ?? 0
@@ -5348,8 +5297,6 @@ function EditableTableBlock({
                                             mode={mode}
                                             setTableCellRef={setTableCellRef}
                                             updateTableCell={updateTableCell}
-                                            moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
-                                            handleTableCellEnter={handleTableCellEnter}
                                             handleSelectionChange={handleSelectionChange}
                                             startTextSelectionPointer={startTextSelectionPointer}
                                             restoreSelectionRef={restoreSelectionRef}
@@ -5370,8 +5317,6 @@ function EditableTableBlock({
                                                 mode={mode}
                                                 setTableCellRef={setTableCellRef}
                                                 updateTableCell={updateTableCell}
-                                                moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
-                                                handleTableCellEnter={handleTableCellEnter}
                                                 handleSelectionChange={handleSelectionChange}
                                                 startTextSelectionPointer={startTextSelectionPointer}
                                                 restoreSelectionRef={restoreSelectionRef}
@@ -5511,8 +5456,6 @@ function EditableTableCellContent({
     mode,
     setTableCellRef,
     updateTableCell,
-    moveFocusToAdjacentTableCell,
-    handleTableCellEnter,
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
@@ -5523,13 +5466,6 @@ function EditableTableCellContent({
     mode: NotebookMode
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     updateTableCell: (position: TableCellPosition, children: NotebookInlineNode[]) => void
-    moveFocusToAdjacentTableCell: (
-        nodeId: string,
-        position: TableCellPosition,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
-    handleTableCellEnter: (position: TableCellPosition) => void
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
@@ -5631,21 +5567,6 @@ function EditableTableCellContent({
         updateChildren(htmlElementToInlineNodes(event.currentTarget))
     }
 
-    const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (event.key === 'Tab') {
-            event.preventDefault()
-            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            moveFocusToAdjacentTableCell(node.id, position, event.shiftKey ? 'previous' : 'next', selection?.start ?? 0)
-            return
-        }
-
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            handleTableCellEnter(position)
-            return
-        }
-    }
-
     return (
         <div
             ref={setElementRef}
@@ -5658,7 +5579,6 @@ function EditableTableCellContent({
             suppressContentEditableWarning
             onInput={handleInput}
             onPaste={handlePaste}
-            onKeyDown={handleKeyDown}
             onMouseDown={startTextSelectionPointer}
             onPointerDown={startTextSelectionPointer}
             onTouchStart={startTextSelectionPointer}
@@ -7603,6 +7523,96 @@ function normalizeListItemDepths(items: NotebookListItem[]): NotebookListItem[] 
     return items.map((item) => ({ ...item, depth: Math.max(0, item.depth - minimumDepth) }))
 }
 
+/**
+ * Builds the nodes that replace a list when one of its items is unwrapped into a paragraph:
+ * the items before it stay a list, its children move one depth up, and trailing items become a new list.
+ */
+function getListItemParagraphReplacement(
+    node: NotebookListBlockNode,
+    targetItemIndex: number
+): { replacementNodes: NotebookBlockNode[]; paragraphId: string } | null {
+    const item = node.items[targetItemIndex]
+    if (!item) {
+        return null
+    }
+
+    const makeListNode = (
+        items: NotebookListItem[],
+        idSeed: string,
+        idOverride?: string
+    ): NotebookListBlockNode | null => {
+        if (!items.length) {
+            return null
+        }
+
+        const normalizedItems = normalizeListItemDepths(items)
+        const ordered = normalizedItems[0]?.ordered ?? node.ordered
+        return {
+            ...node,
+            id: idOverride ?? makeEmptyParagraph(idSeed).id,
+            ordered,
+            start: getOrderedListStart(normalizedItems, ordered, node.start),
+            items: normalizedItems,
+        }
+    }
+
+    const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
+    const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
+    const paragraph: NotebookTextBlockNode = {
+        id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
+        type: 'paragraph',
+        children: item.children,
+    }
+    const childItems = node.items
+        .slice(targetItemIndex + 1, subtreeEndIndex)
+        .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
+    const afterListNode = makeListNode([...childItems, ...node.items.slice(subtreeEndIndex)], `after-list-${node.id}`)
+    const replacementNodes: NotebookBlockNode[] = []
+    if (beforeListNode) {
+        replacementNodes.push(beforeListNode)
+    }
+    replacementNodes.push(paragraph)
+    if (afterListNode) {
+        replacementNodes.push(afterListNode)
+    }
+
+    return { replacementNodes, paragraphId: paragraph.id }
+}
+
+/** Shifts a list item and its subtree one depth step in or out, or returns null when the shift is not allowed. */
+function shiftListItemSubtreeDepth(
+    items: NotebookListItem[],
+    itemIndex: number,
+    direction: 'in' | 'out',
+    listOrdered: boolean
+): NotebookListItem[] | null {
+    const item = items[itemIndex]
+    if (!item) {
+        return null
+    }
+
+    const maximumDepth = itemIndex === 0 ? 0 : items[itemIndex - 1].depth + 1
+    const nextDepth = direction === 'in' ? Math.min(item.depth + 1, maximumDepth) : Math.max(0, item.depth - 1)
+    const depthDelta = nextDepth - item.depth
+    if (depthDelta === 0) {
+        return null
+    }
+
+    const subtreeEndIndex = getListItemSubtreeEndIndex(items, itemIndex)
+    return items.map((currentItem, index) => {
+        if (index < itemIndex || index >= subtreeEndIndex) {
+            return currentItem
+        }
+
+        const nextItem = { ...currentItem, depth: Math.max(0, currentItem.depth + depthDelta) }
+        if (index === itemIndex && depthDelta > 0 && (nextItem.ordered ?? listOrdered)) {
+            return { ...nextItem, start: undefined }
+        }
+
+        return nextItem
+    })
+}
+
 function getListItemSubtreeEndIndex(items: NotebookListItem[], itemIndex: number): number {
     const item = items[itemIndex]
     if (!item) {
@@ -8227,6 +8237,29 @@ function getElementForNode(node: Node): Element | null {
 function getClosestEditableBlockElement(element: Element | null): HTMLElement | null {
     const editableElement = element?.closest(NOTEBOOK_EDITABLE_BLOCK_SELECTOR)
     return editableElement instanceof HTMLElement ? editableElement : null
+}
+
+function getSelectedInlineEditableElementOfType(
+    notebookElement: HTMLElement | null,
+    className: string
+): HTMLElement | null {
+    if (!notebookElement) {
+        return null
+    }
+
+    const element = getInlineEditableElementForSelection(window.getSelection(), notebookElement)
+    return element?.classList.contains(className) ? element : null
+}
+
+function getTableCellPositionFromElement(element: HTMLElement): TableCellPosition | null {
+    const section = element.dataset.markdownNotebookTableSection
+    const rowIndex = Number(element.dataset.markdownNotebookTableRowIndex)
+    const columnIndex = Number(element.dataset.markdownNotebookTableColumnIndex)
+    if ((section !== 'header' && section !== 'body') || !Number.isInteger(rowIndex) || !Number.isInteger(columnIndex)) {
+        return null
+    }
+
+    return { section, rowIndex, columnIndex }
 }
 
 function getInlineEditableElementForSelection(

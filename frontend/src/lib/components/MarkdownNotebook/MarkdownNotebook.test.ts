@@ -5725,6 +5725,38 @@ Keep after`),
         expect(window.getSelection()?.focusOffset).toEqual(3)
     })
 
+    it('indents list items with tab when key events target the editing host', () => {
+        // Real browsers dispatch key events to the root editing host (the canvas), not to nested
+        // contenteditable blocks — list indentation must work through that path.
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+- Child`),
+                onChange,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const listItems = getEditableListItems(container)
+        selectTextInElement(listItems[1], 0, 0)
+
+        expect(fireEvent.keyDown(canvas, { key: 'Tab' })).toEqual(false)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+  - Child`)
+
+        selectTextInElement(getEditableListItems(container)[1], 0, 0)
+
+        expect(fireEvent.keyDown(canvas, { key: 'Tab', shiftKey: true })).toEqual(false)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+- Child`)
+    })
+
     it('indents a bullet item with tab at the beginning of the item', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -6292,10 +6324,12 @@ ${' '}
         const getCells = (): HTMLElement[] =>
             Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
 
+        selectTextInElement(getCells()[0], 0, 0)
         fireEvent.keyDown(getCells()[0], { key: 'Tab' })
 
         expect(document.activeElement).toEqual(getCells()[1])
 
+        selectTextInElement(getCells()[2], 0, 0)
         fireEvent.keyDown(getCells()[2], { key: 'Enter' })
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
