@@ -320,17 +320,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
 
-            await matcher.runWake([makeGlobals({})])
+            await matcher.runWake([
+                makeGlobals({ event: { ...makeGlobals({}).event, timestamp: '2026-01-30T21:00:00.000Z' } }),
+            ])
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).not.toBeUndefined()
             expect(update!.params[0]).toEqual(['job-1'])
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.currentAction.eventMatched).toBe(true)
-            // The matching event's name and UUID are persisted so the executor log and the
-            // logs view can pinpoint exactly which event woke the step.
             expect(newState.state.currentAction.eventMatchedEvent).toBe('wuc_subscribed')
             expect(newState.state.currentAction.eventMatchedEventUuid).toBe('event-uuid')
+            expect(newState.state.currentAction.eventMatchedEventTimestamp).toBe('2026-01-30T21:00:00.000Z')
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 

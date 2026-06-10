@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { ToolInputValidationError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -26,6 +27,8 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /** Input rejected by the tool's schema before dispatch — no handler ran. */
+    validation_error?: boolean
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -106,6 +109,34 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             .join('\n')
         return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
+}
+
+/** Turns a Zod validation failure into a short, field-named message the model
+ *  can act on. Without it, a missing/`undefined` path segment slips through to
+ *  the HTTP layer and the API returns a generic 404 that reads as "entity does
+ *  not exist" — steering recovery toward re-checking the ID rather than the
+ *  malformed parameter.
+ *
+ *  Callers must `safeParse(input, { reportInput: true })` so `issue.input`
+ *  distinguishes a missing required field from a present-but-wrong one (the
+ *  key is absent without the option, and the check degrades to the wrong-type
+ *  message). `reportInput` embeds raw input values in the ZodError, including
+ *  its `.message` — keep the error local; never log or capture it. */
+export function formatInputValidationError(toolName: string, error: z.ZodError): string {
+    const parts = error.issues.map((issue) => {
+        const path = issue.path.map(String).join('.')
+        if (issue.code === 'invalid_type') {
+            if ('input' in issue && issue.input === undefined) {
+                return `missing required parameter: ${path}`
+            }
+            return `parameter "${path}" must be of type ${issue.expected}`
+        }
+        if (issue.code === 'unrecognized_keys') {
+            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
+        }
+        return path ? `parameter "${path}": ${issue.message}` : issue.message
+    })
+    return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
@@ -301,6 +332,27 @@ export function createExecTool(
                     }
 
                     const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+
+                    // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
+                    // otherwise bad input reaches the HTTP layer and builds URLs like
+                    // `.../actions/undefined/`, a misleading 404 that hides the offending
+                    // field. Dispatch the parsed output so coerced values and defaults apply.
+                    const validation = tool.schema.safeParse(input, { reportInput: true })
+                    if (!validation.success) {
+                        const message = formatInputValidationError(tool.name, validation.error)
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: 0,
+                            success: false,
+                            output_format: useJson ? 'json' : 'text',
+                            error_message: message,
+                            validation_error: true,
+                        })
+                        // Typed so the executor's catch skips exception capture and
+                        // classifies it as `validation`, not `internal`.
+                        throw new ToolInputValidationError(message)
+                    }
+                    input = validation.data as Record<string, unknown>
+
                     const startedAt = Date.now()
                     let result: unknown
                     try {
