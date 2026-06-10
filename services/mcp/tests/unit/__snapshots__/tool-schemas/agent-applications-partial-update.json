@@ -17,6 +17,7 @@
         },
         "slug": {
             "maxLength": 63,
+            "pattern": "^[-a-zA-Z0-9_]+$",
             "type": "string"
         }
     },

@@ -28,11 +28,12 @@ export const agentApplicationsCreateBodyNameMax = 255
 
 export const agentApplicationsCreateBodySlugMax = 63
 
+export const agentApplicationsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const agentApplicationsCreateBodyArchivedDefault = false
 
 export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsCreateBodySlugMax),
+    slug: zod.string().max(agentApplicationsCreateBodySlugMax).regex(agentApplicationsCreateBodySlugRegExp),
     description: zod.string().optional(),
     archived: zod.boolean().default(agentApplicationsCreateBodyArchivedDefault),
 })
@@ -1612,11 +1613,12 @@ export const agentApplicationsUpdateBodyNameMax = 255
 
 export const agentApplicationsUpdateBodySlugMax = 63
 
+export const agentApplicationsUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const agentApplicationsUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsUpdateBodyNameMax),
-    slug: zod.string().max(agentApplicationsUpdateBodySlugMax),
+    slug: zod.string().max(agentApplicationsUpdateBodySlugMax).regex(agentApplicationsUpdateBodySlugRegExp),
     description: zod.string().optional(),
     archived: zod.boolean().default(agentApplicationsUpdateBodyArchivedDefault),
 })
@@ -1640,11 +1642,16 @@ export const agentApplicationsPartialUpdateBodyNameMax = 255
 
 export const agentApplicationsPartialUpdateBodySlugMax = 63
 
+export const agentApplicationsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const agentApplicationsPartialUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsPartialUpdateBodyNameMax).optional(),
-    slug: zod.string().max(agentApplicationsPartialUpdateBodySlugMax).optional(),
+    slug: zod
+        .string()
+        .max(agentApplicationsPartialUpdateBodySlugMax)
+        .regex(agentApplicationsPartialUpdateBodySlugRegExp)
+        .optional(),
     description: zod.string().optional(),
     archived: zod.boolean().default(agentApplicationsPartialUpdateBodyArchivedDefault),
 })

@@ -19,6 +19,7 @@ janitor_client.py for the wire protocol.
 from __future__ import annotations
 
 import os
+import re
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
@@ -765,6 +766,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # proxies via the path form using the full UUID hex (32 chars) so the
         # ingress prefix lookup is unambiguous. See revision-routing.md.
         rev_hex = revision.id.hex
+        # Defence-in-depth: the slug is interpolated into the upstream URL path,
+        # so reject anything that isn't a strict lowercase slug before building
+        # it — guards against a slug that reached the DB without the model /
+        # serializer validators (e.g. a raw node-side write).
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+            raise ValidationError("Application slug contains unsafe characters")
         forwarded_query = {k: v for k, v in request.query_params.items() if k != "revision_id"}
         query_string = f"?{urlencode(forwarded_query)}" if forwarded_query else ""
         upstream_url = f"{ingress_base}/agents/{application.slug}-{rev_hex}/{rest}{query_string}"

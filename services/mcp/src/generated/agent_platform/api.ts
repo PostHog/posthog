@@ -63,11 +63,12 @@ export const agentApplicationsCreateBodyNameMax = 255
 
 export const agentApplicationsCreateBodySlugMax = 63
 
+export const agentApplicationsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const agentApplicationsCreateBodyArchivedDefault = false
 
 export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsCreateBodySlugMax),
+    slug: zod.string().max(agentApplicationsCreateBodySlugMax).regex(agentApplicationsCreateBodySlugRegExp),
     description: zod.string().optional(),
     archived: zod.boolean().default(agentApplicationsCreateBodyArchivedDefault),
 })
@@ -1632,9 +1633,15 @@ export const agentApplicationsPartialUpdateBodyNameMax = 255
 
 export const agentApplicationsPartialUpdateBodySlugMax = 63
 
+export const agentApplicationsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+
 export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsPartialUpdateBodyNameMax).optional(),
-    slug: zod.string().max(agentApplicationsPartialUpdateBodySlugMax).optional(),
+    slug: zod
+        .string()
+        .max(agentApplicationsPartialUpdateBodySlugMax)
+        .regex(agentApplicationsPartialUpdateBodySlugRegExp)
+        .optional(),
     description: zod.string().optional(),
     archived: zod.boolean().optional(),
 })

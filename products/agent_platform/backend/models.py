@@ -55,7 +55,9 @@ class AgentApplication(ProductTeamModel, UUIDModel):
     """One agent. Identified by (team, slug). Holds team secrets."""
 
     name = models.CharField(max_length=255)
-    slug = models.CharField(max_length=63)
+    # SlugField adds Django's validate_slug ([a-zA-Z0-9_-]) so node-side writers
+    # can't land a slug that later builds an unsafe preview-proxy URL.
+    slug = models.SlugField(max_length=63)
     description = models.TextField(blank=True, default="", db_default="")
 
     # Encrypted JSON env block. Decrypted at runtime by the worker via

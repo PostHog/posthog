@@ -22,7 +22,10 @@ export interface AgentApplicationApi {
     readonly team_id: number
     /** @maxLength 255 */
     name: string
-    /** @maxLength 63 */
+    /**
+     * @maxLength 63
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
     slug: string
     description?: string
     /** @nullable */
@@ -880,7 +883,10 @@ export interface PatchedAgentApplicationApi {
     readonly team_id?: number
     /** @maxLength 255 */
     name?: string
-    /** @maxLength 63 */
+    /**
+     * @maxLength 63
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
     slug?: string
     description?: string
     /** @nullable */

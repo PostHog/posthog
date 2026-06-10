@@ -94,6 +94,9 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField(
         help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
     )
+    # Explicit so the slug constraint ([a-zA-Z0-9_-], <=63) is visible + enforced
+    # at the API layer rather than only inferred from the model field.
+    slug = serializers.SlugField(max_length=63)
 
     class Meta:
         model = AgentApplication
