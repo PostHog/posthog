@@ -228,6 +228,8 @@ export const TracingSpansQueryCreateParams = /* @__PURE__ */ zod.object({
 
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansQueryCreateBodyQueryOneLimitDefault = 100
+export const tracingSpansQueryCreateBodyQueryOneOffsetMin = 0
+
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
 export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
@@ -252,11 +254,18 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
             statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
             orderBy: zod
-                .enum(['latest', 'earliest'])
-                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .enum(['timestamp', 'duration'])
+                .describe('* `timestamp` - timestamp\n* `duration` - duration')
                 .optional()
                 .describe(
-                    'Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest'
+                    "Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.\n\n* `timestamp` - timestamp\n* `duration` - duration"
+                ),
+            orderDirection: zod
+                .enum(['ASC', 'DESC'])
+                .describe('* `ASC` - ASC\n* `DESC` - DESC')
+                .optional()
+                .describe(
+                    'Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).\n\n* `ASC` - ASC\n* `DESC` - DESC'
                 ),
             filterGroup: zod
                 .array(
@@ -308,7 +317,15 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .number()
                 .default(tracingSpansQueryCreateBodyQueryOneLimitDefault)
                 .describe('Max results (1-1000). Defaults to 100.'),
-            after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            after: zod
+                .string()
+                .optional()
+                .describe('Keyset pagination cursor from a previous timestamp-ordered response.'),
+            offset: zod
+                .number()
+                .min(tracingSpansQueryCreateBodyQueryOneOffsetMin)
+                .optional()
+                .describe('Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.'),
             rootSpans: zod
                 .boolean()
                 .default(tracingSpansQueryCreateBodyQueryOneRootSpansDefault)

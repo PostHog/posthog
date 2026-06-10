@@ -6,6 +6,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 """
 
 import time
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -95,8 +96,13 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
-        """Make a request to the GitHub App API using a JWT."""
+    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = 10) -> requests.Response:
+        """Make a request to the GitHub App API using a JWT.
+
+        ``timeout`` defaults to 10s so callers in web request and token-refresh paths
+        can't hang indefinitely on an unresponsive GitHub endpoint. Pass an explicit
+        value (or ``None`` to disable) when a different bound is needed.
+        """
         from rest_framework.exceptions import ValidationError
 
         github_app_client_id = settings.GITHUB_APP_CLIENT_ID
@@ -133,7 +139,102 @@ class GitHubIntegrationBase:
                 "Authorization": f"Bearer {jwt_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=timeout,
         )
+
+    # --- App installation lifecycle (uninstall) ---
+
+    @staticmethod
+    def installation_reference_count(
+        installation_id: str,
+        *,
+        exclude_team_integration_id: int | None = None,
+        exclude_user_integration_id: uuid.UUID | None = None,
+    ) -> int:
+        """Count PostHog rows that reference a GitHub App installation.
+
+        One installation can be shared by many team ``Integration`` rows and many
+        personal ``UserIntegration`` rows. Callers pass the id of the row currently
+        being deleted via the ``exclude_*`` params so it is not counted against itself.
+        """
+        # Local imports: both model modules import this module at load time.
+        from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserIntegration
+
+        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
+        if exclude_team_integration_id is not None:
+            team_qs = team_qs.exclude(id=exclude_team_integration_id)
+
+        user_qs = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
+        if exclude_user_integration_id is not None:
+            user_qs = user_qs.exclude(id=exclude_user_integration_id)
+
+        return team_qs.count() + user_qs.count()
+
+    @classmethod
+    def uninstall_app_installation(cls, installation_id: str) -> bool:
+        """Tell GitHub to uninstall the App via ``DELETE /app/installations/{id}``.
+
+        Best-effort: never raises. Treats 204 (removed) and 404 (already gone) as
+        success. Returns ``False`` on any other outcome or when the App is not configured.
+        """
+        if not installation_id:
+            return False
+        if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+            logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
+            return False
+
+        try:
+            response = cls.client_request(f"installations/{installation_id}", method="DELETE", timeout=10)
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: uninstall_app_installation request failed",
+                installation_id=installation_id,
+                exc_info=True,
+            )
+            return False
+
+        if response.status_code in (204, 404):
+            logger.info(
+                "GitHubIntegration: uninstalled App installation",
+                installation_id=installation_id,
+                status_code=response.status_code,
+            )
+            return True
+
+        logger.warning(
+            "GitHubIntegration: uninstall_app_installation unexpected status",
+            installation_id=installation_id,
+            status_code=response.status_code,
+        )
+        return False
+
+    @classmethod
+    def uninstall_if_last_reference(
+        cls,
+        installation_id: str,
+        *,
+        exclude_team_integration_id: int | None = None,
+        exclude_user_integration_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Uninstall the App on GitHub only when no other PostHog row references it."""
+        if not installation_id:
+            return False
+
+        remaining = cls.installation_reference_count(
+            installation_id,
+            exclude_team_integration_id=exclude_team_integration_id,
+            exclude_user_integration_id=exclude_user_integration_id,
+        )
+        if remaining > 0:
+            logger.info(
+                "GitHubIntegration: skipping uninstall, other references remain",
+                installation_id=installation_id,
+                remaining=remaining,
+            )
+            return False
+
+        return cls.uninstall_app_installation(installation_id)
 
     @staticmethod
     def verify_user_installation_access(installation_id: str, user_access_token: str) -> bool:
@@ -597,6 +698,168 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
+
+    _PR_SNAPSHOT_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          number title url state isDraft mergeable updatedAt
+          author { login }
+          reviewDecision
+          reviewRequests(first: 50) {
+            nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } }
+          }
+          reviewThreads(first: 100) { nodes { isResolved } }
+          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+        }
+      }
+    }
+    """
+
+    def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
+        """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
+
+        Mirrors ``_gh_api_get``'s auth lifecycle: proactive token refresh, one
+        retry on 401 (refresh) or transient network error, and secondary
+        rate-limit detection bubbled up as a retryable ``GitHubIntegrationError``.
+        """
+        url = "https://api.github.com/graphql"
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def post() -> requests.Response:
+            return self._github_api_post(
+                url,
+                endpoint=endpoint,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {self.get_access_token()}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json_body={"query": query, "variables": variables},
+            )
+
+        for attempt in range(2):
+            try:
+                response = post()
+            except requests.RequestException as exc:
+                if attempt == 0:
+                    logger.info("GitHubIntegration: _gh_graphql retrying network error", exc_info=True)
+                    continue
+                raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql network error on {endpoint}") from exc
+
+            if response.status_code == 401 and attempt == 0:
+                self.refresh_access_token()
+                continue
+            if self._is_secondary_rate_limit(response):
+                retry_after = self._parse_retry_after_seconds(response) or 60.0
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: secondary rate limit on {endpoint}",
+                    status_code=response.status_code,
+                    is_rate_limit=True,
+                    retry_after_seconds=retry_after,
+                )
+            if response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            body = response.json()
+            data = body.get("data")
+            errors = body.get("errors")
+            if errors:
+                # GitHub can return useful partial data with field-level permission errors.
+                logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
+                if not data:
+                    raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
+            return data or {}
+
+        raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql exhausted retries on {endpoint}")
+
+    @staticmethod
+    def _map_pr_state(gql_state: str | None, is_draft: bool) -> str:
+        if gql_state == "MERGED":
+            return "merged"
+        if gql_state == "CLOSED":
+            return "closed"
+        if is_draft:
+            return "draft"
+        return "open"
+
+    @staticmethod
+    def _map_ci_status(rollup_state: str | None) -> str:
+        if rollup_state == "SUCCESS":
+            return "passing"
+        if rollup_state in ("FAILURE", "ERROR"):
+            return "failing"
+        if rollup_state in ("PENDING", "EXPECTED"):
+            return "pending"
+        return "none"
+
+    @staticmethod
+    def _map_mergeable(gql_mergeable: str | None) -> bool | None:
+        if gql_mergeable == "MERGEABLE":
+            return True
+        if gql_mergeable == "CONFLICTING":
+            return False
+        return None
+
+    def get_pull_request_snapshot(self, pr_url: str) -> dict[str, Any]:
+        """Fetch the classification-relevant PR signals in one GraphQL call.
+
+        On any handled failure returns ``{"success": False, "error": ...}``;
+        rate-limit and unexpected errors raise ``GitHubIntegrationError`` so the
+        caller can back off.
+        """
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+
+        data = self._gh_graphql(
+            self._PR_SNAPSHOT_QUERY,
+            {"owner": owner, "repo": repo, "number": pr_number},
+            endpoint="/graphql:pullRequestSnapshot",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {pr_url}"}
+
+        rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        rollup_state = None
+        if rollup_nodes:
+            rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
+
+        thread_nodes = ((pr.get("reviewThreads") or {}).get("nodes")) or []
+        unresolved_threads = sum(1 for t in thread_nodes if t and t.get("isResolved") is False)
+
+        reviewer_logins: list[str] = []
+        for node in ((pr.get("reviewRequests") or {}).get("nodes")) or []:
+            reviewer = (node or {}).get("requestedReviewer") or {}
+            login = reviewer.get("login") or reviewer.get("slug")
+            if login:
+                reviewer_logins.append(login)
+
+        review_decision = pr.get("reviewDecision")
+        author = (pr.get("author") or {}).get("login")
+
+        return {
+            "success": True,
+            "number": pr.get("number"),
+            "title": pr.get("title") or "",
+            "url": pr.get("url") or pr_url,
+            "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
+            "ci_status": self._map_ci_status(rollup_state),
+            "review_decision": review_decision.lower() if isinstance(review_decision, str) else None,
+            "unresolved_threads": unresolved_threads,
+            "mergeable": self._map_mergeable(pr.get("mergeable")),
+            "author_login": author,
+            "requested_reviewer_logins": reviewer_logins,
+            "updated_at": pr.get("updatedAt"),
+        }
 
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.

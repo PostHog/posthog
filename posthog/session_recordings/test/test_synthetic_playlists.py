@@ -21,7 +21,7 @@ from posthog.session_recordings.synthetic_playlists import (
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 try:
-    from ee.models.session_summaries import SingleSessionSummary
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
 
     HAS_EE = True
 except ImportError:

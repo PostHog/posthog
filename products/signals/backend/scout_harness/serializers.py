@@ -12,7 +12,8 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.scout_harness.tools.emit import MAX_FINDING_ID_LENGTH
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -59,12 +60,96 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "runs that errored before close-out. The dedupe key for non-emitting runs."
         ),
     )
+    error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs "
+            "(null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary."
+        ),
+    )
+    failure_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Concise derived reason the run didn't complete cleanly — the first line of `error` "
+            "(bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. "
+            "Read this to see at a glance *why* a run emitted nothing without pulling full stack traces."
+        ),
+    )
+    emitted_count = serializers.IntegerField(
+        help_text=(
+            "Number of findings this run actually emitted to the inbox. 0 for runs that "
+            "investigated but surfaced nothing, or ran dry-run / before AI approval. "
+            "`> 0` means the run produced at least one `Signal`."
+        ),
+    )
+    emitted_finding_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `finding_id`s behind `emitted_count`, in emit order. Each maps to a "
+            "`Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for "
+            "non-emitting runs."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
     """Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response."""
+
+
+class SignalScoutEmissionSerializer(serializers.ModelSerializer):
+    """One finding a scout run emitted to the inbox — the persisted, queryable record of
+    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+    back into the underlying signal store."""
+
+    run_id = serializers.CharField(
+        source="scout_run_id",
+        help_text="UUID of the `SignalScoutRun` that emitted this finding.",
+    )
+    finding_id = serializers.CharField(
+        help_text="Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`.",
+    )
+    description = serializers.CharField(
+        help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
+    )
+    weight = serializers.FloatField(
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
+    )
+    confidence = serializers.FloatField(
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Agent's confidence the finding is real in [0, 1].",
+    )
+    severity = serializers.ChoiceField(
+        choices=[(s.value, s.value) for s in Severity],
+        allow_null=True,
+        help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
+    )
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store.",
+    )
+    emitted_at = serializers.DateTimeField(help_text="ISO-8601 timestamp the finding was emitted.")
+
+    class Meta:
+        model = SignalScoutEmission
+        fields = [
+            "id",
+            "run_id",
+            "finding_id",
+            "description",
+            "weight",
+            "confidence",
+            "severity",
+            "source_id",
+            "emitted_at",
+        ]
+        read_only_fields = fields
 
 
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
@@ -86,6 +171,27 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
     )
+    emitted = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Filter by emit outcome. `true` returns only runs that emitted at least one finding "
+            "(`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run "
+            "dump to a single scout — the primary scoping path when a specialist dedupes against "
+            "its own past runs. Omit to span every scout on the team."
+        ),
+    )
+    skill_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -101,7 +207,13 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     """`SignalScratchpad` projection used by `search-memory` and `remember`."""
 
     key = serializers.CharField(help_text="Agent-chosen semantic key, unique per team.")
-    content = serializers.CharField(help_text="Prose content for prompt injection.")
+    content = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Prose content for prompt injection. Blank when the search projected it out "
+            "(`keys_only=true`); truncated to a preview when `content_max_chars` was set."
+        ),
+    )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
     created_by_run_id = serializers.CharField(
@@ -117,6 +229,22 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+    )
+    keys_only = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, blank each entry's `content` and return only keys + metadata. Use to scan "
+            "which memories exist without pulling their (potentially large) bodies, then re-query "
+            "the ones worth a full read. Takes precedence over `content_max_chars`."
+        ),
+    )
+    content_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each entry's `content` to the first N characters (a preview). Omit for the "
+            "full body. Ignored when `keys_only=true`."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,
@@ -189,11 +317,6 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
@@ -235,6 +358,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     finding_id = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_FINDING_ID_LENGTH,
         help_text="Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.",
     )
 

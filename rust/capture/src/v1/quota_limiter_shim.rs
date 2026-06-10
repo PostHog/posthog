@@ -227,7 +227,6 @@ mod tests {
             ai_s3_region: "us-east-1".to_string(),
             ai_s3_access_key_id: None,
             ai_s3_secret_access_key: None,
-            request_timeout_seconds: Some(10),
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,

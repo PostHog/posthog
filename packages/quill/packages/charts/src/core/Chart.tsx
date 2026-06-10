@@ -13,7 +13,7 @@ import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
-import { useResolvedYFormatters } from './hooks/useResolvedYFormatters'
+import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import type {
     ChartConfig,
@@ -190,7 +190,7 @@ export function Chart<Meta = unknown>({
         return createScalesFn(coloredSeries, labels, dimensions)
     }, [coloredSeries, labels, dimensions, createScalesFn])
 
-    const { left: resolvedYFormatter, right: resolvedYRightFormatter } = useResolvedYFormatters(scales, yTickFormatter)
+    const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
@@ -306,7 +306,7 @@ export function Chart<Meta = unknown>({
                             <AxisLabels
                                 xTickFormatter={xTickFormatter}
                                 yTickFormatter={resolvedYFormatter}
-                                yRightTickFormatter={resolvedYRightFormatter}
+                                userYTickFormatter={yTickFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
                                 axisColor={axisColor}

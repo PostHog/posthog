@@ -30,6 +30,15 @@ from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
+    BK_EMBEDDING_DOCUMENT_TYPE,
+    BK_EMBEDDING_MODEL,
+    BK_EMBEDDING_PRODUCT,
+    BK_RRF_K,
+    BK_RRF_SCORE_FLOOR,
+    BK_SEMANTIC_DISTANCE_CUTOFF,
+    BK_SEMANTIC_OVERFETCH,
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
     CLASSIFY_MAX_ATTEMPTS,
@@ -37,6 +46,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
@@ -44,6 +54,7 @@ from .constants import (
     PENDING_EMBEDDING_SCAN_CAP,
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -1482,6 +1493,141 @@ def has_ready_sources(team_id: int) -> bool:
 _SEARCH_LIMIT_CAP = 20
 
 
+# ---------------------------------------------------------------------------
+# Semantic search helpers (hybrid retrieval, gated on use_semantic)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _SemanticCandidate:
+    """A chunk_id + cosineDistance returned from ClickHouse vector search."""
+
+    chunk_id: UUID
+    distance: float
+
+
+def _semantic_chunk_candidates(
+    team_id: int,
+    query_embedding: list[float],
+    *,
+    limit: int,
+) -> list[_SemanticCandidate]:
+    """
+    Vector search over document_embeddings for BK chunks.
+
+    Returns up to ``limit * BK_SEMANTIC_OVERFETCH`` candidates under the
+    distance cutoff, ordered by cosineDistance ASC. The caller re-joins to
+    Postgres for safety filters and trims to ``limit``.
+    """
+    from posthog.hogql import ast  # noqa: PLC0415 — keeps HogQL compiler off the import path
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    from posthog.clickhouse.query_tagging import Feature, Product, tag_queries  # noqa: PLC0415
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    ch_limit = limit * BK_SEMANTIC_OVERFETCH
+
+    # Distance is computed in the inner SELECT and filtered in the outer WHERE
+    # so cosineDistance runs once per row (ClickHouse can't reuse a SELECT alias
+    # in the same level's WHERE — WHERE is evaluated first). Matters at 1536 dims.
+    hogql_query = """
+        SELECT document_id, distance
+        FROM (
+            SELECT
+                document_id,
+                cosineDistance(embedding, {embedding}) AS distance
+            FROM document_embeddings
+            WHERE model_name = {model_name}
+              AND product = {product}
+              AND document_type = {document_type}
+              AND team_id = {team_id}
+        )
+        WHERE distance < {cutoff}
+        ORDER BY distance ASC
+        LIMIT {limit}
+    """
+
+    placeholders: dict[str, ast.Expr] = {
+        "embedding": ast.Constant(value=query_embedding),
+        "model_name": ast.Constant(value=BK_EMBEDDING_MODEL),
+        "product": ast.Constant(value=BK_EMBEDDING_PRODUCT),
+        "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),
+        "team_id": ast.Constant(value=team_id),
+        "cutoff": ast.Constant(value=BK_SEMANTIC_DISTANCE_CUTOFF),
+        "limit": ast.Constant(value=ch_limit),
+    }
+
+    team = Team.objects.get(pk=team_id)
+    tag_queries(product=Product.CONVERSATIONS, feature=Feature.SEMANTIC_SEARCH)
+    result = execute_hogql_query(
+        query=hogql_query,
+        team=team,
+        placeholders=placeholders,
+    )
+
+    candidates: list[_SemanticCandidate] = []
+    for row in result.results or []:
+        doc_id_str, distance = row
+        try:
+            candidates.append(_SemanticCandidate(chunk_id=UUID(doc_id_str), distance=float(distance)))
+        except (ValueError, TypeError):
+            continue
+    return candidates
+
+
+def _rrf_fuse(
+    fts_chunk_ids: list[UUID],
+    semantic_candidates: list[_SemanticCandidate],
+    *,
+    k: int = BK_RRF_K,
+    score_floor: float = BK_RRF_SCORE_FLOOR,
+) -> list[UUID]:
+    """
+    Reciprocal Rank Fusion of FTS anchors and semantic candidates.
+
+    Each list contributes 1/(k + rank) per candidate. FTS anchors are always
+    kept (they're real lexical matches against SAFE/READY content); only
+    semantic-ONLY candidates are subject to ``score_floor``, so a borderline
+    semantic hit on an off-topic query is dropped without trimming the
+    legitimate FTS tail.
+
+    Semantic candidates are deduped by chunk_id first: the shared
+    ``document_embeddings`` table is a ReplacingMergeTree that we do NOT read
+    with FINAL, so a re-emitted chunk can appear as several rows. Keeping the
+    first occurrence (the CH query is ordered by distance ASC, so that's the
+    closest) prevents a duplicated vector from double-counting its RRF score.
+    """
+    scores: dict[UUID, float] = defaultdict(float)
+    fts_ids = set(fts_chunk_ids)
+
+    for rank, chunk_id in enumerate(fts_chunk_ids, start=1):
+        scores[chunk_id] += 1.0 / (k + rank)
+
+    seen_semantic: set[UUID] = set()
+    semantic_rank = 0
+    for candidate in semantic_candidates:
+        if candidate.chunk_id in seen_semantic:
+            continue
+        seen_semantic.add(candidate.chunk_id)
+        semantic_rank += 1
+        scores[candidate.chunk_id] += 1.0 / (k + semantic_rank)
+
+    # FTS anchors bypass the floor; semantic-only candidates must clear it.
+    fused = [(cid, score) for cid, score in scores.items() if cid in fts_ids or score >= score_floor]
+    fused.sort(key=lambda x: x[1], reverse=True)
+    return [cid for cid, _score in fused]
+
+
+def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+    """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
+    return KnowledgeChunk.objects.filter(
+        team_id=team_id,
+        source__status=SourceStatus.READY,
+        document__tombstoned_at__isnull=True,
+        document__safety_verdict=SafetyVerdict.SAFE,
+    )
+
+
 @dataclass(frozen=True)
 class KnowledgeSearchResult:
     """A single chunk returned by a knowledge search, with source context."""
@@ -1503,60 +1649,72 @@ def search_knowledge(
     query: str,
     *,
     limit: int = 10,
+    use_semantic: bool = False,
+    query_embedding: list[float] | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
-    Full-text relevance search over chunks belonging to READY sources.
+    Hybrid (lexical + semantic) relevance search over BK chunks.
 
-    Builds an `english`-config `tsquery` from the user query (stemming +
-    stopword removal + prefix match on the last term, via `process_query`) with
-    OR semantics, and matches it against the chunk `content_search_vector` using
-    the GIN index. The top `limit` matches by `ts_rank` (so chunks hitting more
-    query terms rank first) anchor the result; each anchor is expanded to its
-    ordinal-adjacent neighbours (ordinal n-1, n, n+1 within the same document)
-    so the agent gets continuous context instead of isolated fragments.
-    `ordinal` is document-global and contiguous, so neighbours never cross into
-    a different document.
+    When ``use_semantic=False`` (default / flag off), this is pure FTS — the
+    existing keyword path byte-for-byte.
+
+    When ``use_semantic=True``, the caller must also pass ``query_embedding``
+    (the pre-computed query vector). Both FTS and vector results are fused via
+    Reciprocal Rank Fusion (RRF), safety-re-joined against Postgres, trimmed
+    to ``limit``, and ordinal-neighbour-expanded.
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
-    # `process_query` strips tsquery metacharacters and joins terms with a
-    # trailing prefix match; returns None only when the result is an empty
-    # string (i.e. the query contained nothing but unsafe characters).
-    # Stopword-only inputs are not caught here — they pass through as a
-    # non-empty string and PostgreSQL discards the stopwords inside
-    # to_tsquery, yielding no matches.
+    # --- FTS anchors (always computed) ---
     processed = process_query(query)
-    if processed is None:
-        return []
-    # OR rather than AND the terms: the agent sends natural-language questions,
-    # and AND drops any chunk missing a single term (e.g. "can a customer get a
-    # refund within 30 days" wouldn't match a focused refund chunk). `ts_rank`
-    # still surfaces chunks matching more terms first. `process_query` only ever
-    # inserts " & " as a separator, so the replace is unambiguous.
-    processed = processed.replace(" & ", " | ")
-    search_query = SearchQuery(processed, config="english", search_type="raw")
-
-    anchors = list(
-        KnowledgeChunk.objects.filter(
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-            content_search_vector=search_query,
+    fts_anchors: list[KnowledgeChunk] = []
+    if processed is not None:
+        processed = processed.replace(" & ", " | ")
+        search_query = SearchQuery(processed, config="english", search_type="raw")
+        fts_anchors = list(
+            _safe_chunks_qs(team_id)
+            .filter(content_search_vector=search_query)
+            .annotate(rank=SearchRank(F("content_search_vector"), search_query))
+            .only("id", "document_id", "ordinal", "char_count")
+            .order_by("-rank", "char_count", "id")[:limit]
         )
-        .annotate(rank=SearchRank(F("content_search_vector"), search_query))
-        .only("id", "document_id", "ordinal", "char_count")
-        # `id` is the final tiebreaker so rank+length ties order deterministically.
-        .order_by("-rank", "char_count", "id")[:limit]
-    )
-    if not anchors:
+    fts_anchor_ids = [a.id for a in fts_anchors]
+
+    # --- Semantic candidates (hybrid path only) ---
+    semantic_candidates: list[_SemanticCandidate] = []
+    if use_semantic and query_embedding:
+        semantic_candidates = _semantic_chunk_candidates(team_id, query_embedding, limit=limit)
+
+    # --- Fusion or FTS-only ---
+    # Fusion requires an actual embedding; when it's None (e.g. embedding-service
+    # timeout) semantic_candidates is empty, so fall through to the FTS-only
+    # branch which reuses the already-filtered, rank-ordered anchors.
+    if use_semantic and query_embedding and (fts_anchor_ids or semantic_candidates):
+        fused_ids = _rrf_fuse(fts_anchor_ids, semantic_candidates)
+        if not fused_ids:
+            return []
+        # Semantic candidates may reference now-unsafe/tombstoned chunks, so we
+        # re-join against Postgres with all safety filters and trim after.
+        fetch_limit = limit * BK_SEMANTIC_OVERFETCH
+        anchor_chunks = list(
+            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
+        )
+        if not anchor_chunks:
+            return []
+        id_to_rank = {cid: rank for rank, cid in enumerate(fused_ids)}
+        anchor_chunks.sort(key=lambda c: id_to_rank.get(c.id, len(fused_ids)))
+        anchor_chunks = anchor_chunks[:limit]
+    elif fts_anchors:
+        # FTS anchors are already safety-filtered — use them directly (no
+        # extra query). Already ordered by rank from the FTS query.
+        anchor_chunks = fts_anchors
+    else:
         return []
 
-    # Preserve relevance ranking at the document level (first anchor wins) and
-    # collect the ordinal window we want to fetch for each document.
+    # --- Ordinal neighbour expansion ---
     doc_rank: dict[UUID, int] = {}
     wanted_ordinals: dict[UUID, set[int]] = {}
-    for rank, anchor in enumerate(anchors):
+    for rank, anchor in enumerate(anchor_chunks):
         doc_rank.setdefault(anchor.document_id, rank)
         wanted_ordinals.setdefault(anchor.document_id, set()).update(
             (anchor.ordinal - 1, anchor.ordinal, anchor.ordinal + 1)
@@ -1568,13 +1726,8 @@ def search_knowledge(
     )
 
     chunks = (
-        KnowledgeChunk.objects.filter(
-            window_filter,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-        )
+        _safe_chunks_qs(team_id)
+        .filter(window_filter)
         .select_related("source", "document")
         .only(
             "id",
@@ -1589,8 +1742,7 @@ def search_knowledge(
         )
     )
 
-    # Order by document relevance, then ordinal so neighbours stay contiguous.
-    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchors)), c.ordinal))
+    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
     return [
         KnowledgeSearchResult(
@@ -1605,6 +1757,64 @@ def search_knowledge(
             content=c.content,
         )
         for c in ordered
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Drill-down: wider context window for a single document
+# ---------------------------------------------------------------------------
+
+
+@with_team_scope(canonical=True)
+def get_document_window(
+    team_id: int,
+    document_id: UUID,
+    center_ordinal: int,
+    *,
+    radius: int = BK_DRILLDOWN_DEFAULT_RADIUS,
+) -> list[KnowledgeSearchResult]:
+    """
+    Return a contiguous span of chunks from one document, centered on
+    ``center_ordinal``. Reuses the exact same safety filters as
+    ``search_knowledge`` so drill-down can never surface content that search
+    wouldn't return.
+    """
+    radius = max(0, min(radius, BK_DRILLDOWN_MAX_RADIUS))
+    center_ordinal = max(0, center_ordinal)
+    low = max(0, center_ordinal - radius)
+    high = center_ordinal + radius
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(document_id=document_id, ordinal__gte=low, ordinal__lte=high)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("ordinal")
+    )
+
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for c in chunks
     ]
 
 
@@ -1794,9 +2004,12 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The document's stable `created_at`, passed as the embedding row `timestamp`
-    # so a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
-    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # The embedding row `timestamp`. The first-emission path passes the
+    # document's stable `created_at` so a re-emit of the same chunk_id collapses
+    # onto one ClickHouse sort key / partition instead of duplicating under a
+    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
+    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
+    # the extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -1922,6 +2135,45 @@ def list_documents_for_embedding_reconciliation(
     ]
 
 
+def list_documents_for_embedding_refresh(
+    *,
+    now: datetime.datetime | None = None,
+    window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
+    limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+) -> list[DocumentToEmbed]:
+    """
+    Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
+    aging toward the 3-month ClickHouse TTL, so their chunks can be re-emitted
+    before the rows expire and the doc silently drops to FTS-only.
+
+    The returned ``DocumentToEmbed.timestamp`` is ``now`` (NOT the doc's
+    ``created_at``): the shared table TTLs on the embedding row ``timestamp``,
+    so the re-emit must carry a fresh timestamp to actually reset the clock —
+    re-emitting under the old ``created_at`` would land an already-/soon-expired
+    row and keep losing vectors. The extra row this creates is correctness-safe:
+    the read path always re-joins to Postgres and dedups candidates by chunk_id.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - window
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=now,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
 @with_team_scope(canonical=True)
 def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
     """
@@ -1937,6 +2189,26 @@ def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None
         id=document_id,
         safety_verdict=SafetyVerdict.SAFE,
         embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def restamp_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Bump ``embeddings_emitted_at`` to now after a TTL-refresh re-emit.
+
+    Unlike ``mark_document_embeddings_emitted`` (gated on NULL, for first
+    emission), this re-stamps an ALREADY-stamped doc so it drops out of the
+    refresh window for another full cycle. Still gated on the doc being SAFE
+    AND already stamped: a content change that flipped it to ``unknown``
+    mid-pass NULLs the stamp, and that new (unembedded) content must go through
+    the normal pending-emit path rather than being re-stamped here.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=False,
     ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
 
 

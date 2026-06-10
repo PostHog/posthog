@@ -185,6 +185,16 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 required=False,
             ),
             OpenApiParameter(
+                name="event",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Filter to experiments whose metrics reference this event name. Matches events used "
+                    "directly in metric queries as well as events behind any actions those metrics reference."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
                 name="order",
                 location=OpenApiParameter.QUERY,
                 type=str,
