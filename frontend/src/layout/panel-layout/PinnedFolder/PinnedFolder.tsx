@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps, IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
 
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -133,19 +133,6 @@ export function PinnedFolder(): JSX.Element {
                 ))}
             <div className="flex flex-col mt-[-0.5rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
-                {pinnedFolder === 'custom-products://' && !isLayoutNavCollapsed ? (
-                    <ButtonPrimitive
-                        menuItem
-                        onClick={openEditCustomProductsModal}
-                        className="mt-1 text-tertiary"
-                        tooltip="See every product, including ones not in your sidebar"
-                        tooltipPlacement="top"
-                        data-attr="browse-all-products-button"
-                    >
-                        <IconApps className="size-4" />
-                        Browse all products
-                    </ButtonPrimitive>
-                ) : null}
             </div>
             <EditCustomProductsModal />
         </>

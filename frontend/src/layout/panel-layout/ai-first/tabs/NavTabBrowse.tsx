@@ -426,6 +426,22 @@ export function NavTabBrowse(): JSX.Element {
                                 }
                             />
                         )}
+                        {(expandedNavSections.apps ?? false) && !isEditMode && !isLayoutNavCollapsed && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    posthog.capture('nav browse all products clicked')
+                                    enterEditMode()
+                                }}
+                                tooltip="See every product, including ones not in your sidebar"
+                                tooltipPlacement="top"
+                                data-attr="browse-all-products-button"
+                                className="mt-1 text-tertiary"
+                            >
+                                <IconApps className="size-4" />
+                                Browse all products
+                            </ButtonPrimitive>
+                        )}
                     </Collapsible.Panel>
                 </Collapsible>
             )}
