@@ -110,13 +110,17 @@ pub async fn remote_config(
     Ok(Json(body).into_response())
 }
 
-/// Mirrors Python truthiness for `payloads.get("true") or None`: absent, JSON null,
-/// and empty string are treated as no payload.
+/// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
+/// is always a JSON-encoded string, but cover every falsy JSON value so the behaviour
+/// matches Python exactly: null, false, zero, and empty string/array/object.
 fn is_falsy(v: &Value) -> bool {
     match v {
         Value::Null => true,
+        Value::Bool(b) => !b,
+        Value::Number(n) => n.as_f64() == Some(0.0),
         Value::String(s) => s.is_empty(),
-        _ => false,
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
     }
 }
 
