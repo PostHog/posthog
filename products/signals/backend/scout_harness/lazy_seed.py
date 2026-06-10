@@ -14,6 +14,7 @@ import yaml
 from posthog.models.team.team import Team
 
 from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 logger = logging.getLogger(__name__)
@@ -522,3 +523,28 @@ def seed_canonical_skills(team: Team) -> SyncResult:
     Prefer `sync_canonical_skills` in new code — the name reflects what it actually does.
     """
     return sync_canonical_skills(team)
+
+
+def register_missing_configs(team: Team) -> set[str]:
+    """Auto-create an enabled, default-schedule config for each scout skill lacking a row.
+
+    The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
+    a row with no further wiring. Returns the set of live `signals-scout-*` skill names for
+    the team, so the caller can skip dispatching configs whose skill is gone.
+
+    Lives here (not in the Temporal coordinator) so the HTTP `sync` action can materialize
+    the fleet on demand without importing workflow modules into the web process. The
+    coordinator wraps this on every tick; idempotent by construction (`get_or_create`).
+    """
+    skill_names = set(
+        LLMSkill.objects.filter(
+            team_id=team.id,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+            is_latest=True,
+            deleted=False,
+        ).values_list("name", flat=True)
+    )
+    existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
+    for name in sorted(skill_names - existing):
+        SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
+    return skill_names

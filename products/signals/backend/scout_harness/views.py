@@ -37,9 +37,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import register_missing_configs, sync_canonical_skills
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -549,3 +551,41 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
         return Response(SignalScoutConfigSerializer(instance).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutConfigSerializer(many=True),
+                description="The team's full scout fleet after the sync, ordered by skill name.",
+            ),
+        },
+        summary="Sync scout configs",
+        description=(
+            "Materialize the scout fleet for this project on demand (idempotent): seed the "
+            "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
+            "lacking one, and return all scout configs. Normally the Temporal coordinator does "
+            "this on its next tick; this action exists so setup flows (e.g. the wizard's "
+            "product-autonomy program) can hand the user a tunable fleet immediately."
+        ),
+        operation_id="signals_scout_config_sync",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="sync",
+        # Custom actions need explicit scopes — see the `current` action's note on the
+        # "no scopes declared" rejection branch in `posthog/permissions.py`. Write scope:
+        # the sync materializes configs, and fresh configs are enabled (they drive spend).
+        required_scopes=["signal_scout:write"],
+        pagination_class=None,
+    )
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        # Scout rows persist under the canonical parent team (see `_canonical_team_id`);
+        # seed and register against that team so child-environment requests don't fork
+        # a second fleet.
+        team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
+        sync_canonical_skills(team)
+        register_missing_configs(team)
+        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team.id).order_by("skill_name")
+        return Response(SignalScoutConfigSerializer(configs, many=True).data)

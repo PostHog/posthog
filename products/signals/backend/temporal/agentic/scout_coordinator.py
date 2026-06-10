@@ -21,10 +21,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.lazy_seed import register_missing_configs, sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -269,19 +267,12 @@ def _register_missing_configs(team: Team) -> set[str]:
     The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
     a row on the next tick with no further wiring. Returns the set of live `signals-scout-*`
     skill names for the team, so the caller can skip dispatching configs whose skill is gone.
+
+    Thin wrapper around `register_missing_configs` in `scout_harness.lazy_seed` — the logic
+    is shared with the on-demand HTTP `sync` action and kept here under its historical name
+    for the tick path and its tests.
     """
-    skill_names = set(
-        LLMSkill.objects.filter(
-            team_id=team.id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
-    )
-    existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
-    for name in sorted(skill_names - existing):
-        SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
-    return skill_names
+    return register_missing_configs(team)
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
