@@ -201,7 +201,6 @@ class HogQLDatabaseSources:
     connection_id: str | None
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
-    is_hogql_access_control_enabled: bool
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
@@ -1016,20 +1015,7 @@ class Database(BaseModel):
                     direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
-            is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
-                "hogql-access-control",
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                send_feature_flag_events=False,
-            )
-            user_access_control: Optional[UserAccessControl] = None
-            denied_system_table_names: set[str] = set()
-            if is_hogql_access_control_enabled:
-                user_access_control, denied_system_table_names = _compute_system_table_access_decision(team, user)
+            user_access_control, denied_system_table_names = _compute_system_table_access_decision(team, user)
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -1151,7 +1137,6 @@ class Database(BaseModel):
             connection_id=connection_id,
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
-            is_hogql_access_control_enabled=is_hogql_access_control_enabled,
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
