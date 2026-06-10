@@ -75,7 +75,9 @@ pub enum RawFrame {
     Dart(RawDartFrame),
     #[serde(rename = "apple")]
     Apple(RawAppleFrame),
-    #[serde(rename = "native")]
+    // "rust" accepted defensively: the pre-release Rust SDK emitted it as a
+    // pass-through frame shape that RawNativeFrame handles identically.
+    #[serde(rename = "native", alias = "rust")]
     Native(RawNativeFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
