@@ -411,17 +411,6 @@ function ParentSection({
                         the chosen parent field into the path placeholder (e.g.{' '}
                         <code>/forms/{'{form_id}'}/responses</code>).
                     </p>
-                    {/* aria-live so screen readers announce validation messages as they
-                        appear; empty:hidden keeps the always-mounted region from adding
-                        spacing when there's nothing to say. */}
-                    <div aria-live="polite" className="empty:hidden">
-                        {parentMissing && (
-                            <p className="m-0 text-xs text-danger">
-                                Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's
-                                parent — pick another parent or set to none.
-                            </p>
-                        )}
-                    </div>
                     <div className="grid grid-cols-2 gap-2">
                         <LemonField.Pure label="Parent field">
                             <LemonInput
@@ -438,24 +427,6 @@ function ParentSection({
                             />
                         </LemonField.Pure>
                     </div>
-                    <div aria-live="polite" className="empty:hidden space-y-2">
-                        {!parentField && (
-                            <p className="m-0 text-xs text-danger">
-                                Set the parent field — the dependency is incomplete without it and saving fails.
-                            </p>
-                        )}
-                        {!pathParam && (
-                            <p className="m-0 text-xs text-danger">
-                                Set the path placeholder — the dependency is incomplete without it and saving fails.
-                            </p>
-                        )}
-                        {pathMissingPlaceholder && (
-                            <p className="m-0 text-xs text-danger">
-                                Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected
-                                there, and the sync fails without it.
-                            </p>
-                        )}
-                    </div>
                     <LemonField.Pure label="Include parent fields">
                         <LemonInput
                             placeholder="id, name"
@@ -469,6 +440,35 @@ function ParentSection({
                     </LemonField.Pure>
                 </>
             )}
+            {/* One persistently-mounted live region so screen readers announce
+                validation messages as they appear — a region that enters the DOM
+                already populated (e.g. mounted inside the hasParent gate) is
+                skipped by several readers. empty:hidden keeps it from adding
+                spacing when there's nothing to say. */}
+            <div aria-live="polite" className="empty:hidden space-y-2">
+                {parentMissing && (
+                    <p className="m-0 text-xs text-danger">
+                        Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's parent — pick
+                        another parent or set to none.
+                    </p>
+                )}
+                {hasParent && !parentField && (
+                    <p className="m-0 text-xs text-danger">
+                        Set the parent field — the dependency is incomplete without it and saving fails.
+                    </p>
+                )}
+                {hasParent && !pathParam && (
+                    <p className="m-0 text-xs text-danger">
+                        Set the path placeholder — the dependency is incomplete without it and saving fails.
+                    </p>
+                )}
+                {pathMissingPlaceholder && (
+                    <p className="m-0 text-xs text-danger">
+                        Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected there, and
+                        the sync fails without it.
+                    </p>
+                )}
+            </div>
         </div>
     )
 }
