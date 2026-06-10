@@ -11,7 +11,7 @@ export function NewTicket(): JSX.Element {
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
             <div className="flex items-center gap-2">
                 <LemonButton
                     icon={<IconArrowLeft />}
