@@ -417,10 +417,11 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["extra_fields"]["status"] == "active"
         assert entities[0]["extra_fields"]["active"] is True
 
-        # Status shows up as a column in the formatted output
+        # Status shows up as a column in the formatted output (assert the rendered boolean, since
+        # the literal "active" also appears as the status value)
         formatted = self.context.format_entities(entities)
         assert "status" in formatted
-        assert "active" in formatted
+        assert "True" in formatted
 
     async def test_list_entities_feature_flag_stale_filter(self):
         # Config-based stale: 30+ days old, no usage data, fully rolled out to 100%
@@ -435,12 +436,32 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         # Active: freshly created, no usage data yet
         await FeatureFlag.objects.acreate(team=self.team, key="fresh-flag", active=True, created_by=self.user)
 
-        entities, total = await self.context.list_entities("feature_flag", limit=10, offset=0, active_filter="STALE")
+        entities, total = await self.context.list_feature_flags(limit=10, offset=0, active_filter="STALE")
 
         assert total == 1
         assert len(entities) == 1
         assert entities[0]["result_id"] == str(stale_flag.id)
         assert entities[0]["extra_fields"]["status"] == "stale"
+        assert entities[0]["extra_fields"]["rollout"] == "100%"
+
+    async def test_list_entities_feature_flag_pagination(self):
+        for i in range(5):
+            await FeatureFlag.objects.acreate(team=self.team, key=f"flag-{i}", active=True, created_by=self.user)
+
+        entities, total = await self.context.list_entities("feature_flag", limit=2, offset=2)
+
+        assert total == 5
+        assert len(entities) == 2
+
+    async def test_list_entities_feature_flag_disabled_shows_disabled_status(self):
+        # The status checker reports ACTIVE for disabled flags; the listing should show "disabled"
+        await FeatureFlag.objects.acreate(team=self.team, key="off-flag", active=False, created_by=self.user)
+
+        entities, _ = await self.context.list_feature_flags(limit=10, offset=0, active_filter="false")
+
+        assert len(entities) == 1
+        assert entities[0]["extra_fields"]["status"] == "disabled"
+        assert entities[0]["extra_fields"]["active"] is False
 
     async def test_list_entities_feature_flag_applies_access_control(self):
         flag1 = await FeatureFlag.objects.acreate(

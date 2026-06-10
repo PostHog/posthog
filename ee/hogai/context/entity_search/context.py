@@ -182,7 +182,6 @@ class EntitySearchContext:
         entity_type: str,
         limit: int = 100,
         offset: int = 0,
-        active_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         List entities with pagination support, sorted by updated_at DESC.
@@ -191,7 +190,6 @@ class EntitySearchContext:
             entity_type: Type of entity to list (insight, dashboard, artifact, etc.)
             limit: Number of entities to return
             offset: Number of entities to skip
-            active_filter: Only used for feature_flag — "STALE" / "true" / "false" status filter
 
         Returns:
             Tuple of (entities list, total count)
@@ -228,8 +226,8 @@ class EntitySearchContext:
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
         elif entity_type == "feature_flag":
-            # Specialized queryset so we can surface each flag's status and reuse the active/STALE filter
-            return await self._list_feature_flags(limit, offset, active_filter)
+            # Specialized queryset so we can surface each flag's status
+            return await self.list_feature_flags(limit, offset)
         else:
             # Fetch database entities
             db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
@@ -370,7 +368,7 @@ class EntitySearchContext:
         ]
         return all_entities, total_count
 
-    async def _list_feature_flags(
+    async def list_feature_flags(
         self, limit: int = 100, offset: int = 0, active_filter: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """
@@ -398,6 +396,9 @@ class EntitySearchContext:
         all_entities: list[dict[str, Any]] = []
         for flag in flags:
             status, _ = FeatureFlagStatusChecker(feature_flag=flag).get_status()
+            # The checker reports ACTIVE for disabled flags (it skips staleness for them); show
+            # "disabled" instead so the status column matches the stale/enabled/disabled vocabulary.
+            display_status = status.value if flag.active else "disabled"
             all_entities.append(
                 {
                     "type": "feature_flag",
@@ -405,7 +406,7 @@ class EntitySearchContext:
                     "extra_fields": {
                         "key": flag.key,
                         "name": flag.name,
-                        "status": status.value,
+                        "status": display_status,
                         "active": flag.active,
                         "rollout": self._flag_rollout_summary(flag),
                     },

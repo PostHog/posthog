@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -37,20 +37,18 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_status_maps_to_active_filter(self, status, expected_active_filter):
         """The user-facing status maps to the backend `active` query param."""
-        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=([], 0))
-            mock_instance.format_entities = MagicMock(return_value="")
-            MockEntitySearchContext.return_value = mock_instance
+        # autospec validates calls against the real EntitySearchContext signature
+        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext", autospec=True) as MockEntitySearchContext:
+            mock_instance = MockEntitySearchContext.return_value
+            mock_instance.list_feature_flags.return_value = ([], 0)
+            mock_instance.format_entities.return_value = ""
 
             await self.tool._arun_impl(status=status, limit=100, offset=0)
 
             MockEntitySearchContext.assert_called_once_with(
                 team=self.team, user=self.user, context_manager=self.context_manager
             )
-            mock_instance.list_entities.assert_called_once_with(
-                "feature_flag", 100, 0, active_filter=expected_active_filter
-            )
+            mock_instance.list_feature_flags.assert_called_once_with(100, 0, active_filter=expected_active_filter)
 
     async def test_returns_formatted_data_with_status(self):
         """Results carry each flag's status so stale flags are identifiable without per-flag reads."""
@@ -65,11 +63,10 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
             "entity_type: feature_flag\nfeature_flag_id|name|active|key|status|url\n123|My flag|True|my-flag|stale|-"
         )
 
-        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
-            mock_instance.format_entities = MagicMock(return_value=formatted_str)
-            MockEntitySearchContext.return_value = mock_instance
+        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext", autospec=True) as MockEntitySearchContext:
+            mock_instance = MockEntitySearchContext.return_value
+            mock_instance.list_feature_flags.return_value = (entities_data, 1)
+            mock_instance.format_entities.return_value = formatted_str
 
             result, _ = await self.tool._arun_impl(status="stale", limit=100, offset=0)
 
@@ -81,11 +78,10 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_pagination_indicates_more_results(self):
         """When there are more flags than the page, the next offset is surfaced."""
-        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=([], 5))
-            mock_instance.format_entities = MagicMock(return_value="")
-            MockEntitySearchContext.return_value = mock_instance
+        with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext", autospec=True) as MockEntitySearchContext:
+            mock_instance = MockEntitySearchContext.return_value
+            mock_instance.list_feature_flags.return_value = ([], 5)
+            mock_instance.format_entities.return_value = ""
 
             result, _ = await self.tool._arun_impl(status=None, limit=2, offset=0)
 

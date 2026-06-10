@@ -15,7 +15,7 @@ flag's status, so you never need to inspect flags individually to find stale one
 
 # Parameters:
 - status: Optional status filter:
-    - "stale": flags safe to remove (not evaluated in 30+ days, or 100% rolled out and 30+ days old)
+    - "stale": enabled flags safe to remove (not evaluated in 30+ days, or never evaluated but 100% rolled out and 30+ days old)
     - "enabled": currently enabled flags
     - "disabled": currently disabled flags
     - omit to list all flags
@@ -49,11 +49,11 @@ class ListFeatureFlagsTool(MaxTool):
     async def _arun_impl(
         self, *, status: str | None = None, limit: int = 100, offset: int = 0
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        active_filter = _STATUS_TO_ACTIVE_FILTER.get(status) if status else None
+        active_filter = _STATUS_TO_ACTIVE_FILTER[status] if status else None
 
         entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
-        all_entities, total_count = await entities_context.list_entities(
-            "feature_flag", limit, offset, active_filter=active_filter
+        all_entities, total_count = await entities_context.list_feature_flags(
+            limit, offset, active_filter=active_filter
         )
 
         formatted_entities = entities_context.format_entities(all_entities)

@@ -506,8 +506,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: <IconSearch />,
         displayFormatter: (toolCall) => {
             const status = typeof toolCall.args?.status === 'string' ? toolCall.args.status : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
             const label = status ? `${status} feature flags` : 'feature flags'
-            return toolCall.status === 'completed' ? `Listed ${label}` : `Listing ${label}...`
+            return toolCall.status === 'completed' ? `Listed ${label}${pageInfo}` : `Listing ${label}${pageInfo}...`
         },
     },
     create_insight: {
