@@ -13,7 +13,7 @@ The fix is always the same: make the import lazy so it loads only when its code 
 The biggest single lever was the **lazy API router** (below).
 Everything else is deferring individual heavy imports off the startup path.
 
-## The three mechanisms
+## The four mechanisms
 
 ### 1. Lazy API router
 
@@ -166,6 +166,14 @@ Whitelist the public names (`if name in __all__`) and raise `AttributeError` oth
 **DRF serializer field kwargs are evaluated at import.**
 `choices=sorted(SUPPORTED_THINGS)` in a serializer field runs at class definition, i.e. when the module imports — you cannot function-locally defer the import it depends on.
 If the constant lives in a heavy module (a Temporal destination, an SDK wrapper), move the constant to an import-light module and have both sides import it from there; re-export under the old name to keep existing importers working.
+
+**A deferral relocates cost — check where it lands before calling it a win.**
+Deferring an import (or a pydantic `defer_build`) does not delete the work; it moves it to first use, and first use may be a live request.
+The generated `posthog.schema` models defer their core-schema builds (~400ms off every setup), but in a web pod the first `/query` validation would then build the whole discriminated-union tree on a user's request, once per worker, after every deploy — previously that cost was paid at boot, behind the readiness probe, pre-fork and COW-shared.
+The fix is mode-dependent eagerness: `wsgi.py`/`asgi.py` set `POSTHOG_BUILD_SCHEMA_MODELS_AT_IMPORT` so web keeps the eager build at boot, while celery/temporal/migrate/CLI stay lazy (they touch few or no models, and their first-use latency is not user-facing).
+Two sub-lessons: a post-hoc warm-up loop was ~2.5x more expensive than letting class creation build eagerly (`model_rebuild()` re-resolves namespaces per model), so prefer an import-time switch over warming; and a guard test pins both modes, because silently losing the web switch would only show up as a p99 spike after deploys.
+The general question to ask of any deferral: _which process pays now, on what path, and is that path latency-sensitive?_
+Background workers paying lazily is almost always fine; web workers paying on first requests usually is not.
 
 **Regenerating a shared snapshot on top of a bad merge.**
 Query-count snapshot files (`.ambr`) are generated.
