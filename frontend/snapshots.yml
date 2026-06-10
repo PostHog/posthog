@@ -2009,9 +2009,9 @@ snapshots:
     filters-taxonomic-filter--actions--light:
         hash: v1.k794b7964.fd0c661c7367ed6acbc1a0f7c3f081873768cb71f0cbe818079a40e006f251fd.b_vQO7-Lw4OI3NfIzBaEJsQI3cQRcr6rBfTVV0ivgAk
     filters-taxonomic-filter--autocapture-context-promotes-elements--dark:
-        hash: v1.k794b7964.8c5d02ec4c497a87a0df0cf32bb695ffb728e4efa6ac8b17eaf9063c5ce98170.5sdWMbFrLaEyW5syvARRnAsh5IkpWjdemV1wq35_4ow
+        hash: v1.k794b7964.cfa95574b47a8694ba49535c1defbb2730aad63200ab7a3b6ddad2643f2b8491.cIDfsRKX2II6PHGSbaQYQJJlV6arvQKuaIMH_eiQ1Tg
     filters-taxonomic-filter--autocapture-context-promotes-elements--light:
-        hash: v1.k794b7964.22b6c7c9ce49bc9ed622417764cc41b2bde28d5a71a9fbc7e92131551dcebb63.jaTvGGOP2Q4wYsPwae28Qzm8_iG70pdBcAc_aAshTy4
+        hash: v1.k794b7964.eb6cd0813ef8b398e812aaef440a71f15eb8daeb158c854cb9f13cf4f537268f.PShI3Mx9k6ygGCfyN5gFEc5i5UnlK_CPTWF5ucWDRHI
     filters-taxonomic-filter--empty-events-with-stale-toggle--dark:
         hash: v1.k794b7964.58cb6300564a2a703d96ce3e69b884cf4009c6fa3ff46b638915be0d7f3b5f02.16dqA1SviZenMIon-EhxXL-vwoIrRFEbDDIDGT3MIm0
     filters-taxonomic-filter--empty-events-with-stale-toggle--light:
@@ -2041,21 +2041,21 @@ snapshots:
     filters-taxonomic-filter--six-groups-default-layout--light:
         hash: v1.k794b7964.ff5b9b093dc72e16b163a87e1ca6b8717196e0a2e9f2b6f232285af80f78a7fd.WmGwg_w20XhcCHdVcg7Ia2ocWDAc_6LihIi7V5w3pco
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--dark:
-        hash: v1.k794b7964.b670e1f49fce960dc042d85c2151f8663039532962d93e82c444e71d852e9602._vZUHL3HRT3-JAESZA0W3_tEuYpXtxKFclbN4sZ5Uh4
+        hash: v1.k794b7964.21ba961b89ba79ceb157d55573bf150638c2a6d808ea11ac2f77686f186a5e28.xd_kiA7IHD6WnqDhbjgFOESGCsiymbr19hSw_eEIDWE
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--light:
-        hash: v1.k794b7964.371a28b35788cf0907f3deb707d65773dfcbc4c48162d4662b3eca0c312d7697.cpGyjzWpxOB8dYccKJ96Lg2la3Q-0L_NR36fdSZMX48
+        hash: v1.k794b7964.96433b8ecef485d6072c135f26be44eb8c8e0cd21827751e2b14af9e4ac48b2b.t3-Dw-w88wEWoLMN4s0mVUnv14-IY1UNQEKbntFvrnA
     filters-taxonomic-filter--suggested-filters-four-recents--dark:
-        hash: v1.k794b7964.faba0f7b7f13628356fad6583e2d06ad3a4bd5751b3d90e3cb78b7e7f58ef350.vXpVnly-mhnd-0x6RJwSWxNHOxZ6xu6nQQwPpBkxThk
+        hash: v1.k794b7964.7714bb450f764d7f180ace05d884564faee4b2ae86793b7e0ede4867ef94f018._uK_A9Nx7r29rbSMZvhXSevxLnTdPAHCtK-HqGDPQ3o
     filters-taxonomic-filter--suggested-filters-four-recents--light:
-        hash: v1.k794b7964.5edb70129be4b34deb2cb17a372a2fe76df37c319fb2a5bd2fe913e74a401a32.-M33rwmo_97cyTsF_VCOXSBLQmJnd-UxetGBNJwNy5U
+        hash: v1.k794b7964.8a9a202b44a8dccbfc74ddbfbf7b6329c1d590c1fb0b92e4e68bdb2c499d0848.PhO19tVqsRwRskP1OdeN8gqxX1fDP-oJRnnMqDSoCe4
     filters-taxonomic-filter--suggested-filters-no-recents--dark:
         hash: v1.k794b7964.012137ade9f589a3eca44504e4e62024f800f4465660cc193a2f72eb387ffeb5.q7SF2Oa_9DYK_458ZbQip_nm0Wnrxzm7ApfN3IHQKFA
     filters-taxonomic-filter--suggested-filters-no-recents--light:
         hash: v1.k794b7964.4f7f0d6e5b8df449b5186a4d9598960292eeb981a586beeef52f4888c818e617.AU50q0IrQI_PWD-mAVvrYvg-ufokF97G-eXw4Z7PYXk
     filters-taxonomic-filter--suggested-filters-one-recent--dark:
-        hash: v1.k794b7964.c64354c69dcb83029f1410415b22702e96db96728d30696ad77d213f7ee204dd.Cbn-CLijRd7pvDH0bqxsrZiBgIgOivh2rtI90mRuKgg
+        hash: v1.k794b7964.acc48a8784ebc260d291fb06eeb1122d94212b38d921d81a2ec091c98d0e77b9.YOxIP0_6sdAg_vkMu9gQxUaOHBMU_Oy25kYfB1LZL3A
     filters-taxonomic-filter--suggested-filters-one-recent--light:
-        hash: v1.k794b7964.194a8b995a3585272ea39dbaf50c1c605693d4b5e2c96c4d0e8045cbdd6517a3.LT5oF32psILV3x2-zczjDmDRSeJozhOn86niMQZQA2M
+        hash: v1.k794b7964.31af851cf3ffbdbeecc64120c2447a9d62cf11735e66e59bf35fa103630abb82.x2GJ8OTVdPYu3-Avfl-5jH_VdjihWE2YwYgdtbDORG0
     filters-taxonomic-filter--three-groups-default-layout--dark:
         hash: v1.k794b7964.e503fd34c51bed2938ea70593de2a34e2bb44585a94779268dbe9caa6a430c38.td6RRIB5rlR-53hCaS6Mlj7-wA7vEPm6EOydbtul8xE
     filters-taxonomic-filter--three-groups-default-layout--light:
