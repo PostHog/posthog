@@ -64,6 +64,17 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
+    codingEnabled: z
+        .union([z.boolean(), z.string()])
+        .optional()
+        .transform((v) => v === true || v === '1' || v === 'true')
+        .describe(
+            'Enable in-sandbox coding agents (spec.sandbox.loop_location=in_sandbox). Provisions the tier-2 coding pool.'
+        ),
+    codingHarnessImage: z
+        .string()
+        .default('ghcr.io/posthog/posthog-sandbox-base:master')
+        .describe('Image for the tier-2 coding harness (agent-server). Pin by digest in prod.'),
     posthogAnalyticsApiKey: z
         .string()
         .optional()
@@ -217,6 +228,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_USE_AI_GATEWAY: 'useAiGateway',
     POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
     POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
+    AGENT_CODING_ENABLED: 'codingEnabled',
+    AGENT_CODING_HARNESS_IMAGE: 'codingHarnessImage',
     ANTHROPIC_API_KEY: 'anthropicApiKey',
     OPENAI_API_KEY: 'openaiApiKey',
     MODEL_API_KEY: 'modelApiKey',

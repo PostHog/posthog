@@ -38,6 +38,7 @@ import {
     TabularStore,
     RevisionStore,
     SandboxInstanceStore,
+    CodingSandboxPool,
     SandboxPool,
     SecretBroker,
     SessionEventBus,
@@ -57,6 +58,10 @@ export interface WorkerDeps {
     revisions: RevisionStore
     bundle: BundleStore
     sandboxes: SandboxPool
+    /** Tier-2 coding-sandbox pool — present when in-sandbox coding agents are enabled. */
+    codingPool?: CodingSandboxPool
+    /** Gateway config the in-sandbox harness uses to reach the model. */
+    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
     broker: SecretBroker
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>
@@ -524,6 +529,8 @@ export class Worker {
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
                 maxOutputTokensOverride: this.deps.maxOutputTokens,
+                codingPool: this.deps.codingPool,
+                codingGateway: this.deps.codingGateway,
                 inputs: this.deps.queue,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop

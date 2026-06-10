@@ -50,6 +50,7 @@ import {
     AssistantMessageRecord,
     BundleStore,
     buildSystemPrompt,
+    CodingSandboxPool,
     ConversationMessage,
     CredentialBroker,
     createLogger,
@@ -76,6 +77,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import { driveCodingSession } from './coding-driver'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
@@ -204,6 +206,20 @@ export interface RunSessionDeps {
     posthogApiBaseUrl: string
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
     maxOutputTokensOverride?: number
+    /**
+     * Tier-2 coding-sandbox pool — present when the runner is configured to
+     * run in-sandbox coding agents (`spec.sandbox.loop_location === 'in_sandbox'`).
+     * `runSession` branches to `driveCodingSession` (coding-driver.ts) when the
+     * spec opts in and this pool is wired. See
+     * docs/agent-platform/plans/agent-sandbox-tiers.md.
+     */
+    codingPool?: CodingSandboxPool
+    /**
+     * Gateway config the in-sandbox harness uses to reach the model
+     * (`LLM_GATEWAY_URL` + token). Separate from the in-process model path
+     * because the harness calls the gateway itself from inside the sandbox.
+     */
+    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
 }
 
 export type RunOutcome =
@@ -220,6 +236,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     if (!deps.approvals) {
         throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
     }
+
+    // In-sandbox coding agents run the LLM loop inside the tier-2 harness, not
+    // pi-agent-core in-process. Delegate to the coding driver, which mirrors
+    // this function's bus/log/persist/outcome contract. See
+    // docs/agent-platform/plans/agent-sandbox-tiers.md.
+    if (rev.spec.sandbox?.loop_location === 'in_sandbox') {
+        return driveCodingSession(rev, session, deps)
+    }
+
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
     })

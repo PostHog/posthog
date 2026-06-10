@@ -51,6 +51,7 @@ import {
     S3MemoryStore,
     SecretBroker,
     selectSandboxPool,
+    DockerCodingSandboxPool,
     SlackFailureNotifier,
     TriggerAwareFailureNotifier,
 } from '@posthog/agent-shared'
@@ -285,10 +286,23 @@ async function main(): Promise<void> {
         { warn: (meta, msg) => log.warn(meta, msg) }
     )
 
+    // In-sandbox coding agents (tier-2). Off by default; Docker-only for now
+    // (the runner pod needs Docker) — Modal coding pool is a follow-up. The
+    // harness wants the gateway ROOT (it appends /v1/messages itself), so strip
+    // a trailing /v1 from the configured gateway url.
+    const codingPool = config.codingEnabled
+        ? new DockerCodingSandboxPool({ image: config.codingHarnessImage })
+        : undefined
+    const codingGateway = config.codingEnabled
+        ? { baseUrl: config.aiGatewayUrl.replace(/\/v1\/?$/, ''), apiKey: config.posthogAiGatewayKey }
+        : undefined
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
         bundle: bundles,
+        codingPool,
+        codingGateway,
         sandboxes: selectSandboxPool({
             backend: config.sandboxBackend,
             sandboxHostImage: config.sandboxHostImage,
