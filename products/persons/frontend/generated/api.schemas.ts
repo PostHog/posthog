@@ -16,22 +16,22 @@ export const PropertyGroupOperatorApi = {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `gte` - gte
+ * * `lte` - lte
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_after` - is_date_after
+ * * `is_date_before` - is_date_before
+ * * `in` - in
+ * * `not_in` - not_in
  */
 export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
@@ -63,32 +63,32 @@ export const BlankEnumApi = {
 
 /**
  * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `event_metadata` - event_metadata
+ * * `feature` - feature
+ * * `person` - person
+ * * `cohort` - cohort
+ * * `element` - element
+ * * `static-cohort` - static-cohort
+ * * `dynamic-cohort` - dynamic-cohort
+ * * `precalculated-cohort` - precalculated-cohort
+ * * `group` - group
+ * * `recording` - recording
+ * * `log_entry` - log_entry
+ * * `behavioral` - behavioral
+ * * `session` - session
+ * * `hogql` - hogql
+ * * `data_warehouse` - data_warehouse
+ * * `data_warehouse_person_property` - data_warehouse_person_property
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `log` - log
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
+ * * `span` - span
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ * * `revenue_analytics` - revenue_analytics
+ * * `flag` - flag
+ * * `workflow_variable` - workflow_variable
  */
 export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
@@ -134,48 +134,48 @@ export interface PropertyItemApi {
 
 export interface PropertyApi {
     /**
-   You can use a simplified version:
-  ```json
-  {
-      "properties": [
-          {
-              "key": "email",
-              "value": "x@y.com",
-              "operator": "exact",
-              "type": "event"
-          }
-      ]
-  }
-  ```
-
-  Or you can create more complicated queries with AND and OR:
-  ```json
-  {
-      "properties": {
-          "type": "AND",
-          "values": [
-              {
-                  "type": "OR",
-                  "values": [
-                      {"key": "email", ...},
-                      {"key": "email", ...}
-                  ]
-              },
-              {
-                  "type": "AND",
-                  "values": [
-                      {"key": "email", ...},
-                      {"key": "email", ...}
-                  ]
-              }
-          ]
-      ]
-  }
-  ```
-
-
-  * `AND` - AND
-  * `OR` - OR */
+     *  You can use a simplified version:
+     * ```json
+     * {
+     *     "properties": [
+     *         {
+     *             "key": "email",
+     *             "value": "x@y.com",
+     *             "operator": "exact",
+     *             "type": "event"
+     *         }
+     *     ]
+     * }
+     * ```
+     *
+     * Or you can create more complicated queries with AND and OR:
+     * ```json
+     * {
+     *     "properties": {
+     *         "type": "AND",
+     *         "values": [
+     *             {
+     *                 "type": "OR",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             },
+     *             {
+     *                 "type": "AND",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             }
+     *         ]
+     *     ]
+     * }
+     * ```
+     *
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
     type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }

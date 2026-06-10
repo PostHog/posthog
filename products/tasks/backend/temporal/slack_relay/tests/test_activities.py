@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
+    _repair_link_trailing_markers,
     _split_markdown_for_slack,
     relay_slack_message,
 )
@@ -107,6 +108,41 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @parameterized.expand(
+        [
+            # ``mentioning_slack_user_id`` is the immutable thread creator;
+            # ``latest_actor_slack_user_id`` is set by the follow-up handler
+            # when someone else (or the creator themselves) replies. The bot
+            # tags the latest actor when present, otherwise the creator.
+            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
+            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mention_prefix_uses_latest_actor_then_mentioner(
+        self,
+        _name,
+        latest_actor,
+        expected_prefix,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-mention-{_name}",
+                text="agent reply",
+            )
+        )
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].startswith(expected_prefix)
+
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
@@ -125,6 +161,25 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("horizontal_rule", "---", "──────────"),
             ("blockquote_preserved", "> quote", "> quote"),
             ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
+            (
+                "bold_markdown_link",
+                "**[pr-shepherd](https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd)**",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
+            # Agent emits double-asterisk closing markers inside the angle brackets
+            # (`**<url**>`). Without the repair pass the converter would halve those
+            # asterisks in place and produce `*<url*>`, which Slack renders as
+            # literal text with no link and no bold.
+            (
+                "agent_typo_double_asterisk_autolink",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd>*",
+            ),
+            (
+                "agent_typo_double_asterisk_labeled_link",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
@@ -156,6 +211,34 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
         md = "| a | b |\n| c | d |"
         result = _markdown_to_slack_mrkdwn(md)
         assert "```" not in result
+
+
+class TestRepairLinkTrailingMarkers(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("autolink_double_asterisk", "**<https://x.com**>", "**<https://x.com>**"),
+            ("autolink_single_asterisk", "*<https://x.com*>", "*<https://x.com>*"),
+            ("autolink_underscore", "_<https://x.com_>", "_<https://x.com>_"),
+            ("autolink_strikethrough", "~<https://x.com~>", "~<https://x.com>~"),
+            (
+                "labeled_link_double_asterisk",
+                "**<https://x.com|label**>",
+                "**<https://x.com|label>**",
+            ),
+            (
+                "two_broken_links_in_one_line",
+                "**<https://a.com**> and **<https://b.com**>",
+                "**<https://a.com>** and **<https://b.com>**",
+            ),
+            ("well_formed_autolink_unchanged", "**<https://x.com>**", "**<https://x.com>**"),
+            ("plain_text_unchanged", "Hello world", "Hello world"),
+            # Mismatched openers/closers shouldn't be rewritten — leave alone so we
+            # don't silently corrupt content that looks vaguely link-shaped.
+            ("mismatched_markers_unchanged", "**<https://x.com*>", "**<https://x.com*>"),
+        ]
+    )
+    def test_repair(self, _name, text, expected):
+        assert _repair_link_trailing_markers(text) == expected
 
 
 class TestSplitTextForSlack(TestCase):

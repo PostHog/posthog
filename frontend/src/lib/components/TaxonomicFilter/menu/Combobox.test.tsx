@@ -312,13 +312,38 @@ describe('MenuFilterCombobox', () => {
         expect(pageviewRows).toHaveLength(1)
     })
 
-    it('floats $email to the top of the content when searching "email"', async () => {
+    it('shows a complete recent as both a full value row and a separate bare key row', async () => {
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.EventProperties],
+            recentEntries: [
+                {
+                    ...makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+                    recentPropertyFilter: { key: '$browser', operator: 'exact', value: 'Chrome' },
+                    recentLabel: 'Browser = Chrome',
+                },
+                makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+            ],
+        })
+
+        await waitFor(() => expect(rowTexts().length).toBeGreaterThan(0))
+        const texts = rowTexts()
+        expect(texts.some((t) => t.includes('Browser = Chrome'))).toBe(true)
+        expect(texts.some((t) => t.includes('$browser') && !t.includes('Chrome'))).toBe(true)
+    })
+
+    it.each([
+        ['email', '$email'],
+        ['url', '$current_url'],
+        ['path', '$pathname'],
+    ])('floats the promoted property to the top of the content when searching %p', async (searchTerm, promotedName) => {
         apiGet.mockImplementation((url: string) => {
             if (url.includes('property_definitions')) {
+                // The decoy is returned first so a passing assertion can only mean
+                // promotion reordered the result, not the server order.
                 return Promise.resolve({
                     results: [
                         { id: 1, name: 'other_prop' },
-                        { id: 2, name: '$email' },
+                        { id: 2, name: promotedName },
                     ],
                     count: 2,
                 })
@@ -326,14 +351,14 @@ describe('MenuFilterCombobox', () => {
             return Promise.resolve({ results: [], count: 0 })
         })
 
-        renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: 'email' })
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: searchTerm })
 
         await waitFor(() => expect(screen.getByText('other_prop')).toBeInTheDocument())
         const rows = rowTexts()
-        const emailIdx = rows.findIndex((t) => t.includes('$email'))
+        const promotedIdx = rows.findIndex((t) => t.includes(promotedName))
         const otherIdx = rows.findIndex((t) => t.includes('other_prop'))
-        expect(emailIdx).toBeGreaterThanOrEqual(0)
-        expect(emailIdx).toBeLessThan(otherIdx)
+        expect(promotedIdx).toBeGreaterThanOrEqual(0)
+        expect(promotedIdx).toBeLessThan(otherIdx)
     })
 
     it('drops the recents/pinned prefix once the query no longer matches them', async () => {

@@ -40,8 +40,8 @@ export const clustersTabContentLogic = kea<clustersTabContentLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters_json,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_clusters as clusters_json,
                                 timestamp
                             FROM events
                             WHERE event = '$ai_trace_clusters'
