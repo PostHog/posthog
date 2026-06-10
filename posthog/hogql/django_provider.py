@@ -23,6 +23,7 @@ from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREF
 from posthog.models import PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.models.util import get_view_or_table_by_
 
 if TYPE_CHECKING:
     from posthog.hogql import ast
+
+    from posthog.models import User
 
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
@@ -93,9 +96,10 @@ class DjangoDataProvider:
     directly — only the routing changed.
     """
 
-    def __init__(self, team: Optional[Team] = None, team_id: Optional[int] = None):
+    def __init__(self, team: Optional[Team] = None, team_id: Optional[int] = None, user: Optional["User"] = None):
         self._team = team
         self._team_id = team_id if team_id is not None else (team.id if team is not None else None)
+        self._user = user
         self._team_context: Optional[HogQLTeamContext] = None
         # Action rows fetched by actions() are kept so a following action_expr() call
         # converts the already-loaded row instead of re-querying.
@@ -308,3 +312,13 @@ class DjangoDataProvider:
 
         cohort = Cohort.objects.get(id=cohort_id, team__project_id=self.team.project_id)
         return HogQLCohortQuery(cohort=cohort, team=self.team).get_query()
+
+    def embed_text(self, text: str, model: Optional[str] = None) -> list[float]:
+        # Deferred: posthog.api pulls in the DRF/view universe; keep it off the import path.
+        from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
+
+        return generate_embedding(self.team, text, model).embedding
+
+    def restricted_properties(self) -> set[tuple[str, int]]:
+        team_id = self._team_id if self._team_id is not None else self.team.id
+        return get_restricted_properties_for_team(team_id=team_id, user=self._user)

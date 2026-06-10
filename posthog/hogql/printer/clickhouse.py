@@ -235,7 +235,7 @@ class ClickHousePrinter(BasePrinter):
         args = [self.visit(arg) for arg in node.args]
 
         if node.name == "embedText":
-            return self.visit_constant(resolve_embed_text(self.context.team, node))
+            return self.visit_constant(resolve_embed_text(self.context.data, node))
         elif node.name == "lookupDomainType":
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"

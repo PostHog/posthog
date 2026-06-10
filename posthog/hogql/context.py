@@ -161,5 +161,5 @@ class HogQLContext:
             # mirrors the lazy Team fetch in project_id above.
             from posthog.hogql.django_provider import DjangoDataProvider  # noqa: PLC0415
 
-            self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id)
+            self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id, user=self.user)
         return self.data_provider

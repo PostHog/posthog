@@ -69,9 +69,6 @@ class TestEngineIsolationGate(SimpleTestCase):
             database=Database(),
             enable_select_queries=True,
             modifiers=modifiers,
-            # Property-level access control is resolved at the Django boundary;
-            # engine callers inject the resolved set.
-            restricted_properties=set(),
         )
 
     @parameterized.expand(
@@ -207,6 +204,18 @@ class TestEngineIsolationGate(SimpleTestCase):
             dialect="hogql",
         )
         self.assertIn("SELECT event FROM events", printed)
+
+    def test_embed_text_resolved_via_provider(self) -> None:
+        provider = _provider(text_embeddings={("hello", None): [0.25, 0.75]})
+        context = self._print_context(provider)
+        prepare_and_print_ast(parse_select("SELECT embedText('hello') FROM events"), context, dialect="clickhouse")
+        self.assertIn([0.25, 0.75], list(context.values.values()))
+
+    def test_restricted_properties_fetched_via_provider(self) -> None:
+        provider = _provider(restricted_properties_set={("secret", 1)})
+        context = self._print_context(provider)
+        prepare_and_print_ast(parse_select("SELECT event FROM events"), context, dialect="clickhouse")
+        self.assertEqual(context.restricted_properties, {("secret", 1)})
 
     def test_variables_substituted_via_provider(self) -> None:
         provider = _provider(

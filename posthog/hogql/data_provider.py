@@ -151,6 +151,14 @@ class DataProvider(Protocol):
         """
         ...
 
+    def embed_text(self, text: str, model: Optional[str] = None) -> list[float]:
+        """Embedding vector for ``text`` — the ``embedText()`` HogQL function."""
+        ...
+
+    def restricted_properties(self) -> set[tuple[str, int]]:
+        """(property name, PropertyDefinition type) pairs the requesting user may not read."""
+        ...
+
 
 @dataclass
 class StaticDataProvider:
@@ -175,6 +183,8 @@ class StaticDataProvider:
     cohort_ids: dict[int | str, int] = field(default_factory=dict)
     cohort_refs: dict[tuple[CohortRefKind, int | str], list[CohortRef]] = field(default_factory=dict)
     inline_cohort_queries: dict[int, "ast.SelectQuery | ast.SelectSetQuery"] = field(default_factory=dict)
+    text_embeddings: dict[tuple[str, Optional[str]], list[float]] = field(default_factory=dict)
+    restricted_properties_set: set[tuple[str, int]] = field(default_factory=set)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
         return self.person_warehouse_property_types[(field_name, property_key)]
@@ -233,3 +243,9 @@ class StaticDataProvider:
 
     def inline_cohort(self, cohort_id: int, auto_gated: bool) -> Optional["ast.SelectQuery | ast.SelectSetQuery"]:
         return self.inline_cohort_queries.get(cohort_id)
+
+    def embed_text(self, text: str, model: Optional[str] = None) -> list[float]:
+        return self.text_embeddings[(text, model)]
+
+    def restricted_properties(self) -> set[tuple[str, int]]:
+        return self.restricted_properties_set
