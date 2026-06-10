@@ -17,6 +17,8 @@
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "fast-deep-equal": "*",
         "react": "*",

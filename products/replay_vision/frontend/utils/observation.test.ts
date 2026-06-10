@@ -6,7 +6,7 @@ function makeObservation(modelOutput: Record<string, unknown> | null | undefined
         id: 'o1',
         scanner_result:
             modelOutput === undefined ? undefined : ({ model_output: modelOutput } as Record<string, unknown>),
-    } as ReplayObservationApi
+    } as unknown as ReplayObservationApi
 }
 
 describe('readModelOutput', () => {

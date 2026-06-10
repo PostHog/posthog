@@ -49,8 +49,10 @@ describe('ScannerConfigReadonly', () => {
             scanner_config: { prompt: 'Q?', allow_inconclusive: true },
         }
         render(<ScannerConfigReadonly scanner={scanner} />)
-        expect(screen.getAllByText('Allow inconclusive verdicts').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
+        // `queryAllByText` returns [] on no match — needed because the LemonTag wrapper renders the label twice
+        // (accessible + visible) and `getByText` would throw on the duplicate.
+        expect(screen.queryAllByText('Allow inconclusive verdicts').length).toBeGreaterThan(0)
+        expect(screen.queryAllByText('Yes').length).toBeGreaterThan(0)
     })
 
     it('renders Summary length for summarizer scanners', () => {
@@ -90,9 +92,9 @@ describe('ScannerConfigReadonly', () => {
             scanner_config: { prompt: 'Score.', scale: { min: 0, max: 10, label: 'frustration' } },
         }
         render(<ScannerConfigReadonly scanner={scanner} />)
-        expect(screen.getAllByText('Scale').length).toBeGreaterThan(0)
-        expect(screen.getAllByText(/0 – 10/).length).toBeGreaterThan(0)
-        expect(screen.getAllByText(/frustration/).length).toBeGreaterThan(0)
+        expect(screen.queryAllByText('Scale').length).toBeGreaterThan(0)
+        expect(screen.queryAllByText(/0 – 10/).length).toBeGreaterThan(0)
+        expect(screen.queryAllByText(/frustration/).length).toBeGreaterThan(0)
     })
 
     it('falls back to "All completed recordings" when no recording filters are configured', () => {
@@ -102,6 +104,6 @@ describe('ScannerConfigReadonly', () => {
             scanner_config: { prompt: 'Q?' },
         }
         render(<ScannerConfigReadonly scanner={scanner} />)
-        expect(screen.getAllByText('All completed recordings').length).toBeGreaterThan(0)
+        expect(screen.queryAllByText('All completed recordings').length).toBeGreaterThan(0)
     })
 })

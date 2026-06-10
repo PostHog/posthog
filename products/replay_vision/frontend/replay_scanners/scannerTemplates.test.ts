@@ -6,36 +6,34 @@ describe('findScannerTemplate', () => {
         expect(findScannerTemplate(first.key)).toBe(first)
     })
 
-    it('returns undefined for missing or unknown keys', () => {
-        expect(findScannerTemplate(undefined)).toBeUndefined()
-        expect(findScannerTemplate('')).toBeUndefined()
-        expect(findScannerTemplate('nonexistent-key-xyz')).toBeUndefined()
+    it.each([
+        { label: 'undefined', input: undefined as string | undefined },
+        { label: 'empty string', input: '' as string | undefined },
+        { label: 'unknown key', input: 'nonexistent-key-xyz' as string | undefined },
+    ])('returns undefined for $label', ({ input }) => {
+        expect(findScannerTemplate(input)).toBeUndefined()
     })
 })
 
 describe('newScanner', () => {
-    it('returns a blank monitor scanner when no template is provided', () => {
-        const scanner = newScanner(null)
-        expect(scanner).toMatchObject({
-            id: 'new',
-            enabled: true,
-            sampling_rate: 1,
-            name: '',
-            description: '',
+    it.each([
+        { label: 'null', input: null as string | null | undefined },
+        { label: 'omitted', input: undefined as string | null | undefined },
+        { label: 'unknown key', input: 'nonexistent-key-xyz' as string | null | undefined },
+    ])('falls back to a blank monitor scanner when templateKey is $label', ({ input }) => {
+        expect(newScanner(input)).toMatchObject({
             scanner_type: 'monitor',
             scanner_config: { prompt: '' },
+            name: '',
         })
     })
 
-    it('returns a blank monitor scanner when templateKey is omitted', () => {
-        expect(newScanner()).toMatchObject({ scanner_type: 'monitor', scanner_config: { prompt: '' } })
-    })
-
-    it('falls back to a blank scanner when templateKey is unknown', () => {
-        expect(newScanner('nonexistent-key-xyz')).toMatchObject({
-            scanner_type: 'monitor',
-            scanner_config: { prompt: '' },
-            name: '',
+    it('blank scanner carries the expected default id, enabled, and sampling fields', () => {
+        expect(newScanner(null)).toMatchObject({
+            id: 'new',
+            enabled: true,
+            sampling_rate: 1,
+            description: '',
         })
     })
 
