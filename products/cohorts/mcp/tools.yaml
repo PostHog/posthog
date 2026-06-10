@@ -204,11 +204,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        # Strip compiled HogQL artifacts from each filter condition — they duplicate the
-        # human-readable `value`/`key` and can dominate the payload (a single condition over
-        # many UUIDs balloons to tens of thousands of chars) without adding readable info.
-        # Covers both the canonical nested group shape (properties.values[].values[]) and the
-        # flattened single-group shape (properties.values[]); unmatched paths no-op safely.
+        ui_app: cohort
         response:
             exclude:
                 - filters.properties.values.*.values.*.bytecode
@@ -217,7 +213,6 @@ tools:
                 - filters.properties.values.*.bytecode
                 - filters.properties.values.*.bytecode_error
                 - filters.properties.values.*.conditionHash
-        ui_app: cohort
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
