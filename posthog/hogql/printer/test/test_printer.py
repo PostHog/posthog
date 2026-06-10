@@ -4445,6 +4445,38 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "toDateTime64(" in printed
         assert "parseDateTime64BestEffortOrNull" not in printed
 
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=False,
+            column_type="Float64",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        # A non-nullable Float64 column stores 0 for missing JSON, so the bare minmax rewrite would
+        # match rows where the property is absent. The optimization must be skipped (no bare column).
+        assert "less(events.mat_numeric_test_prop, " not in printed
+
     @parameterized.expand(
         [
             # Nullable: only actual JSON null / missing keys are SQL NULL — ``''`` and ``'null'`` are real values that compare lexically (``'' < 'mango'`` matches ``d_empty``, ``'null' >= 'mango'`` matches ``d_null_str`` since ``'n' > 'm'``).
@@ -5303,6 +5335,26 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
+
+    @patch("posthog.hogql.transforms.property_types.get_materialized_column_for_property")
+    def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # JSONExtractString has string semantics, so a numeric-typed materialized column must not be
+        # substituted for it — that would emit a bare Float64 column where a string is expected.
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_numeric_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        printed = self._expr("JSONExtractString(properties, 'numeric_prop')")
+
+        assert "mat_numeric_prop" not in printed
+        assert "JSONExtractString(events.properties" in printed
 
 
 class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):

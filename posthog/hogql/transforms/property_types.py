@@ -377,7 +377,10 @@ class PropertySwapper(CloningVisitor):
     @staticmethod
     def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
         if node.name == "JSONExtractString":
-            return True
+            # JSONExtractString has string semantics, so it only matches a string-backed column.
+            # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
+            # to the bare typed column, dropping the string type the surrounding query expects.
+            return parse_sql_runtime_type(mat_col.type).family == "string"
 
         if node.name != "JSONExtract" or len(node.args) != 3:
             return False

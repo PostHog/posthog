@@ -697,7 +697,11 @@ class ClickHousePrinter(BasePrinter):
             return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
 
         if not is_string_source:
-            return f"{op_name}({materialized_column_sql}, {constant_sql})"
+            # A non-nullable, non-string column stores the ClickHouse type default (e.g. 0 for a
+            # Float64) when the JSON value is missing or invalid, so a bare comparison would match
+            # rows where the property does not exist. There is no safe bare rewrite without
+            # nullability to distinguish a real default from a missing value, so skip the optimization.
+            return None
 
         # Non-nullable strings: exclude the '' / 'null' sentinels inline so the comparison stays bare.
         sentinel_exclusions = " AND ".join(
