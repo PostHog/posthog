@@ -48,11 +48,10 @@ making non-trivial changes.
    runner so it can decrypt at session start. Don't add a second
    encryption mechanism — extend `EncryptedTextField`'s key set.
 
-5. **Isolation: not yet enforced, but staged.** [turbo.json](turbo.json)
-   has a `backend:contract-check` task but no `backend/facade/` or
-   `backend/presentation/` directories exist yet. Don't add new
-   cross-product imports into here — when isolation lands the facade
-   will be the only allowed entry point.
+5. **Isolation: not yet enforced.** There's no `backend/facade/` or
+   `backend/presentation/` boundary yet, so no `backend:contract-check`.
+   Don't add new cross-product imports into here — when isolation lands
+   a facade will be the only allowed entry point.
 
 ## When you change something here
 
