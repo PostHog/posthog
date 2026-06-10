@@ -15,10 +15,9 @@ from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserP
 
 
 class TestRouteThreadMessage(TestCase):
-    """Untagged ``message`` events in already-tagged threads should be classified
-    and forwarded to the running agent. Every gate that fails must fall through
-    silently (no Slack reply) — these events fire on every thread message, so a
-    spammy failure path is worse than missing the occasional follow-up."""
+    """Untagged ``message`` events in already-tagged threads run the same pipeline
+    as ``app_mention``. The only inline branch on routing intent is the classifier
+    gate right before workflow dispatch."""
 
     def setUp(self):
         from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
@@ -125,12 +124,12 @@ class TestRouteThreadMessage(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(thread_ts="1001.0000")  # same as ts
-        with patch("products.slack_app.backend.api.SlackThreadTaskMapping.objects.filter") as mock_filter:
-            with (
-                patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
-                patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
-            ):
-                result = self._route(event)
+        with (
+            patch("products.slack_app.backend.api.SlackThreadTaskMapping.objects.filter") as mock_filter,
+            patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_filter.assert_not_called()
         mock_classify.assert_not_called()
@@ -140,7 +139,7 @@ class TestRouteThreadMessage(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(user=None)
-        with patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start:
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_not_called()
@@ -149,7 +148,7 @@ class TestRouteThreadMessage(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(bot_id="B_OTHER")
-        with patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start:
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_not_called()
@@ -158,7 +157,7 @@ class TestRouteThreadMessage(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(subtype="message_changed")
-        with patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start:
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_not_called()
@@ -175,7 +174,7 @@ class TestRouteThreadMessage(TestCase):
         with (
             patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
             patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
-            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
             result = self._route(self._make_event())
         assert result == ROUTE_HANDLED_LOCALLY
@@ -185,21 +184,22 @@ class TestRouteThreadMessage(TestCase):
 
     # --- User resolution gate ---------------------------------------------
 
-    def test_unknown_user_dropped_silently(self):
-        """An untagged thread message from a Slack user we can't resolve to a
-        PostHog account must drop silently. Unlike the ``app_mention`` path, we
-        do NOT post a 'couldn't find you' reply — that path runs on every
-        message and would spam the thread for observers."""
+    def test_unknown_user_posts_failure_reply_like_mention(self):
+        """In the unified pipeline an untagged thread reply from a Slack user
+        we can't resolve goes through the same failure-reply path as a regular
+        mention. We accept the per-observer notice in exchange for one shared
+        code path — it's emitted via the ephemeral fallback in
+        ``_post_slack_user_feedback`` so the noise is bounded."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(user="U_UNKNOWN")
         with (
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_post_failure,
-            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
-        mock_post_failure.assert_not_called()
+        mock_post_failure.assert_called_once()
         mock_start.assert_not_called()
 
     # --- Feature flag gate ------------------------------------------------
@@ -216,7 +216,7 @@ class TestRouteThreadMessage(TestCase):
             patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=False),
             patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
             patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
-            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
             result = self._route(self._make_event())
         # Restart so addCleanup doesn't double-stop.
@@ -229,26 +229,45 @@ class TestRouteThreadMessage(TestCase):
     # --- Classifier bypass / decisions ------------------------------------
 
     @override_settings(DEBUG=False)
-    def test_mentioning_user_bypasses_classifier_and_forwards(self):
-        """Messages from the user who originally tagged the bot are always
-        forwarded — they're presumed to be talking to the agent. The classifier
-        must not be invoked at all for this path."""
+    def test_mentioning_user_still_runs_through_classifier(self):
+        """The original mentioner gets the same classifier treatment as anyone
+        else — they can drift into side chatter in their own thread, and
+        running Haiku on every message is cheaper than reasoning about who is
+        privileged."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(user="U_ALICE")
         with (
-            patch("products.slack_app.backend.api.classify_message_is_agent_directed") as mock_classify,
+            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
             patch(
-                "products.slack_app.backend.api._start_thread_followup_workflow", return_value=ROUTE_HANDLED_LOCALLY
+                "products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True
+            ) as mock_classify,
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
             ) as mock_start,
         ):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
-        mock_classify.assert_not_called()
+        mock_classify.assert_called_once()
         mock_start.assert_called_once()
-        # Verify the resolved user was threaded into the start call.
         kwargs = mock_start.call_args.kwargs
         assert kwargs["posthog_user"].id == self.user.id
+        assert kwargs["untagged_followup"] is True
+
+    def test_mentioning_user_chitchat_dropped(self):
+        """Symmetry check on the previous test: even the mentioner is dropped
+        when the classifier marks the message as side chatter."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        event = self._make_event(user="U_ALICE", text="thanks team!")
+        with (
+            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.api.classify_message_is_agent_directed", return_value=False),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = self._route(event)
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_start.assert_not_called()
 
     @override_settings(DEBUG=False)
     def test_other_user_agent_directed_forwards(self):
@@ -263,7 +282,7 @@ class TestRouteThreadMessage(TestCase):
                 "products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True
             ) as mock_classify,
             patch(
-                "products.slack_app.backend.api._start_thread_followup_workflow", return_value=ROUTE_HANDLED_LOCALLY
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
             ) as mock_start,
         ):
             result = self._route(self._make_event())
@@ -275,6 +294,7 @@ class TestRouteThreadMessage(TestCase):
         assert call_args[1] == "Fix the broken dashboard export"
         assert call_args[2] == [{"user": "Alice", "text": "@PostHog please fix X", "ts": "1000.0000"}]
         mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs["untagged_followup"] is True
 
     def test_other_user_chitchat_dropped(self):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
@@ -282,7 +302,7 @@ class TestRouteThreadMessage(TestCase):
         with (
             patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
             patch("products.slack_app.backend.api.classify_message_is_agent_directed", return_value=False),
-            patch("products.slack_app.backend.api._start_thread_followup_workflow") as mock_start,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
             result = self._route(self._make_event(text="lol thanks for that"))
         assert result == ROUTE_HANDLED_LOCALLY
@@ -303,7 +323,7 @@ class TestRouteThreadMessage(TestCase):
                 "products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True
             ) as mock_classify,
             patch(
-                "products.slack_app.backend.api._start_thread_followup_workflow", return_value=ROUTE_HANDLED_LOCALLY
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
             ) as mock_start,
         ):
             result = self._route(self._make_event())
@@ -312,6 +332,41 @@ class TestRouteThreadMessage(TestCase):
         # Empty history passed through on failure.
         assert mock_classify.call_args[0][2] == []
         mock_start.assert_called_once()
+
+    # --- Symmetry with the app_mention path -------------------------------
+
+    @override_settings(DEBUG=False)
+    def test_app_mention_and_tagged_message_both_reach_mention_workflow(self):
+        """An ``app_mention`` and a tagged-thread ``message`` from the same
+        Slack user, in the same thread, both end at ``_start_mention_workflow``.
+        The only difference is the ``untagged_followup`` kwarg."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        mention_event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U_ALICE",
+            "ts": "1000.0000",
+            "thread_ts": "1000.0000",
+            "text": "<@BOT> please fix the export",
+        }
+        followup_event = self._make_event(user="U_ALICE")  # tagged-thread message
+        with (
+            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.api.classify_message_is_agent_directed", return_value=True),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+        ):
+            self._route(mention_event)
+            self._route(followup_event)
+        assert mock_start.call_count == 2
+        first, second = mock_start.call_args_list
+        assert first.kwargs["untagged_followup"] is False
+        assert second.kwargs["untagged_followup"] is True
+        # Both resolved to the same PostHog user.
+        assert first.kwargs["posthog_user"].id == self.user.id
+        assert second.kwargs["posthog_user"].id == self.user.id
 
 
 class TestClassifyMessageIsAgentDirected(TestCase):
