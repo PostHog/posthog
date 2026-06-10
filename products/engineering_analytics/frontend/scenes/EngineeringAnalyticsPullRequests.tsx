@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -9,13 +8,13 @@ import {
     LemonTableColumns,
     LemonTag,
     Link,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 
 import { CIStatusTag } from '../components/CIStatusTag'
+import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { StatCard } from '../components/StatCard'
 import { CIStatusFilter, PRStateFilter, PullRequestRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
@@ -42,12 +41,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
     const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch } = useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
-        return (
-            <LemonBanner type="warning">
-                Couldn't load engineering analytics. This scene reads two HogQL views over GitHub warehouse data —
-                connect a GitHub data warehouse source to this project to populate it.
-            </LemonBanner>
-        )
+        return <ConnectGitHubSource />
     }
 
     const failingPct =
@@ -95,14 +89,14 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
             ),
         },
         {
-            title: 'Age',
+            title: 'Opened',
             key: 'age',
             align: 'right',
-            sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+            sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
             render: (_, row) => (
-                <Tooltip title={dayjs(row.createdAt).format('YYYY-MM-DD HH:mm')}>
-                    <span className="text-xs whitespace-nowrap">{dayjs(row.createdAt).fromNow(true)}</span>
-                </Tooltip>
+                <span className="text-xs whitespace-nowrap">
+                    <TZLabel time={row.createdAt} />
+                </span>
             ),
         },
         {
@@ -201,7 +195,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 nouns={['pull request', 'pull requests']}
             />
 
-            <div className="text-[11px] text-tertiary">
+            <div className="text-xs text-tertiary">
                 CI is a workflow-level rollup via the head-commit join, not per-check — a run that hasn't completed
                 shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs only), never
                 review or cycle time.

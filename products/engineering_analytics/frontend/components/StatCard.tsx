@@ -12,14 +12,14 @@ export function StatCard({
     loading: boolean
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-1 rounded-md bg-surface-secondary px-3.5 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-secondary">{label}</div>
+        <div className="flex flex-col gap-1 rounded-lg border bg-surface-primary p-4">
+            <div className="text-xs text-secondary">{label}</div>
             {loading ? (
-                <LemonSkeleton className="h-7 w-12" />
+                <LemonSkeleton className="h-8 w-20" />
             ) : (
-                <div className="text-2xl font-semibold leading-tight">{value}</div>
+                <div className="text-2xl font-bold leading-tight">{value}</div>
             )}
-            <div className="text-[11px] text-tertiary">{caption}</div>
+            <div className="text-xs text-tertiary">{caption}</div>
         </div>
     )
 }

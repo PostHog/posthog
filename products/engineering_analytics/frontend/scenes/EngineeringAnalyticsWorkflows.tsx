@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 
+import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { WorkflowHealthRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 function formatSeconds(seconds: number | null): string {
@@ -19,12 +20,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const { workflowHealth, workflowHealthLoading, loadFailed } = useValues(engineeringAnalyticsLogic)
 
     if (loadFailed) {
-        return (
-            <LemonBanner type="warning">
-                Couldn't load workflow health. This panel reads the GitHub workflow-runs view — connect a GitHub data
-                warehouse source to this project to populate it.
-            </LemonBanner>
-        )
+        return <ConnectGitHubSource />
     }
 
     const columns: LemonTableColumns<WorkflowHealthRow> = [
@@ -67,9 +63,9 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
             align: 'right',
             render: (_, row) =>
                 row.lastFailureAt ? (
-                    <Tooltip title={dayjs(row.lastFailureAt).format('YYYY-MM-DD HH:mm')}>
-                        <span className="text-xs whitespace-nowrap">{dayjs(row.lastFailureAt).fromNow(true)}</span>
-                    </Tooltip>
+                    <span className="text-xs whitespace-nowrap">
+                        <TZLabel time={row.lastFailureAt} />
+                    </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
                 ),
@@ -89,7 +85,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 emptyState="No workflow runs in the last 30 days."
                 nouns={['workflow', 'workflows']}
             />
-            <div className="text-[11px] text-tertiary">
+            <div className="text-xs text-tertiary">
                 Success rate and durations are computed over completed runs only — a run that hasn't settled is
                 excluded, not counted as a failure. Window: last 30 days.
             </div>

@@ -51,10 +51,10 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             <SceneTitleSection
                 name="CI analytics"
                 description={TAB_DESCRIPTIONS[activeTab]}
-                resourceType={{ type: 'metrics' }}
+                resourceType={{ type: 'health' }}
                 actions={
                     <>
-                        <LemonTag type="completion">Internal beta</LemonTag>
+                        <LemonTag type="completion">Alpha</LemonTag>
                         <LemonButton
                             type="secondary"
                             size="small"
