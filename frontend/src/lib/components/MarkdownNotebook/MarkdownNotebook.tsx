@@ -50,6 +50,7 @@ import {
     htmlElementToInlineNodes,
     inlineNodesToHtml,
     makeEmptyParagraph,
+    makeListItemId,
     parseMarkdownNotebook,
     sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
@@ -4339,11 +4340,18 @@ function EditableListBlock({
 
             return {
                 ...currentNode,
-                items: currentNode.items.map((currentItem, index) =>
-                    index >= itemIndex && index < subtreeEndIndex
-                        ? { ...currentItem, depth: Math.max(0, currentItem.depth + depthDelta) }
-                        : currentItem
-                ),
+                items: currentNode.items.map((currentItem, index) => {
+                    if (index < itemIndex || index >= subtreeEndIndex) {
+                        return currentItem
+                    }
+
+                    const nextItem = { ...currentItem, depth: Math.max(0, currentItem.depth + depthDelta) }
+                    if (index === itemIndex && depthDelta > 0 && (nextItem.ordered ?? currentNode.ordered)) {
+                        return { ...nextItem, start: undefined }
+                    }
+
+                    return nextItem
+                }),
             }
         })
         restoreSelectionRef.current = { nodeId: node.id, listItemIndex: itemIndex, start: offset, end: offset }
@@ -4400,6 +4408,7 @@ function EditableListBlock({
 
         const [before, after] = splitInlineNodesAt(item.children, offset)
         const nextItem: NotebookListItem = {
+            id: makeListItemId(`split-${node.id}-${String(itemIndex)}`),
             children: after,
             depth: item.depth,
             ordered: item.ordered ?? node.ordered,
@@ -4426,7 +4435,7 @@ function EditableListBlock({
         items.map((item) => {
             const itemOrdered = item.ordered ?? ordered
             return (
-                <li key={`${node.id}:${item.keyPath}`}>
+                <li key={`${node.id}:${item.id ?? item.keyPath}`}>
                     <EditableListItemContent
                         node={node}
                         item={item}
@@ -7533,6 +7542,7 @@ function getTextBlockShortcutReplacement(
                     start: listShortcut.start,
                     items: [
                         {
+                            id: makeListItemId(`shortcut-${node.id}`),
                             children: [],
                             depth: 0,
                             ordered: listShortcut.ordered,
@@ -8441,10 +8451,26 @@ function hasInlineMarkdownSyntax(value: string): boolean {
 }
 
 function rekeyNotebookNodes(nodes: NotebookBlockNode[], seed: string): NotebookBlockNode[] {
-    return nodes.map((node, index) => ({
-        ...cloneNotebookNode(node),
-        id: makeEmptyParagraph(`${seed}-${String(index)}`).id,
-    }))
+    return nodes.map((node, index) => {
+        const clonedNode = cloneNotebookNode(node)
+        const id = makeEmptyParagraph(`${seed}-${String(index)}`).id
+
+        if (clonedNode.type === 'list') {
+            return {
+                ...clonedNode,
+                id,
+                items: clonedNode.items.map((item, itemIndex) => ({
+                    ...item,
+                    id: makeListItemId(`${seed}-${String(index)}-${String(itemIndex)}`),
+                })),
+            }
+        }
+
+        return {
+            ...clonedNode,
+            id,
+        }
+    })
 }
 
 function isNativeEditableElement(element: HTMLElement): boolean {

@@ -138,6 +138,36 @@ function getBodyTextBlock(container: HTMLElement, bodyIndex = 0): HTMLElement {
     return textBlock
 }
 
+function getEditableListItems(container: HTMLElement): HTMLElement[] {
+    return Array.from(container.querySelectorAll('.MarkdownNotebook__list-item-content')) as HTMLElement[]
+}
+
+function updateContentEditableText(element: HTMLElement, text: string): void {
+    act(() => {
+        element.focus()
+        element.textContent = text
+    })
+    fireEvent.input(element)
+}
+
+function pressEnterInListItem(element: HTMLElement, offset: number = element.textContent?.length ?? 0): void {
+    if (element.textContent?.length) {
+        selectTextInElement(element, offset, offset)
+    } else {
+        placeCaretInElement(element)
+    }
+    fireEvent.keyDown(element, { key: 'Enter' })
+}
+
+function pressTabInListItem(element: HTMLElement, offset: number, shiftKey = false): void {
+    if (element.textContent?.length) {
+        selectTextInElement(element, offset, offset)
+    } else {
+        placeCaretInElement(element)
+    }
+    fireEvent.keyDown(element, { key: 'Tab', shiftKey })
+}
+
 function getAIPromptInput(container: HTMLElement): HTMLTextAreaElement {
     const input = container.querySelector('textarea.MarkdownNotebook__text-block--ai-prompt')
 
@@ -4972,6 +5002,99 @@ Tail with **bold** text`)
         }
     )
 
+    it('keeps ordered list items stable when creating several items from the keyboard', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+            const textBlock = getBodyTextBlock(container)
+
+            updateContentEditableText(textBlock, '1. ')
+
+            let listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[0], 'bla')
+            pressEnterInListItem(listItems[0], 'bla'.length)
+
+            listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[1], 'foo')
+            pressEnterInListItem(listItems[1], 'foo'.length)
+
+            listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[2], 'bar')
+
+            listItems = getEditableListItems(container)
+            expect(listItems.map((item) => item.textContent)).toEqual(['bla', 'foo', 'bar'])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. bla
+2. foo
+3. bar`)
+        })
+    })
+
+    it('keeps bullet list items stable when creating several items from the keyboard', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+            const textBlock = getBodyTextBlock(container)
+
+            updateContentEditableText(textBlock, '- ')
+
+            let listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[0], 'alpha')
+            pressEnterInListItem(listItems[0], 'alpha'.length)
+
+            listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[1], 'beta')
+            pressEnterInListItem(listItems[1], 'beta'.length)
+
+            listItems = getEditableListItems(container)
+            updateContentEditableText(listItems[2], 'gamma')
+
+            listItems = getEditableListItems(container)
+            expect(listItems.map((item) => item.textContent)).toEqual(['alpha', 'beta', 'gamma'])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- alpha
+- beta
+- gamma`)
+        })
+    })
+
+    it('splits ordered list items in the middle without overwriting earlier items', () => {
+        expectNoDuplicateKeyWarnings(() => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(`1. alphabet
+2. gamma`),
+                    onChange,
+                })
+            )
+            let listItems = getEditableListItems(container)
+
+            pressEnterInListItem(listItems[0], 'alpha'.length)
+
+            listItems = getEditableListItems(container)
+            expect(listItems.map((item) => item.textContent)).toEqual(['alpha', 'bet', 'gamma'])
+            expect(document.activeElement).toEqual(listItems[1])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. alpha
+2. bet
+3. gamma`)
+
+            updateContentEditableText(listItems[1], 'beta')
+
+            listItems = getEditableListItems(container)
+            expect(listItems.map((item) => item.textContent)).toEqual(['alpha', 'beta', 'gamma'])
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. alpha
+2. beta
+3. gamma`)
+        })
+    })
+
     it('converts repeated heading shortcuts into heading levels up to h3', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
@@ -5303,6 +5426,60 @@ Keep after`),
         expect(window.getSelection()?.focusOffset).toEqual(3)
     })
 
+    it('indents a bullet item with tab at the beginning of the item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+- Child
+- Sibling`),
+                onChange,
+            })
+        )
+        let listItems = getEditableListItems(container)
+
+        pressTabInListItem(listItems[1], 0)
+
+        listItems = getEditableListItems(container)
+        expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(container.querySelector('.MarkdownNotebook__list-block ul ul')).toBeInstanceOf(HTMLElement)
+        expect(document.activeElement).toEqual(listItems[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+  - Child
+- Sibling`)
+    })
+
+    it('indents an ordered item with tab at the beginning and keeps numbering stable', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. Parent
+2. Child
+3. Sibling`),
+                onChange,
+            })
+        )
+        let listItems = getEditableListItems(container)
+
+        pressTabInListItem(listItems[1], 0)
+
+        listItems = getEditableListItems(container)
+        const nestedOrderedList = container.querySelector('.MarkdownNotebook__list-block ol ol') as HTMLOListElement
+        expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(nestedOrderedList).toBeInstanceOf(HTMLOListElement)
+        expect(nestedOrderedList.getAttribute('start')).toEqual('1')
+        expect(document.activeElement).toEqual(listItems[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. Parent
+  1. Child
+2. Sibling`)
+    })
+
     it('keeps focus inside list items when tab cannot indent further', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -5319,6 +5496,25 @@ Keep after`),
         expect(fireEvent.keyDown(listItem, { key: 'Tab' })).toEqual(false)
         expect(document.activeElement).toEqual(listItem)
         expect(window.getSelection()?.focusOffset).toEqual(2)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('keeps focus in the first ordered item when tab at the beginning cannot indent', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. First
+2. Second`),
+                onChange,
+            })
+        )
+        const listItems = getEditableListItems(container)
+
+        listItems[0].focus()
+        selectTextInElement(listItems[0], 0, 0)
+        expect(fireEvent.keyDown(listItems[0], { key: 'Tab' })).toEqual(false)
+        expect(document.activeElement).toEqual(listItems[0])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
         expect(onChange).not.toHaveBeenCalled()
     })
 
@@ -5346,6 +5542,58 @@ Keep after`),
         expect(window.getSelection()?.focusOffset).toEqual(2)
     })
 
+    it('outdents a bullet item with shift tab at the beginning of the item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+  - Child
+- Sibling`),
+                onChange,
+            })
+        )
+        let listItems = getEditableListItems(container)
+
+        pressTabInListItem(listItems[1], 0, true)
+
+        listItems = getEditableListItems(container)
+        expect(container.querySelector('.MarkdownNotebook__list-block ul ul')).toBeNull()
+        expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(document.activeElement).toEqual(listItems[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+- Child
+- Sibling`)
+    })
+
+    it('outdents an ordered item with shift tab at the beginning and renumbers siblings', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. Parent
+  1. Child
+2. Sibling`),
+                onChange,
+            })
+        )
+        let listItems = getEditableListItems(container)
+
+        pressTabInListItem(listItems[1], 0, true)
+
+        listItems = getEditableListItems(container)
+        expect(container.querySelector('.MarkdownNotebook__list-block ol ol')).toBeNull()
+        expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(document.activeElement).toEqual(listItems[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. Parent
+2. Child
+3. Sibling`)
+    })
+
     it('outdents nested list items with backspace at the start', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -5368,6 +5616,30 @@ Keep after`),
 - Child`)
         expect(document.activeElement?.textContent).toEqual('Child')
         expect(window.getSelection()?.focusOffset).toEqual(0)
+    })
+
+    it('outdents a nested ordered item with backspace at the beginning', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. Parent
+  1. Child
+2. Sibling`),
+                onChange,
+            })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextInElement(listItems[1], 0, 0)
+        fireEvent.keyDown(listItems[1], { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__list-block ol ol')).toBeNull()
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. Parent
+2. Child
+3. Sibling`)
     })
 
     it('turns a top-level list item into regular text with backspace at the start', () => {

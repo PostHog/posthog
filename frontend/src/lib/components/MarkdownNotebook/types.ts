@@ -39,6 +39,7 @@ export type NotebookTextBlockNode = {
 }
 
 export type NotebookListItem = {
+    id?: string
     children: NotebookInlineNode[]
     depth: number
     ordered?: boolean

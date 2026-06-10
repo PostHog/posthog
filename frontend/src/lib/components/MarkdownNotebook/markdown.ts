@@ -384,7 +384,7 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
 
     while (nextLineIndex < lines.length) {
         const line = lines[nextLineIndex]
-        const listItem = parseListItemLine(line)
+        const listItem = parseListItemLine(line, nextLineIndex - lineIndex)
         if (!listItem) {
             break
         }
@@ -404,7 +404,7 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 }
 
-function parseListItemLine(line: string): NotebookListBlockNode['items'][number] | null {
+function parseListItemLine(line: string, listItemIndex: number): NotebookListBlockNode['items'][number] | null {
     const match = line.match(LIST_ITEM_REGEX)
     if (!match) {
         return null
@@ -413,6 +413,7 @@ function parseListItemLine(line: string): NotebookListBlockNode['items'][number]
     const orderedMatch = match[2].match(/^(\d+)[.)]$/)
 
     return {
+        id: createStableNodeId(`list-item:${String(listItemIndex)}:${line}`, 0),
         children: parseInlineMarkdown(match[3] ?? ''),
         depth: getListItemDepth(match[1]),
         ordered: orderedMatch !== null,
@@ -1056,10 +1057,19 @@ export function makeEmptyParagraph(idSeed: string = 'empty'): NotebookTextBlockN
         type: 'paragraph',
         children: [],
     }
-    node.id = createStableNodeId(
+    node.id = makeGeneratedMarkdownId(idSeed)
+    return node
+}
+
+export function makeListItemId(idSeed: string = 'list-item'): string {
+    return makeGeneratedMarkdownId(idSeed)
+}
+
+function makeGeneratedMarkdownId(idSeed: string): string {
+    const id = createStableNodeId(
         `${idSeed}:${hashString(`${String(Date.now())}:${String(generatedNodeIdCounter)}`)}`,
         0
     )
     generatedNodeIdCounter += 1
-    return node
+    return id
 }

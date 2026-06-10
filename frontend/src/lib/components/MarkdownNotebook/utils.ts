@@ -4,6 +4,7 @@ import {
     NotebookDocument,
     NotebookInlineMark,
     NotebookInlineNode,
+    NotebookListItem,
 } from './types'
 
 export function hashString(value: string): string {
@@ -116,7 +117,7 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
             type: node.type,
             ordered: node.ordered,
             start: node.start,
-            items: node.items,
+            items: node.items.map(getListItemFingerprint),
         })
     }
     if (node.type === 'table') {
@@ -142,6 +143,15 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
         })
     }
     return JSON.stringify(node)
+}
+
+function getListItemFingerprint(item: NotebookListItem): Omit<NotebookListItem, 'id'> {
+    return {
+        children: item.children,
+        depth: item.depth,
+        ordered: item.ordered,
+        start: item.start,
+    }
 }
 
 export function textSimilarity(left: string, right: string): number {
