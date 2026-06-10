@@ -10,8 +10,8 @@ export class LoadingScheduler {
     private seekRangeEnd: number | null = null
     private seekRangeStart: number | null = null
 
-    seekTo(targetTimestamp: number): void {
-        this.mode = { kind: 'seek', targetTimestamp }
+    seekTo(targetTimestamp: number, targetWindowId?: number): void {
+        this.mode = { kind: 'seek', targetTimestamp, targetWindowId }
         this.seekRangeEnd = null
         this.seekRangeStart = null
     }
@@ -57,6 +57,7 @@ export class LoadingScheduler {
             return null
         }
         const targetTs = this.mode.targetTimestamp
+        const targetWindowId = this.mode.targetWindowId
 
         // Step 1: Load window around target if not loaded.
         const targetIndex = store.getSourceIndexForTimestamp(targetTs)
@@ -85,13 +86,13 @@ export class LoadingScheduler {
         }
 
         // Step 2: If can play, clear seek and switch to buffer_ahead
-        if (store.canPlayAt(targetTs)) {
+        if (store.canPlayAt(targetTs, targetWindowId)) {
             this.clearSeek()
             return this.getBufferAheadBatch(store, batchSize)
         }
 
         // Step 3: Need FullSnapshot. Find nearest and fill gap.
-        const nearestFull = store.findNearestFullSnapshot(targetTs)
+        const nearestFull = store.findNearestFullSnapshot(targetTs, targetWindowId)
         if (nearestFull) {
             // Fill gap between FullSnapshot source and the start of our loaded range
             const gapIndices = store.getUnloadedIndicesInRange(nearestFull.sourceIndex, targetIndex)
@@ -126,7 +127,26 @@ export class LoadingScheduler {
         }
         this.seekRangeStart = 0
 
-        // Step 5: Exhausted backward search without finding a FullSnapshot. Give up.
+        // Step 5: Backward search exhausted — no FullSnapshot exists at or before
+        // the target, so playback there can only start from one after it (the
+        // player clamps the seek to it once known). Keep loading forward until a
+        // FullSnapshot is found or everything is loaded.
+        if (store.fullSnapshotsAfter(targetTs).length === 0) {
+            const forwardIndices = store.getUnloadedIndicesInRange(
+                (this.seekRangeEnd ?? targetIndex) + 1,
+                store.sourceCount - 1
+            )
+            if (forwardIndices.length > 0) {
+                const batch = this.truncateToContiguous(forwardIndices.slice(0, batchSize))
+                this.seekRangeEnd = Math.max(this.seekRangeEnd ?? 0, batch[batch.length - 1])
+                return {
+                    sourceIndices: batch,
+                    reason: 'seek_forward',
+                }
+            }
+        }
+
+        // Step 6: Nothing left to load that could satisfy this seek. Give up.
         this.clearSeek()
         return this.getBufferAheadBatch(store, batchSize)
     }
@@ -149,6 +169,24 @@ export class LoadingScheduler {
             return {
                 sourceIndices: this.truncateToContiguous(aheadIndices.slice(0, batchSize)),
                 reason: 'buffer_ahead',
+            }
+        }
+
+        // The playhead has nothing to render from (no FullSnapshot at or before it,
+        // e.g. lost at capture time) and no recovery point is known yet — the player
+        // can't progress to pull the buffer window along, so keep scanning forward
+        // beyond it until a FullSnapshot is found or everything is loaded.
+        if (
+            playbackPosition !== undefined &&
+            store.findNearestFullSnapshot(playbackPosition) === null &&
+            store.fullSnapshotsAfter(playbackPosition).length === 0
+        ) {
+            const forwardIndices = store.getUnloadedIndicesInRange(bufferEnd + 1, store.sourceCount - 1)
+            if (forwardIndices.length > 0) {
+                return {
+                    sourceIndices: this.truncateToContiguous(forwardIndices.slice(0, batchSize)),
+                    reason: 'seek_forward',
+                }
             }
         }
 

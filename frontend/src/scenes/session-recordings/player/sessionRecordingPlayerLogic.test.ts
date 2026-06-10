@@ -14,7 +14,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -408,6 +408,126 @@ describe('sessionRecordingPlayerLogic', () => {
             const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
+        })
+    })
+
+    describe('seek renderability clamping', () => {
+        // Mock recording meta: start=1682952380877
+        const START = 1682952380877
+        const LATE_FS_TS = START + 300000
+
+        const SOURCE_A = {
+            source: 'blob_v2',
+            blob_key: '0',
+            start_timestamp: new Date(START).toISOString(),
+            end_timestamp: new Date(START + 60000).toISOString(),
+        }
+        const SOURCE_B = {
+            source: 'blob_v2',
+            blob_key: '1',
+            start_timestamp: new Date(START + 60000).toISOString(),
+            end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
+        }
+
+        const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
+            ({ timestamp, type, windowId: 1, data: {} }) as unknown as RecordingSnapshot
+
+        // Seeds the snapshot store and the coordinator's processed snapshots (which
+        // segments derive from) directly, bypassing the network loading machinery
+        const seedRecording = ({
+            firstSourceSnapshotType = EventType.IncrementalSnapshot,
+            laterSnapshotType,
+            loadFirstSource = true,
+        }: {
+            firstSourceSnapshotType?: EventType
+            laterSnapshotType: EventType
+            loadFirstSource?: boolean
+        }): void => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            const store = dataLogic.cache.store
+            const processed: RecordingSnapshot[] = []
+            if (loadFirstSource) {
+                const snaps = [
+                    makeSnapshot(START, firstSourceSnapshotType),
+                    makeSnapshot(START + 1000, EventType.IncrementalSnapshot),
+                ]
+                store.markLoaded(0, snaps)
+                processed.push(...snaps)
+            }
+            const lateSnaps = [makeSnapshot(LATE_FS_TS, laterSnapshotType)]
+            store.markLoaded(1, lateSnaps)
+            processed.push(...lateSnaps)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+        })
+
+        // assertions below run synchronously after the seek dispatch — kea listeners
+        // run synchronously up to their first await, and draining listeners instead
+        // would let the animation loop advance the playhead past the asserted value
+
+        it('clamps a seek into a dead zone forward to the next full snapshot', () => {
+            seedRecording({ laterSnapshotType: EventType.FullSnapshot })
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 1000)
+
+            expect(logic.values.currentTimestamp).toBe(LATE_FS_TS)
+            expect(logic.values.playerError).toBeNull()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'recording player seek clamped to next full snapshot',
+                expect.objectContaining({ seekTimestamp: START + 1000, clampedToTimestamp: LATE_FS_TS })
+            )
+        })
+
+        it('errors when fully loaded and no full snapshot exists anywhere', () => {
+            seedRecording({ laterSnapshotType: EventType.IncrementalSnapshot })
+
+            logic.actions.seekToTimestamp(START + 1000)
+
+            expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+        })
+
+        it('buffers while earlier data that could contain a full snapshot is still loading', () => {
+            // The first source is unloaded — it could still contain the window's
+            // FullSnapshot, so a seek into the second source's FullSnapshot-less data
+            // must buffer, not clamp. A fresh blob_key keeps the first source unloaded
+            // (re-using '0' would inherit the entry loaded from the default mocks).
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([{ ...SOURCE_A, blob_key: '9' }, SOURCE_B] as any)
+            const snaps = [
+                makeSnapshot(START + 61000, EventType.IncrementalSnapshot),
+                makeSnapshot(START + 62000, EventType.IncrementalSnapshot),
+            ]
+            dataLogic.cache.store.markLoaded(1, snaps)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snaps)
+
+            logic.actions.seekToTimestamp(START + 61500)
+
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.currentTimestamp).toBe(START + 61500)
+        })
+
+        it('does not interfere when a full snapshot exists before the seek position', () => {
+            seedRecording({
+                firstSourceSnapshotType: EventType.FullSnapshot,
+                laterSnapshotType: EventType.IncrementalSnapshot,
+            })
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 1000)
+
+            expect(logic.values.currentTimestamp).toBe(START + 1000)
+            expect(logic.values.playerError).toBeNull()
         })
     })
 

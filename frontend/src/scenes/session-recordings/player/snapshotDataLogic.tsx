@@ -67,7 +67,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         stopPolling: true,
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
-        setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
+        setTargetTimestamp: (timestamp: number | null, windowId?: number) => ({ timestamp, windowId }),
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
@@ -224,7 +224,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
-        setTargetTimestamp: ({ timestamp }) => {
+        setTargetTimestamp: ({ timestamp, windowId }) => {
             if (!cache.scheduler || !cache.store) {
                 return
             }
@@ -238,12 +238,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
                 // Don't re-seek to the same target
-                if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
+                if (
+                    currentMode.kind === 'seek' &&
+                    currentMode.targetTimestamp === timestamp &&
+                    currentMode.targetWindowId === windowId
+                ) {
                     return
                 }
                 // If we can already play at this position (data is loaded), no need to seek —
                 // this handles segment transitions during normal forward playback
-                if (cache.store.canPlayAt(timestamp)) {
+                if (cache.store.canPlayAt(timestamp, windowId)) {
                     actions.loadNextSnapshotSource()
                     return
                 }
@@ -258,7 +262,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
 
-                cache.scheduler.seekTo(timestamp)
+                cache.scheduler.seekTo(timestamp, windowId)
                 actions.storeUpdated()
                 actions.loadNextSnapshotSource()
             }
@@ -521,7 +525,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 if (mode.kind !== 'seek') {
                     return false
                 }
-                return !cache.store.canPlayAt(mode.targetTimestamp)
+                return !cache.store.canPlayAt(mode.targetTimestamp, mode.targetWindowId)
             },
         ],
 
