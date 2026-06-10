@@ -5,10 +5,17 @@ Web analytics dashboard's main tile matrix over the trailing 28 days,
 for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
 The job is intentionally thin: it enumerates the dashboard's query
-families and dispatches each through `get_query_runner(...).run(...)`.
+families and dispatches each through `get_query_runner(...).calculate()`.
 The runner routes through its family's lazy precompute path, which
 already knows what's stale and INSERTs only what's missing. This DAG is
 the *trigger*; the runner is the source of truth for freshness.
+
+`calculate()` is used deliberately instead of `run()`: `run()` is gated by
+the HogQL query result cache (6h staleness), which is the wrong clock for a
+precompute warmer whose buckets expire on a 2h TTL — it would skip tiles
+whose Redis result is still "fresh" while the precompute they feed has gone
+cold. `calculate()` always enters the precompute path and skips the result
+cache write, leaving Redis result-cache warming to `cache_warming.py`.
 
 Why this exists
 ---------------
@@ -51,7 +58,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
-from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 
@@ -217,7 +223,16 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                 product=Product.WEB_ANALYTICS,
             )
             runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)
-            runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+            # Call `calculate()` directly rather than `run()`. `run()` is gated by the
+            # HogQL query result cache (6h staleness for web analytics), which would let
+            # the warmer skip a tile whose Redis result is still "fresh" even though the
+            # precompute buckets it feeds expire on a 2h TTL — leaving the precompute
+            # cold for hours. `calculate()` always enters the lazy precompute path (which
+            # still INSERTs only the windows past their TTL), so every hourly tick keeps
+            # the precompute warm. It also skips the result-cache write on purpose: that
+            # is `cache_warming.py`'s job (it replays real user queries with their own
+            # access context), not this job's.
+            runner.calculate()
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
             tile_ms = round((time.monotonic() - tile_started) * 1000)
