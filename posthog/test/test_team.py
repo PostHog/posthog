@@ -164,8 +164,8 @@ class TestTeam(BaseTest):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertIsInstance(team.primary_dashboard, Dashboard)
 
-        # Ensure insights are created and linked (5 insight tiles + 3 text tiles)
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 8)
+        # Ensure insights are created and linked (8 insight tiles + 4 text tiles + 2 button tiles)
+        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 14)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -294,6 +294,9 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
+            ("Sessions (last 7 days)", "TrendsQuery"),
+            ("Pageviews (last 7 days)", "TrendsQuery"),
+            ("Top referrers", "TrendsQuery"),
             ("Retention", "RetentionQuery"),
             ("Visit to interaction funnel", "FunnelsQuery"),
         ]
@@ -310,3 +313,13 @@ class TestTeam(BaseTest):
         assert source["kind"] == expected_kind
         assert "GroupNode" not in str(source)
         assert "$pageview" in str(source)
+
+    def test_default_dashboard_button_tiles_link_to_related_products(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        button_tiles = DashboardTile.objects.filter(
+            dashboard=team.primary_dashboard,
+            button_tile__isnull=False,
+        ).select_related("button_tile")
+        assert button_tiles.count() == 2
+        urls = {tile.button_tile.url for tile in button_tiles if tile.button_tile is not None}
+        assert urls == {"/web", "/activity/explore"}
