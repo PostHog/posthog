@@ -366,6 +366,38 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._metrics(lazy_response) == raw
 
     @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_three_part_tag_matches_raw(self):
+        # 3-component BCP-47 tags (e.g. `zh-Hans-CN`) must split the same way as the
+        # raw query, which uses `splitByChar('-', ..., 2)`. Assert parity against the
+        # raw path rather than a hardcoded label so it holds under any cluster's
+        # `splitby_max_substrings_includes_remaining_string` setting.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u4"], properties={"name": "u4"})
+        for path, ts in (("/a", "2024-01-05T08:00:00Z"), ("/b", "2024-01-05T08:05:00Z")):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="u4",
+                timestamp=ts,
+                properties=self._props(
+                    **{
+                        "$session_id": str(uuid7("2024-01-05")),
+                        "$host": "example.com",
+                        "$current_url": f"https://example.com{path}",
+                        "$pathname": path,
+                        "$browser_language": "zh-Hans-CN",
+                    }
+                ),
+            )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.usedLazyPrecompute is True
+        assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
     def test_conversion_goal_falls_through(self):
         self._seed()
         with self._enable_lazy():

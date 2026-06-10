@@ -317,8 +317,12 @@ GROUP BY breakdown_value
 # prefix dedups users across regions exactly (no double-count), matching the raw
 # query's prefix-level `uniq`. `r` derives the most-common region per prefix via
 # `argMax(region, region_views)` — the precompute-side equivalent of the raw query's
-# `topK(1)` over the region part. Rows with an empty/null language are dropped in
-# the subquery WHERE (the raw query's outer breakdown filter).
+# `topK(1)` over the region part. The `splitByChar('-', ..., 2)` limit mirrors the raw
+# query's exact split signature so the prefix/region split stays identical to the raw
+# path for multi-part BCP-47 tags (e.g. `zh-Hans-CN`) regardless of the cluster's
+# `splitby_max_substrings_includes_remaining_string` setting. Empty/null languages are
+# kept (not filtered), matching the raw query's `outer_where_breakdown() is None` for
+# LANGUAGE.
 _LANGUAGE_READ_SQL_TEMPLATE = """
 SELECT
     concat(m.lang_prefix, '-', r.top_region) AS breakdown_value,
@@ -329,7 +333,7 @@ SELECT
     sum({sort_metric}) OVER () AS fill_total
 FROM (
     SELECT
-        arrayElement(splitByChar('-', JSONExtractString(breakdown_value)), 1) AS lang_prefix,
+        arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 1) AS lang_prefix,
         uniqMergeIf(uniq_users_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS visitors,
         uniqMergeIf(uniq_users_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_visitors,
         sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS views,
@@ -342,8 +346,8 @@ LEFT JOIN (
     SELECT lang_prefix, argMax(region, region_views) AS top_region
     FROM (
         SELECT
-            arrayElement(splitByChar('-', JSONExtractString(breakdown_value)), 1) AS lang_prefix,
-            arrayElement(splitByChar('-', JSONExtractString(breakdown_value)), 2) AS region,
+            arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 1) AS lang_prefix,
+            arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 2) AS region,
             sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS region_views
         FROM posthog.web_stats_preaggregated
         WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
