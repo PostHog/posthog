@@ -140,6 +140,76 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         return fields
 
 
+# Schema-only typing for the polymorphic action config. The MCP tool schema is generated from this
+# (via zod), the MCP server parses tool input with that zod schema, and handlers receive the PARSED
+# result — a matched zod object branch strips keys it doesn't declare. The free-form branch is
+# deliberately FIRST so it wins union parsing for every config shape: the typed
+# wait_until_condition branch exists purely as shape guidance for agents and never strips or
+# rejects anything.
+_HOG_FLOW_WAIT_UNTIL_EVENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "filters": {
+            "anyOf": [{"$ref": "#/components/schemas/HogFunctionFilters"}, {"type": "null"}],
+            "description": (
+                "Event/action filters; the workflow wakes when a matching event fires. Must target "
+                "at least one event or action (entries targeting neither are dropped)."
+            ),
+        },
+        "name": {"type": "string", "description": "Optional display name."},
+    },
+}
+
+HOG_FLOW_ACTION_CONFIG_SCHEMA = {
+    "anyOf": [
+        {
+            "type": "object",
+            "additionalProperties": True,
+            "description": (
+                "Config for every action type except wait_until_condition — see the field "
+                "description for per-type shapes."
+            ),
+        },
+        {
+            "type": "object",
+            "description": "Config for type='wait_until_condition'.",
+            "required": ["condition", "max_wait_duration"],
+            "properties": {
+                "condition": {
+                    "type": "object",
+                    "description": "Property-based wait condition; continues when the person matches.",
+                    "properties": {
+                        "filters": {
+                            "anyOf": [{"$ref": "#/components/schemas/HogFunctionFilters"}, {"type": "null"}],
+                            "description": "Property conditions, e.g. {properties: [{key, value, operator, type}]}.",
+                        },
+                        "name": {"type": "string", "description": "Optional display name."},
+                    },
+                },
+                "events": {
+                    "type": "array",
+                    "items": _HOG_FLOW_WAIT_UNTIL_EVENT_SCHEMA,
+                    "description": (
+                        "Events to wait for: continues when ANY entry fires (OR'd with 'condition'). "
+                        "Each entry: {filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}."
+                    ),
+                },
+                "max_wait_duration": {
+                    "type": "string",
+                    "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                },
+            },
+        },
+    ],
+}
+
+
+@extend_schema_field(HOG_FLOW_ACTION_CONFIG_SCHEMA)
+class HogFlowActionConfigField(serializers.JSONField):
+    # Runtime stays a lenient JSONField: per-type validation lives in HogFlowActionSerializer.validate.
+    pass
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
@@ -162,7 +232,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
         ),
     )
-    config = serializers.JSONField(
+    config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
             "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
