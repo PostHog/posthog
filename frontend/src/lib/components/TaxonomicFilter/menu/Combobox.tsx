@@ -90,6 +90,14 @@ const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set
  *  the pill variant's top-3 face. */
 const RECENT_PINNED_PREFIX_LIMIT = 3
 
+/** Fallback that opens the reveal barrier even if some group's fetch never
+ *  settles. Matches the legacy `taxonomicFilterLogic` value. */
+const REVEAL_BARRIER_TIMEOUT_MS = 5000
+
+/** Stable empty list so a held (barrier-closed) render keeps a constant
+ *  `items` identity instead of allocating a new array each time. */
+const NO_ENTRIES: MenuFilterEntry[] = []
+
 /** Debounce before emitting `taxonomic_filter_search_query` — matches the
  *  legacy picker so the search telemetry is comparable across variants. */
 export const SEARCH_QUERY_DEBOUNCE_MS = 500
@@ -158,7 +166,10 @@ export function MenuFilterCombobox({
     // their selection's category by default — they can still tab back to
     // "All" or any other chip without leaving the combobox.
     const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        if (drillTo === 'all' && selectedEntry) {
+        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
+        // selection from one lands on "All" — its row still surfaces there via the
+        // selected-entry prepend — instead of stranding the user in a hidden scope.
+        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
             return selectedEntry.group.type
         }
         return drillTo
@@ -173,6 +184,16 @@ export function MenuFilterCombobox({
     // fetch status across every visible (target) group, not just the one
     // whose `useGroupList` hook last rendered.
     const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
+    // Per-group `isFetching` flags (true during background refetches too, unlike
+    // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
+    // barrier so kept-previous-data refetches still hold the list.
+    const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
+    // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
+    // search we hold the result list behind skeletons until every visible group's
+    // fetch settles (or a 5s fallback), so slower groups don't render on top of a
+    // stale/partial list and rows don't jump around. Mirrors `revealBarrierOpen`.
+    const [revealBarrierOpen, setRevealBarrierOpen] = useState(true)
+    const [barrierQuery, setBarrierQuery] = useState(searchQuery)
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
     // the list mounts, `autoHighlight="always"` + the reordered
@@ -244,6 +265,10 @@ export function MenuFilterCombobox({
 
     const reportLoading = useCallback((type: string, loading: boolean): void => {
         setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
+    }, [])
+
+    const reportFetching = useCallback((type: string, fetching: boolean): void => {
+        setFetchingByType((prev) => (prev[type] === fetching ? prev : { ...prev, [type]: fetching }))
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -327,7 +352,7 @@ export function MenuFilterCombobox({
                         // `isContainsShortcut` tags this synthetic row so the commit
                         // telemetry can measure adoption of the contains shortcut vs
                         // the old per-URL value-picker.
-                        item: { name: trimmedQuery, isContainsShortcut: true } as TaxonomicDefinitionTypes,
+                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
                         friendlyLabel: label,
@@ -521,6 +546,44 @@ export function MenuFilterCombobox({
         }
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
+
+    // ---- Reveal barrier ----------------------------------------------------
+    // Only engages while actively searching a fetching scope. Recent/Pinned
+    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
+    const searching = !drillItems && !!searchQuery.trim()
+    // Close synchronously the instant the query changes (React "adjust state
+    // while rendering" pattern) so a stale list never paints between keystroke
+    // and the fetch starting. Re-opens immediately for empty/drill scopes.
+    if (searchQuery !== barrierQuery) {
+        setBarrierQuery(searchQuery)
+        setRevealBarrierOpen(!searching)
+    }
+    const anyFetching = useMemo(() => targetGroups.some((g) => fetchingByType[g.type]), [targetGroups, fetchingByType])
+    // Open once every visible group has settled. Edge-triggered on results /
+    // fetching changes (not the bare query change) so the close commit — where
+    // the Fetchers haven't yet reported `isFetching` — can't open it early.
+    // Mirrors legacy's `!anyGroupLoading` check after `infiniteListResultsReceived`.
+    useEffect(() => {
+        if (revealBarrierOpen || !searching) {
+            return
+        }
+        if (!anyFetching) {
+            setRevealBarrierOpen(true)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [itemsByType, fetchingByType])
+    // 5s fallback so a wedged/never-settling fetch can't trap the list behind
+    // skeletons forever. Re-armed on every fresh query.
+    useEffect(() => {
+        if (!searching) {
+            return
+        }
+        const id = window.setTimeout(() => setRevealBarrierOpen(true), REVEAL_BARRIER_TIMEOUT_MS)
+        return () => window.clearTimeout(id)
+    }, [barrierQuery, searching])
+    // While held, show skeletons in place of the (stale/partial) result list.
+    const barrierClosed = searching && !revealBarrierOpen
+    const displayedItems = barrierClosed ? NO_ENTRIES : filtered
 
     // Empty-state message. Three branches:
     //   - "needs more characters" — when the active chip resolves to a
@@ -726,7 +789,7 @@ export function MenuFilterCombobox({
                 showTabHint={showChips && visibleChipGroups.length > 0}
             />
             <Autocomplete.Root
-                items={filtered}
+                items={displayedItems}
                 mode="none"
                 inline
                 defaultOpen
@@ -822,12 +885,13 @@ export function MenuFilterCombobox({
                                     excludeStale={!includeStaleEvents}
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
+                                    onFetchingChange={reportFetching}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
-                                    {isAnyLoading ? (
+                                    {isAnyLoading || barrierClosed ? (
                                         <LoadingRows />
                                     ) : (
                                         emptyState && (
@@ -1002,6 +1066,7 @@ function Fetcher({
     excludeStale,
     onItems,
     onLoadingChange,
+    onFetchingChange,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1010,6 +1075,9 @@ function Fetcher({
     /** Reports `isLoading` (no items yet) so the parent can show a skeleton
      *  instead of "No X found" during the first fetch. */
     onLoadingChange: (type: string, loading: boolean) => void
+    /** Reports `isFetching` (true during background refetches too) so the
+     *  parent's reveal barrier holds the list until every group settles. */
+    onFetchingChange: (type: string, fetching: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const list = useGroupList({ ...getGroupListInput(group), excludeStale })
@@ -1019,14 +1087,18 @@ function Fetcher({
     useEffect(() => {
         onLoadingChange(group.type, list.showLoadingState)
     }, [group.type, list.showLoadingState, onLoadingChange])
-    // Make sure we flip back to "not loading" when this group unmounts —
-    // otherwise a stale `true` from a previously-active chip would keep
-    // the skeleton on screen after we switch scope.
+    useEffect(() => {
+        onFetchingChange(group.type, list.isFetching)
+    }, [group.type, list.isFetching, onFetchingChange])
+    // Make sure we flip back to "not loading"/"not fetching" when this group
+    // unmounts — otherwise a stale `true` from a previously-active chip would
+    // keep the skeleton (or the reveal barrier) stuck after we switch scope.
     useEffect(() => {
         return () => {
             onLoadingChange(group.type, false)
+            onFetchingChange(group.type, false)
         }
-    }, [group.type, onLoadingChange])
+    }, [group.type, onLoadingChange, onFetchingChange])
     return null
 }
 
