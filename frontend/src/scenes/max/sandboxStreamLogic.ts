@@ -66,6 +66,19 @@ function hashLogEntry(entry: StoredLogEntry): string {
     return JSON.stringify(entry)
 }
 
+/** Refetch the run's status; on failure return the mapped error envelope instead. */
+async function fetchRunStatus(
+    taskId: string,
+    runId: string
+): Promise<{ status: string | null } | { error: StreamErrorEnvelope }> {
+    try {
+        const run: { status?: string } = await api.tasks.runs.get(taskId, runId)
+        return { status: run.status ?? null }
+    } catch (error) {
+        return { error: mapHttpStatusToStreamError((error as { status?: number })?.status) }
+    }
+}
+
 /** Matches `mcp__posthog__exec` (and plugin/regional variants). Ported from Twig posthog-exec-display.ts. */
 const POSTHOG_EXEC_TOOL_RE = /^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$/
 
@@ -241,7 +254,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         currentRunStatus: [
             null as SandboxRunStatus | null,
             {
-                openSseForRun: () => 'queued',
+                // A reconnect reopens the same in-flight run — keep its known status rather than
+                // flickering back to queued; only a fresh open (no/terminal status) resets.
+                openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
                 reset: () => null,
             },
@@ -359,7 +374,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
-        bootstrapRun: async ({ taskId, runId, justCreatedRun }) => {
+        bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
@@ -373,26 +388,25 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
 
             // Existing run: replay the assembled resume-chain log, then refetch the run to decide on SSE.
+            let entries: Record<string, any>[]
             try {
-                const entries = await api.tasks.runs.getLogEntries(taskId, runId)
-                entries.forEach((entry) => actions.ingestAcpFrame(entry as unknown as StoredLogEntry))
+                entries = await api.tasks.runs.getLogEntries(taskId, runId)
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
             }
+            breakpoint()
+            entries.forEach((entry) => actions.ingestAcpFrame(entry as unknown as StoredLogEntry))
 
-            let run: { status?: string }
-            try {
-                run = await api.tasks.runs.get(taskId, runId)
-            } catch (error) {
-                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+            const result = await fetchRunStatus(taskId, runId)
+            breakpoint()
+            if ('error' in result) {
+                actions.handleStreamError(result.error)
                 return
             }
-
-            const status = run.status ?? null
-            if (isTerminalRunStatus(status)) {
+            if (isTerminalRunStatus(result.status)) {
                 // Read-only history — surface the terminal status, do not open SSE.
-                actions.handleTerminalStatus({ status: status as SandboxRunStatus })
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
                 return
             }
             // Non-terminal: open SSE from the latest point, deduping against the replayed history.
@@ -473,7 +487,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
-        sseDropped: async () => {
+        sseDropped: async (_, breakpoint) => {
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             if (!activeRun) {
                 return
@@ -482,17 +496,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.dispose('event-source')
 
             // First refetch the run to detect terminal state.
-            let run: { status?: string }
-            try {
-                run = await api.tasks.runs.get(activeRun.taskId, activeRun.runId)
-            } catch (error) {
-                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+            const result = await fetchRunStatus(activeRun.taskId, activeRun.runId)
+            breakpoint()
+            // The stream was closed or replaced while the refetch was in flight — drop this loop.
+            if (cache.activeRun !== activeRun) {
+                return
+            }
+            if ('error' in result) {
+                actions.handleStreamError(result.error)
                 return
             }
 
             // Terminal → final terminal-status action + close.
-            if (isTerminalRunStatus(run.status ?? null)) {
-                actions.handleTerminalStatus({ status: (run.status ?? 'completed') as SandboxRunStatus })
+            if (isTerminalRunStatus(result.status)) {
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
                 return
             }
 
@@ -508,7 +525,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.add(
                 (): (() => void) => {
                     const timer = window.setTimeout(() => {
-                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
+                        // Reopen with a full replay (no start=latest): frames emitted while
+                        // disconnected are re-delivered and the content-dedup drops the
+                        // already-ingested ones, so the gap is filled losslessly.
+                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: false })
                     }, reconnectDelayMs(attempt))
                     return () => clearTimeout(timer)
                 },
@@ -516,12 +536,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
-        handleTerminalStatus: () => {
-            // A terminal run has no more frames — close the SSE and stop any pending reconnect.
+        handleTerminalStatus: ({ status }) => {
+            // The wire emits task_run_state for non-terminal transitions too (e.g. queued →
+            // in_progress) — only an actually-terminal run has no more frames to stream.
+            if (!isTerminalRunStatus(status)) {
+                return
+            }
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },
         closeSse: () => {
+            cache.activeRun = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },

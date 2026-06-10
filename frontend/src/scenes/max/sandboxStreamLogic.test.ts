@@ -411,6 +411,21 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.currentRunStatus).toEqual('completed')
             expect(source.closed).toEqual(true)
         })
+
+        it('keeps the stream open on a non-terminal task_run_state', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            const source = MockEventSource.latest()
+            source.emitOpen()
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTerminalStatus({ status: 'in_progress' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentRunStatus).toEqual('in_progress')
+            expect(source.closed).toEqual(false)
+        })
     })
 
     describe('reconnect / backoff', () => {
@@ -446,7 +461,33 @@ describe('sandboxStreamLogic', () => {
 
             jest.advanceTimersByTime(2000)
             expect(MockEventSource.instances.length).toEqual(beforeDrop + 1)
+            // The reconnect replays the full stream (no start=latest) so the content-dedup can
+            // fill in frames emitted while disconnected instead of skipping past them.
+            expect(MockEventSource.latest().url).not.toContain('start=latest')
             jest.useRealTimers()
+        })
+
+        it('preserves a known in-flight status when the reconnect reopens the stream', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.handleTerminalStatus({ status: 'in_progress' })
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+
+            expect(logic.values.currentRunStatus).toEqual('in_progress')
+        })
+
+        it('abandons the drop loop when the stream is closed mid-refetch', async () => {
+            let resolveGet: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'get').mockReturnValue(new Promise((resolve) => (resolveGet = resolve)) as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.sseDropped()
+            logic.actions.closeSse()
+
+            resolveGet({ status: 'in_progress' })
+            await flushPromises()
+
+            expect(logic.values.sseStatus).toEqual('closed')
+            expect(logic.values.reconnectAttempt).toEqual(0)
         })
 
         it('surfaces a retryable error after exhausting the attempt cap', async () => {
