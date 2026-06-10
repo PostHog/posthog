@@ -23,11 +23,10 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { mergeNotebookMarkdownChanges } from 'lib/components/MarkdownNotebook/collaboration'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
@@ -74,9 +73,6 @@ import {
 import { updateContentHeading } from '../utils'
 import {
     appendMarkdownNotebookBlock,
-    buildMarkdownNotebookContent,
-    getMarkdownNotebookMarkdown,
-    getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
@@ -552,19 +548,9 @@ export const notebookLogic = kea<notebookLogicType>([
                             ) {
                                 const freshNotebook = await api.notebooks.get(values.notebook.short_id, undefined, {})
                                 if (freshNotebook && isMarkdownNotebookContent(freshNotebook.content)) {
-                                    const mergeResult = mergeNotebookMarkdownChanges({
-                                        baseMarkdown: getMarkdownNotebookMarkdown(savedContent),
-                                        localMarkdown: getMarkdownNotebookMarkdown(currentLocalContent),
-                                        remoteMarkdown: getMarkdownNotebookMarkdown(freshNotebook.content),
-                                    })
-                                    actions.setLocalContent(
-                                        buildMarkdownNotebookContent(
-                                            mergeResult.mergedMarkdown,
-                                            getMarkdownNotebookNodeId(currentLocalContent)
-                                        ),
-                                        false,
-                                        true
-                                    )
+                                    // The markdown editor merges fresh server content into local edits
+                                    // through its remoteValue path and re-emits the merged content,
+                                    // which retries the save against the new version.
                                     refreshTreeItem('notebook', String(values.notebook.short_id))
                                     return freshNotebook
                                 }
@@ -1264,8 +1250,15 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         saveNotebookSuccess: ({ payload }) => {
-            // Clear only the saved object; newer edits get a new object.
-            if (payload?.notebook.content === values.localContent) {
+            // Clear only the saved object; newer edits get a new object. For markdown notebooks a
+            // conflict resolution reload also lands here, but then the loaded server content differs
+            // from the attempted content — the local draft must survive so the editor can merge and retry.
+            const attemptedContent = payload?.notebook.content
+            if (
+                attemptedContent === values.localContent &&
+                (!isMarkdownNotebookContent(attemptedContent) ||
+                    objectsEqual(values.notebook?.content, attemptedContent))
+            ) {
                 actions.clearLocalContent()
             }
             actions.scheduleNotebookRefresh()

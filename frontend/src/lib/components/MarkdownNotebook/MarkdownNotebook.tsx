@@ -443,7 +443,8 @@ export function MarkdownNotebook({
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
     const historyRef = useRef<NotebookHistoryState>({ undo: [], redo: [] })
     const lastSerializedValueRef = useRef(value)
-    const lastBaseValueRef = useRef(value)
+    // The three-way merge base: the last server state local edits were derived from.
+    const lastBaseValueRef = useRef(remoteValue ?? value)
     const lastRemoteValueRef = useRef(remoteValue)
     const pendingRemoteValueRef = useRef<string | null>(null)
     const initialInsertMenuAppliedRef = useRef(false)
@@ -506,8 +507,9 @@ export function MarkdownNotebook({
         }
         setDebugMarkdown(value)
         historyRef.current = { undo: [], redo: [] }
+        // The base is intentionally left untouched: an external `value` change is a local-side
+        // update (artifact apply, restore), so the last synced server state remains the merge base.
         lastSerializedValueRef.current = value
-        lastBaseValueRef.current = value
     }, [value])
 
     useLayoutEffect(() => {
@@ -614,9 +616,10 @@ export function MarkdownNotebook({
     const applyRemoteValue = useCallback(
         (nextRemoteValue: string): void => {
             if (nextRemoteValue === lastSerializedValueRef.current) {
+                // The remote state caught up with local edits (autosave echo): fully synced,
+                // nothing changes locally — undo history must survive autosaves.
                 lastRemoteValueRef.current = nextRemoteValue
                 lastBaseValueRef.current = nextRemoteValue
-                historyRef.current = { undo: [], redo: [] }
                 return
             }
 
@@ -630,7 +633,9 @@ export function MarkdownNotebook({
                 ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
                 : null
             lastRemoteValueRef.current = nextRemoteValue
-            lastBaseValueRef.current = mergeResult.mergedMarkdown
+            // The merge result still contains unsaved local changes, so the server state — not the
+            // merge result — is the common ancestor for the next merge.
+            lastBaseValueRef.current = nextRemoteValue
             historyRef.current = { undo: [], redo: [] }
             if (restoreSelectionRequest) {
                 restoreSelectionRef.current = restoreSelectionRequest

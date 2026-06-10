@@ -260,7 +260,7 @@ text`)
         expect(logic.values.localContent).toBeNull()
     })
 
-    it('keeps a merged markdown draft after a stale save conflict', async () => {
+    it('keeps the local markdown draft and adopts fresh server content after a stale save conflict', async () => {
         const baseMarkdown = `# Markdown v2
 
 Base paragraph`
@@ -272,11 +272,6 @@ Base paragraph with local edit`
 Remote paragraph
 
 Base paragraph`
-        const expectedMergedMarkdown = `# Markdown v2
-
-Remote paragraph
-
-Base paragraph with local edit`
         const baseMarkdownNotebook = {
             ...cachedNotebook,
             content: buildMarkdownNotebookContent(baseMarkdown),
@@ -311,8 +306,10 @@ Base paragraph with local edit`
                 version: 1,
             })
         )
+        // The fresh server content flows into the markdown editor's remote-merge path; the local
+        // draft is kept so the editor can merge it and retry the save against the new version.
         expect(logic.values.notebook?.content).toEqual(remoteNotebook.content)
-        expect(logic.values.localContent).toEqual(buildMarkdownNotebookContent(expectedMergedMarkdown))
+        expect(logic.values.localContent).toEqual(localContent)
         expect(logic.values.conflictWarningVisible).toBe(false)
     })
 

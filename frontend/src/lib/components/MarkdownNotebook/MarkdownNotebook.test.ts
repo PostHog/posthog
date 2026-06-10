@@ -1830,6 +1830,56 @@ Tail paragraph`
         expect(selection?.focusOffset).toEqual('a'.length)
     })
 
+    it('keeps undo history when an autosave echo confirms the local content', () => {
+        const onChange = jest.fn()
+        const initialMarkdown = withNotebookTitle('First line')
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: initialMarkdown, remoteValue: initialMarkdown, onChange })
+        )
+        const bodyBlock = getBodyTextBlock(container)
+
+        updateContentEditableText(bodyBlock, 'First line edited')
+        const savedMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        expect(savedMarkdown).toEqual(withNotebookTitle('First line edited'))
+
+        rerender(createElement(MarkdownNotebook, { value: savedMarkdown, remoteValue: savedMarkdown, onChange }))
+        fireEvent.keyDown(getBodyTextBlock(container), { key: 'z', metaKey: true })
+
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(initialMarkdown)
+    })
+
+    it('keeps local edits when consecutive remote updates arrive before the save lands', () => {
+        const onChange = jest.fn()
+        const initialMarkdown = withNotebookTitle('First paragraph\n\nLast paragraph')
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: initialMarkdown, remoteValue: initialMarkdown, onChange })
+        )
+
+        updateContentEditableText(getBodyTextBlock(container, 1), 'Last paragraph edited locally')
+        const localMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        const firstRemoteMarkdown = withNotebookTitle('First paragraph from remote\n\nLast paragraph')
+        rerender(createElement(MarkdownNotebook, { value: localMarkdown, remoteValue: firstRemoteMarkdown, onChange }))
+        const firstMergedMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        expect(firstMergedMarkdown).toContain('First paragraph from remote')
+        expect(firstMergedMarkdown).toContain('Last paragraph edited locally')
+
+        const secondRemoteMarkdown = withNotebookTitle('First paragraph from remote, again\n\nLast paragraph')
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: firstMergedMarkdown,
+                remoteValue: secondRemoteMarkdown,
+                onChange,
+            })
+        )
+        const secondMergedMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        expect(secondMergedMarkdown).toContain('First paragraph from remote, again')
+        expect(secondMergedMarkdown).toContain('Last paragraph edited locally')
+    })
+
     it('applies empty remote markdown updates', () => {
         const { container, rerender } = render(
             createElement(MarkdownNotebook, {
