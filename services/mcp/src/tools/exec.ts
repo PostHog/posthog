@@ -108,6 +108,42 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
 }
 
+/** Reads the value at a Zod issue path within the raw input, so we can tell a
+ *  missing required field (value is `undefined`) apart from a present-but-wrong
+ *  one without leaning on Zod's English message text. */
+function valueAtPath(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
+    let current: unknown = input
+    for (const key of path) {
+        if (current === null || typeof current !== 'object') {
+            return undefined
+        }
+        current = (current as Record<PropertyKey, unknown>)[key]
+    }
+    return current
+}
+
+/** Turns a Zod validation failure into a short, field-named message the model
+ *  can act on. Without it, a missing/`undefined` path segment slips through to
+ *  the HTTP layer and the API returns a generic 404 that reads as "entity does
+ *  not exist" — steering recovery toward re-checking the ID rather than the
+ *  malformed parameter. */
+function formatInputValidationError(toolName: string, error: z.ZodError, input: unknown): string {
+    const parts = error.issues.map((issue) => {
+        const path = issue.path.map(String).join('.')
+        if (issue.code === 'invalid_type') {
+            if (valueAtPath(input, issue.path) === undefined) {
+                return `missing required parameter: ${path}`
+            }
+            return `parameter "${path}" must be of type ${issue.expected}`
+        }
+        if (issue.code === 'unrecognized_keys') {
+            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
+        }
+        return path ? `parameter "${path}": ${issue.message}` : issue.message
+    })
+    return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
+}
+
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -299,6 +335,18 @@ export function createExecTool(
                             throw new Error(`Invalid JSON input: ${detail}`)
                         }
                     }
+
+                    // Validate against the tool's own schema before dispatching — the same
+                    // gate the non-exec MCP path (`tool-executor.ts`) applies. Skipping it
+                    // let bad input (missing `id`, wrong type) reach the HTTP layer and
+                    // build URLs like `.../actions/undefined/`, surfacing a misleading 404
+                    // instead of naming the offending field. Use the parsed output so the
+                    // handler receives coerced values and applied defaults.
+                    const validation = tool.schema.safeParse(input)
+                    if (!validation.success) {
+                        throw new Error(formatInputValidationError(tool.name, validation.error, input))
+                    }
+                    input = validation.data as Record<string, unknown>
 
                     const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     const startedAt = Date.now()

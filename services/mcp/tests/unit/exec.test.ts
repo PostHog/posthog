@@ -242,6 +242,71 @@ describe('exec tool', () => {
             ).rejects.toThrow(/Invalid JSON input:/)
         })
 
+        it('rejects a call missing a required parameter, naming the field', async () => {
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
+                /Invalid input for "action-get": missing required parameter: id/
+            )
+        })
+
+        it('rejects a parameter of the wrong type, naming the expected type', async () => {
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            await expect(
+                exec.handler(mockContext, { command: 'call action-get {"id":"not-a-number"}' })
+            ).rejects.toThrow(/parameter "id" must be of type number/)
+        })
+
+        it('still reports the missing required field when an unexpected property is sent', async () => {
+            // Plain z.object strips unknown keys at parse time (Zod v4), so the
+            // actionable signal is the absent required `id`, not the stray key.
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            await expect(
+                exec.handler(mockContext, { command: 'call action-get {"actionId":277664}' })
+            ).rejects.toThrow(/missing required parameter: id/)
+        })
+
+        it('passes validated output — with defaults applied — to the inner handler', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ id: z.number(), limit: z.number().default(10) }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool {"id":5}' })
+            expect(JSON.parse(result as string)).toEqual({ id: 5, limit: 10 })
+        })
+
+        it('does not dispatch to the handler when validation fails', async () => {
+            let called = false
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async () => {
+                    called = true
+                    return {}
+                },
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
+                /missing required parameter: id/
+            )
+            expect(called).toBe(false)
+        })
+
         it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
             const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
             const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
