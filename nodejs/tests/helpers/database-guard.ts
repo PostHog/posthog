@@ -14,7 +14,10 @@ const TEST_DATABASE_NAME_PATTERN = /(^|_)test(_|$)/i
 const ESCAPE_HATCH_VALUES = new Set(['1', 'true', 'yes'])
 
 /**
- * Throws unless `databaseName` looks like a test database (contains "test").
+ * Throws unless `databaseName` looks like a test database — i.e. it contains
+ * "test" as an underscore- or boundary-delimited token (test_posthog,
+ * posthog_test). Names that merely embed the substring (latest, mytest) are
+ * refused.
  *
  * Destructive test helpers (mass DELETE/TRUNCATE) call this before touching a
  * database, so a misconfigured environment (e.g. NODE_ENV/DEBUG or a
@@ -34,9 +37,10 @@ export function assertTestDatabaseName(
     }
     throw new Error(
         `🛑 Refusing to run a destructive test helper against database "${databaseName}" (${source}).\n\n` +
-            `The database name does not contain "test", so it looks like a real development\n` +
-            `or production database. Continuing would have deleted data from it.\n\n` +
-            `Plugin-server tests expect dedicated test databases (test_posthog, test_persons,\n` +
+            `The database name does not contain "test" as a standalone segment, so it looks\n` +
+            `like a real development or production database. Continuing would have deleted\n` +
+            `data from it.\n\n` +
+            `The nodejs tests expect dedicated test databases (test_posthog, test_persons,\n` +
             `test_behavioral_cohorts on Postgres; posthog_test on ClickHouse). This error\n` +
             `usually means DATABASE_URL, PERSONS_DATABASE_URL, CLICKHOUSE_DATABASE or similar\n` +
             `leaked in from your shell or IDE. Unset them, or create the test databases with\n` +
