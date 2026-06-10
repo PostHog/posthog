@@ -50,6 +50,7 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
+from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -57,7 +58,6 @@ from ee.hogai.api.serializers import ConversationMinimalSerializer, Conversation
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
-from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
@@ -405,14 +405,13 @@ class ConversationViewSet(
         is_impersonated = is_impersonated_session(request)
 
         if is_sandbox and has_message:
-            return handle_sandbox_message(
-                conversation=conversation,
-                conversation_id=str(conversation_id),
-                content=serializer.validated_data["content"],
-                user=cast(User, request.user),
-                team=self.team,
-                is_new_conversation=is_new_conversation,
-            )
+            # Sandbox runtime delegates in-process to the posthog_ai product. The handler
+            # is non-streaming and returns the IDs the frontend needs to open SSE directly
+            # against the products/tasks stream endpoint.
+            if is_new_conversation:
+                conversation.title = serializer.validated_data["content"][:80]
+                conversation.save(update_fields=["title"])
+            return MessageRoutingService(request, conversation).handle()
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]

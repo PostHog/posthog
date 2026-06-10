@@ -24414,6 +24414,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      */
@@ -24428,6 +24429,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
     } as const;
@@ -27611,6 +27613,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
@@ -33893,6 +33896,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
