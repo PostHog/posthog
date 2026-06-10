@@ -77,6 +77,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         allTools: tools as any,
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
         ...overrides,
     }
 }
