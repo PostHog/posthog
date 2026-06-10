@@ -1,4 +1,4 @@
-import { IconSend } from '@posthog/icons'
+import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -20,6 +20,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import type { DeliveryFeedback } from '../subscriptionSceneLogic'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -195,6 +196,43 @@ function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
 
 const deliveryColumns = buildDeliveryColumns()
 
+function buildFeedbackColumn(
+    deliveryFeedback: Record<string, DeliveryFeedback>,
+    onDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback) => void
+): LemonTableColumns<SubscriptionDeliveryApi>[number] {
+    return {
+        title: 'Useful?',
+        key: 'feedback',
+        className: DELIVERY_TABLE_CELL_CLASS,
+        render: (_v, row) => {
+            if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
+                return <span className="text-secondary">—</span>
+            }
+            if (deliveryFeedback[row.id]) {
+                return <span className="text-secondary whitespace-nowrap">Thanks!</span>
+            }
+            return (
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconThumbsUp />}
+                        tooltip="This report was useful"
+                        onClick={() => onDeliveryFeedback(row.id, 'positive')}
+                        data-attr="subscription-delivery-feedback-positive"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconThumbsDown />}
+                        tooltip="This report was not useful"
+                        onClick={() => onDeliveryFeedback(row.id, 'negative')}
+                        data-attr="subscription-delivery-feedback-negative"
+                    />
+                </div>
+            )
+        },
+    }
+}
+
 const DELIVERY_STATUS_FILTER_OPTIONS: { label: string; value: DeliveryListStatusFilter | null }[] = [
     { label: 'All statuses', value: null },
     { label: 'Starting', value: SubscriptionDeliveriesListStatusByValue.Starting },
@@ -265,6 +303,10 @@ export type SubscriptionDeliveryHistoryProps = {
     /** When set, empty table shows this as the primary action (e.g. send a test delivery). */
     onTestDelivery?: () => void
     testDeliveryLoading?: boolean
+    /** When set (AI-prompt subscriptions), completed rows show thumbs up/down feedback buttons. */
+    onDeliveryFeedback?: (deliveryId: string, feedback: DeliveryFeedback) => void
+    /** Feedback already given in this session, keyed by delivery id — those rows show a "Thanks" state. */
+    deliveryFeedback?: Record<string, DeliveryFeedback>
     /**
      * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
      * on first render. Used exclusively by visual regression tests to capture the
@@ -281,6 +323,8 @@ export function SubscriptionDeliveryHistory({
     onDeliveryStatusFilterChange,
     onTestDelivery,
     testDeliveryLoading = false,
+    onDeliveryFeedback,
+    deliveryFeedback = {},
     __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
@@ -293,6 +337,9 @@ export function SubscriptionDeliveryHistory({
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
     const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
+    const columns = onDeliveryFeedback
+        ? [...deliveryColumns, buildFeedbackColumn(deliveryFeedback, onDeliveryFeedback)]
+        : deliveryColumns
 
     return (
         <>
@@ -332,7 +379,7 @@ export function SubscriptionDeliveryHistory({
                 {showTable ? (
                     <LemonTable
                         dataSource={deliveriesPage?.results ?? []}
-                        columns={deliveryColumns}
+                        columns={columns}
                         loading={deliveriesPageLoading}
                         loadingSkeletonRows={8}
                         rowKey="id"

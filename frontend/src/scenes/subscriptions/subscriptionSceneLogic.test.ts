@@ -1,6 +1,8 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
     ResourceTypeEnumApi,
@@ -220,5 +222,74 @@ describe('subscriptionSceneLogic', () => {
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
         featureFlagLogic.unmount()
+    })
+
+    it.each([
+        ['positive' as const, 'email'],
+        ['negative' as const, 'slack'],
+    ])('captures ai_report_feedback (%s, %s) from URL params and strips them', async (feedback, source) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            router.actions.push('/subscriptions/2', {
+                feedback_delivery: 'd-123',
+                feedback,
+                feedback_source: source,
+            })
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-123',
+            feedback,
+            source,
+        })
+        // The replace must remove the params so a refresh doesn't double-capture.
+        expect(router.values.searchParams).toEqual({})
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(1)
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
+    })
+
+    it('captures in-app thumbs feedback and records it per delivery', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'negative', 'in_app')
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-9',
+            feedback: 'negative',
+            source: 'in_app',
+        })
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
     })
 })

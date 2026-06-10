@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import {
     subscriptionsDeliveriesList,
@@ -32,6 +34,9 @@ export type SubscriptionSceneLogicProps = {
     id: string
 }
 
+export type DeliveryFeedback = 'positive' | 'negative'
+export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined
@@ -57,6 +62,11 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
         setDeliveryStatusFilter: (status: SubscriptionsDeliveriesListStatus | null) => ({ status }),
+        submitDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback, source: DeliveryFeedbackSource) => ({
+            deliveryId,
+            feedback,
+            source,
+        }),
     }),
     reducers({
         deliveringSubscriptionId: [
@@ -71,6 +81,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as SubscriptionsDeliveriesListStatus | null,
             {
                 setDeliveryStatusFilter: (_, { status }) => status,
+            },
+        ],
+        deliveryFeedback: [
+            {} as Record<string, DeliveryFeedback>,
+            {
+                submitDeliveryFeedback: (state, { deliveryId, feedback }) => ({ ...state, [deliveryId]: feedback }),
             },
         ],
     }),
@@ -164,7 +180,19 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        submitDeliveryFeedback: ({ deliveryId, feedback, source }) => {
+            posthog.capture('ai_report_feedback', {
+                subscription_id: parseInt(props.id, 10),
+                delivery_id: deliveryId,
+                feedback,
+                source,
+            })
+            // In-app thumbs show a per-row "Thanks" state instead of a toast.
+            if (source !== 'in_app') {
+                lemonToast.success('Thanks for your feedback')
+            }
+        },
         setDeliveryStatusFilter: () => {
             if (values.deliveriesEnabled && values.subscription) {
                 void actions.loadDeliveriesPage(null)
@@ -217,6 +245,25 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             // sub with no integration) — backend already validates this.
             const detail = errorObject?.detail
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
+        },
+    })),
+    urlToAction(({ actions, props }) => ({
+        // Feedback links in delivered emails/Slack messages land here with these params;
+        // capture once, then strip them so a refresh doesn't double-capture.
+        [urls.subscription(':id')]: ({ id }, searchParams) => {
+            if (id !== props.id) {
+                return
+            }
+            const { feedback_delivery, feedback, feedback_source, ...restSearchParams } = searchParams
+            if (!feedback_delivery || (feedback !== 'positive' && feedback !== 'negative')) {
+                return
+            }
+            actions.submitDeliveryFeedback(
+                String(feedback_delivery),
+                feedback,
+                feedback_source === 'slack' ? 'slack' : 'email'
+            )
+            router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
         },
     })),
     afterMount(({ actions }) => {
