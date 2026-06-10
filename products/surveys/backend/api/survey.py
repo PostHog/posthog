@@ -1169,9 +1169,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     else:
                         cleaned_translation[field] = translation_data[field]
 
-            # Validate and sanitize link field. Mirror the base-question handling (see below):
-            # an empty link is treated as absent rather than rejected, so clearing the link on a
-            # translated link/notification survey still saves.
+            # Empty link is treated as absent rather than rejected, mirroring the base question.
             link = translation_data.get("link")
             if link:
                 if not isinstance(link, str):

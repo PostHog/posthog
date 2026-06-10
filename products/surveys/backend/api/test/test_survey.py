@@ -151,9 +151,7 @@ class TestSurvey(APIBaseTest):
     def test_link_question_translation_allows_empty_link(
         self, _name: str, translation_link: Optional[str], expect_link_present: bool
     ) -> None:
-        """Empty/null links in a translation are treated as absent, matching the base question (regression)."""
         translation: dict[str, Any] = {"question": "Mira nuestra documentación"}
-        # None models a translation that omits the link field entirely.
         if translation_link is not None:
             translation["link"] = translation_link
         response = self.client.post(
@@ -184,7 +182,6 @@ class TestSurvey(APIBaseTest):
         if expect_link_present:
             assert es_translation.get("link") == translation_link
         else:
-            # Empty/absent link is dropped rather than persisted or rejected.
             assert "link" not in es_translation
 
     def test_translation_language_codes_are_normalized(self) -> None:
