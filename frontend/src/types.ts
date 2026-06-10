@@ -7128,6 +7128,8 @@ export type OAuthApplicationPublicMetadata = {
     client_id: string
     is_verified: boolean
     logo_uri: string | null
+    /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
+    wildcard_read_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'

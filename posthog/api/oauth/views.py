@@ -868,6 +868,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "client_id": application.client_id,
                     "is_verified": application.is_verified,
                     "logo_uri": application.logo_uri,
+                    # The read-only form of a `*` grant, computed from the same ceiling
+                    # resolution `validate_scopes` enforces — the frontend's scope list
+                    # drifts from the server's (both over- and under-granting otherwise).
+                    "wildcard_read_scopes": sorted(
+                        scope
+                        for scope in effective_ceiling(getattr(application, "scopes", None) or [])
+                        if scope.endswith(":read")
+                    ),
                 }
             },
         )

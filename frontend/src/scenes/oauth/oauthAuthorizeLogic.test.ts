@@ -76,6 +76,19 @@ describe('oauthAuthorizeLogic', () => {
         expect(scopes).not.toContain('metrics:read')
     })
 
+    it('uses the server-computed read set when expanding the wildcard', () => {
+        logic.actions.setScopes(['openid', '*'])
+        logic.actions.loadOAuthApplicationSuccess({
+            name: 'Test App',
+            client_id: 'test-client',
+            is_verified: true,
+            logo_uri: null,
+            wildcard_read_scopes: ['insight:read', 'batch_import:read'],
+        })
+        logic.actions.setReadOnlyMode(true)
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read', 'batch_import:read'])
+    })
+
     it('drops a scope when its object is denied and re-adds it when toggled back', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
         logic.actions.toggleDeniedScope('feature_flag')

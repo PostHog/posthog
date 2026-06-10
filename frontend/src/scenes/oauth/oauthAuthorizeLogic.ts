@@ -42,9 +42,14 @@ const REQUIRED_SCOPE_OBJECTS: ReadonlySet<string> = new Set()
 // would reject the whole submit with invalid_scope.
 const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
 
-// `*` grants read+write to everything; its read-only form is every grantable object's read scope.
-const wildcardReadScopes = (): string[] =>
-    API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
+// `*` grants read+write to everything; its read-only form is every grantable object's read
+// scope. The server-computed list is authoritative — the local API_SCOPES list both lags
+// behind new backend scopes (under-granting) and contains ungrantable ones (over-granting,
+// which the server rejects). The local fallback only covers a missing app context.
+const wildcardReadScopes = (oauthApplication: OAuthApplicationPublicMetadata | null): string[] =>
+    oauthApplication?.wildcard_read_scopes?.length
+        ? oauthApplication.wildcard_read_scopes
+        : API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
 
 const isNativeProtocol = (url: string): boolean => {
     try {
@@ -482,8 +487,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         effectiveScopes: [
-            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode],
-            (scopes: string[], deniedScopeObjects: string[], readOnlyMode: boolean): string[] => {
+            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode, s.oauthApplication],
+            (
+                scopes: string[],
+                deniedScopeObjects: string[],
+                readOnlyMode: boolean,
+                oauthApplication: OAuthApplicationPublicMetadata | null
+            ): string[] => {
                 const denied = new Set(deniedScopeObjects)
                 const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
                 const resources = getMinimumEquivalentScopes(scopes)
@@ -491,7 +501,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     .filter((scope) => !denied.has(scopeObjectKey(scope)))
                     .flatMap((scope) => {
                         if (scope === '*') {
-                            return readOnlyMode ? wildcardReadScopes() : ['*']
+                            return readOnlyMode ? wildcardReadScopes(oauthApplication) : ['*']
                         }
                         return [readOnlyMode ? toReadOnlyScope(scope) : scope]
                     })
