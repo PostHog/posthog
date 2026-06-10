@@ -8,6 +8,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
@@ -21,6 +22,7 @@ from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestEntitySearchContext(NonAtomicBaseTest):
@@ -442,6 +444,29 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
         assert results == []
         assert counts["account"] == 0
+
+    def _deny_customer_analytics_access(self):
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
+        self.organization.save()
+
+    async def test_search_entities_account_denied_resource_access(self):
+        await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
+        await sync_to_async(self._deny_customer_analytics_access)()
+
+        results, counts = await self.context.search_entities({"account"}, "globex")
+
+        assert results == []
+        assert counts["account"] == 0
+
+    async def test_list_entities_account_denied_resource_access(self):
+        await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
+        await sync_to_async(self._deny_customer_analytics_access)()
+
+        entities, total = await self.context.list_entities("account", limit=10, offset=0)
+
+        assert entities == []
+        assert total == 0
 
     async def test_search_entities_account_combined_with_fts_kinds(self):
         await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")

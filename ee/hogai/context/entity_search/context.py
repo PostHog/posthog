@@ -1,3 +1,4 @@
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Literal
@@ -360,12 +361,14 @@ class EntitySearchContext:
 
     def _accounts_queryset(self) -> QuerySet[Account]:
         """Base accounts queryset. Uses the unscoped manager since Account is fail-closed."""
+        if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
+            return Account.objects.unscoped().none()
         return self.user_access_control.filter_queryset_by_access_level(
             Account.objects.unscoped().filter(team=self._team)
         )
 
     @staticmethod
-    def _account_entities(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _account_entities(accounts: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
         return [
             {
                 "type": "account",
