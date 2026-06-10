@@ -4434,33 +4434,6 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_api_key"] == "sk_existing"
         mock_validate_credentials.assert_called_once()
 
-    @parameterized.expand([("auth_only_update", False), ("manifest_edit", True)])
-    @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
-        return_value=(True, None),
-    )
-    def test_update_custom_source_graph_validation_only_gates_manifest_edits(
-        self, _name, edits_manifest, mock_validate_credentials
-    ):
-        # Graph-level manifest rules gate new/changed manifests only. A stored
-        # manifest that predates a rule must not lock its source out of
-        # unrelated edits (e.g. rotating the API key), so the serializer
-        # disables the graph check unless manifest_json itself changed.
-        source = self._custom_source("https://api.example.com")
-        job_inputs: dict = {"auth_api_key": "sk_rotated"}
-        if edits_manifest:
-            manifest = json.loads(source.job_inputs["manifest_json"])
-            manifest["resources"][0]["endpoint"]["path"] = "/users-v2"
-            job_inputs["manifest_json"] = json.dumps(manifest)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"job_inputs": job_inputs},
-        )
-
-        assert response.status_code == 200, response.json()
-        assert mock_validate_credentials.call_args.kwargs["validate_graph"] is edits_manifest
-
     def _okta_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,

@@ -156,11 +156,12 @@ def validate_manifest_structure(manifest: Any) -> None:
     """Validate only the structural shape of a manifest, via the
     :class:`_Manifest` schema.
 
-    This is the validation level used on already-stored manifests (syncs,
-    schema listing): it must stay permissive enough that tightening the
-    create-time rules can never brick a deployed source. Graph-level fan-out
-    errors are checked separately by :func:`_validate_resource_graph` at
-    create/update time, and per-schema at sync time by :func:`_fanout_chain`.
+    This is the validation level used on sync and schema-listing reads of
+    already-stored manifests: it must stay permissive enough that tightening
+    the rules can never brick a deployed source's syncs. Graph-level fan-out
+    errors are checked separately by :func:`_validate_resource_graph` on the
+    API validation paths (`validate_credentials`), and per-schema at sync time
+    by :func:`_fanout_chain`.
     """
     if not isinstance(manifest, dict):
         raise ManifestValidationError("Manifest must be a JSON object")
@@ -477,41 +478,27 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other
-        # schemas (graph rules are enforced at create/update time in
+        # schemas (graph rules are enforced on the API validation paths in
         # `validate_credentials`, and per-schema at sync time in `_fanout_chain`).
         validate_manifest_structure(manifest)
         _inject_auth_secrets(manifest, config)
         return manifest
 
     def validate_credentials(
-        self,
-        config: CustomSourceConfig,
-        team_id: int,
-        schema_name: Optional[str] = None,
-        *,
-        validate_graph: bool = True,
+        self, config: CustomSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
-        except ManifestValidationError as exc:
-            return False, str(exc)
-
-        # Graph-level fan-out rules gate candidate manifests only — source
-        # creation and manifest edits. They must never lock an existing source
-        # out of unrelated operations on a stored manifest that predates a
-        # rule, so strictness is off when the update serializer says the
-        # manifest wasn't touched (``validate_graph=False``, e.g. rotating the
-        # auth token) or when the check is schema-scoped (``schema_name``, the
-        # schema API's ``incremental_fields`` action) — those only ever run
-        # against stored config. A tolerated graph error falls back to probing
-        # every resource, exactly the behavior before the rules existed.
-        validate_graph = validate_graph and schema_name is None
-        try:
+            # Graph-level fan-out rules apply on every validation path —
+            # including updates that don't touch the manifest and schema-scoped
+            # read checks. Builder-authored manifests are always graph-valid,
+            # so a stored manifest tripping this means hand-authored JSON that
+            # never synced; failing the API call with a pointed message is
+            # preferable to carrying a permanent leniency mode. The returned
+            # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
         except ManifestValidationError as exc:
-            if validate_graph:
-                return False, str(exc)
-            resolved = {}
+            return False, str(exc)
 
         ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:

@@ -33,9 +33,10 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def validate_manifest(manifest: Any) -> None:
-    # Create-time composite (structure + graph). Production runs the two levels
-    # separately — permissive structural checks on stored-manifest reads, graph
-    # rules only for new/changed manifests — so the composite lives here.
+    # Full-validation composite (structure + graph). Production runs the two
+    # levels separately — permissive structural checks on stored-manifest
+    # reads, graph rules on the API validation paths — so the composite lives
+    # here with the tests that use it.
     validate_manifest_structure(manifest)
     _validate_resource_graph(manifest)
 
@@ -955,30 +956,22 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # Default strictness: graph errors block create and manifest edits —
-            # that's where they're fixable.
-            ("candidate_manifest_rejected", {}, False),
-            # The update serializer disables the graph check when the manifest
-            # itself wasn't edited (e.g. rotating the auth token) ...
-            ("manifest_unchanged_on_update", {"validate_graph": False}, True),
-            # ... and schema-scoped read checks (the schema API's
-            # incremental_fields action) only ever run against stored config.
-            # Both tolerant paths degrade to probing every resource, the
-            # pre-fan-out behavior.
-            ("schema_scoped_read_check", {"schema_name": "forms"}, True),
+            # Graph rules apply on every validation path — create/update ...
+            ("create_or_update", {}),
+            # ... and schema-scoped read checks against stored config alike.
+            # Builder-authored manifests are always graph-valid, so a stored
+            # manifest tripping this was hand-authored JSON that never synced.
+            ("schema_scoped_read_check", {"schema_name": "forms"}),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_validate_credentials_graph_strictness(self, _name, kwargs, expected_ok, mock_session):
-        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+    def test_validate_credentials_rejects_broken_graph(self, _name, kwargs):
         manifest = _fanout_manifest()
         _break_unknown_parent(manifest)
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999, **kwargs)
-        assert ok is expected_ok, err
-        if not expected_ok:
-            assert err is not None and "nonexistent" in err
+        assert ok is False
+        assert err is not None and "nonexistent" in err
 
 
 class TestFanoutChain(SimpleTestCase):
