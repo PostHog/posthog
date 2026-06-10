@@ -2,6 +2,7 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any
 
+import posthoganalytics
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
@@ -61,7 +62,8 @@ class FeatureFlagCreationSchema(BaseModel):
         default=None,
         description="Evaluation context names (e.g. 'production', 'staging') that control where this flag "
         "evaluates at runtime. Some projects require at least one evaluation context on every new flag. "
-        "If omitted, the project's default evaluation contexts are applied automatically when configured.",
+        "If omitted, the project's default evaluation contexts are applied automatically when configured. "
+        "An explicit empty list skips the defaults.",
     )
 
 
@@ -302,14 +304,18 @@ class CreateFeatureFlagTool(MaxTool):
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
+            contexts_info = (
+                f" with evaluation contexts: {', '.join(evaluation_contexts)}" if evaluation_contexts else ""
+            )
 
             return (
-                f"Successfully created feature flag '{flag_schema.name}' (key: {flag_schema.key}){targeting_info}. View at {flag_url}",
+                f"Successfully created feature flag '{flag_schema.name}' (key: {flag_schema.key}){targeting_info}{contexts_info}. View at {flag_url}",
                 {
                     "flag_id": flag.id,
                     "flag_key": flag_schema.key,
                     "flag_name": flag_schema.name,
                     "url": flag_url,
+                    "evaluation_contexts": evaluation_contexts,
                 },
             )
 
@@ -353,6 +359,17 @@ class CreateFeatureFlagTool(MaxTool):
     def _get_default_evaluation_contexts(self) -> list[str]:
         """Return the project's default evaluation context names, if defaults are enabled."""
         if not self._team.default_evaluation_contexts_enabled:
+            return []
+
+        # Mirror the web UI, which applies defaults only when this gate is also on (featureFlagLogic.ts).
+        if not posthoganalytics.feature_enabled(
+            "default-evaluation-environments",
+            self._user.distinct_id,
+            groups={"organization": str(self._user.organization.id)},
+            group_properties={"organization": {"id": str(self._user.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
             return []
 
         return list(
