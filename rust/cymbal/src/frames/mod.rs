@@ -123,7 +123,7 @@ impl RawFrame {
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
-                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index));
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index, debug_images));
             fs
         });
 
@@ -170,7 +170,7 @@ impl RawFrame {
         }
     }
 
-    pub fn raw_id(&self, team_id: i32) -> RawFrameId {
+    pub fn raw_id(&self, team_id: i32, debug_images: &[AppleDebugImage]) -> RawFrameId {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
@@ -183,14 +183,19 @@ impl RawFrame {
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
             RawFrame::Dart(raw) => raw.frame_id(),
-            RawFrame::Apple(raw) => raw.frame_id(),
+            RawFrame::Apple(raw) => raw.frame_id(debug_images),
         };
 
         RawFrameId::new(hash_id, team_id)
     }
 
-    pub fn frame_id(&self, team_id: i32, index: usize) -> FrameId {
-        self.raw_id(team_id).to_full(index as i32)
+    pub fn frame_id(
+        &self,
+        team_id: i32,
+        index: usize,
+        debug_images: &[AppleDebugImage],
+    ) -> FrameId {
+        self.raw_id(team_id, debug_images).to_full(index as i32)
     }
 
     pub fn is_suspicious(&self) -> bool {

@@ -1202,6 +1202,12 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
+    # Record the live actor so async reply paths tag them instead of the
+    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
+    if slack_user_id != mapping.latest_actor_slack_user_id:
+        mapping.latest_actor_slack_user_id = slack_user_id
+        mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+
     if task_run.is_terminal:
         return _resume_task_with_new_run(
             mapping,
