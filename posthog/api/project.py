@@ -70,7 +70,7 @@ from posthog.models.product_intent.product_intent import (
 from posthog.models.project import Project
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
-from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY, Team
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -517,9 +517,9 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
-    base_currency = serializers.ChoiceField(
-        choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY
-    )  # Compat with TeamSerializer
+    # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
+    # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
