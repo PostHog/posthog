@@ -878,7 +878,7 @@ export const QueryDatabase = ({
                                 newInternalTab(urls.dataWarehouseSourceNew(sourceType))
                             }}
                             data-attr="sql-editor-add-source-of-type"
-                            tooltip={`Add new ${sourceType} source`}
+                            tooltip="Add new source of this type"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>
