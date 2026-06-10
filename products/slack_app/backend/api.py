@@ -1400,7 +1400,7 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-def _get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
+def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``,
     cache-first then a fresh hit on miss. Returns ``None`` when Slack doesn't
     expose an email for the user (profile email hidden) or the lookup fails.
@@ -1425,7 +1425,7 @@ def _get_slack_email_for_user(probe_integration: Integration, slack_user_id: str
         return None
 
 
-def _resolve_posthog_user_from_event(
+def resolve_posthog_user_from_event(
     *,
     slack_user_id: str,
     probe_integration: Integration,
@@ -1443,7 +1443,7 @@ def _resolve_posthog_user_from_event(
     ``resolve_user_and_integrations``) so we don't repeat the cache lookup.
     """
     if slack_email is None:
-        slack_email = _get_slack_email_for_user(probe_integration, slack_user_id)
+        slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
     if not slack_email:
         return None
     org_ids = {c.team.organization_id for c in candidate_integrations}
@@ -1908,7 +1908,7 @@ def _report_slack_mention_received(
 
         slack_user_id = event.get("user") if isinstance(event.get("user"), str) and event.get("user") else None
         if posthog_user is None and slack_user_id:
-            posthog_user = _resolve_posthog_user_from_event(
+            posthog_user = resolve_posthog_user_from_event(
                 slack_user_id=slack_user_id,
                 probe_integration=integration,
                 candidate_integrations=[integration],
@@ -2492,7 +2492,7 @@ def _is_org_member(integration: Integration, clicker_slack_user_id: str) -> User
     """Resolve the clicker to a PostHog ``User`` belonging to the integration's
     organization, or ``None`` if no such membership exists.
     """
-    return _resolve_posthog_user_from_event(
+    return resolve_posthog_user_from_event(
         slack_user_id=clicker_slack_user_id,
         probe_integration=integration,
         candidate_integrations=[integration],

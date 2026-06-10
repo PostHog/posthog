@@ -210,7 +210,7 @@ def resolve_user_for_workspace(
     # The user resolver lives in api.py alongside the Slack-API helpers it
     # depends on (``_get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
-    from products.slack_app.backend.api import _get_slack_email_for_user, _resolve_posthog_user_from_event
+    from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
 
     if not slack_user_id:
         logger.warning(
@@ -226,9 +226,9 @@ def resolve_user_for_workspace(
     # doesn't repeat the cache hit and so the routing layer can mention it in
     # the user-facing failure reply.
     probe = workspace_result.candidates[0]
-    slack_email = _get_slack_email_for_user(probe, slack_user_id)
+    slack_email = get_slack_email_for_user(probe, slack_user_id)
 
-    posthog_user = _resolve_posthog_user_from_event(
+    posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,

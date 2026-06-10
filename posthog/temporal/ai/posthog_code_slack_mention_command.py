@@ -193,7 +193,7 @@ def resolve_posthog_code_slack_command_user_activity(
 ) -> int | None:
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _resolve_posthog_user_from_event
+    from products.slack_app.backend.api import resolve_posthog_user_from_event
 
     event = inputs.event
     channel = event.get("channel")
@@ -213,7 +213,7 @@ def resolve_posthog_code_slack_command_user_activity(
         return None
 
     probe = candidates[0]
-    posthog_user = _resolve_posthog_user_from_event(
+    posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=candidates,
