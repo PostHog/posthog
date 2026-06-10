@@ -1,8 +1,6 @@
-import importlib
-
 from unittest.mock import patch
 
-from django.apps import apps as django_apps
+from django.core.management import call_command
 from django.test import TestCase
 
 from posthog.models.user import User
@@ -35,11 +33,7 @@ class TestHogFlow(TestCase):
         mock_refresh.assert_called_once_with(team_id=self.team.id)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_backfill_conversion_filters_to_events(self, _mock_reload):
-        migration = importlib.import_module(
-            "products.workflows.backend.migrations.0009_backfill_conversion_filters_to_events"
-        )
-
+    def test_backfill_conversion_filters_to_events_command(self, _mock_reload):
         # Event-based conversion stored in the wrong slot (the legacy shape we're fixing).
         event_obj = {
             "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
@@ -58,7 +52,13 @@ class TestHogFlow(TestCase):
             conversion={"window_minutes": 30, "filters": good_filters, "bytecode": ["_H", 1, 1]},
         )
 
-        migration.backfill_conversion_filters_to_events(django_apps, None)
+        # Dry-run (the default) must not change anything.
+        call_command("backfill_conversion_filters_to_events")
+        bad.refresh_from_db()
+        assert bad.conversion is not None and isinstance(bad.conversion["filters"], dict)
+
+        # Live-run relocates the bad shape and leaves the good one untouched.
+        call_command("backfill_conversion_filters_to_events", "--live-run")
 
         bad.refresh_from_db()
         bad_conversion = bad.conversion
@@ -73,8 +73,8 @@ class TestHogFlow(TestCase):
         assert good_conversion["filters"] == good_filters
         assert not good_conversion.get("events")
 
-        # Idempotent: a second run must not double-move or change anything.
-        migration.backfill_conversion_filters_to_events(django_apps, None)
+        # Idempotent: a second live-run must not double-move or change anything.
+        call_command("backfill_conversion_filters_to_events", "--live-run")
         bad.refresh_from_db()
         bad_conversion = bad.conversion
         assert bad_conversion is not None
