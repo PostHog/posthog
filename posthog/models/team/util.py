@@ -62,8 +62,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _raw_delete_batch(
-        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)
-    )  # nosemgrep: no-direct-persons-db-orm
+        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)  # nosemgrep: no-direct-persons-db-orm
+    )
     _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
