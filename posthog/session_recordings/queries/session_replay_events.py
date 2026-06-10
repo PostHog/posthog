@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -22,6 +23,34 @@ DEFAULT_EVENT_FIELDS = [
     "properties.$current_url",
     "properties.$event_type",
 ]
+
+_UUIDV7_SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+# The session id's embedded timestamp comes from the client clock while
+# min_first_timestamp is ingestion-derived, so allow generous slack either side.
+SESSION_ID_CLOCK_SKEW_SLACK = timedelta(days=3)
+
+
+def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> datetime | None:
+    """A safe ``min_first_timestamp`` lower bound derived from a UUIDv7 session id.
+
+    The session_replay_events sort key is (toDate(min_first_timestamp), team_id, session_id),
+    so a session lookup without a date lower bound walks index granules across the table's
+    entire retained date range. SDK session ids are UUIDv7 — their first 48 bits encode the
+    session start in ms — which lets us bound the scan without callers having to know the
+    recording's start time. Returns None (no bound, today's behavior) for ids that don't
+    parse or whose embedded timestamp is implausible (badly skewed client clocks exist).
+    """
+    if not _UUIDV7_SESSION_ID.match(session_id):
+        return None
+    embedded_ms = int(session_id.replace("-", "")[:12], 16)
+    now = now or datetime.now(pytz.UTC)
+    if embedded_ms > (now + timedelta(days=1)).timestamp() * 1000:
+        return None
+    embedded_start = datetime.fromtimestamp(embedded_ms / 1000, tz=pytz.UTC)
+    if embedded_start.year < 2020:
+        return None
+    return embedded_start - SESSION_ID_CLOCK_SKEW_SLACK
 
 
 def seconds_until_midnight():
@@ -94,9 +123,11 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
+        date_from = uuidv7_session_lower_bound(session_id)
+        optional_lower_bound_clause = "AND min_first_timestamp >= %(date_from)s" if date_from else ""
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
-            """
+            f"""
             SELECT
                 count(),
                 min(min_first_timestamp) as start_time,
@@ -108,6 +139,7 @@ class SessionReplayEvents:
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
+                {optional_lower_bound_clause}
             GROUP BY
                 session_id
             HAVING
@@ -117,6 +149,7 @@ class SessionReplayEvents:
             {
                 "team_id": team.pk,
                 "session_id": session_id,
+                "date_from": date_from,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
@@ -164,8 +197,13 @@ class SessionReplayEvents:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         now = datetime.now(pytz.timezone("UTC"))
+        # Only bound the scan when every id parses — a single unparseable id must
+        # still be findable anywhere in the retained range.
+        lower_bounds = [uuidv7_session_lower_bound(session_id, now) for session_id in session_ids]
+        date_from = min(lower_bounds, default=None) if all(bound is not None for bound in lower_bounds) else None
+        optional_lower_bound_clause = "AND min_first_timestamp >= {date_from}" if date_from else ""
         query = HogQLQuery(
-            query="""
+            query=f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as min_timestamp,
@@ -175,17 +213,19 @@ class SessionReplayEvents:
                 FROM
                     raw_session_replay_events
                 WHERE
-                    session_id IN {session_ids}
-                    AND min_first_timestamp <= {now}
+                    session_id IN {{session_ids}}
+                    AND min_first_timestamp <= {{now}}
+                    {optional_lower_bound_clause}
                 GROUP BY
                     session_id
                 HAVING
-                    expiry_time >= {now}
+                    expiry_time >= {{now}}
                     AND max(is_deleted) = 0
             """,
             values={
                 "session_ids": session_ids,
                 "now": now,
+                "date_from": date_from,
             },
         )
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
@@ -317,6 +357,9 @@ class SessionReplayEvents:
         team: Team,
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
+        # Most callers don't know the recording's start time (it is only persisted
+        # for pinned recordings); derive a lower bound from the session id instead.
+        recording_start_time = recording_start_time or uuidv7_session_lower_bound(session_id)
         query = self.get_metadata_query(recording_start_time)
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(

@@ -3,9 +3,14 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import (
+    SESSION_ID_CLOCK_SKEW_SLACK,
+    SessionReplayEvents,
+    uuidv7_session_lower_bound,
+)
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
@@ -321,3 +326,61 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
+
+
+def _uuidv7_session_id_for(ts) -> str:
+    ms = int(ts.timestamp() * 1000)
+    hex12 = f"{ms:012x}"
+    return f"{hex12[:8]}-{hex12[8:12]}-7000-8000-000000000000"
+
+
+class TestUuidv7SessionLowerBound(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("uuidv4_id", "7c10ab30-3a9c-4b75-89ce-09e51c826989", None),
+            ("non_uuid_id", "my-custom-session", None),
+            ("implausibly_old_embedded_timestamp", "0000ffff-ffff-7000-8000-000000000000", None),
+            ("far_future_embedded_timestamp", "ffffffff-ffff-7000-8000-000000000000", None),
+        ]
+    )
+    def test_returns_no_bound(self, _name: str, session_id: str, expected: None) -> None:
+        assert uuidv7_session_lower_bound(session_id) is expected
+
+    def test_derives_bound_from_embedded_timestamp(self) -> None:
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        bound = uuidv7_session_lower_bound(_uuidv7_session_id_for(session_start))
+        assert bound == session_start - SESSION_ID_CLOCK_SKEW_SLACK
+
+
+class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
+    def test_finds_session_with_uuidv7_id_seeded_at_its_embedded_time(self) -> None:
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=session_start,
+            last_timestamp=session_start,
+            distinct_id="u1",
+            retention_period_days=30,
+        )
+
+        assert SessionReplayEvents().exists(session_id, self.team) is True
+        assert SessionReplayEvents().get_metadata(session_id, self.team) is not None
+
+    def test_excludes_session_seeded_far_before_its_ids_embedded_time(self) -> None:
+        # A recording whose events predate the session id's embedded timestamp by more
+        # than the clock-skew slack is outside the derived scan window.
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=session_start - relativedelta(days=10),
+            last_timestamp=session_start - relativedelta(days=10),
+            distinct_id="u1",
+            retention_period_days=30,
+        )
+
+        assert not SessionReplayEvents().exists(session_id, self.team)
+        assert SessionReplayEvents().get_metadata(session_id, self.team) is None
