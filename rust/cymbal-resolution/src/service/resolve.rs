@@ -240,7 +240,7 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
     let exception: Exception = serde_json::from_slice(&item.exception_json)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
-    let debug_images = apple_debug_images_from_metadata(&item.metadata)?;
+    let debug_images = debug_images_from_metadata(&item.metadata)?;
 
     let resolved = resolve_one_exception(stage.clone(), item.team_id, exception, debug_images)
         .await
@@ -255,7 +255,7 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
         .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
 }
 
-fn apple_debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {
+fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {
     if metadata.is_empty() {
         return Ok(Vec::new());
     }

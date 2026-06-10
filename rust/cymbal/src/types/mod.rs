@@ -143,7 +143,7 @@ pub struct RawErrProps {
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub debug_images: Vec<DebugImage>, // Debug images from iOS/macOS crash reports for symbolication
+    pub debug_images: Vec<DebugImage>, // Debug images sent by native SDKs (apple, rust) for symbolication
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
