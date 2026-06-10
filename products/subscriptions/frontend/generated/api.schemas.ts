@@ -460,6 +460,39 @@ export interface PatchedSubscriptionApi {
     summary_prompt_guide?: string
 }
 
+export interface SubscriptionPreviewReportApi {
+    /** Run status of the preview delivery: starting, completed, failed, or skipped.
+     *
+     * * `starting` - Starting
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    status: SubscriptionDeliveryStatusEnumApi
+    /**
+     * Generated report markdown. Null until the run completes (or when it failed before generating).
+     * @nullable
+     */
+    ai_report: string | null
+    /**
+     * Human-readable failure detail when the run failed, if available.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface SubscriptionTestDeliveryRequestApi {
+    /** AI subscriptions only: run the report generation pipeline without sending anything. Poll the preview_report action with the returned delivery_id to fetch the result. */
+    preview?: boolean
+}
+
+export interface SubscriptionTestDeliveryResponseApi {
+    /**
+     * Delivery row to poll via the preview_report action. Null for non-preview test deliveries.
+     * @nullable
+     */
+    delivery_id: string | null
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.
@@ -535,6 +568,13 @@ export const SubscriptionsListTargetType = {
     Email: 'email',
     Slack: 'slack',
 } as const
+
+export type SubscriptionsPreviewReportRetrieveParams = {
+    /**
+     * Delivery id returned by the preview kick-off.
+     */
+    delivery_id: string
+}
 
 export type SubscriptionsSummaryQuotaRetrieve200 = {
     active_count: number

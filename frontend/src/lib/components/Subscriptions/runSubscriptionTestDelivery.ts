@@ -12,7 +12,7 @@ export type SubscriptionTestDeliveryResult = 'success' | 'failure'
 
 /** Toast + HTTP error mapping for subscription manual test delivery (scene list + insight/admin modal). */
 export async function runSubscriptionTestDelivery(
-    execute: () => Promise<void>
+    execute: () => Promise<unknown>
 ): Promise<SubscriptionTestDeliveryResult> {
     try {
         await execute()

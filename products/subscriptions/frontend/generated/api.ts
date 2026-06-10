@@ -14,8 +14,12 @@ import type {
     PatchedSubscriptionApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
+    SubscriptionPreviewReportApi,
+    SubscriptionTestDeliveryRequestApi,
+    SubscriptionTestDeliveryResponseApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
+    SubscriptionsPreviewReportRetrieveParams,
     SubscriptionsSummaryQuotaRetrieve200,
 } from './api.schemas'
 
@@ -204,6 +208,42 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     })
 }
 
+export const getSubscriptionsPreviewReportRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: SubscriptionsPreviewReportRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/subscriptions/${id}/preview_report/?${stringifiedParams}`
+        : `/api/projects/${projectId}/subscriptions/${id}/preview_report/`
+}
+
+/**
+ * Status and result of a preview generation run kicked off via test-delivery with preview=true. Poll until status is completed, failed, or skipped.
+ * @summary Poll an AI subscription preview report
+ */
+export const subscriptionsPreviewReportRetrieve = async (
+    projectId: string,
+    id: number,
+    params: SubscriptionsPreviewReportRetrieveParams,
+    options?: RequestInit
+): Promise<SubscriptionPreviewReportApi> => {
+    return apiMutator<SubscriptionPreviewReportApi>(getSubscriptionsPreviewReportRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
 }
@@ -211,11 +251,14 @@ export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: num
 export const subscriptionsTestDeliveryCreate = async (
     projectId: string,
     id: number,
+    subscriptionTestDeliveryRequestApi?: SubscriptionTestDeliveryRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
+): Promise<SubscriptionTestDeliveryResponseApi> => {
+    return apiMutator<SubscriptionTestDeliveryResponseApi>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(subscriptionTestDeliveryRequestApi),
     })
 }
 

@@ -426,20 +426,29 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
 
         content_snapshot = build_initial_content_snapshot(subscription)
 
-        delivery, _created = SubscriptionDelivery.objects.get_or_create(
-            idempotency_key=inputs.idempotency_key,
-            defaults={
-                "subscription": subscription,
-                "team_id": inputs.team_id,
-                "temporal_workflow_id": inputs.temporal_workflow_id,
-                "trigger_type": inputs.trigger_type,
-                "scheduled_at": scheduled_at,
-                "target_type": subscription.target_type,
-                "target_value": subscription.target_value,
-                "content_snapshot": content_snapshot,
-                "status": SubscriptionDelivery.Status.STARTING,
-            },
-        )
+        defaults: dict[str, typing.Any] = {
+            "subscription": subscription,
+            "team_id": inputs.team_id,
+            "temporal_workflow_id": inputs.temporal_workflow_id,
+            "trigger_type": inputs.trigger_type,
+            "scheduled_at": scheduled_at,
+            "target_type": subscription.target_type,
+            "target_value": subscription.target_value,
+            "content_snapshot": content_snapshot,
+            "status": SubscriptionDelivery.Status.STARTING,
+        }
+        if inputs.delivery_id:
+            # Preview runs pre-assign the row id so the API can hand it to the polling
+            # client up front; keying get_or_create on the id keeps retries idempotent.
+            delivery, _created = SubscriptionDelivery.objects.get_or_create(
+                id=uuid.UUID(inputs.delivery_id),
+                defaults={**defaults, "idempotency_key": inputs.idempotency_key},
+            )
+        else:
+            delivery, _created = SubscriptionDelivery.objects.get_or_create(
+                idempotency_key=inputs.idempotency_key,
+                defaults=defaults,
+            )
         return delivery.id
 
     delivery_id = await _create()

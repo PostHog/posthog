@@ -2547,3 +2547,191 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def _create_delivery_row(self, subscription_id: int, **kwargs) -> SubscriptionDelivery:
+        params = {
+            "subscription_id": subscription_id,
+            "team": self.team,
+            "temporal_workflow_id": f"preview-subscription-{subscription_id}",
+            "idempotency_key": str(uuid4()),
+            "trigger_type": "preview",
+            "target_type": "email",
+            "target_value": "ai@posthog.com",
+            "status": SubscriptionDelivery.Status.COMPLETED,
+        }
+        params.update(kwargs)
+        return SubscriptionDelivery.objects.create(**params)
+
+    @parameterized.expand(
+        [
+            ("preview", True),
+            ("regular", False),
+        ]
+    )
+    def test_test_delivery_kickoff_trigger_and_delivery_id(self, mock_is_cloud, mock_flag, mock_sync, _name, preview):
+        mock_client = self._mock_temporal(mock_sync)
+        cache.clear()  # avoid test-delivery throttle state leaking across parameterized cases
+        sub_id = self._create_subscription_for("ai_prompt")
+        mock_client.start_workflow.reset_mock()
+
+        body = {"preview": True} if preview else {}
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/", body)
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        delivery_id = response.json()["delivery_id"]
+        wf_args, wf_kwargs = mock_client.start_workflow.call_args
+        workflow_inputs = wf_args[1]
+        if preview:
+            assert delivery_id is not None
+            assert workflow_inputs.trigger_type == SubscriptionTriggerType.PREVIEW
+            assert workflow_inputs.delivery_id == delivery_id
+            assert wf_kwargs["id"] == f"preview-subscription-{sub_id}"
+        else:
+            assert delivery_id is None
+            assert workflow_inputs.trigger_type == SubscriptionTriggerType.MANUAL
+            assert workflow_inputs.delivery_id is None
+            assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
+
+    def test_preview_rejected_for_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        mock_client = self._mock_temporal(mock_sync)
+        cache.clear()
+        sub_id = self._create_subscription_for("insight")
+        mock_client.start_workflow.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/", {"preview": True}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "AI subscriptions" in str(response.json())
+        mock_client.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "completed_with_report",
+                {"content_snapshot": {"ai_report": "# Report"}},
+                {"status": "completed", "ai_report": "# Report", "error": None},
+            ),
+            (
+                "still_starting",
+                {"status": SubscriptionDelivery.Status.STARTING},
+                {"status": "starting", "ai_report": None, "error": None},
+            ),
+            (
+                "failed_with_top_level_error",
+                {"status": SubscriptionDelivery.Status.FAILED, "error": {"message": "boom", "type": "RuntimeError"}},
+                {"status": "failed", "ai_report": None, "error": "boom"},
+            ),
+            (
+                # Auto-disable aborts (consent revoked, prompt rejected) leave error null and
+                # carry the detail in recipient_results instead.
+                "failed_with_recipient_error",
+                {
+                    "status": SubscriptionDelivery.Status.FAILED,
+                    "recipient_results": [
+                        {
+                            "recipient": "ai@posthog.com",
+                            "status": "failed",
+                            "error": {"message": "Prompt is empty.", "type": "PromptRejectedError"},
+                        }
+                    ],
+                },
+                {"status": "failed", "ai_report": None, "error": "Prompt is empty."},
+            ),
+        ]
+    )
+    def test_preview_report_returns_status_report_and_error(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_kwargs, expected
+    ):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        delivery = self._create_delivery_row(sub_id, **delivery_kwargs)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(delivery.id)},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == expected
+
+    def test_preview_report_unknown_delivery_returns_404(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(uuid4())},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_preview_report_for_another_subscriptions_delivery_returns_404(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        other_sub = Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            prompt="Other recap",
+            target_type="email",
+            target_value="other@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            title="Other AI sub",
+        )
+        other_delivery = self._create_delivery_row(other_sub.id, content_snapshot={"ai_report": "# Secret"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(other_delivery.id)},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("malformed", "not-a-uuid"),
+        ]
+    )
+    def test_preview_report_invalid_delivery_id_returns_400(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_id
+    ):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+
+        params = {} if delivery_id is None else {"delivery_id": delivery_id}
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/", params)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_preview_report_requires_query_access(self, mock_is_cloud, mock_flag, mock_sync):
+        # The preview body is query-derived, so RBAC mirrors the deliveries scrub: a
+        # query-restricted member gets a 403, not the report.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        delivery = self._create_delivery_row(sub_id, content_snapshot={"ai_report": "# Secret"})
+        self._restrict_query_access()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(delivery.id)},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_only", ["subscription:read"], status.HTTP_403_FORBIDDEN),
+            ("read_plus_query_read", ["subscription:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_preview_report_scoped_key_requires_query_read(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, scopes, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        delivery = self._create_delivery_row(sub_id, content_snapshot={"ai_report": "# Report"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview_report/",
+            {"delivery_id": str(delivery.id)},
+            headers=self._scoped_key_headers(scopes),
+        )
+        assert response.status_code == expected_status, response.json()

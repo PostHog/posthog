@@ -19,6 +19,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -263,7 +264,8 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { aiPreviewLoading, aiPreviewMarkdown, aiPreviewError } = useValues(logic)
+    const { resetSubscription, generatePreview, generateAiPreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -708,6 +710,47 @@ function EditSubscriptionForm({
                                     </FlaggedFeature>
                                 )}
                             </FlaggedFeature>
+                        )}
+
+                        {isAiPrompt && (
+                            <div>
+                                <LemonLabel className="mb-2">Preview</LemonLabel>
+                                <div className="border rounded p-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={generateAiPreview}
+                                        loading={aiPreviewLoading}
+                                        disabledReason={
+                                            !isEditing
+                                                ? 'Save the subscription first to generate a preview'
+                                                : aiPreviewLoading
+                                                  ? 'Preview generation is already running'
+                                                  : undefined
+                                        }
+                                    >
+                                        Generate preview
+                                    </LemonButton>
+
+                                    {aiPreviewLoading && (
+                                        <div className="mt-2 text-sm text-secondary">
+                                            Generating preview… this can take a few minutes. Nothing will be sent.
+                                        </div>
+                                    )}
+
+                                    {aiPreviewError && (
+                                        <LemonBanner type="error" className="mt-2">
+                                            {aiPreviewError}
+                                        </LemonBanner>
+                                    )}
+
+                                    {aiPreviewMarkdown && (
+                                        <div className="mt-2 border rounded p-3">
+                                            <LemonMarkdown>{aiPreviewMarkdown}</LemonMarkdown>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         )}
 
                         {insightShortId && !isAiPrompt && (

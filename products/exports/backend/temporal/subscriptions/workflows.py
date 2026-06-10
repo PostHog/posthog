@@ -462,6 +462,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     scheduled_at=inputs.scheduled_at,
                     temporal_workflow_id=temporalio.workflow.info().workflow_id,
                     idempotency_key=str(temporalio.workflow.uuid4()),
+                    delivery_id=inputs.delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
@@ -508,6 +509,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
                 # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
                 final_status = DeliveryStatus.SKIPPED
+                return
+
+            if inputs.trigger_type == SubscriptionTriggerType.PREVIEW:
+                # Preview runs stop after generation: the report sits on the delivery row
+                # for the API to poll, nothing is sent, and the schedule doesn't advance
+                # (the finally-block advance only fires for SCHEDULED triggers).
+                final_status = DeliveryStatus.COMPLETED
                 return
 
             # Phase 2: ship the persisted report. is_new only for target-change triggers.
@@ -608,6 +616,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             invite_message=inputs.invite_message,
             trigger_type=inputs.trigger_type,
             resource_type=inputs.resource_type,
+            delivery_id=inputs.delivery_id,
             slo=SloConfig(
                 operation=SloOperation.SUBSCRIPTION_DELIVERY,
                 area=SloArea.ANALYTIC_PLATFORM,

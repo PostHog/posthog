@@ -12,6 +12,7 @@ import {
     SubscriptionsPartialUpdateBody,
     SubscriptionsPartialUpdateParams,
     SubscriptionsRetrieveParams,
+    SubscriptionsTestDeliveryCreateBody,
     SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/subscriptions/api'
 import { castStringToInt } from '@/tools/cast-helpers'
@@ -279,16 +280,23 @@ const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, S
     },
 })
 
-const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
+const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true }).extend(
+    SubscriptionsTestDeliveryCreateBody.shape
+)
 
 const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDeliveryCreateSchema, unknown> => ({
     name: 'subscriptions-test-delivery-create',
     schema: SubscriptionsTestDeliveryCreateSchema,
     handler: async (context: Context, params: z.infer<typeof SubscriptionsTestDeliveryCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.preview !== undefined) {
+            body['preview'] = params.preview
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/test-delivery/`,
+            body,
         })
         return result
     },

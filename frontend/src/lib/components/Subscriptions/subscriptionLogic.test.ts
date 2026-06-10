@@ -1,6 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import {
+    subscriptionsPreviewReportRetrieve,
+    subscriptionsTestDeliveryCreate,
+} from '@posthog/products-subscriptions/frontend/generated/api'
+
 import { ApiError } from 'lib/api'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -9,13 +14,19 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, SubscriptionType } from '~/types'
 
-import { subscriptionLogic } from './subscriptionLogic'
+import { AI_PREVIEW_TIMEOUT_MS, subscriptionLogic } from './subscriptionLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
     },
+}))
+
+jest.mock('@posthog/products-subscriptions/frontend/generated/api', () => ({
+    ...jest.requireActual('@posthog/products-subscriptions/frontend/generated/api'),
+    subscriptionsTestDeliveryCreate: jest.fn(),
+    subscriptionsPreviewReportRetrieve: jest.fn(),
 }))
 
 const Insight1 = '1' as InsightShortId
@@ -249,5 +260,101 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.prompt).toBeUndefined()
+    })
+
+    describe('AI preview', () => {
+        const mockKickoff = subscriptionsTestDeliveryCreate as jest.Mock
+        const mockPoll = subscriptionsPreviewReportRetrieve as jest.Mock
+
+        it('does not kick off a preview for an unsaved subscription', async () => {
+            newLogic.actions.generateAiPreview()
+            await expectLogic(newLogic).toFinishListeners()
+            expect(mockKickoff).not.toHaveBeenCalled()
+            expect(newLogic.values.aiPreviewLoading).toBe(false)
+        })
+
+        it('kicks off a preview run and starts polling with the returned delivery id', async () => {
+            mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic)
+                .toDispatchActions([existingLogic.actionCreators.startAiPreviewPolling('delivery-1')])
+                .toFinishListeners()
+            expect(mockKickoff).toHaveBeenCalledWith(expect.any(String), 1, { preview: true })
+            expect(existingLogic.values.aiPreviewLoading).toBe(true)
+            expect(existingLogic.values.aiPreviewError).toBeNull()
+        })
+
+        it('surfaces a kick-off failure and stops loading', async () => {
+            mockKickoff.mockRejectedValue(
+                new ApiError('Delivery already in progress', 409, undefined, {
+                    type: 'throttled_error',
+                    detail: 'Delivery already in progress',
+                })
+            )
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic).toFinishListeners()
+            expect(existingLogic.values.aiPreviewLoading).toBe(false)
+            expect(existingLogic.values.aiPreviewError).toBe('Delivery already in progress')
+        })
+
+        it.each<
+            [string, { status: string; ai_report: string | null; error: string | null }, string | null, string | null]
+        >([
+            ['completed run', { status: 'completed', ai_report: '# Report', error: null }, '# Report', null],
+            [
+                'failed run',
+                { status: 'failed', ai_report: null, error: 'Query planning failed' },
+                null,
+                'Query planning failed',
+            ],
+            [
+                'skipped run without error detail',
+                { status: 'skipped', ai_report: null, error: null },
+                null,
+                'Preview generation did not produce a report. Please try again.',
+            ],
+        ])('stops polling and renders the outcome of a %s', async (_name, report, expectedMarkdown, expectedError) => {
+            mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            mockPoll.mockResolvedValue(report)
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic).toDispatchActions(['startAiPreviewPolling']).toFinishListeners()
+
+            existingLogic.actions.loadAiPreviewReport('delivery-1')
+            await expectLogic(existingLogic).toDispatchActions(['stopAiPreviewPolling']).toFinishListeners()
+            expect(existingLogic.values.aiPreviewLoading).toBe(false)
+            expect(existingLogic.values.aiPreviewMarkdown).toBe(expectedMarkdown)
+            expect(existingLogic.values.aiPreviewError).toBe(expectedError)
+        })
+
+        it.each<[string, () => void]>([
+            [
+                'a still-starting run',
+                () => mockPoll.mockResolvedValue({ status: 'starting', ai_report: null, error: null }),
+            ],
+            ['a transient poll failure', () => mockPoll.mockRejectedValue(new ApiError('Not found', 404))],
+        ])('keeps polling through %s', async (_name, setupPoll) => {
+            mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            setupPoll()
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic).toDispatchActions(['startAiPreviewPolling']).toFinishListeners()
+
+            existingLogic.actions.loadAiPreviewReport('delivery-1')
+            await expectLogic(existingLogic).toFinishListeners().toNotHaveDispatchedActions(['stopAiPreviewPolling'])
+            expect(existingLogic.values.aiPreviewLoading).toBe(true)
+            expect(existingLogic.values.aiPreviewError).toBeNull()
+        })
+
+        it('gives up with an error once the polling window elapses', async () => {
+            mockKickoff.mockResolvedValue({ delivery_id: 'delivery-1' })
+            mockPoll.mockResolvedValue({ status: 'starting', ai_report: null, error: null })
+            existingLogic.actions.generateAiPreview()
+            await expectLogic(existingLogic).toDispatchActions(['startAiPreviewPolling']).toFinishListeners()
+
+            existingLogic.cache.aiPreviewStartedAt = Date.now() - AI_PREVIEW_TIMEOUT_MS - 1
+            existingLogic.actions.loadAiPreviewReport('delivery-1')
+            await expectLogic(existingLogic).toDispatchActions(['stopAiPreviewPolling']).toFinishListeners()
+            expect(existingLogic.values.aiPreviewLoading).toBe(false)
+            expect(existingLogic.values.aiPreviewError).toContain('taking longer than expected')
+        })
     })
 })

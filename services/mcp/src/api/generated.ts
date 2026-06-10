@@ -40096,6 +40096,39 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
+    export interface SubscriptionPreviewReport {
+      /** Run status of the preview delivery: starting, completed, failed, or skipped.
+       *
+       * * `starting` - Starting
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      status: SubscriptionDeliveryStatusEnum;
+      /**
+         * Generated report markdown. Null until the run completes (or when it failed before generating).
+         * @nullable
+         */
+      ai_report: string | null;
+      /**
+         * Human-readable failure detail when the run failed, if available.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SubscriptionTestDeliveryRequest {
+      /** AI subscriptions only: run the report generation pipeline without sending anything. Poll the preview_report action with the returned delivery_id to fetch the result. */
+      preview?: boolean;
+    }
+
+    export interface SubscriptionTestDeliveryResponse {
+      /**
+         * Delivery row to poll via the preview_report action. Null for non-preview test deliveries.
+         * @nullable
+         */
+      delivery_id: string | null;
+    }
+
     export interface SuggestReplyError {
       detail: string;
       error_type?: string;
@@ -46729,6 +46762,13 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    export type EnvironmentsSubscriptionsPreviewReportRetrieveParams = {
+    /**
+     * Delivery id returned by the preview kick-off.
+     */
+    delivery_id: string;
+    };
+
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
       /** @nullable */
@@ -53036,6 +53076,13 @@ export namespace Schemas {
       Email: 'email',
       Slack: 'slack',
     } as const;
+
+    export type SubscriptionsPreviewReportRetrieveParams = {
+    /**
+     * Delivery id returned by the preview kick-off.
+     */
+    delivery_id: string;
+    };
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;

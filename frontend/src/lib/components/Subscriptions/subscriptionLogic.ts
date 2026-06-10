@@ -4,11 +4,18 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import {
+    subscriptionsPreviewReportRetrieve,
+    subscriptionsTestDeliveryCreate,
+} from '@posthog/products-subscriptions/frontend/generated/api'
+import { SubscriptionDeliveryStatusEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { getInsightId } from 'scenes/insights/utils'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
@@ -45,6 +52,19 @@ function subscriptionSaveErrorMessage(error: unknown): string {
     return 'Could not save subscription. Please try again.'
 }
 
+export const AI_PREVIEW_POLL_INTERVAL_MS = 5000
+export const AI_PREVIEW_TIMEOUT_MS = 5 * 60 * 1000
+
+function aiPreviewKickoffErrorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+        const msg = (error.detail || error.message || '').trim()
+        if (msg) {
+            return msg
+        }
+    }
+    return 'Could not start preview generation. Please try again.'
+}
+
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
@@ -75,6 +95,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
         selectAiExamplePrompt: (prompt: string, label: string) => ({ prompt, label }),
+        generateAiPreview: true,
+        startAiPreviewPolling: (deliveryId: string) => ({ deliveryId }),
+        stopAiPreviewPolling: true,
+        loadAiPreviewReport: (deliveryId: string) => ({ deliveryId }),
+        setAiPreviewLoading: (loading: boolean) => ({ loading }),
+        setAiPreviewMarkdown: (markdown: string | null) => ({ markdown }),
+        setAiPreviewError: (error: string | null) => ({ error }),
     }),
 
     reducers({
@@ -100,6 +127,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             null as string | null,
             {
                 setPreviewImageUrl: (_, { url }) => url,
+            },
+        ],
+        aiPreviewLoading: [
+            false,
+            {
+                setAiPreviewLoading: (_, { loading }) => loading,
+            },
+        ],
+        aiPreviewMarkdown: [
+            null as string | null,
+            {
+                setAiPreviewMarkdown: (_, { markdown }) => markdown,
+            },
+        ],
+        aiPreviewError: [
+            null as string | null,
+            {
+                setAiPreviewError: (_, { error }) => error,
             },
         ],
     }),
@@ -205,7 +250,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         submitSubscriptionSuccess: ({ subscription }) => {
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
@@ -311,6 +356,77 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setPreviewError(e instanceof Error ? e.message : 'Failed to generate preview')
             } finally {
                 actions.setPreviewLoading(false)
+            }
+        },
+
+        generateAiPreview: async () => {
+            // Previews run against the saved subscription, so an unsaved one has nothing to preview
+            // (the button is also disabled in that state).
+            if (props.id === 'new' || values.aiPreviewLoading) {
+                return
+            }
+            actions.setAiPreviewLoading(true)
+            actions.setAiPreviewError(null)
+            actions.setAiPreviewMarkdown(null)
+            try {
+                const response = await subscriptionsTestDeliveryCreate(String(getCurrentTeamId()), props.id, {
+                    preview: true,
+                })
+                if (!response.delivery_id) {
+                    throw new Error('Preview generation did not return a delivery to poll.')
+                }
+                actions.startAiPreviewPolling(response.delivery_id)
+            } catch (e) {
+                actions.setAiPreviewLoading(false)
+                actions.setAiPreviewError(aiPreviewKickoffErrorMessage(e))
+            }
+        },
+
+        startAiPreviewPolling: ({ deliveryId }) => {
+            cache.aiPreviewStartedAt = Date.now()
+            cache.disposables.add(() => {
+                const id = setInterval(() => actions.loadAiPreviewReport(deliveryId), AI_PREVIEW_POLL_INTERVAL_MS)
+                return () => clearInterval(id)
+            }, 'aiPreviewPoll')
+        },
+
+        stopAiPreviewPolling: () => {
+            cache.disposables.dispose('aiPreviewPoll')
+        },
+
+        loadAiPreviewReport: async ({ deliveryId }) => {
+            if (props.id === 'new') {
+                return
+            }
+            // The timeout is checked per tick (not via setTimeout) so a hidden tab — which pauses
+            // the poll interval — can't fire a premature "timed out" while nothing was polling.
+            if (Date.now() - (cache.aiPreviewStartedAt ?? 0) > AI_PREVIEW_TIMEOUT_MS) {
+                actions.stopAiPreviewPolling()
+                actions.setAiPreviewLoading(false)
+                actions.setAiPreviewError(
+                    'Preview generation is taking longer than expected. Check the delivery history for the result, or try again.'
+                )
+                return
+            }
+            try {
+                const report = await subscriptionsPreviewReportRetrieve(String(getCurrentTeamId()), props.id, {
+                    delivery_id: deliveryId,
+                })
+                if (report.status === SubscriptionDeliveryStatusEnumApi.Starting) {
+                    return // still generating — keep polling
+                }
+                actions.stopAiPreviewPolling()
+                actions.setAiPreviewLoading(false)
+                if (report.status === SubscriptionDeliveryStatusEnumApi.Completed && report.ai_report) {
+                    actions.setAiPreviewMarkdown(report.ai_report)
+                } else {
+                    actions.setAiPreviewError(
+                        report.error || 'Preview generation did not produce a report. Please try again.'
+                    )
+                }
+            } catch {
+                // Transient poll failure, or the workflow hasn't created the delivery row yet (404)
+                // — keep polling until the timeout above gives up.
             }
         },
     })),

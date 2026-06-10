@@ -10,6 +10,7 @@ from django.http import HttpRequest, JsonResponse
 
 import jwt
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -749,6 +750,51 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
     )
 
 
+class SubscriptionTestDeliveryRequestSerializer(serializers.Serializer):
+    preview = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "AI subscriptions only: run the report generation pipeline without sending anything. "
+            "Poll the preview_report action with the returned delivery_id to fetch the result."
+        ),
+    )
+
+
+class SubscriptionTestDeliveryResponseSerializer(serializers.Serializer):
+    delivery_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Delivery row to poll via the preview_report action. Null for non-preview test deliveries.",
+    )
+
+
+class SubscriptionPreviewReportSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SubscriptionDelivery.Status.choices,
+        help_text="Run status of the preview delivery: starting, completed, failed, or skipped.",
+    )
+    ai_report = serializers.CharField(
+        allow_null=True,
+        help_text="Generated report markdown. Null until the run completes (or when it failed before generating).",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Human-readable failure detail when the run failed, if available.",
+    )
+
+
+def _delivery_error_message(delivery: SubscriptionDelivery) -> str | None:
+    # Auto-disable aborts (consent revoked, prompt rejected) land in recipient_results
+    # with a null top-level error, so fall back to the first recipient error.
+    error = delivery.error
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])
+    for result in delivery.recipient_results or []:
+        recipient_error = result.get("error") if isinstance(result, dict) else None
+        if isinstance(recipient_error, dict) and recipient_error.get("message"):
+            return str(recipient_error["message"])
+    return None
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -819,6 +865,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     # for every write — a scope is only a capability flag, not proof of RBAC (personal keys can
     # carry query:read without it), and session auth has no scopes at all.
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # preview_report returns the query-derived AI report, so a read isn't enough —
+        # tokens also need query:read (RBAC is enforced separately inside the action).
+        if getattr(view, "action", None) == "preview_report":
+            return [f"{self.scope_object}:read", "query:read"]
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
         scopes = [f"{self.scope_object}:write"]
@@ -942,8 +992,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(payload)
 
     @extend_schema(
-        request=None,
-        responses={202: OpenApiResponse(description="Test delivery workflow started")},
+        request=SubscriptionTestDeliveryRequestSerializer,
+        responses={
+            202: OpenApiResponse(
+                response=SubscriptionTestDeliveryResponseSerializer,
+                description="Test delivery (or preview generation) workflow started.",
+            )
+        },
     )
     @action(
         methods=["POST"],
@@ -964,8 +1019,19 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 status=status.HTTP_409_CONFLICT,
             )
 
+        request_serializer = SubscriptionTestDeliveryRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        preview = request_serializer.validated_data["preview"]
+        if preview and not _subscription_is_ai_prompt(subscription.id, self.team_id):
+            raise ValidationError({"preview": ["Preview is only supported for AI subscriptions."]})
+
+        # Preview runs pre-assign the delivery row id so the client can poll it immediately.
+        preview_delivery_id = str(uuid.uuid4()) if preview else None
+
         temporal = sync_connect()
-        workflow_id = f"test-delivery-subscription-{subscription.id}"
+        workflow_id = (
+            f"preview-subscription-{subscription.id}" if preview else f"test-delivery-subscription-{subscription.id}"
+        )
         try:
             asyncio.run(
                 temporal.start_workflow(
@@ -978,8 +1044,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         else str(subscription.team_id),
                         previous_value=None,
                         invite_message=None,
-                        trigger_type=SubscriptionTriggerType.MANUAL,
+                        trigger_type=SubscriptionTriggerType.PREVIEW if preview else SubscriptionTriggerType.MANUAL,
                         resource_type=subscription.resource_type,
+                        delivery_id=preview_delivery_id,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -1007,11 +1074,63 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 "insight_id": subscription.insight_id,
                 "dashboard_id": subscription.dashboard_id,
                 "temporal_workflow_id": workflow_id,
+                "preview": preview,
             },
             groups=groups(None, subscription.team),
         )
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        return Response({"delivery_id": preview_delivery_id}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        summary="Poll an AI subscription preview report",
+        description=(
+            "Status and result of a preview generation run kicked off via test-delivery with preview=true. "
+            "Poll until status is completed, failed, or skipped."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="delivery_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Delivery id returned by the preview kick-off.",
+            ),
+        ],
+        responses={200: SubscriptionPreviewReportSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="preview_report",
+        # Scope is resolved dynamically in dangerously_get_required_scopes: the report is
+        # query-derived, so reading it requires query:read on top of subscription:read.
+    )
+    def preview_report(self, request, **kwargs):
+        subscription = self.get_object()
+        # Scopes gate tokens but don't prove RBAC, and session auth has no scopes at all —
+        # enforce actual query access before handing back query-derived report content.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise exceptions.PermissionDenied("You need query access to view AI report previews.")
+
+        try:
+            delivery_uuid = uuid.UUID(request.query_params.get("delivery_id", ""))
+        except ValueError:
+            raise ValidationError({"delivery_id": ["A valid delivery_id UUID is required."]}) from None
+
+        delivery = SubscriptionDelivery.objects.filter(
+            pk=delivery_uuid, subscription=subscription, team_id=self.team_id
+        ).first()
+        if delivery is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = SubscriptionPreviewReportSerializer(
+            {
+                "status": delivery.status,
+                "ai_report": delivery.content_snapshot.get("ai_report"),
+                "error": _delivery_error_message(delivery),
+            }
+        )
+        return Response(serializer.data)
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):

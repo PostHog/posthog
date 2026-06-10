@@ -35,6 +35,7 @@ class SubscriptionTriggerType:
     SCHEDULED = "scheduled"  # Regular cron-based delivery
     TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
     MANUAL = "manual"  # User clicked "Test delivery"
+    PREVIEW = "preview"  # User clicked "Generate preview" — generate only, skip delivery
 
 
 @dataclasses.dataclass
@@ -114,6 +115,9 @@ class ProcessSubscriptionWorkflowInputs:
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
     resource_type: str = ""
+    # Pre-assigned delivery row id for preview runs — the API hands it to the client
+    # for polling before the workflow has created the row.
+    delivery_id: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -135,6 +139,8 @@ class TrackedSubscriptionInputs:
     trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
+    # Pre-assigned delivery row id for preview runs (see ProcessSubscriptionWorkflowInputs).
+    delivery_id: typing.Optional[str] = None
 
 
 RecipientResultStatus = typing.Literal["success", "failed", "partial"]
@@ -191,6 +197,9 @@ class CreateDeliveryRecordInputs:
     temporal_workflow_id: str
     idempotency_key: str
     scheduled_at: typing.Optional[str] = None
+    # When set (preview runs), the row is created with this id so the API can return
+    # it to the polling client before the workflow has run.
+    delivery_id: typing.Optional[str] = None
 
 
 @dataclasses.dataclass

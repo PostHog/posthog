@@ -347,3 +347,14 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const subscriptionsTestDeliveryCreateBodyPreviewDefault = false
+
+export const SubscriptionsTestDeliveryCreateBody = /* @__PURE__ */ zod.object({
+    preview: zod
+        .boolean()
+        .default(subscriptionsTestDeliveryCreateBodyPreviewDefault)
+        .describe(
+            'AI subscriptions only: run the report generation pipeline without sending anything. Poll the preview_report action with the returned delivery_id to fetch the result.'
+        ),
+})

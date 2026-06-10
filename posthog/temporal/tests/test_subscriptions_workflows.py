@@ -1024,6 +1024,34 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     assert row_after.temporal_workflow_id == "wf-delivery-1"
 
 
+async def test_create_delivery_record_uses_preassigned_id_and_dedupes_on_it(team, user):
+    sub = await _create_ai_subscription(team, user)
+    preassigned_id = str(uuid.uuid4())
+
+    env = ActivityEnvironment()
+
+    def _inputs(idempotency_key: str) -> CreateDeliveryRecordInputs:
+        return CreateDeliveryRecordInputs(
+            subscription_id=sub.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.PREVIEW,
+            temporal_workflow_id="wf-preview-1",
+            idempotency_key=idempotency_key,
+            delivery_id=preassigned_id,
+        )
+
+    delivery_id = await env.run(create_delivery_record, _inputs("idem-preview-1"))
+    assert str(delivery_id) == preassigned_id
+
+    # A redispatch with a different idempotency key must not mint a second row for the same id.
+    delivery_id_again = await env.run(create_delivery_record, _inputs("idem-preview-2"))
+    assert delivery_id_again == delivery_id
+    assert await sync_to_async(SubscriptionDelivery.objects.filter(pk=preassigned_id).count)() == 1
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=preassigned_id)
+    assert row.trigger_type == SubscriptionTriggerType.PREVIEW
+    assert row.idempotency_key == "idem-preview-1"
+
+
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
@@ -2472,6 +2500,68 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
     assert mock_send_email.call_args.kwargs["markdown"] == "# AI Report"
     delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
     assert delivery.status == SubscriptionDelivery.Status.COMPLETED
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
+@patch(_GENERATE_MARKDOWN, return_value="# Preview report")
+@pytest.mark.asyncio
+async def test_preview_ai_subscription_generates_without_delivering_or_advancing_schedule(
+    mock_generate: MagicMock,
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # Preview runs the full validate + generate pipeline onto the pre-assigned delivery
+    # row, then stops: nothing is sent and the subscription's schedule stays untouched.
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    next_delivery_before = await sync_to_async(lambda: Subscription.objects.get(pk=sub.id).next_delivery_date)()
+    preview_delivery_id = str(uuid.uuid4())
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[
+                HandleSubscriptionValueChangeWorkflow,
+                ProcessSubscriptionWorkflow,
+                ProcessAISubscriptionWorkflow,
+            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=sub.id,
+                    team_id=sub.team_id,
+                    distinct_id=str(user.distinct_id),
+                    trigger_type=SubscriptionTriggerType.PREVIEW,
+                    resource_type="ai_prompt",
+                    delivery_id=preview_delivery_id,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    mock_generate.assert_called_once()
+    mock_send_email.assert_not_called()
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(pk=preview_delivery_id)
+    assert delivery.subscription_id == sub.id
+    assert delivery.trigger_type == SubscriptionTriggerType.PREVIEW
+    assert delivery.status == SubscriptionDelivery.Status.COMPLETED
+    assert delivery.content_snapshot["ai_report"] == "# Preview report"
+    assert delivery.finished_at is not None
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date == next_delivery_before
 
 
 async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user):

@@ -372,3 +372,14 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Standard Subscription serializer.')
+
+export const subscriptionsTestDeliveryCreateBodyPreviewDefault = false
+
+export const SubscriptionsTestDeliveryCreateBody = /* @__PURE__ */ zod.object({
+    preview: zod
+        .boolean()
+        .default(subscriptionsTestDeliveryCreateBodyPreviewDefault)
+        .describe(
+            'AI subscriptions only: run the report generation pipeline without sending anything. Poll the preview_report action with the returned delivery_id to fetch the result.'
+        ),
+})
