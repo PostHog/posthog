@@ -1,6 +1,4 @@
-import { cn } from '@posthog/quill-primitives'
-
-export const CARD_SURFACE = 'rounded-lg border border-primary bg-surface-secondary'
+import { Card as QuillCard, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
 
 export function Card({
     children,
@@ -12,10 +10,14 @@ export function Card({
     title?: string
 }): JSX.Element {
     return (
-        <div className={cn(CARD_SURFACE, 'px-3.5 py-3', className)}>
-            {title ? <h3 className="mb-3 text-sm font-medium text-primary">{title}</h3> : null}
-            {children}
-        </div>
+        <QuillCard size="sm" className={className}>
+            {title ? (
+                <CardHeader>
+                    <CardTitle>{title}</CardTitle>
+                </CardHeader>
+            ) : null}
+            <CardContent className="flex flex-1 flex-col">{children}</CardContent>
+        </QuillCard>
     )
 }
 

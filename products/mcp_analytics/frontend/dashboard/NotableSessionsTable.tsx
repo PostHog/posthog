@@ -1,11 +1,22 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { Badge, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import {
+    Badge,
+    Card,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
-import { CARD_SURFACE } from './Card'
 import { formatDuration, truncateSessionId } from './formatters'
 
 const DESTRUCTIVE_ERROR_PCT = 5
@@ -84,10 +95,10 @@ export function NotableSessionsTable({
     loading: boolean
 }): JSX.Element {
     return (
-        <div className={cn(CARD_SURFACE, 'flex h-full flex-col overflow-hidden')}>
-            <h3 className="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary">
-                Sessions flagged for review
-            </h3>
+        <Card size="sm" className="self-start gap-0">
+            <CardHeader className="border-b border-border pb-3">
+                <CardTitle>Sessions flagged for review</CardTitle>
+            </CardHeader>
             <Table fullWidth>
                 <TableHeader>
                     <TableRow>
@@ -103,12 +114,12 @@ export function NotableSessionsTable({
                 </TableBody>
             </Table>
             {sessions.length > 0 && (
-                <div className="mt-auto flex justify-end border-t border-primary px-3.5 py-2">
+                <CardFooter className="justify-end">
                     <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
                         Open all flagged sessions in Sessions tab ↗
                     </Link>
-                </div>
+                </CardFooter>
             )}
-        </div>
+        </Card>
     )
 }

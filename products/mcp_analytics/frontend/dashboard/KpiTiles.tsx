@@ -1,12 +1,11 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
-import { cn } from '@posthog/quill-primitives'
+import { Card, CardContent } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
-import { CARD_SURFACE } from './Card'
 import { formatMs, formatNumber } from './formatters'
 
 interface TileSpec {
@@ -24,34 +23,31 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
     const hasComparison = metric.deltaPct !== null
 
     return (
-        <Link
-            to={tile.href}
-            subtle
-            className={cn(
-                CARD_SURFACE,
-                'flex flex-col px-3.5 py-3 shadow-sm transition-all hover:border-secondary hover:shadow-md'
-            )}
-        >
-            {tile.loading ? (
-                <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-3 w-16" />
-                    <LemonSkeleton className="h-7 w-20" />
-                </div>
-            ) : (
-                <MetricCard
-                    className="text-primary"
-                    title={tile.label}
-                    value={metric.value}
-                    data={hasSparkline ? metric.sparkline : undefined}
-                    theme={theme}
-                    color={tile.color}
-                    goodDirection={metric.goodDirection}
-                    formatValue={tile.format}
-                    subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
-                    sparklineHeight={50}
-                    sparklineClassName="mt-3 -mx-3.5 -mb-3"
-                />
-            )}
+        <Link to={tile.href} subtle className="group/tile flex h-full">
+            <Card size="sm" className="flex-1 transition-transform group-hover/tile:-translate-y-0.5">
+                {tile.loading ? (
+                    <CardContent className="flex flex-col gap-2">
+                        <LemonSkeleton className="h-3 w-16" />
+                        <LemonSkeleton className="h-7 w-20" />
+                    </CardContent>
+                ) : (
+                    <CardContent>
+                        <MetricCard
+                            className="text-primary"
+                            title={tile.label}
+                            value={metric.value}
+                            data={hasSparkline ? metric.sparkline : undefined}
+                            theme={theme}
+                            color={tile.color}
+                            goodDirection={metric.goodDirection}
+                            formatValue={tile.format}
+                            subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
+                            sparklineHeight={50}
+                            sparklineClassName="mt-3 -mx-3 -mb-3"
+                        />
+                    </CardContent>
+                )}
+            </Card>
         </Link>
     )
 }
