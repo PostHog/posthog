@@ -230,15 +230,8 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                 product=Product.WEB_ANALYTICS,
             )
             runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)
-            # Call `calculate()` directly rather than `run()`. `run()` is gated by the
-            # HogQL query result cache (6h staleness for web analytics), which would let
-            # the warmer skip a tile whose Redis result is still "fresh" even though the
-            # precompute buckets it feeds expire on a 2h TTL — leaving the precompute
-            # cold for hours. `calculate()` always enters the lazy precompute path (which
-            # still INSERTs only the windows past their TTL), so every hourly tick keeps
-            # the precompute warm. It also skips the result-cache write on purpose: that
-            # is `cache_warming.py`'s job (it replays real user queries with their own
-            # access context), not this job's.
+            # `calculate()` not `run()` — see module docstring (bypasses the 6h result
+            # cache, skips the result-cache write).
             response = runner.calculate()
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
