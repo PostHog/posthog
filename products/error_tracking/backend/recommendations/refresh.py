@@ -131,7 +131,9 @@ def refresh_team_recommendations(team_id: int) -> int:
     return sum(_refresh_one(rec, team_id, now) for rec in RECOMMENDATIONS)
 
 
-def refresh_teams_recommendations_batched(team_ids: list[int], on_progress: Callable[[str], None] | None = None) -> int:
+def refresh_teams_recommendations_batched(
+    team_ids: list[int], on_progress: Callable[[str], None] | None = None
+) -> tuple[int, int]:
     """Compute every stale recommendation for a batch of teams with a bounded number
     of queries, independent of batch size.
 
@@ -139,7 +141,8 @@ def refresh_teams_recommendations_batched(team_ids: list[int], on_progress: Call
     the batch, and each recommendation answers all claimed teams via one
     ``compute_batch`` call. Used by the Temporal background sweep.
 
-    Returns the number of recommendations computed.
+    Returns ``(teams_processed, recommendations_computed)``, where ``teams_processed``
+    excludes any teams dropped for no longer existing in Postgres.
     """
     now = timezone.now()
     types = [rec.type for rec in RECOMMENDATIONS]
@@ -156,7 +159,7 @@ def refresh_teams_recommendations_batched(team_ids: list[int], on_progress: Call
         )
     team_ids = existing_team_ids
     if not team_ids:
-        return 0
+        return 0, 0
 
     def fetch_rows() -> dict[tuple[int, str], ErrorTrackingRecommendation]:
         return {
@@ -182,7 +185,7 @@ def refresh_teams_recommendations_batched(team_ids: list[int], on_progress: Call
         computed += _refresh_rec_for_teams(rec, team_ids, rows, now)
         if on_progress is not None:
             on_progress(rec.type)
-    return computed
+    return len(team_ids), computed
 
 
 def _refresh_rec_for_teams(

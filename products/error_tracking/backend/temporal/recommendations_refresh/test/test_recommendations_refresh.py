@@ -165,7 +165,8 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, deleted_team_id]))
 
-        assert result.teams_processed == 2
+        # teams_processed reflects only the surviving team, not the raw input count.
+        assert result.teams_processed == 1
         assert result.recommendations_kicked == 4
         assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 4
         assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
@@ -181,6 +182,7 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[deleted_team_id]))
 
+        assert result.teams_processed == 0
         assert result.recommendations_kicked == 0
         assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
 
