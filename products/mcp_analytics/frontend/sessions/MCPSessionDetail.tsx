@@ -26,7 +26,7 @@ export function MCPSessionDetail(): JSX.Element {
     if (!selectedSession) {
         return (
             <div className="flex h-full items-center justify-center text-sm text-secondary p-6 text-center">
-                Pick a session on the left to step through its tool calls.
+                Pick a session to step through its tool calls.
             </div>
         )
     }

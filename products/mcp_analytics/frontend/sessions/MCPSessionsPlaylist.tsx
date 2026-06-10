@@ -16,24 +16,21 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
-import { type MCPSessionSorting, mcpSessionsLogic } from './mcpSessionsLogic'
+import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
 import { formatDuration, sessionDurationMs } from './utils'
 
-const SORT_OPTIONS: { value: string; label: string }[] = [
+const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: '-session_start', label: 'Latest' },
     { value: 'session_start', label: 'Oldest' },
     { value: '-duration_seconds', label: 'Longest' },
     { value: '-tool_call_count', label: 'Most tool calls' },
 ]
 
-function sortingToValue(sorting: MCPSessionSorting | null): string {
-    if (!sorting) {
-        return '-session_start'
-    }
-    return `${sorting.order === -1 ? '-' : ''}${sorting.column}`
+function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
+    return (orderByParam(sorting) ?? '-session_start') as MCPSessionOrderBy
 }
 
-function valueToSorting(value: string): MCPSessionSorting {
+function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
     const descending = value.startsWith('-')
     return {
         column: (descending ? value.slice(1) : value) as MCPSessionSorting['column'],
@@ -65,7 +62,6 @@ function HorizontalLayout(): JSX.Element {
         logicKey: 'mcp-sessions-list-horizontal',
         containerRef: listRef,
         persistent: true,
-        persistPrefix: '2026-06-10',
         placement: 'right',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -93,7 +89,6 @@ function VerticalLayout(): JSX.Element {
         logicKey: 'mcp-sessions-detail-vertical',
         containerRef: detailRef,
         persistent: true,
-        persistPrefix: '2026-06-10',
         placement: 'bottom',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -206,6 +201,7 @@ function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element
         <button
             type="button"
             data-attr="mcp-session-preview"
+            aria-pressed={isActive}
             onClick={() => selectSession(session.session_id)}
             className={cn(
                 'w-full text-left cursor-pointer border-l-2 px-2 py-1.5 text-xs flex flex-col gap-1',
