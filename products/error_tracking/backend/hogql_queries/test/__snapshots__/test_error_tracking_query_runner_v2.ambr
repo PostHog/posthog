@@ -204,7 +204,7 @@
          assignment.role_id AS assignee_role_id,
          agg.function AS function,
          agg.source AS source,
-         agg.first_event AS first_event,
+         agg.first_event_uuid AS first_event_uuid,
          agg.library AS library
   FROM
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
@@ -212,7 +212,7 @@
             min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
-            argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
+            argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS first_event_uuid,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
      FROM events AS e
      LEFT OUTER JOIN
@@ -263,6 +263,28 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_column_names.3
+  '''
+  SELECT events.uuid AS uuid,
+         events.distinct_id AS distinct_id,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.properties AS properties
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['00000000-0000-0000-0000-000000000000' /* ... */]), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  LIMIT 3 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunnerV2.test_correctly_counts_persons
@@ -645,7 +667,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE ifNull(greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2022-01-10T10:11:00+00:00', 6, 'UTC')), 0)
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -729,7 +751,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(less(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE ifNull(less(fp.first_seen, parseDateTime64BestEffort('2022-01-10T10:11:00+00:00', 6, 'UTC')), 0)
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
