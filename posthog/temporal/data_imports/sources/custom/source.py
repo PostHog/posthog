@@ -5,6 +5,7 @@ from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
 import structlog
+from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from requests import Response
 from urllib3.util.retry import Retry
@@ -202,6 +203,10 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
         # A resolve param missing "resource"/"field" raises KeyError from deep
         # inside the engine — surface it as a validation error, not a 500.
         raise ManifestValidationError(f"A resolve param is missing the required key {exc}") from exc
+    except JSONPathError as exc:
+        # The resolve param's "field" is a JSONPath, compiled inside the engine;
+        # a malformed expression raises a bare-Exception subclass.
+        raise ManifestValidationError(f"A resolve param's field is not a valid JSONPath: {exc}") from exc
     except graphlib.CycleError as exc:
         # str(CycleError) is the raw args tuple — render the cycle readably.
         cycle = exc.args[1] if len(exc.args) > 1 else []
@@ -841,7 +846,7 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
         raise ValueError(f"Resource {chosen_name!r} not found in config")
     try:
         _, _, resolved = _build_resource_graph(manifest)
-    except (ValueError, NotImplementedError, KeyError) as exc:
+    except (ValueError, NotImplementedError, KeyError, JSONPathError) as exc:
         # Graph rules are enforced at create/update time, but a stored manifest
         # can predate them. A graph error on an UNRELATED resource must not sink
         # this schema's sync — fall back to handing the engine just the chosen

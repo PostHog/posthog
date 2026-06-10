@@ -891,6 +891,12 @@ def _break_missing_resolve_resource(m: dict) -> None:
     del m["resources"][1]["endpoint"]["params"]["form_id"]["resource"]
 
 
+def _break_invalid_resolve_field_jsonpath(m: dict) -> None:
+    # The resolve field is a JSONPath; a malformed one raises a bare-Exception
+    # subclass (JsonPathParserError) from inside the engine.
+    m["resources"][1]["endpoint"]["params"]["form_id"]["field"] = "user..["
+
+
 def _break_path_starting_with_placeholder(m: dict) -> None:
     # A child path that BEGINS with the parent placeholder lets an absolute URL
     # in the parent's field move the authenticated request off base_url.
@@ -923,6 +929,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("multiple_resolve_params", _break_multiple_resolve_params),
             ("missing_resolve_field", _break_missing_resolve_field),
             ("missing_resolve_resource", _break_missing_resolve_resource),
+            ("invalid_resolve_field_jsonpath", _break_invalid_resolve_field_jsonpath),
             ("nested_child", _add_nested_child),
             ("path_starting_with_placeholder", _break_path_starting_with_placeholder),
         ]
