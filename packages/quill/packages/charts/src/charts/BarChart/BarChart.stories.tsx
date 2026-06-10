@@ -108,6 +108,30 @@ export const HorizontalAggregatedSingle: Story = {
     },
 }
 
+// Regression guard for the horizontal value-tick de-overlap pass: thousands-separated value labels
+// (e.g. "1,500,000") in a narrow panel. d3 packs more ticks than fit, so without the de-overlap pass
+// the x-axis smears into "0 500,0001,000,000…"; with it, the survivors stay evenly spaced and legible.
+export const HorizontalWideValueLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = {
+            axisOrientation: 'horizontal',
+            showGrid: true,
+            yTickFormatter: (v) => v.toLocaleString('en-US'),
+            bars: { cornerRadius: 4, fitToHeight: true },
+        }
+        const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
+        const series: Series[] = [
+            { key: 'total', label: 'Total', color: '', data: [1_840_000, 1_210_000, 760_000, 430_000, 180_000] },
+        ]
+        return (
+            <Stage width={300} height={280}>
+                <BarChart series={series} labels={labels} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const SingleSeries: Story = {
     render: () => {
         const theme = useReactiveTheme()
