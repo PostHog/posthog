@@ -13,28 +13,15 @@
         },
         "skills": {
             "items": {
-                "description": "Body shape for PUT /revisions/<id>/skills/<skill_id>/.",
+                "description": "Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.",
                 "properties": {
                     "body": {
+                        "description": "The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
                         "type": "string"
                     },
                     "description": {
+                        "description": "One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
                         "type": "string"
-                    },
-                    "files": {
-                        "items": {
-                            "properties": {
-                                "content": {
-                                    "type": "string"
-                                },
-                                "path": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": ["path", "content"],
-                            "type": "object"
-                        },
-                        "type": "array"
                     }
                 },
                 "required": ["description", "body"],

@@ -5,25 +5,12 @@
             "type": "string"
         },
         "body": {
+            "description": "The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
             "type": "string"
         },
         "description": {
+            "description": "One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
             "type": "string"
-        },
-        "files": {
-            "items": {
-                "properties": {
-                    "content": {
-                        "type": "string"
-                    },
-                    "path": {
-                        "type": "string"
-                    }
-                },
-                "required": ["path", "content"],
-                "type": "object"
-            },
-            "type": "array"
         },
         "id": {
             "description": "A UUID string identifying this agent revision.",
