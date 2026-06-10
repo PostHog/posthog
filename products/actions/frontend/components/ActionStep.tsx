@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/le
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
@@ -18,6 +19,7 @@ import {
     ActionStepType,
     AnyPropertyFilter,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
 
@@ -435,13 +437,14 @@ function ScreenNameField({
     disabledReason?: string
 }): JSX.Element {
     const existingFilter = step.properties?.find(isScreenNameFilter)
-    const screenName = (existingFilter && 'value' in existingFilter ? (existingFilter.value as string) : '') ?? ''
+    const screenName: PropertyFilterValue | undefined =
+        existingFilter && 'value' in existingFilter ? existingFilter.value : undefined
     const operator: ScreenNameMatching =
         existingFilter && 'operator' in existingFilter
             ? (existingFilter.operator as ScreenNameMatching)
             : PropertyOperator.IContains
 
-    const setFilter = (name: string, op: ScreenNameMatching): void => {
+    const setFilter = (value: PropertyFilterValue, op: ScreenNameMatching): void => {
         const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
         sendStep({
             ...step,
@@ -449,7 +452,7 @@ function ScreenNameField({
                 ...otherProperties,
                 {
                     key: SCREEN_NAME_PROPERTY,
-                    value: name,
+                    value,
                     operator: op as PropertyOperator,
                     type: PropertyFilterType.Event,
                 },
@@ -467,7 +470,7 @@ function ScreenNameField({
                 <LemonLabel>Screen name</LemonLabel>
                 <div className="flex flex-1 justify-end">
                     <LemonSegmentedButton
-                        onChange={(value) => setFilter(screenName, value as ScreenNameMatching)}
+                        onChange={(value) => setFilter(screenName ?? null, value as ScreenNameMatching)}
                         value={operator}
                         options={Object.entries(SCREEN_NAME_MATCHING_LABEL).map(([value, label]) => ({
                             value,
@@ -478,13 +481,18 @@ function ScreenNameField({
                     />
                 </div>
             </div>
-            <LemonInput
-                data-attr="edit-action-screen-name-input"
-                allowClear
-                onChange={(val) => (val ? setFilter(val, operator) : clearFilter())}
+            <PropertyValue
+                propertyKey={SCREEN_NAME_PROPERTY}
+                type={PropertyFilterType.Event}
+                operator={operator as PropertyOperator}
                 value={screenName}
+                eventNames={['$screen']}
                 placeholder="e.g. HomeScreen, Settings"
-                disabledReason={disabledReason}
+                onSet={(val: PropertyFilterValue) => {
+                    const isEmpty = val == null || (Array.isArray(val) ? val.length === 0 : val === '')
+                    isEmpty ? clearFilter() : setFilter(val, operator)
+                }}
+                editable={!disabledReason}
             />
         </div>
     )
