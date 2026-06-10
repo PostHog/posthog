@@ -61,7 +61,10 @@ export function InputWithSuggestionsDropdown({
     return (
         <Popover
             visible={open}
-            onClickOutside={() => setOpen(false)}
+            onClickOutside={() => {
+                setSearchTerm('')
+                setOpen(false)
+            }}
             placement="bottom-start"
             matchWidth
             overlay={
