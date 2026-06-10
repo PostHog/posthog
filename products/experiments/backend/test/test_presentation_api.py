@@ -40,7 +40,14 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_can_list_experiments_with_null_metrics(self):
+    @parameterized.expand(
+        [
+            (None, None),
+            (None, []),
+            ([], None),
+        ]
+    )
+    def test_can_list_experiments_with_null_metrics(self, metrics: list | None, metrics_secondary: list | None) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -59,8 +66,8 @@ class TestExperimentCRUD(APILicensedTest):
             team=self.team,
             name="Null metrics experiment",
             feature_flag=flag,
-            metrics=None,
-            metrics_secondary=None,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
