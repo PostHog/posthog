@@ -269,7 +269,7 @@ describe('hog-charts bar scales', () => {
             const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
                 barLayout: 'grouped',
             })
-            expect(yAxes).toBeDefined()
+            expect(yAxes).not.toBeUndefined()
             expect(Object.keys(yAxes!).sort()).toEqual(['left', 'y1'])
             expect(yAxes!.left.position).toBe('left')
             expect(yAxes!.y1.position).toBe('right')
