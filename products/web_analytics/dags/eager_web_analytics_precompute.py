@@ -75,7 +75,10 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     WebStatsBreakdown.PAGE,
     WebStatsBreakdown.INITIAL_PAGE,
     WebStatsBreakdown.EXIT_PAGE,
-    WebStatsBreakdown.SCREEN_NAME,
+    # SCREEN_NAME is deliberately excluded. It reads `$screen_name`, a
+    # mobile-only ($screen) property that is empty for web teams, and there is
+    # no precompute family for it — warming it only ever ran a raw query that
+    # populated nothing. It stays available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
     # INITIAL_REFERRING_URL is deliberately excluded. Unlike its domain
