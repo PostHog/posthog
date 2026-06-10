@@ -13,9 +13,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
@@ -122,11 +125,16 @@ export function EndpointConfiguration(): JSX.Element {
                                         Choose how fresh the returned data should be. Shorter periods serve fresher
                                         data, but consume more compute.
                                     </p>
-                                    <LemonSelect
-                                        value={effectiveDataFreshness}
-                                        onChange={setDataFreshness}
-                                        options={DATA_FRESHNESS_OPTIONS}
-                                    />
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Endpoint}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSelect
+                                            value={effectiveDataFreshness}
+                                            onChange={setDataFreshness}
+                                            options={DATA_FRESHNESS_OPTIONS}
+                                        />
+                                    </AccessControlAction>
                                 </div>
                             ),
                         },
@@ -281,12 +289,17 @@ function MaterializationContent(): JSX.Element {
 
             {canMaterialize && (
                 <div className="flex flex-col gap-4">
-                    <LemonSwitch
-                        label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
-                        checked={isMaterialized}
-                        onChange={handleToggleMaterialization}
-                        bordered
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Endpoint}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonSwitch
+                            label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
+                            checked={isMaterialized}
+                            onChange={handleToggleMaterialization}
+                            bordered
+                        />
+                    </AccessControlAction>
 
                     {hasUnsavedMaterializationChange && (
                         <LemonBanner type="info">
@@ -363,13 +376,20 @@ function MaterializationContent(): JSX.Element {
                                     }
                                     info="Your date range variables are bucketed into this interval in the stored materialized table. Smaller bucket - more precise results. Larger bucket - less granular results."
                                 >
-                                    <LemonSelect
-                                        value={
-                                            bucketOverrides[pair.column] || BUCKET_FN_TO_KEY[pair.bucket_fn] || 'day'
-                                        }
-                                        onChange={(value) => setBucketOverride(pair.column, value)}
-                                        options={BUCKET_OPTIONS}
-                                    />
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Endpoint}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSelect
+                                            value={
+                                                bucketOverrides[pair.column] ||
+                                                BUCKET_FN_TO_KEY[pair.bucket_fn] ||
+                                                'day'
+                                            }
+                                            onChange={(value) => setBucketOverride(pair.column, value)}
+                                            options={BUCKET_OPTIONS}
+                                        />
+                                    </AccessControlAction>
                                 </LemonField.Pure>
                             ))}
                         </div>

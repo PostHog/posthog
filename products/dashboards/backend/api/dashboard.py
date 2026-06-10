@@ -100,6 +100,7 @@ from products.dashboards.backend.widget_layouts import (
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -202,6 +203,7 @@ def _run_widget_query(
                 team,
                 work_item["config"],
                 user=work_item["user"],
+                include_total_count=False,
             )
             return {
                 "tile_id": tile_id,
@@ -2060,7 +2062,7 @@ class DashboardsViewSet(
         )
 
         # Async generator that handles progressive tile serialization and streaming
-        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
 
             try:
@@ -2575,6 +2577,16 @@ class DashboardsViewSet(
                     "widget_type": widget.widget_type,
                     "result": None,
                     "error": scope_error,
+                }
+                continue
+
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            if widget_throttle_error:
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": widget_throttle_error,
                 }
                 continue
 

@@ -293,6 +293,12 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 # ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
 _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 
+# Secrets the edit form can never re-supply (parsed into the individual fields on create, then
+# stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
+# permanently block host changes. Excluded from the gate but still preserved by the merge: MongoDB
+# connects via `connection_string`, while SQL sources use the individual fields and gate `password`.
+_CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
+
 
 def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
     """True if any stored secret would be reused because the update didn't re-supply it.
@@ -796,7 +802,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             manifest_host_added = bool(new_hosts - existing_hosts)
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
-            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, sensitive_fields):
+            gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
+            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, gate_sensitive_fields):
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
@@ -1903,6 +1910,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
                 "permission_error": endpoint_permissions.get(schema.name),
+                "rls_warning": schema.rls_warning,
             }
             for schema in schemas
         ]

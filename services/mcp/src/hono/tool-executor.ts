@@ -12,6 +12,8 @@ import {
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createRenderUiTool } from '@/tools/render-ui'
+import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
@@ -43,7 +45,10 @@ export class ToolExecutor {
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
         if (state.useSingleExec) {
-            return { tools: [this.instructionsBuilder.buildExecToolEntry(state)] }
+            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            return {
+                tools: [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])],
+            }
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -67,6 +72,15 @@ export class ToolExecutor {
 
         if (toolName === 'exec') {
             return this.callExecTool(params, state)
+        }
+
+        if (toolName === 'render-ui') {
+            // render-ui is only advertised when the flag is on; reject calls otherwise.
+            if (!state.renderUiEnabled) {
+                toolCallsTotal.inc({ tool: toolName, status: 'error' })
+                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            }
+            return this.callRenderUiTool(params, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -209,11 +223,19 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status })
             toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
 
+            // Mirror the native path: stamp the inner tool's category so exec-routed
+            // calls share the dashboard's `$mcp_tool_category` grouping dimension.
+            const toolCategory = getToolCategory(toolName)
+
             void (async () => {
                 const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
                 await state.reqCtx.trackEvent(
                     AnalyticsEvent.MCP_TOOL_CALL,
-                    { tool_name: toolName, ...properties },
+                    {
+                        tool_name: toolName,
+                        ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                        ...properties,
+                    },
                     freshContext,
                     undefined,
                     state.distinctId
@@ -237,6 +259,44 @@ export class ToolExecutor {
             schema: execTool.schema,
             handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
             _meta: execTool._meta,
+        }
+    }
+
+    private async callRenderUiTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState
+    ): Promise<unknown> {
+        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        if (!renderUiTool) {
+            return {
+                content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
+                isError: true,
+            }
+        }
+
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const validation = renderUiTool.schema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+        }
+
+        const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
+        const startMs = Date.now()
+        try {
+            const handlerResult = await renderUiTool.handler(state.context, validation.data)
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
+            stop({ status: 'success' })
+            void trackToolCall('render-ui', Date.now() - startMs, false, state)
+            // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
+            return handlerResult
+        } catch (error: unknown) {
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
+            stop({ status: 'error' })
+            classifyToolError(error, 'render-ui')
+            void trackToolCall('render-ui', Date.now() - startMs, true, state)
+            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
         }
     }
 }

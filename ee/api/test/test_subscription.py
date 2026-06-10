@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.constants import AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
@@ -2388,6 +2388,23 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "AI data processing" in str(response.json())
 
+    def test_create_gate_evaluates_flag_per_user_without_org_group(self, mock_is_cloud, mock_flag, mock_sync):
+        # Early-access gate is person-based so users self-enable via feature previews — the flag
+        # must be evaluated for the requesting user's distinct_id, never overridden to the org group.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        gate_calls = [
+            c for c in mock_flag.call_args_list if c.args and c.args[0] == SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
+        ]
+        assert gate_calls, "ai-subscriptions flag was never evaluated on create"
+        assert gate_calls[-1].args[1] == str(self.user.distinct_id)
+        assert gate_calls[-1].kwargs.get("groups") is None
+
     def test_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         mock_is_cloud.return_value = False
@@ -2409,7 +2426,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             self._make_ai_payload(),
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in str(response.json())
+        assert "not enabled for your account" in str(response.json())
 
     @parameterized.expand(
         [

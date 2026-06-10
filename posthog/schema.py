@@ -51,6 +51,7 @@ class AgentMode(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
     USER_INTERVIEW = "user_interview"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -800,6 +801,7 @@ class AssistantTool(StrEnum):
     ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    ASSESS_HEATMAP = "assess_heatmap"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -809,6 +811,9 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    UPSERT_ACCOUNT = "upsert_account"
+    UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
+    OPEN_ACCOUNT = "open_account"
 
 
 class AssistantToolCall(BaseModel):
@@ -2241,6 +2246,85 @@ class ExternalDataSourceType(StrEnum):
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
     WORK_OS = "WorkOS"
+    AMAZON_S3 = "AmazonS3"
+    GOOGLE_CLOUD_STORAGE = "GoogleCloudStorage"
+    DATABRICKS = "Databricks"
+    DYNAMICS365 = "Dynamics365"
+    SALESFORCE_MARKETING_CLOUD = "SalesforceMarketingCloud"
+    DB2 = "Db2"
+    HEAP = "Heap"
+    ADOBE_ANALYTICS = "AdobeAnalytics"
+    MATOMO = "Matomo"
+    OPTIMIZELY = "Optimizely"
+    ADYEN = "Adyen"
+    GO_CARDLESS = "GoCardless"
+    MOLLIE = "Mollie"
+    CHECKOUT_COM = "CheckoutCom"
+    BRANCH = "Branch"
+    CRITEO = "Criteo"
+    OUTBRAIN = "Outbrain"
+    TABOOLA = "Taboola"
+    AD_ROLL = "AdRoll"
+    DISPLAY_VIDEO360 = "DisplayVideo360"
+    GOOGLE_AD_MANAGER = "GoogleAdManager"
+    CAMPAIGN_MANAGER360 = "CampaignManager360"
+    SEARCH_ADS360 = "SearchAds360"
+    ADOBE_COMMERCE = "AdobeCommerce"
+    AMAZON_SELLING_PARTNER = "AmazonSellingPartner"
+    EBAY = "Ebay"
+    COMMERCETOOLS = "Commercetools"
+    LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIP_STATION = "ShipStation"
+    CONSTANT_CONTACT = "ConstantContact"
+    MAILGUN = "Mailgun"
+    ELOQUA = "Eloqua"
+    SAILTHRU = "Sailthru"
+    ORTTO = "Ortto"
+    ATTENTIVE = "Attentive"
+    KUSTOMER = "Kustomer"
+    DIXA = "Dixa"
+    GLADLY = "Gladly"
+    QUALTRICS = "Qualtrics"
+    DELIGHTED = "Delighted"
+    AZURE_DEV_OPS = "AzureDevOps"
+    ROLLBAR = "Rollbar"
+    OPSGENIE = "Opsgenie"
+    INCIDENT_IO = "IncidentIo"
+    PINGDOM = "Pingdom"
+    CLOUDFLARE = "Cloudflare"
+    COSMOS_DB = "CosmosDB"
+    PLANET_SCALE = "PlanetScale"
+    SAP_HANA = "SapHana"
+    RIPPLING = "Rippling"
+    HI_BOB = "HiBob"
+    PERSONIO = "Personio"
+    DEEL = "Deel"
+    ADP_WORKFORCE_NOW = "AdpWorkforceNow"
+    PAYLOCITY = "Paylocity"
+    GUSTO = "Gusto"
+    CULTURE_AMP = "CultureAmp"
+    LATTICE = "Lattice"
+    SAGE_INTACCT = "SageIntacct"
+    FRESH_BOOKS = "FreshBooks"
+    EXPENSIFY = "Expensify"
+    RAMP = "Ramp"
+    BREX = "Brex"
+    COUPA = "Coupa"
+    SAP_CONCUR = "SapConcur"
+    APOLLO = "Apollo"
+    CRUNCHBASE = "Crunchbase"
+    ZOOM_INFO = "ZoomInfo"
+    CLARI = "Clari"
+    CHORUS = "Chorus"
+    CODA = "Coda"
+    GURU = "Guru"
+    DROPBOX = "Dropbox"
+    DOCUSIGN = "Docusign"
+    PANDA_DOC = "PandaDoc"
+    SAP_ERP = "SapErp"
+    SAP_SUCCESS_FACTORS = "SapSuccessFactors"
+    ORACLE_EBS = "OracleEbs"
+    ORACLE_FUSION = "OracleFusion"
     CUSTOM = "Custom"
 
 
@@ -7743,6 +7827,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None
@@ -22810,10 +22901,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(
