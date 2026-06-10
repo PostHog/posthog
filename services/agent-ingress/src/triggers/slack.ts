@@ -138,6 +138,13 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             const trusted = slackConfig.trusted_workspaces
             const workspaceId = event.team ?? 'unknown'
             if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
+                // The rejected workspace id is otherwise only in the 403 body —
+                // surface it (plus the configured allowlist) so "why is Slack
+                // getting a 403?" is answerable from the logs alone.
+                log.warn(
+                    { slug: resolved.application.slug, workspace: workspaceId, trusted_workspaces: trusted ?? null },
+                    'slack_event_rejected_workspace_not_trusted'
+                )
                 res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
                 return
             }
