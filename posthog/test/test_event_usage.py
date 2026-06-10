@@ -7,7 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.clickhouse.query_tagging import AccessMethod, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.event_usage import (
     EventSource,
     get_event_source,
@@ -200,11 +200,8 @@ class TestReportUserAction(BaseTest):
         factory = APIRequestFactory()
         request = factory.get("/fake")
 
-        tag_queries(access_method=tagged)
-        try:
+        with tags_context(access_method=tagged):
             report_user_action(self.user, "test event", request=request)
-        finally:
-            reset_query_tags()
 
         assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
