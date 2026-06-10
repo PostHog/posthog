@@ -201,17 +201,30 @@ enum Candidate {
     NoBuildId,
 }
 
+fn has_elf_magic(path: &Path) -> bool {
+    use std::io::Read;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        warn!("Could not open {} (skipping)", path.display());
+        return false;
+    };
+    let mut magic = [0u8; ELF_MAGIC.len()];
+    file.read_exact(&mut magic).is_ok() && &magic == ELF_MAGIC
+}
+
 /// Parse a file as a native debug-symbol candidate. Returns `None` for
 /// anything that isn't an ELF executable/library/debug companion.
 fn parse_candidate(path: &Path) -> Result<Option<Candidate>> {
+    // Check the magic before loading the file: build trees contain large
+    // non-ELF artifacts that shouldn't be read into memory just to be skipped.
+    if !has_elf_magic(path) {
+        return Ok(None);
+    }
+
     let Ok(data) = std::fs::read(path) else {
         warn!("Could not read {} (skipping)", path.display());
         return Ok(None);
     };
-
-    if data.len() < ELF_MAGIC.len() || &data[..ELF_MAGIC.len()] != ELF_MAGIC {
-        return Ok(None);
-    }
 
     // Scope the parsed archive so `data` can move into the result afterwards.
     let debug_id = {
