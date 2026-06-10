@@ -4,6 +4,11 @@
         "id": {
             "description": "A unique integer value identifying this subscription.",
             "type": "number"
+        },
+        "preview": {
+            "default": false,
+            "description": "AI subscriptions only: run the report generation pipeline without sending anything. Poll the preview_report action with the returned delivery_id to fetch the result.",
+            "type": "boolean"
         }
     },
     "required": ["id"],
