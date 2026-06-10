@@ -22,7 +22,6 @@ import {
     type ButtonProps as QuillButtonProps,
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
@@ -161,20 +160,6 @@ const AGENTS: AgentDef[] = [
     },
 ]
 
-function AgentLogo({ agent }: { agent: AgentDef }): JSX.Element {
-    if (typeof agent.logo !== 'string') {
-        return agent.logo
-    }
-    return (
-        <img
-            src={agent.logo}
-            alt=""
-            aria-hidden
-            className={cn('size-4 shrink-0 object-contain', agent.logoClassName)}
-        />
-    )
-}
-
 export function AgentPromptButton({
     actions,
     storageKey,
@@ -247,7 +232,7 @@ export function AgentPromptButton({
                     data-attr={dataAttr}
                     title={`Run: ${buttonLabel}`}
                 >
-                    <AgentLogo agent={activeAgent} />
+                    <AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />
                     <span className="truncate max-w-64">{buttonLabel}</span>
                 </QuillButton>
                 <QuillButtonGroupSeparator />
@@ -292,7 +277,7 @@ export function AgentPromptButton({
                     {AGENTS.map((agent) => (
                         <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
                             <ButtonPrimitive menuItem className="gap-1.5">
-                                <AgentLogo agent={agent} />
+                                <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
                                 <span className="truncate flex-1">{agent.name}</span>
                                 <DropdownMenuItemIndicator intent="radio" />
                             </ButtonPrimitive>
