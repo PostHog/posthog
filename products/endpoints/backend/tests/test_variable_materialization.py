@@ -990,6 +990,50 @@ class TestQueryTransformation(APIBaseTest):
         assert "GROUP BY" in transformed_query
         assert "event_name" in transformed_query or "event" in transformed_query
 
+    def test_transform_variable_column_already_aliased_in_select(self):
+        # Regression: enabling materialization raised "Cannot redefine an alias" when the
+        # query already selects the variable's column aliased by the variable's code_name.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.profile_id AS profile_id, properties.card_id AS card_id, count() AS tap_count "
+                "FROM events "
+                "WHERE event = 'card_tapped' AND properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id, card_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+
+        transformed_query = transformed["query"]
+        assert "{variables" not in transformed_query
+        assert transformed_query.count("AS profile_id") == 1
+
+    def test_transform_variable_alias_collision_with_different_expression(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.card_id AS profile_id, count() AS tap_count "
+                "FROM events "
+                "WHERE properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+
+        with pytest.raises(ValueError, match="conflicts with an existing SELECT alias"):
+            transform_query_for_materialization(query, var_infos, self.team)
+
     def test_transform_preserves_order_by(self):
         query = {
             "kind": "HogQLQuery",

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -24,9 +24,7 @@ import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import type { aiObservabilityDashboardLogicType } from './aiObservabilityDashboardLogicType'
 
-export interface AIObservabilityDashboardLogicProps {
-    tabId?: string
-}
+export type AIObservabilityDashboardLogicProps = Record<string, never>
 
 export interface QueryTile {
     title: string
@@ -55,12 +53,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityDashboardLogic']),
     props({} as AIObservabilityDashboardLogicProps),
-    key((props: AIObservabilityDashboardLogicProps) => props.tabId || 'default'),
-    connect((props: AIObservabilityDashboardLogicProps) => ({
-        values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
-            ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
-        ],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters']],
     })),
 
     actions({

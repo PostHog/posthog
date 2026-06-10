@@ -102,6 +102,6 @@ emits most of which get suppressed (too noisy — retune), dead silence on a sur
 is active (too strict — retune), or no memory growth despite many runs (not learning).
 
 When the diagnosis points at the scout's instructions — discriminator, thresholds, disqualifiers,
-save-memory, schedule, or posture — that's where exploration ends and authoring begins. Hand off to
-[`../../authoring-signals-scouts/SKILL.md`](../../authoring-signals-scouts/SKILL.md), which covers
-the dry-run-first test loop and `signals-scout-config-update`.
+save-memory, schedule, or posture — that's where exploration ends and authoring begins. Hand off
+to the `authoring-signals-scouts` skill, which covers the dry-run-first test loop and
+`signals-scout-config-update`.
