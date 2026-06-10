@@ -120,6 +120,15 @@ export const confirmedActionRefusalsTotal = new Counter({
     labelNames: ['tool', 'reason'] as const,
 })
 
+// 1 if the codec + nonce ledger were installed at boot, 0 otherwise. A
+// single boot-time console.error is easy to lose; this lets ops alert
+// directly on `mcp_confirmed_action_runtime_installed == 0` regardless
+// of whether anyone has tried a -prepare/-execute call yet.
+export const confirmedActionRuntimeInstalled = new Gauge({
+    name: 'mcp_confirmed_action_runtime_installed',
+    help: 'Whether the typed-confirm runtime was installed successfully at boot (1 = yes, 0 = misconfigured / MCP_SIGNED_STATE_KEY missing).',
+})
+
 export const contextMillRevalidationDurationSeconds = new Histogram({
     name: 'mcp_context_mill_revalidation_duration_seconds',
     help: 'Context-mill resource revalidation duration.',

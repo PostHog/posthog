@@ -221,6 +221,16 @@ export const ToolConfigSchema = z
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
     })
+    // confirmed_action emits two factories (`-prepare`, `-execute`) via a
+    // codegen path that doesn't currently wrap either with `withUiApp`.
+    // Reject the combination at YAML time rather than silently drop the
+    // UI app at codegen — if a real consumer wants both, wire `withUiApp`
+    // around the execute factory explicitly first.
+    .refine((data) => !(data.confirmed_action && data.ui_app), {
+        message:
+            '`confirmed_action` cannot be combined with `ui_app` yet — the codegen does not wrap the generated -execute factory with withUiApp. Drop one or extend buildConfirmedActionFactories to opt in.',
+        path: ['confirmed_action'],
+    })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
 

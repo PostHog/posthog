@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { loadSigningKeyFromEnv, NonceLedger, SignedStateCodec } from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 
+import { confirmedActionRuntimeInstalled } from './metrics'
 import { httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { StreamableMcpHandler } from './streamable-handler'
@@ -43,8 +44,10 @@ export function createApp(redis: RedisWithPing): App {
             codec: new SignedStateCodec(loadSigningKeyFromEnv()),
             ledger: new NonceLedger(redis),
         })
+        confirmedActionRuntimeInstalled.set(1)
     } catch (err) {
         setConfirmedActionRuntime(undefined)
+        confirmedActionRuntimeInstalled.set(0)
         console.error(
             `[mcp] CRITICAL: confirmed-action paradigm disabled — ${(err as Error).message}. ` +
                 `Any -prepare/-execute tool call will fail until this is fixed.`
