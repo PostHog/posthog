@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "annotation_status": {
+            "description": "Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).",
+            "enum": ["acknowledged", "dismissed", "pending", "resolved"],
+            "type": "string"
+        },
+        "host": {
+            "description": "Filter to annotations made on this hostname (e.g. `app.example.com`).",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}
