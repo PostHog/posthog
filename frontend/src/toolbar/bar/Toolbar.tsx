@@ -330,7 +330,13 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showSurveys = surveysFlag
 
     const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
+    const showAnnotations =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        annotationsFlag ||
+        // Local-dev preview escape hatch — `process.env.NODE_ENV` is build-time-defined, so this whole
+        // branch is dead-code-eliminated from production builds. Set localStorage 'ph-toolbar-annotations'.
+        (process.env.NODE_ENV !== 'production' && localStorage.getItem('ph-toolbar-annotations') === '1')
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -409,7 +415,13 @@ export function Toolbar(): JSX.Element | null {
     const showSurveys = surveysFlag
 
     const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
+    const showAnnotations =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        annotationsFlag ||
+        // Local-dev preview escape hatch — `process.env.NODE_ENV` is build-time-defined, so this whole
+        // branch is dead-code-eliminated from production builds. Set localStorage 'ph-toolbar-annotations'.
+        (process.env.NODE_ENV !== 'production' && localStorage.getItem('ph-toolbar-annotations') === '1')
     const { hasOpenedAnnotations } = useValues(annotationsLogic)
 
     useEffect(() => {
