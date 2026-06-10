@@ -634,7 +634,11 @@ function SlackSetupCard({
                     </pre>
                     <dl className="space-y-1 text-[0.6875rem]">
                         <RequestUrlRow label="Event Subscriptions Request URL" url={data.events_url} />
-                        <RequestUrlRow label="Interactivity Request URL" url={data.interactivity_url} />
+                        {/* Interactivity is only wired by the manifest when the agent has an
+                         *  approval-gated tool — don't surface a URL Slack won't be told to use. */}
+                        {(data.manifest as { settings?: { interactivity?: unknown } }).settings?.interactivity ? (
+                            <RequestUrlRow label="Interactivity Request URL" url={data.interactivity_url} />
+                        ) : null}
                     </dl>
                     {data.notes.length > 0 ? (
                         <ul className="list-disc space-y-0.5 pl-4 text-[0.625rem] text-muted-foreground">

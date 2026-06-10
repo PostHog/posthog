@@ -1534,6 +1534,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "manifest",
+        "slack_manifest",
         "get_bundle",
         "validate",
         "system_prompt",
