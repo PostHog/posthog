@@ -385,6 +385,19 @@ export function getDisplayOrderedIndices(
     return ordered
 }
 
+/**
+ * Positional uuid list for one section's results arrays: inline metrics first,
+ * then shared metrics of that type — mirroring how loadPrimaryMetricsResults /
+ * loadSecondaryMetricsResults build their query lists.
+ */
+export function getSectionMetricUuids(experiment: Experiment, isSecondary: boolean): (string | undefined)[] {
+    const inlineMetrics = (isSecondary ? experiment.metrics_secondary : experiment.metrics) || []
+    const sharedMetrics = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).filter(
+        ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
+    )
+    return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
 // Max concurrent metric queries to avoid overwhelming the celery queue's
 // per-team concurrency limit (10). Using runWithLimit instead of Promise.all
 // prevents mass rejections and retry churn when experiments have many metrics.
@@ -2170,6 +2183,26 @@ export const experimentLogic = kea<experimentLogicType>([
         moveMetric: async ({ metric, sourceContext }) => {
             const targetType = sourceContext === 'primary' ? 'secondary' : 'primary'
 
+            // A move doesn't change the metric's definition, so existing results stay
+            // valid — they only need realigning to the new positional layout. That's
+            // unsafe while a load is writing positional results concurrently.
+            const canReuseResults = !values.primaryMetricsResultsLoading && !values.secondaryMetricsResultsLoading
+
+            // Snapshot results/errors by uuid before the update changes the layout.
+            const resultsByUuid = new Map<string, CachedNewExperimentQueryResponse | undefined>()
+            const errorsByUuid = new Map<string, any>()
+            for (const isSecondary of [false, true]) {
+                const uuids = getSectionMetricUuids(values.experiment, isSecondary)
+                const results = isSecondary ? values.secondaryMetricsResults : values.primaryMetricsResults
+                const errors = isSecondary ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
+                uuids.forEach((uuid, index) => {
+                    if (uuid) {
+                        resultsByUuid.set(uuid, results[index])
+                        errorsByUuid.set(uuid, errors[index])
+                    }
+                })
+            }
+
             // Shared metrics live in saved_metrics; moving one just flips its link type.
             // The backend keeps the ordering arrays in sync from the type change.
             if (metric.isSharedMetric && metric.sharedMetricId) {
@@ -2181,38 +2214,77 @@ export const experimentLogic = kea<experimentLogicType>([
                             : sharedMetric.metadata,
                 }))
 
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                await asyncActions.updateExperiment({
                     saved_metrics_ids: savedMetricsIds,
                     update_feature_flag_params: false,
                 })
+            } else {
+                // Inline metrics move between the two arrays. The backend syncs the
+                // ordering arrays from the changed metric lists, appending to the target.
+                if (!metric.uuid) {
+                    return
+                }
 
-                actions.loadExperiment({ triggeredBy: 'config_change' })
+                const sourceField = sourceContext === 'primary' ? 'metrics' : 'metrics_secondary'
+                const targetField = sourceContext === 'primary' ? 'metrics_secondary' : 'metrics'
+                const movedMetric = (values.experiment[sourceField] || []).find((m) => m.uuid === metric.uuid)
+                if (!movedMetric) {
+                    return
+                }
+
+                const remainingMetrics = (values.experiment[sourceField] || []).filter((m) => m.uuid !== metric.uuid)
+                const targetMetrics = [...(values.experiment[targetField] || []), movedMetric]
+
+                await asyncActions.updateExperiment({
+                    [sourceField]: remainingMetrics,
+                    [targetField]: targetMetrics,
+                    update_feature_flag_params: false,
+                })
+            }
+
+            if (!canReuseResults) {
+                actions.refreshExperimentResults(true, 'config_change')
                 return
             }
 
-            // Inline metrics move between the two arrays. The backend syncs the
-            // ordering arrays from the changed metric lists, appending to the target.
-            if (!metric.uuid) {
-                return
+            const newPrimaryUuids = getSectionMetricUuids(values.experiment, false)
+            const newSecondaryUuids = getSectionMetricUuids(values.experiment, true)
+            actions.setPrimaryMetricsResults(
+                newPrimaryUuids.map((uuid) =>
+                    uuid ? resultsByUuid.get(uuid) : undefined
+                ) as CachedNewExperimentQueryResponse[]
+            )
+            actions.setPrimaryMetricsResultsErrors(
+                newPrimaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+            )
+            actions.setSecondaryMetricsResults(
+                newSecondaryUuids.map((uuid) =>
+                    uuid ? resultsByUuid.get(uuid) : undefined
+                ) as CachedNewExperimentQueryResponse[]
+            )
+            actions.setSecondaryMetricsResultsErrors(
+                newSecondaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+            )
+
+            // A metric without a result or error would be stuck rendering as
+            // loading in its new section — fetch just that one metric.
+            const movedUuid = metric.uuid
+            if (
+                movedUuid &&
+                isLaunched(values.experiment) &&
+                !resultsByUuid.get(movedUuid) &&
+                !errorsByUuid.get(movedUuid)
+            ) {
+                const newSectionUuids = targetType === 'secondary' ? newSecondaryUuids : newPrimaryUuids
+                const newIndex = newSectionUuids.indexOf(movedUuid)
+                if (newIndex !== -1) {
+                    if (targetType === 'secondary') {
+                        actions.retrySecondaryMetric(newIndex)
+                    } else {
+                        actions.retryPrimaryMetric(newIndex)
+                    }
+                }
             }
-
-            const sourceField = sourceContext === 'primary' ? 'metrics' : 'metrics_secondary'
-            const targetField = sourceContext === 'primary' ? 'metrics_secondary' : 'metrics'
-            const movedMetric = (values.experiment[sourceField] || []).find((m) => m.uuid === metric.uuid)
-            if (!movedMetric) {
-                return
-            }
-
-            const remainingMetrics = (values.experiment[sourceField] || []).filter((m) => m.uuid !== metric.uuid)
-            const targetMetrics = [...(values.experiment[targetField] || []), movedMetric]
-
-            await asyncActions.updateExperiment({
-                [sourceField]: remainingMetrics,
-                [targetField]: targetMetrics,
-                update_feature_flag_params: false,
-            })
-            // Both lists changed, so refresh results for the moved metric's new context.
-            actions.refreshExperimentResults(true, 'config_change')
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)

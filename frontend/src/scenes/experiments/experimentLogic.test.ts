@@ -9,7 +9,13 @@ import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launche
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
-import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    Breakdown,
+    CachedNewExperimentQueryResponse,
+    ExperimentMetric,
+    ExperimentMetricType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
@@ -435,51 +441,86 @@ describe('experimentLogic', () => {
         })
     })
     describe('moveMetric', () => {
+        const primaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'primary-metric-uuid',
+            name: 'Primary metric',
+        } as unknown as ExperimentMetric
+        const otherPrimaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'other-primary-uuid',
+            name: 'Other primary metric',
+        } as unknown as ExperimentMetric
+        const secondaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'secondary-metric-uuid',
+            name: 'Secondary metric',
+        } as unknown as ExperimentMetric
+
+        const primaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'primary-metric-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+        const otherPrimaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'other-primary-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+        const secondaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'secondary-metric-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+
         beforeEach(() => {
             jest.spyOn(api, 'update')
             api.update.mockClear()
         })
 
-        it('moves an inline metric from primary to secondary', async () => {
-            const primaryMetric = {
-                kind: 'ExperimentMetric',
-                uuid: 'primary-metric-uuid',
-                name: 'Primary metric',
-            } as unknown as ExperimentMetric
-            const otherPrimaryMetric = {
-                kind: 'ExperimentMetric',
-                uuid: 'other-primary-uuid',
-                name: 'Other primary metric',
-            } as unknown as ExperimentMetric
+        it('moves an inline metric from primary to secondary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
                 metrics: [primaryMetric, otherPrimaryMetric],
-                metrics_secondary: [],
+                metrics_secondary: [secondaryMetric],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
-            api.update.mockResolvedValue(testExperiment)
+            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
+            logic.actions.setSecondaryMetricsResults([secondaryMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [otherPrimaryMetric],
+                metrics_secondary: [secondaryMetric, primaryMetric],
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.moveMetric(primaryMetric, 'primary')
-            }).toDispatchActions(['updateExperiment'])
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'refreshExperimentResults',
+                    'loadPrimaryMetricsResults',
+                    'loadSecondaryMetricsResults',
+                    'loadExperiment',
+                    'retryPrimaryMetric',
+                    'retrySecondaryMetric',
+                ])
+                .toMatchValues({
+                    primaryMetricsResults: [otherPrimaryMetricResult],
+                    secondaryMetricsResults: [secondaryMetricResult, primaryMetricResult],
+                    primaryMetricsResultsErrors: [null],
+                    secondaryMetricsResultsErrors: [null, null],
+                })
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
                     metrics: [otherPrimaryMetric],
-                    metrics_secondary: [primaryMetric],
+                    metrics_secondary: [secondaryMetric, primaryMetric],
                 })
             )
         })
 
-        it('moves an inline metric from secondary to primary', async () => {
-            const secondaryMetric = {
-                kind: 'ExperimentMetric',
-                uuid: 'secondary-metric-uuid',
-                name: 'Secondary metric',
-            } as unknown as ExperimentMetric
+        it('moves an inline metric from secondary to primary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
@@ -488,11 +529,22 @@ describe('experimentLogic', () => {
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
-            api.update.mockResolvedValue(testExperiment)
+            logic.actions.setSecondaryMetricsResults([secondaryMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [secondaryMetric],
+                metrics_secondary: [],
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.moveMetric(secondaryMetric, 'secondary')
-            }).toDispatchActions(['updateExperiment'])
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
+                .toMatchValues({
+                    primaryMetricsResults: [secondaryMetricResult],
+                    secondaryMetricsResults: [],
+                })
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
@@ -505,30 +557,37 @@ describe('experimentLogic', () => {
 
         it('moves a shared metric by flipping its saved-metric link type', async () => {
             const sharedMetricId = 123
+            const sharedSavedMetric = {
+                id: 1,
+                experiment: experiment.id as number,
+                saved_metric: sharedMetricId,
+                name: 'Shared metric',
+                query: {
+                    uuid: 'shared-metric-uuid',
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                },
+                metadata: { type: 'primary' },
+                created_at: '2024-01-01T00:00:00Z',
+            } satisfies ExperimentSavedMetric
+            const sharedMetricResult = {
+                baseline: { key: 'control' },
+                metric_uuid: 'shared-metric-uuid',
+            } as unknown as CachedNewExperimentQueryResponse
             const testExperiment = {
                 ...experiment,
                 metrics: [],
                 metrics_secondary: [],
-                saved_metrics: [
-                    {
-                        id: 1,
-                        experiment: experiment.id as number,
-                        saved_metric: sharedMetricId,
-                        name: 'Shared metric',
-                        query: {
-                            uuid: 'shared-metric-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                        },
-                        metadata: { type: 'primary' },
-                        created_at: '2024-01-01T00:00:00Z',
-                    } satisfies ExperimentSavedMetric,
-                ],
+                saved_metrics: [sharedSavedMetric],
             } as unknown as Experiment
 
             logic.actions.setExperiment(testExperiment)
-            api.update.mockResolvedValue(testExperiment)
+            logic.actions.setPrimaryMetricsResults([sharedMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                saved_metrics: [{ ...sharedSavedMetric, metadata: { type: 'secondary' } }],
+            })
 
             const sharedDisplayMetric = {
                 kind: 'ExperimentMetric',
@@ -539,7 +598,13 @@ describe('experimentLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.moveMetric(sharedDisplayMetric, 'primary')
-            }).toFinishAllListeners()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
+                .toMatchValues({
+                    primaryMetricsResults: [],
+                    secondaryMetricsResults: [sharedMetricResult],
+                })
 
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
@@ -547,6 +612,94 @@ describe('experimentLogic', () => {
                     saved_metrics_ids: [{ id: sharedMetricId, metadata: { type: 'secondary' } }],
                 })
             )
+        })
+
+        it('loads only the moved metric when it has no result yet', async () => {
+            const fetchedResult = { baseline: { key: 'control' }, variant_results: [] }
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: {
+                                ...experimentMetricResultsSuccessJson.query_status,
+                                results: fetchedResult,
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [
+                        200,
+                        {
+                            query_status: {
+                                ...experimentMetricResultsSuccessJson.query_status,
+                                results: fetchedResult,
+                            },
+                        },
+                    ],
+                },
+            })
+
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric],
+                metrics_secondary: [],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [],
+                metrics_secondary: [primaryMetric],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetric(primaryMetric, 'primary')
+            })
+                .toDispatchActions(['updateExperimentSuccess', 'retrySecondaryMetric'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadSecondaryMetricsResults'])
+
+            expect(logic.values.primaryMetricsResults).toEqual([])
+            expect(logic.values.secondaryMetricsResults).toEqual([expect.objectContaining(fetchedResult)])
+        })
+
+        it('falls back to a full refresh when results are already loading', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric],
+                metrics_secondary: [],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResultsLoading(true)
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [],
+                metrics_secondary: [primaryMetric],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveMetric(primaryMetric, 'primary')
+            })
+                .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
+                .toFinishAllListeners()
         })
     })
     describe('breakdown management', () => {
