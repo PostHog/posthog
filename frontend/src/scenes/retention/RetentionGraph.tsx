@@ -72,6 +72,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             datasets={filteredTrendSeries as GraphDataset[]}
             labels={xAxisLabels}
             isInProgress={incompletenessOffsetFromEnd < 0}
+            isArea={retentionFilter?.display === ChartDisplayType.ActionsAreaGraph}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
             labelGroupType={labelGroupType}

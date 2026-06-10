@@ -14,7 +14,7 @@ import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
-import type { GroupTypeIndex, LabelGroupType } from '~/types'
+import { ChartDisplayType, type GroupTypeIndex, type LabelGroupType } from '~/types'
 
 import {
     buildRetentionLineChartConfig,
@@ -73,6 +73,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const period = retentionFilter?.period
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
     const isIntervalView = selectedInterval !== null
+    const isArea = retentionFilter?.display === ChartDisplayType.ActionsAreaGraph
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
 
@@ -81,8 +82,9 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
                 incompletenessOffsetFromEnd,
                 isIntervalView,
+                isArea,
             }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView]
+        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, isArea]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)

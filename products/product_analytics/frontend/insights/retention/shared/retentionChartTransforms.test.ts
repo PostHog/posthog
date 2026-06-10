@@ -133,6 +133,19 @@ describe('retentionChartTransforms', () => {
             expect(series[0].stroke).toBeUndefined()
         })
 
+        it('sets an area fill on every series when isArea is true', () => {
+            const series = buildRetentionSeries([makeEntry({ index: 0 }), makeEntry({ index: 1 })], {
+                isIntervalView: false,
+                isArea: true,
+            })
+            expect(series.map((s) => s.fill)).toEqual([{}, {}])
+        })
+
+        it('leaves the fill undefined when isArea is not set (line chart)', () => {
+            const series = buildRetentionSeries([makeEntry()], { isIntervalView: false })
+            expect(series[0].fill).toBeUndefined()
+        })
+
         it('carries cohort metadata through to series meta', () => {
             const series = buildRetentionSeries(
                 [makeEntry({ index: 2, breakdown_value: 'Chrome', count: 42, label: '2024-01-03' })],

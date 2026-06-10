@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconGraph, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { IconAreaChart } from 'lib/lemon-ui/icons'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -29,6 +31,17 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
                     <ChartFilterOptionLabel
                         label="Line chart"
                         description="Retention over time plotted as a continuous line for each cohort."
+                    />
+                ),
+            },
+            {
+                value: ChartDisplayType.ActionsAreaGraph,
+                icon: <IconAreaChart />,
+                label: 'Area chart',
+                labelInMenu: (
+                    <ChartFilterOptionLabel
+                        label="Area chart"
+                        description="Retention over time plotted as a filled area for each cohort."
                     />
                 ),
             },

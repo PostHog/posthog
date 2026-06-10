@@ -43,13 +43,15 @@ export interface BuildRetentionSeriesOpts {
     /** True when an interval is selected (x-axis is cohorts, not interval offsets).
      *  In this layout the partial-stroke "in-progress" segment doesn't apply per-series. */
     isIntervalView: boolean
+    /** Render each series with an area fill below the line (ActionsAreaGraph display). */
+    isArea?: boolean
 }
 
 export function buildRetentionSeries(
     seriesPayloads: RetentionTrendSeriesEntry[],
     opts: BuildRetentionSeriesOpts
 ): Series<RetentionSeriesMeta>[] {
-    const { incompletenessOffsetFromEnd, isIntervalView } = opts
+    const { incompletenessOffsetFromEnd, isIntervalView, isArea } = opts
     return seriesPayloads.map((s, i) => {
         const rowIndex = s.index ?? i
         const dataLength = s.data.length
@@ -72,6 +74,7 @@ export function buildRetentionSeries(
                 cohortLabel: s.label,
                 cohortCount: s.count,
             },
+            fill: isArea ? {} : undefined,
             stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
         }
     })
