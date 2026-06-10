@@ -56,6 +56,15 @@ logger = structlog.get_logger(__name__)
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
+def _event_config_has_event_or_action(event_config: dict) -> bool:
+    # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+    # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
+    # actions set) are real and kept. Shared by the wait_until_condition and conversion strips so the
+    # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
+    filters = event_config.get("filters") or {}
+    return bool(filters.get("events") or filters.get("actions"))
+
+
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
@@ -302,11 +311,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             # incoming event and bypass the property condition. The UI can leave such an entry
             # behind when the last event is removed; "nothing targeted" must mean "nothing wakes
             # this", not "everything". Action-based entries (events empty, actions set) are kept.
-            wait_events = [
-                ec
-                for ec in wait_events
-                if (ec.get("filters") or {}).get("events") or (ec.get("filters") or {}).get("actions")
-            ]
+            wait_events = [ec for ec in wait_events if _event_config_has_event_or_action(ec)]
             data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
@@ -628,11 +633,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # always-true reason as the wait_until_condition guard above: an empty entry would mark
             # every incoming event as a conversion. Action-based entries (events empty, actions set)
             # are kept.
-            conversion_events = [
-                ec
-                for ec in (conversion.get("events") or [])
-                if (ec.get("filters") or {}).get("events") or (ec.get("filters") or {}).get("actions")
-            ]
+            conversion_events = [ec for ec in (conversion.get("events") or []) if _event_config_has_event_or_action(ec)]
             data["conversion"]["events"] = conversion_events
             for event_config in conversion_events:
                 event_filters = event_config.get("filters")
