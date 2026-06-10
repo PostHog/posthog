@@ -68,10 +68,10 @@ level that reproduces it; that level is your validation environment for step 6.
 
 1. **Single run**: `hogli test <path>::<test>` — confirms the test runs at all.
 2. **Repetition loop** (default N=20): catches probabilistic flakes.
-3. **CI-like conditions**: CI runs Jest sharded with `--maxWorkers=2 --forceExit`
-   on contended runners (flags live in `frontend/package.json`'s `test` script and
-   `.github/workflows/ci-frontend.yml` — check there if these drift). Run the test
-   alongside its shard neighbors:
+3. **CI-like conditions**: CI runs Jest sharded with low worker counts on
+   contended runners — take the exact flags from `frontend/package.json`'s `test`
+   script and `.github/workflows/ci-frontend.yml` (currently `--shard`,
+   `--maxWorkers=2`, `--forceExit`). Run the test alongside its shard neighbors:
 
    ```bash
    pnpm --filter=@posthog/frontend jest <test_file> <neighbor_file> --maxWorkers=2 --forceExit
@@ -131,10 +131,12 @@ PostHog-specific patterns:
 
 - **Missing MSW mocks**: kea logics with `afterMount` loaders fire API calls through
   the `connect()` chain — a logic three levels deep can trigger an unmocked fetch.
-  With the custom `onUnhandledRequest` handler in `frontend/src/mocks/jest.ts`,
-  unhandled requests hang forever (no response, no reject), so the symptom is a
-  `toFinishAllListeners()` timeout, not a network error. Look for `[MSW] Unhandled`
-  in the CI log and add the missing `useMocks` entry.
+  Unhandled requests currently resolve with a benign empty paginated 200, so the
+  symptom is a loader succeeding with empty or wrong data, not a network error. The
+  `[MSW] Unhandled GET ...` warning in the log names the missing mock — add the
+  `useMocks` entry. The unhandled-request behavior has changed before (it used to
+  hang); if symptoms don't match, read `frontend/src/mocks/jest.ts` for what
+  unmocked requests do today.
 - **`toFinishAllListeners()` timeouts**: waits for ALL kea listener promises across
   ALL mounted logics (3s default — `LISTENER_FINISH_WAIT_TIMEOUT` in
   `kea-test-utils`). Any connected logic with a pending loader blocks it. Fix the
@@ -177,12 +179,10 @@ reproduced the failure** (same neighbors, worker count, contention).
 
 Size N from the observed pre-fix failure rate: if it failed about 1 in k runs,
 you need roughly **N ≥ 3k** consecutive passes for ~95% confidence the flake is
-gone — `(1 - 1/k)^(3k) ≈ 5%`. Floors:
-
-- Readily reproducible (failed within 20 runs): **N = 20** minimum.
-- Rare (failure rate below ~1/20 locally): **N = 50**.
-- Not locally reproducible: run N = 20 anyway as a regression check, and label
-  the validation as analytical in the report.
+gone — `(1 - 1/k)^(3k) ≈ 5%`. So use **N = max(3k, 20)**. Without a usable rate
+estimate, run 50 and note the reduced confidence in the report. If the flake was
+never reproducible locally, run N = 20 as a regression check and label the
+validation as analytical.
 
 Any failure in the loop → back to step 4; the root cause was wrong or incomplete.
 Finish with one normal run of the surrounding file/suite to confirm the fix didn't
