@@ -79,8 +79,15 @@ WEB_STATS_LAZY_FAILED = Counter(
 # topK(1). The INSERT stores the full `$browser_language` ("en-US") as the
 # breakdown_value; the read derives the prefix + most-common-region deterministically
 # via a two-level aggregation (see `_LANGUAGE_READ_SQL_TEMPLATE`). The region label
-# is a window-global argMax, so it must be computed on read, not baked into the
-# per-hour INSERT.
+# is window-dependent, so it must be computed on read, not baked into the per-hour
+# INSERT. The raw `topK(1)` picks the region with the most sessions; the precompute
+# stores no session-count state, so the read approximates it with `argMax` over
+# pageviews — the closest stored signal (the dominant region almost always leads on
+# both). Matching session-topK exactly would need a new stored state and is deferred
+# since it only changes the displayed region (not any count) in rare ties. Missing
+# `$browser_language` is kept (not filtered) to match the raw query's
+# `outer_where_breakdown() is None` for LANGUAGE, so the tile total stays consistent
+# with the overview.
 SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
@@ -328,7 +335,7 @@ FROM (
         sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS views,
         sumMergeIf(sum_pageviews_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_views
     FROM posthog.web_stats_preaggregated
-    WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by}, JSONExtractString(breakdown_value) != '')
+    WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
     GROUP BY lang_prefix
 ) AS m
 LEFT JOIN (
@@ -339,7 +346,7 @@ LEFT JOIN (
             arrayElement(splitByChar('-', JSONExtractString(breakdown_value)), 2) AS region,
             sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS region_views
         FROM posthog.web_stats_preaggregated
-        WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by}, JSONExtractString(breakdown_value) != '')
+        WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
         GROUP BY lang_prefix, region
     )
     GROUP BY lang_prefix

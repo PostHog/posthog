@@ -334,6 +334,38 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
     @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_keeps_missing_value(self):
+        # The raw LANGUAGE query keeps rows with no `$browser_language`
+        # (outer_where_breakdown is None for LANGUAGE) so the tile total stays
+        # consistent with the overview. The lazy read must do the same — assert
+        # parity rather than a hardcoded label so it tracks whatever the raw path
+        # renders for the missing bucket.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u3"], properties={"name": "u3"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u3",
+            timestamp="2024-01-05T08:00:00Z",
+            properties=self._props(
+                **{
+                    "$session_id": str(uuid7("2024-01-05")),
+                    "$host": "example.com",
+                    "$current_url": "https://example.com/a",
+                    "$pathname": "/a",
+                    "$browser_language": None,
+                }
+            ),
+        )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.usedLazyPrecompute is True
+        assert self._metrics(lazy_response) == raw
+
+    @freeze_time("2024-01-15T12:00:00Z")
     def test_conversion_goal_falls_through(self):
         self._seed()
         with self._enable_lazy():
