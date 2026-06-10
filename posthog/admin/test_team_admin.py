@@ -217,6 +217,33 @@ class TestTeamAdminLLMGateway(BaseTest):
 
     @parameterized.expand(
         [
+            ("enable_first_time", "enable_ai_gateway_view", "llm_gateway_enabled_at", False),
+            ("enable_already_enabled", "enable_ai_gateway_view", "llm_gateway_enabled_at", True),
+            ("revoke_first_time", "revoke_ai_gateway_view", "llm_gateway_revoked_at", False),
+            ("revoke_already_revoked", "revoke_ai_gateway_view", "llm_gateway_revoked_at", True),
+            ("clear_revoke_with_revoke", "clear_ai_gateway_revoke_view", "llm_gateway_revoked_at", True),
+            ("clear_revoke_no_op", "clear_ai_gateway_revoke_view", "llm_gateway_revoked_at", False),
+        ]
+    )
+    def test_views_refresh_policy_cache(self, _name: str, view_name: str, field: str, preset_already: bool) -> None:
+        from django.utils import timezone
+
+        if preset_already:
+            setattr(self.team, field, timezone.now() - timedelta(days=1))
+            self.team.save()
+
+        with patch("posthog.storage.team_llm_gateway_policy_cache.update_team_llm_gateway_policy_cache") as mock_update:
+            response = getattr(self.admin, view_name)(self._post(), str(self.team.pk))
+
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+        # Refresh fires on every click, including no-op clicks where team.save()
+        # is skipped and the Team.save signal therefore never runs.
+        assert mock_update.call_count == 1
+        assert mock_update.call_args.args[0].pk == self.team.pk
+
+    @parameterized.expand(
+        [
             ("enable", "enable_ai_gateway_view"),
             ("revoke", "revoke_ai_gateway_view"),
             ("clear_revoke", "clear_ai_gateway_revoke_view"),

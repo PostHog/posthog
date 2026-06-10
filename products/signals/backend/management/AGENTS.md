@@ -38,7 +38,12 @@ python manage.py list_signal_reports --team-id 1 --signals --json
    - `pending_input` — needs human judgment before acting
    - `failed` — failed safety review (possible prompt injection)
    - `potential` (reset, weight zeroed) — deemed not actionable
-7. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
+7. On reaching `ready`, the summary workflow starts `signal-report-inbox-notification` to post the Slack
+   inbox notification. If the report auto-started an implementation task, that workflow waits for the PR to
+   open (bounded by `SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS`) so the card can show a "Review PR"
+   button; if that task never opens a PR (fails, is cancelled, or the wait times out) no notification is
+   sent. Reports with no auto-start task notify immediately.
+8. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
    the report is re-promoted and the summary workflow runs again — reusing the previous repo selection and
    lightly validating previous findings instead of re-researching from scratch.
 
@@ -111,7 +116,7 @@ the agent loop until budget exhaustion or natural completion, finalizes the run.
 # Single specialist run against a dogfood team
 python manage.py run_signals_scout \
     --team-id 1 \
-    --skill-name signals-scout-llm-analytics
+    --skill-name signals-scout-ai-observability
 
 # Pin a skill version (default: latest LLMSkill row for the team)
 python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general --skill-version 4

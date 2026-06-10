@@ -34,7 +34,7 @@ from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
-from posthog.api.sdk_doctor import sdk_doctor
+from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -134,6 +134,11 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         from products.tasks.backend.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
+
+    if event_type == "installation":
+        from posthog.api.github_callback.installation_events import handle_installation_event
+
+        return handle_installation_event(payload)
 
     return HttpResponse(status=200)
 
@@ -271,7 +276,7 @@ urlpatterns = [
         csrf_exempt(user_interviews_start_call),
         name="user_interviews_start_call",
     ),
-    path("api/sdk_doctor/", sdk_doctor),
+    path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",

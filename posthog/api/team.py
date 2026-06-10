@@ -1,7 +1,6 @@
 import re
 import json
 import math
-import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -31,7 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -551,13 +550,13 @@ LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
 def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
     """Build the cache key for the live-events JWT.
 
-    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
-    signing secret automatically partitions the cache namespace - cached tokens
-    signed with the old key become unreachable rather than served until TTL.
+    Includes a short fingerprint of `settings.JWT_SIGNING_KEY` so that rotating the
+    signing key automatically partitions the cache namespace - cached tokens signed
+    with the old key become unreachable rather than served until TTL.
     Hashing also defends the cache key against future api-token formats that
     might contain the `:` separator we use between components.
     """
-    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    signing_fingerprint = signing_key_fingerprint(settings.JWT_SIGNING_KEY)
     return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
 
 
@@ -567,8 +566,8 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
     from cache still has at least 6 days of remaining validity. The cache key includes
     every field that ends up in the claims so api-token rotations or organization
-    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
-    key rotation auto-partitions the cache namespace (no manual flush needed).
+    moves automatically force a fresh mint, plus a JWT_SIGNING_KEY fingerprint so
+    signing-key rotation auto-partitions the cache namespace (no manual flush needed).
     """
     cache_key = _live_events_token_cache_key(team, user_id)
     cached = get_safe_cache(cache_key)

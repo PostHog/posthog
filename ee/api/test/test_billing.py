@@ -580,6 +580,8 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 200
@@ -604,6 +606,8 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_ignores_invalid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 403

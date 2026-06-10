@@ -246,7 +246,7 @@ class TestDiscoverCanonicalSkills:
         # when shipping.
         expected = {
             "signals-scout-general",
-            "signals-scout-llm-analytics",
+            "signals-scout-ai-observability",
             "signals-scout-logs",
             "signals-scout-error-tracking",
             "signals-scout-revenue-analytics",

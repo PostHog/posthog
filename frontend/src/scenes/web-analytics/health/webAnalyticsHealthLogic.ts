@@ -14,10 +14,9 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { TeamType } from '~/types'
-
 import {
     HealthCheck,
+    HealthCheckAction,
     HealthCheckCategory,
     HealthCheckId,
     HealthCheckStatus,
@@ -25,36 +24,109 @@ import {
 } from './healthCheckTypes'
 import type { webAnalyticsHealthLogicType } from './webAnalyticsHealthLogicType'
 
-export interface WebAnalyticsHealthStatus {
-    isSendingWebVitals: boolean
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
+/**
+ * Static presentational config for the web analytics checks. The pass/fail decision and the
+ * underlying detection live entirely in the backend Temporal health checks (one `kind` per row
+ * in posthog_healthissue); this page only renders the result. Copy, actions, and docs links are
+ * pure presentation and stay here.
+ */
+interface WebHealthCheckConfig {
+    id: HealthCheckId
+    kind: string
+    category: HealthCheckCategory
+    title: string
+    passingDescription: string
+    failingDescription: string
+    passingAction?: HealthCheckAction
+    failingAction?: HealthCheckAction
+    docsUrl?: string
+    urgent?: boolean
 }
 
-const KIND_FOR_CHECK: Record<HealthCheckId, string> = {
-    [HealthCheckId.PAGEVIEW_EVENTS]: 'no_live_events',
-    [HealthCheckId.PAGELEAVE_EVENTS]: 'no_pageleave_events',
-    [HealthCheckId.SCROLL_DEPTH]: 'scroll_depth',
-    [HealthCheckId.AUTHORIZED_URLS]: 'authorized_urls',
-    [HealthCheckId.REVERSE_PROXY]: 'reverse_proxy',
-    [HealthCheckId.WEB_VITALS]: 'web_vitals',
+const INSTALL_GUIDE_ACTION: HealthCheckAction = {
+    label: 'View installation guide',
+    to: 'https://posthog.com/docs/libraries/js',
 }
 
-function severityToStatus(severity: HealthIssue['severity']): HealthCheckStatus {
-    return severity === 'critical' ? 'error' : 'warning'
-}
-
-function statusForCheck(checkId: HealthCheckId, issuesByKind: Record<string, HealthIssue>): HealthCheckStatus {
-    const issue = issuesByKind[KIND_FOR_CHECK[checkId]]
-    return issue ? severityToStatus(issue.severity) : 'success'
-}
+const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
+    {
+        id: HealthCheckId.PAGEVIEW_EVENTS,
+        kind: 'no_live_events',
+        category: 'events',
+        title: '$pageview',
+        passingDescription:
+            'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!',
+        failingDescription: 'Complete the PostHog installation to start seeing events in your dashboard.',
+        failingAction: INSTALL_GUIDE_ACTION,
+        docsUrl: 'https://posthog.com/docs/product-analytics/capture-events',
+        urgent: true,
+    },
+    {
+        id: HealthCheckId.PAGELEAVE_EVENTS,
+        kind: 'no_pageleave_events',
+        category: 'events',
+        title: '$pageleave',
+        passingDescription: 'Bounce rate and session duration are accurate!',
+        failingDescription: 'Without $pageleave events, bounce rate and session duration might be inaccurate.',
+        failingAction: INSTALL_GUIDE_ACTION,
+        docsUrl: 'https://posthog.com/docs/web-analytics/dashboard#bounce-rate',
+    },
+    {
+        id: HealthCheckId.SCROLL_DEPTH,
+        kind: 'scroll_depth',
+        category: 'events',
+        title: 'Scroll depth',
+        passingDescription: 'Scroll tracking is enabled! Tracking how far users scroll on each page.',
+        failingDescription: 'Enable scroll depth to see how far users read your content before leaving.',
+        failingAction: INSTALL_GUIDE_ACTION,
+        docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
+    },
+    {
+        id: HealthCheckId.AUTHORIZED_URLS,
+        kind: 'authorized_urls',
+        category: 'configuration',
+        title: 'Authorized URLs',
+        passingDescription:
+            'Authorized URLs configured. Your analytics are filtered to only include traffic from your domains.',
+        failingDescription:
+            "No authorized URLs configured. Some filters won't work correctly until you let us know what domains you are sending events from.",
+        passingAction: { label: 'Manage domains', to: urls.settings('environment-web-analytics') },
+        failingAction: { label: 'Add domains', to: urls.settings('environment-web-analytics') },
+    },
+    {
+        id: HealthCheckId.REVERSE_PROXY,
+        kind: 'reverse_proxy',
+        category: 'configuration',
+        title: 'Reverse proxy',
+        passingDescription: 'Reverse proxy is configured! Your tracking requests are routed through your own domain.',
+        failingDescription:
+            'A reverse proxy routes PostHog requests through your own domain and helps prevent ad blockers from blocking tracking. Some metrics may not be accurate until this is configured.',
+        failingAction: { label: 'Set up reverse proxy', to: urls.settings('organization-proxy') },
+        docsUrl: 'https://posthog.com/docs/advanced/proxy',
+        urgent: true,
+    },
+    {
+        id: HealthCheckId.WEB_VITALS,
+        kind: 'web_vitals',
+        category: 'performance',
+        title: '$web_vitals',
+        passingDescription: 'LCP, INP, and CLS are being tracked. You can monitor your real user experience!',
+        failingDescription:
+            'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
+        passingAction: { label: 'View Web Vitals', to: '/web/web-vitals' },
+        failingAction: {
+            label: 'Enable Web Vitals',
+            to: urls.settings('environment-web-analytics', 'web-vitals-autocapture'),
+        },
+        docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
+    },
+]
 
 export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     path(['scenes', 'web-analytics', 'health', 'webAnalyticsHealthLogic']),
 
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamIdStrict']],
+        values: [teamLogic, ['currentTeamIdStrict']],
         actions: [
             eventUsageLogic,
             [
@@ -98,15 +170,16 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     loaders(({ values }) => ({
         healthIssues: {
             __default: null as HealthIssuesResponse | null,
-            loadHealthIssues: async (): Promise<HealthIssuesResponse | null> => {
-                const url = `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
-                return await api.get(url)
+            loadHealthIssues: async (): Promise<HealthIssuesResponse> => {
+                return await api.get<HealthIssuesResponse>(
+                    `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
+                )
             },
         },
     })),
 
     selectors({
-        issuesByKind: [
+        activeIssuesByKind: [
             (s) => [s.healthIssues],
             (healthIssues: HealthIssuesResponse | null): Record<string, HealthIssue> => {
                 const byKind: Record<string, HealthIssue> = {}
@@ -117,201 +190,61 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             },
         ],
 
-        webAnalyticsHealthStatus: [
-            (s) => [s.healthIssues, s.issuesByKind],
-            (
-                healthIssues: HealthIssuesResponse | null,
-                issuesByKind: Record<string, HealthIssue>
-            ): WebAnalyticsHealthStatus | null => {
-                if (healthIssues === null) {
-                    return null
-                }
-                return {
-                    isSendingWebVitals: !issuesByKind.web_vitals,
-                    isSendingPageViews: !issuesByKind.no_live_events,
-                    isSendingPageLeaves: !issuesByKind.no_pageleave_events,
-                    isSendingPageLeavesScroll: !issuesByKind.scroll_depth,
-                }
-            },
-        ],
-
-        isInitialLoad: [
-            (s) => [s.healthIssues, s.healthIssuesLoading],
-            (healthIssues: HealthIssuesResponse | null, loading: boolean): boolean => loading && healthIssues === null,
-        ],
-
-        eventChecks: [
-            (s) => [s.issuesByKind, s.isInitialLoad],
-            (issuesByKind: Record<string, HealthIssue>, isInitialLoad: boolean): HealthCheck[] => {
-                if (isInitialLoad) {
-                    return [
-                        createLoadingCheck(HealthCheckId.PAGEVIEW_EVENTS, 'events', 'PageView events'),
-                        createLoadingCheck(HealthCheckId.PAGELEAVE_EVENTS, 'events', 'PageLeave events'),
-                        createLoadingCheck(HealthCheckId.SCROLL_DEPTH, 'events', 'Scroll depth tracking'),
-                    ]
-                }
-
-                const pageviewOk = statusForCheck(HealthCheckId.PAGEVIEW_EVENTS, issuesByKind) === 'success'
-                const pageleaveOk = statusForCheck(HealthCheckId.PAGELEAVE_EVENTS, issuesByKind) === 'success'
-                const scrollOk = statusForCheck(HealthCheckId.SCROLL_DEPTH, issuesByKind) === 'success'
-
-                return [
-                    {
-                        id: HealthCheckId.PAGEVIEW_EVENTS,
-                        category: 'events',
-                        title: '$pageview',
-                        description: pageviewOk
-                            ? 'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!'
-                            : 'Complete the PostHog installation to start seeing events in your dashboard.',
-                        status: statusForCheck(HealthCheckId.PAGEVIEW_EVENTS, issuesByKind),
-                        action: pageviewOk
-                            ? undefined
-                            : {
-                                  label: 'View installation guide',
-                                  to: 'https://posthog.com/docs/libraries/js',
-                              },
-                        docsUrl: 'https://posthog.com/docs/product-analytics/capture-events',
-                        urgent: true,
-                    },
-                    {
-                        id: HealthCheckId.PAGELEAVE_EVENTS,
-                        category: 'events',
-                        title: '$pageleave',
-                        description: pageleaveOk
-                            ? 'Bounce rate and session duration are accurate!'
-                            : 'Without $pageleave events, bounce rate and session duration might be inaccurate.',
-                        status: statusForCheck(HealthCheckId.PAGELEAVE_EVENTS, issuesByKind),
-                        action: pageleaveOk
-                            ? undefined
-                            : {
-                                  label: 'View installation guide',
-                                  to: 'https://posthog.com/docs/libraries/js',
-                              },
-                        docsUrl: 'https://posthog.com/docs/web-analytics/dashboard#bounce-rate',
-                    },
-                    {
-                        id: HealthCheckId.SCROLL_DEPTH,
-                        category: 'events',
-                        title: 'Scroll depth',
-                        description: scrollOk
-                            ? 'Scroll tracking is enabled! Tracking how far users scroll on each page.'
-                            : 'Enable scroll depth to see how far users read your content before leaving.',
-                        status: statusForCheck(HealthCheckId.SCROLL_DEPTH, issuesByKind),
-                        action: scrollOk
-                            ? undefined
-                            : {
-                                  label: 'View installation guide',
-                                  to: 'https://posthog.com/docs/libraries/js',
-                              },
-                        docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
-                    },
-                ]
-            },
-        ],
-
-        configurationChecks: [
-            (s) => [s.currentTeam, s.issuesByKind, s.isInitialLoad, s.hasAuthorizedUrls],
-            (
-                currentTeam: TeamType | null,
-                issuesByKind: Record<string, HealthIssue>,
-                isInitialLoad: boolean,
-                hasAuthorizedUrls: boolean
-            ): HealthCheck[] => {
-                const hasReverseProxy = statusForCheck(HealthCheckId.REVERSE_PROXY, issuesByKind) === 'success'
-                const reverseProxyCheck: HealthCheck = isInitialLoad
-                    ? createLoadingCheck(HealthCheckId.REVERSE_PROXY, 'configuration', 'Reverse proxy')
-                    : {
-                          id: HealthCheckId.REVERSE_PROXY,
-                          category: 'configuration',
-                          title: 'Reverse proxy',
-                          description: hasReverseProxy
-                              ? 'Reverse proxy is configured! Your tracking requests are routed through your own domain.'
-                              : 'A reverse proxy routes PostHog requests through your own domain and helps prevent ad blockers from blocking tracking. Some metrics may not be accurate until this is configured.',
-                          status: statusForCheck(HealthCheckId.REVERSE_PROXY, issuesByKind),
-                          action: hasReverseProxy
-                              ? undefined
-                              : {
-                                    label: 'Set up reverse proxy',
-                                    to: urls.settings('organization-proxy'),
-                                },
-                          docsUrl: 'https://posthog.com/docs/advanced/proxy',
-                          urgent: true,
-                      }
-
-                const authorizedUrlsCheck: HealthCheck = isInitialLoad
-                    ? createLoadingCheck(HealthCheckId.AUTHORIZED_URLS, 'configuration', 'Authorized URLs')
-                    : {
-                          id: HealthCheckId.AUTHORIZED_URLS,
-                          category: 'configuration',
-                          title: 'Authorized URLs',
-                          description: hasAuthorizedUrls
-                              ? `${currentTeam?.app_urls?.length} domain${(currentTeam?.app_urls?.length ?? 0) > 1 ? 's' : ''} configured. Your analytics are filtered to only include traffic from your domains.`
-                              : "No authorized URLs configured. Some filters won't work correctly until you let us know what domains you are sending events from.",
-                          status: statusForCheck(HealthCheckId.AUTHORIZED_URLS, issuesByKind),
-                          action: hasAuthorizedUrls
-                              ? { label: 'Manage domains', to: urls.settings('environment-web-analytics') }
-                              : { label: 'Add domains', to: urls.settings('environment-web-analytics') },
-                      }
-
-                return [authorizedUrlsCheck, reverseProxyCheck]
-            },
-        ],
-
-        performanceChecks: [
-            (s) => [s.issuesByKind, s.isInitialLoad, s.currentTeam],
-            (
-                issuesByKind: Record<string, HealthIssue>,
-                isInitialLoad: boolean,
-                currentTeam: TeamType | null
-            ): HealthCheck[] => {
-                if (isInitialLoad) {
-                    return [createLoadingCheck(HealthCheckId.WEB_VITALS, 'performance', 'Web vitals')]
-                }
-
-                const isSendingWebVitals = statusForCheck(HealthCheckId.WEB_VITALS, issuesByKind) === 'success'
-                const webVitalsEnabled = currentTeam?.autocapture_web_vitals_opt_in ?? false
-
-                return [
-                    {
-                        id: HealthCheckId.WEB_VITALS,
-                        category: 'performance',
-                        title: '$web_vitals',
-                        description: isSendingWebVitals
-                            ? 'LCP, INP, and CLS are being tracked. You can monitor your real user experience!'
-                            : webVitalsEnabled
-                              ? 'Enabled but no data yet. Core Web Vitals (LCP, INP, CLS) measure real user experience.'
-                              : 'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
-                        status: statusForCheck(HealthCheckId.WEB_VITALS, issuesByKind),
-                        action:
-                            isSendingWebVitals || webVitalsEnabled
-                                ? { label: 'View Web Vitals', to: '/web/web-vitals' }
-                                : {
-                                      label: 'Enable Web Vitals',
-                                      to: urls.settings('environment-web-analytics', 'web-vitals-autocapture'),
-                                  },
-                        docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                    },
-                ]
-            },
-        ],
-
         allChecks: [
-            (s) => [s.eventChecks, s.configurationChecks, s.performanceChecks],
+            (s) => [s.activeIssuesByKind, s.healthIssuesLoading, s.healthIssues],
             (
-                eventChecks: HealthCheck[],
-                configurationChecks: HealthCheck[],
-                performanceChecks: HealthCheck[]
+                activeIssuesByKind: Record<string, HealthIssue>,
+                loading: boolean,
+                healthIssues: HealthIssuesResponse | null
             ): HealthCheck[] => {
-                return [...eventChecks, ...configurationChecks, ...performanceChecks]
+                return WEB_HEALTH_CHECKS.map((config) => {
+                    // Show loading only on the first load (no data yet), like the rest of the health UI.
+                    if (loading && !healthIssues) {
+                        return {
+                            id: config.id,
+                            category: config.category,
+                            title: config.title,
+                            description: 'Checking...',
+                            status: 'loading' as HealthCheckStatus,
+                        }
+                    }
+
+                    const issue = activeIssuesByKind[config.kind]
+                    if (!issue) {
+                        return {
+                            id: config.id,
+                            category: config.category,
+                            title: config.title,
+                            description: config.passingDescription,
+                            status: 'success' as HealthCheckStatus,
+                            action: config.passingAction,
+                            docsUrl: config.docsUrl,
+                            urgent: config.urgent,
+                        }
+                    }
+
+                    // Critical backend severity surfaces as an error, everything else as a warning.
+                    const status: HealthCheckStatus = issue.severity === 'critical' ? 'error' : 'warning'
+                    return {
+                        id: config.id,
+                        category: config.category,
+                        title: config.title,
+                        description: config.failingDescription,
+                        status,
+                        action: config.failingAction,
+                        docsUrl: config.docsUrl,
+                        urgent: config.urgent,
+                    }
+                })
             },
         ],
 
         checksByCategory: [
-            (s) => [s.eventChecks, s.configurationChecks, s.performanceChecks],
-            (eventChecks: HealthCheck[], configurationChecks: HealthCheck[], performanceChecks: HealthCheck[]) => ({
-                events: eventChecks,
-                configuration: configurationChecks,
-                performance: performanceChecks,
+            (s) => [s.allChecks],
+            (allChecks: HealthCheck[]): Record<HealthCheckCategory, HealthCheck[]> => ({
+                events: allChecks.filter((check) => check.category === 'events'),
+                configuration: allChecks.filter((check) => check.category === 'configuration'),
+                performance: allChecks.filter((check) => check.category === 'performance'),
             }),
         ],
 
@@ -372,11 +305,6 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 return urgentFailedChecks.length > 0
             },
         ],
-
-        hasAuthorizedUrls: [
-            (s) => [s.issuesByKind],
-            (issuesByKind: Record<string, HealthIssue>): boolean => !issuesByKind.authorized_urls,
-        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -387,13 +315,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 passed_count: overallHealthStatus.passedCount,
             })
 
-            const url = `api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`
             try {
                 const response = await api.create<{
                     scheduled_kinds: string[]
                     kinds_failed: string[]
                     team_id: number
-                }>(url)
+                }>(`api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`)
                 breakpoint()
 
                 actions.setNextRefreshAvailableAt(Date.now() + REFRESH_COOLDOWN_MS)
@@ -405,34 +332,47 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     return
                 }
 
+                if (isManual) {
+                    lemonToast.success('Refreshing health checks...', { autoClose: 2000 })
+                }
                 for (let i = 0; i < REFRESH_POLL_COUNT; i++) {
                     await breakpoint(REFRESH_POLL_INTERVAL_MS)
                     actions.loadHealthIssues()
                 }
             } catch (error: unknown) {
-                if (error instanceof ApiError && error.status === 429) {
-                    const retryAfterSeconds = Number(error.headers?.get('Retry-After'))
-                    if (!isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
-                        actions.setNextRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000)
+                if (error instanceof ApiError) {
+                    if (error.status === 429) {
+                        // A refresh ran recently; honour the cooldown the backend reports.
+                        const retryAfterSeconds = Number(error.headers?.get('Retry-After'))
+                        if (!isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
+                            actions.setNextRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000)
+                        }
+                        if (isManual) {
+                            lemonToast.warning(
+                                `Refresh available again ${error.formattedRetryAfter ?? 'in a few minutes'}`
+                            )
+                        }
+                    } else if (isManual) {
+                        lemonToast.error('Failed to refresh health checks')
                     }
-                    if (isManual) {
-                        lemonToast.warning(`Refresh available again ${error.formattedRetryAfter ?? 'in a few minutes'}`)
-                    }
-                } else if (isManual) {
-                    lemonToast.error('Failed to refresh health checks')
+                    return
                 }
+                // Re-throw BreakPointError (and any other non-API error) so kea can cancel this
+                // listener. Swallowing it lets a superseded poll keep running alongside the new
+                // one, doubling the request rate.
+                throw error
             }
         },
         loadHealthIssuesSuccess: () => {
-            const { webAnalyticsHealthStatus, hasAuthorizedUrls, overallHealthStatus, issuesByKind } = values
-            if (webAnalyticsHealthStatus && overallHealthStatus.status !== 'loading') {
+            const { activeIssuesByKind, overallHealthStatus } = values
+            if (overallHealthStatus.status !== 'loading') {
                 actions.reportWebAnalyticsHealthStatus({
-                    has_pageviews: webAnalyticsHealthStatus.isSendingPageViews,
-                    has_pageleaves: webAnalyticsHealthStatus.isSendingPageLeaves,
-                    has_scroll_depth: webAnalyticsHealthStatus.isSendingPageLeavesScroll,
-                    has_web_vitals: webAnalyticsHealthStatus.isSendingWebVitals,
-                    has_authorized_urls: hasAuthorizedUrls,
-                    has_reverse_proxy: !issuesByKind.reverse_proxy,
+                    has_pageviews: !activeIssuesByKind['no_live_events'],
+                    has_pageleaves: !activeIssuesByKind['no_pageleave_events'],
+                    has_scroll_depth: !activeIssuesByKind['scroll_depth'],
+                    has_web_vitals: !activeIssuesByKind['web_vitals'],
+                    has_authorized_urls: !activeIssuesByKind['authorized_urls'],
+                    has_reverse_proxy: !activeIssuesByKind['reverse_proxy'],
                     overall_status: overallHealthStatus.status,
                 })
             }
@@ -471,13 +411,3 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         }
     }),
 ])
-
-function createLoadingCheck(id: HealthCheckId, category: HealthCheckCategory, title: string): HealthCheck {
-    return {
-        id,
-        category,
-        title,
-        description: 'Checking...',
-        status: 'loading',
-    }
-}
