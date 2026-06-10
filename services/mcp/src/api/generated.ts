@@ -7797,9 +7797,9 @@ export namespace Schemas {
 
     /**
      * * `pending` - Pending
-    * `acknowledged` - Acknowledged
-    * `resolved` - Resolved
-    * `dismissed` - Dismissed
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
      */
     export type AnnotationStatusEnum = typeof AnnotationStatusEnum[keyof typeof AnnotationStatusEnum];
 
@@ -27922,11 +27922,11 @@ export namespace Schemas {
          */
       comment: string;
       /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-
-      * `pending` - Pending
-      * `acknowledged` - Acknowledged
-      * `resolved` - Resolved
-      * `dismissed` - Dismissed */
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
       annotation_status?: AnnotationStatusEnum;
       /**
          * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
@@ -34319,11 +34319,11 @@ export namespace Schemas {
          */
       comment?: string;
       /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-
-      * `pending` - Pending
-      * `acknowledged` - Acknowledged
-      * `resolved` - Resolved
-      * `dismissed` - Dismissed */
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
       annotation_status?: AnnotationStatusEnum;
       /**
          * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.

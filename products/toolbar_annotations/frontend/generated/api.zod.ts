@@ -11,7 +11,7 @@ import * as zod from 'zod'
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsCreateBodyCommentMax = 5000
 
@@ -84,7 +84,7 @@ export const ToolbarAnnotationsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsUpdateBodyCommentMax = 5000
 
@@ -157,7 +157,7 @@ export const ToolbarAnnotationsUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsPartialUpdateBodyCommentMax = 5000
 

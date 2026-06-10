@@ -10,7 +10,7 @@ import * as zod from 'zod'
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const ToolbarAnnotationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -32,7 +32,7 @@ export const ToolbarAnnotationsListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const ToolbarAnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this toolbar annotation.'),

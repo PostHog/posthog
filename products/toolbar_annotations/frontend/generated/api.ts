@@ -37,7 +37,7 @@ export const getToolbarAnnotationsListUrl = (projectId: string, params?: Toolbar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -50,7 +50,7 @@ export const getToolbarAnnotationsListUrl = (projectId: string, params?: Toolbar
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsList = async (
     projectId: string,
@@ -69,7 +69,7 @@ export const getToolbarAnnotationsCreateUrl = (projectId: string) => {
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsCreate = async (
     projectId: string,
@@ -90,7 +90,7 @@ export const getToolbarAnnotationsRetrieveUrl = (projectId: string, id: string) 
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsRetrieve = async (
     projectId: string,
@@ -109,7 +109,7 @@ export const getToolbarAnnotationsUpdateUrl = (projectId: string, id: string) =>
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsUpdate = async (
     projectId: string,
@@ -131,7 +131,7 @@ export const getToolbarAnnotationsPartialUpdateUrl = (projectId: string, id: str
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsPartialUpdate = async (
     projectId: string,
@@ -153,7 +153,7 @@ export const getToolbarAnnotationsDestroyUrl = (projectId: string, id: string) =
 
 /**
  * Create, read, update, and resolve toolbar annotations — UI feedback a user
-points at on their own site, surfaced to coding agents over MCP.
+ * points at on their own site, surfaced to coding agents over MCP.
  */
 export const toolbarAnnotationsDestroy = async (
     projectId: string,

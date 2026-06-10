@@ -9,9 +9,9 @@
  */
 /**
  * * `pending` - Pending
- * `acknowledged` - Acknowledged
- * `resolved` - Resolved
- * `dismissed` - Dismissed
+ * * `acknowledged` - Acknowledged
+ * * `resolved` - Resolved
+ * * `dismissed` - Dismissed
  */
 export type AnnotationStatusEnumApi = (typeof AnnotationStatusEnumApi)[keyof typeof AnnotationStatusEnumApi]
 
@@ -24,13 +24,13 @@ export const AnnotationStatusEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -101,11 +101,11 @@ export interface ToolbarAnnotationApi {
      */
     comment: string
     /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-
-  * `pending` - Pending
-  * `acknowledged` - Acknowledged
-  * `resolved` - Resolved
-  * `dismissed` - Dismissed */
+     *
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed */
     annotation_status?: AnnotationStatusEnumApi
     /**
      * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
@@ -196,11 +196,11 @@ export interface PatchedToolbarAnnotationApi {
      */
     comment?: string
     /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-
-  * `pending` - Pending
-  * `acknowledged` - Acknowledged
-  * `resolved` - Resolved
-  * `dismissed` - Dismissed */
+     *
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed */
     annotation_status?: AnnotationStatusEnumApi
     /**
      * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
