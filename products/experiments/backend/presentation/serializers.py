@@ -100,7 +100,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         source="get_feature_flag_key",
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
-            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            "Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
         ),
     )
     created_by = UserBasicSerializer(read_only=True)
@@ -165,7 +165,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
-            "Use the event-definitions-list tool to find available events in the project."
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )
     metrics_secondary = ExperimentMetricsField(
