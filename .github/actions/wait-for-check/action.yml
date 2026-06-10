@@ -25,7 +25,7 @@ outputs:
     conclusion:
         description: >-
             Conclusion of the completed check (success, failure, cancelled, ...).
-            Empty if the check did not complete before the timeout.
+            'timed_out' if the check did not complete before the timeout.
         value: ${{ steps.poll.outputs.conclusion }}
 runs:
     using: 'composite'
@@ -40,15 +40,24 @@ runs:
               TIMEOUT_SECONDS: ${{ inputs.timeoutSeconds }}
               INTERVAL_SECONDS: ${{ inputs.intervalSeconds }}
           run: |
+              # Fail fast on caller mistakes: composite `required: true` is not
+              # runner-enforced, and bad numbers would otherwise degrade into a
+              # silent no-wait or an API busy-loop.
+              if ! [[ "$CHECK_NAME" && "$REF" && "$TIMEOUT_SECONDS" =~ ^[0-9]+$ && "$INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::wait-for-check: invalid inputs: checkName='$CHECK_NAME' ref='$REF' timeoutSeconds='$TIMEOUT_SECONDS' intervalSeconds='$INTERVAL_SECONDS'"
+                exit 1
+              fi
               # A transient API error must not fail the wait — log it and retry
-              # until the deadline. Callers decide what a missing conclusion means.
+              # until the deadline. Callers decide what a timed_out conclusion means.
               conclusion=""
               while [ "$SECONDS" -lt "$TIMEOUT_SECONDS" ]; do
-                # app.slug filter: only GitHub Actions' own check counts; other apps
+                # Server-side check_name filtering narrows the response; the jq
+                # re-checks the name so a filter regression can't select the wrong
+                # check, and only GitHub Actions' own check counts — other apps
                 # (e.g. CI mirrors) may report checks under the same name.
                 if conclusion=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
                     -f check_name="$CHECK_NAME" -f filter=latest \
-                    --jq '[.check_runs[] | select(.app.slug == "github-actions" and .status == "completed")][0].conclusion // empty'); then
+                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions" and .status == "completed")][0].conclusion // empty'); then
                   if [ -n "$conclusion" ]; then
                     break
                   fi
@@ -57,7 +66,12 @@ runs:
                   conclusion=""
                   echo "GitHub API error while looking up check \"$CHECK_NAME\"; retrying in ${INTERVAL_SECONDS}s..."
                 fi
-                sleep "$INTERVAL_SECONDS"
+                remaining=$(( TIMEOUT_SECONDS - SECONDS ))
+                if [ "$remaining" -lt 1 ]; then
+                  break
+                fi
+                sleep "$(( remaining < INTERVAL_SECONDS ? remaining : INTERVAL_SECONDS ))"
               done
-              echo "Check \"$CHECK_NAME\" conclusion: ${conclusion:-<none before timeout>}"
+              conclusion="${conclusion:-timed_out}"
+              echo "Check \"$CHECK_NAME\" conclusion: $conclusion"
               echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
