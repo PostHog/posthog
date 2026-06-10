@@ -325,6 +325,9 @@ jobs:
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
 
+            - name: Create Kafka topics
+              run: docker compose -f docker-compose.dev.yml up kafka-init
+
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
               env:
@@ -535,6 +538,9 @@ jobs:
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+
+            - name: Create Kafka topics
+              run: docker compose -f docker-compose.dev.yml up kafka-init
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
