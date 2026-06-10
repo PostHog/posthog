@@ -30,12 +30,14 @@ gc.disable()
 try:
     _django_application = get_wsgi_application()
 
-    # Resolve the URLconf now, pre-fork. The lazy API router otherwise builds on each
-    # worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
+    # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
+    # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here lands the router in the frozen heap, COW-shared across workers,
-    # which is exactly the pre-lazy-router behavior for web. Non-web processes (celery,
-    # temporal, migrate, shell) never load this module and keep the lazy win.
+    # Building it here keeps the cost at worker boot, behind readiness. (Verified against
+    # the production image: Unit 1.35 loads this module once per application process — no
+    # prototype fork/COW — so each worker pays its own boot, exactly like before the lazy
+    # router.) Non-web processes (celery, temporal, migrate, shell) never load this module
+    # and keep the lazy win.
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build

@@ -109,9 +109,9 @@ gc.disable()
 try:
     application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
 
-    # Resolve the URLconf now, pre-fork — the lazy API router otherwise builds on each
-    # worker's first live request (probes short-circuit in middleware and never warm it).
-    # See the matching block in wsgi.py for the full reasoning.
+    # Resolve the URLconf now, at module load — the lazy API router otherwise builds on
+    # each worker's first live request (probes short-circuit in middleware and never warm
+    # it). See the matching block in wsgi.py for the full reasoning.
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
