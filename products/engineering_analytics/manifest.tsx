@@ -43,7 +43,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
-            tags: ['beta'],
+            tags: ['alpha'],
             sceneKey: 'EngineeringAnalytics',
         },
     ],
