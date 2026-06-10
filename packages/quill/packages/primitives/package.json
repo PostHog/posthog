@@ -26,7 +26,7 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
-        "./styles.css": "./dist/style.css",
+        "./styles.css": "./dist/quill-primitives.css",
         "./package.json": "./package.json"
     },
     "scripts": {
