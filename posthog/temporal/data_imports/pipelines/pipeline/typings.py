@@ -1,11 +1,14 @@
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
-from typing import Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+if TYPE_CHECKING:
+    from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
@@ -57,6 +60,7 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
+    row_filters: Optional[list["ValidatedRowFilter"]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     dwh_storage_key: Optional[str] = None
