@@ -6,7 +6,7 @@ description: >
   diverging from the site's own rhythm (an acquisition source silently collapsing or
   surging), attribution breakage (paid/campaign traffic reclassifying into Direct or
   Unknown when tagging breaks), landing pages that break (bounce-rate steps, 404 spikes,
-  entry-path cliffs), and page-performance regressions (web vitals p75 steps). Emits
+  entry-path cliffs). Web vitals have their own dedicated `signals-scout-web-vitals`. Emits
   findings only when they clear the confidence bar; otherwise writes durable memory and
   closes out empty. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
@@ -33,13 +33,12 @@ in that layer that every _total_ the team looks at silently averages away:
    didn't vanish but got reclassified into Direct/Unknown when UTM tagging or referrer
    propagation broke.
 2. **Site-health steps** — a landing page whose bounce rate steps above its own
-   history, a 404/not-found surface spiking, an entry path cliffing, or a page's web
-   vitals p75 regressing after a deploy.
+   history, a 404/not-found surface spiking, or an entry path cliffing.
 
 **Segment-vs-aggregate divergence is the signal-vs-noise discriminator.** Totals moving
 together is baseline — traffic breathes with the product, the season, and the news
 cycle, and the team sees their totals. A single segment — one channel, one entry path,
-one referrer, one page's vitals — stepping away from _its own seasonality-matched
+one referrer — stepping away from _its own seasonality-matched
 baseline_ while the aggregate holds is invisible in every chart of totals. Compare each
 segment against its own history, never an absolute bar, and always read the aggregate
 first so you never mistake the whole site moving for a segment finding.
@@ -50,7 +49,7 @@ Three mechanical facts anchor everything:
    (`$channel_type`), entry-attributed (`$entry_pathname`, `$entry_hostname`,
    `$entry_referring_domain`, `$entry_utm_*`), bounce-flagged (`$is_bounce`), and
    timed (`$session_duration`). Orders of magnitude cheaper than aggregating raw
-   events — reach for `events` only for web vitals, 404-event drill-downs, and
+   events — reach for `events` only for 404-event drill-downs and
    corroboration. Window on `$start_timestamp`, always with a future-clock upper bound
    (`<= now() + INTERVAL 1 DAY`) — client clocks lie.
 2. **Web traffic is strongly day-of-week seasonal** (weekdays often run 2–3× weekends).
@@ -97,7 +96,7 @@ Three cheap reads cold-start a run:
   re-emits.
 - `signals-scout-runs-list` (last 7d) — what prior runs found and ruled out.
 - `signals-scout-project-profile-get` — products in use, `top_events` (is `$pageview`
-  the top event? is `$web_vitals` captured at all?).
+  the top event? which channels and entry surfaces carry volume?).
 
 Then orient with two queries. The aggregate first — daily totals for 15 days, your
 context for everything else:
@@ -151,8 +150,6 @@ footgun:** HogQL string timestamp literals parse in the _project_ timezone — u
 | Unfamiliar external domain suddenly in the top referrers             | Real mention/launch or referrer spam — corroborate before either call |
 | One entry path's bounce rate steps far above its own history         | Landing page broke or its inbound traffic changed — investigate       |
 | 404/not-found event volume steps above baseline                      | Broken links or redirects — find the feeding path/referrer            |
-| One path's vitals p75 steps up; siblings flat                        | Page-scoped performance regression — likely a deploy                  |
-| All paths' vitals drift together                                     | Site-wide (CDN, third-party tag) or population shift — weaker, bundle |
 
 ### Explore
 
@@ -223,8 +220,9 @@ Two candidate shapes, different stories:
 
 - **Bounce step** — `bounce_24h` ≥ ~15 percentage points above `bounce_prior` (big
   paths hold their bounce rate within a point or two; a step is glaring). Either the
-  page broke (slow, blank, erroring — cross-check the vitals pattern and median
-  duration on those sessions) or its _inbound traffic_ changed (a new campaign or
+  page broke (slow, blank, erroring — cross-check the median duration on those sessions,
+  and note it for `signals-scout-web-vitals` if you suspect performance) or its _inbound
+  traffic_ changed (a new campaign or
   referrer dumping mismatched visitors — check the path's channel mix across the two
   windows before blaming the page).
 - **Traffic cliff** — an established entry path (≥ ~200 sessions/day) whose
@@ -271,40 +269,13 @@ One path dominating = one broken link or redirect (the referrer column says whos
 internal referrer means the site is linking to its own dead page — the sharpest, most
 fixable version of this finding.
 
-#### Web vitals regression
+#### Web vitals → handed off
 
-`$web_vitals` capture is opt-in — absence is configuration, not health; skip silently
-if the event isn't in the schema. Where captured, compare each page's p75 against its
-own prior window:
-
-```sql
-SELECT replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
-       countIf(timestamp >= now() - INTERVAL 1 DAY) AS samples_24h,
-       round(quantileIf(0.75)(properties.$web_vitals_LCP_value,
-             timestamp >= now() - INTERVAL 1 DAY), 0) AS lcp_p75_24h,
-       round(quantileIf(0.75)(properties.$web_vitals_LCP_value,
-             timestamp < now() - INTERVAL 1 DAY), 0) AS lcp_p75_prior13d
-FROM events
-WHERE event = '$web_vitals'
-  AND timestamp >= now() - INTERVAL 14 DAY
-  AND timestamp <= now() + INTERVAL 1 DAY
-  AND properties.$web_vitals_LCP_value IS NOT NULL
-GROUP BY path
-HAVING samples_24h >= 200
-ORDER BY samples_24h DESC
-LIMIT 25
-```
-
-(Same shape for `$web_vitals_INP_value` and `$web_vitals_CLS_value` — INP regressions
-are interaction jank, CLS regressions are layout breakage; run them when LCP is clean
-but you suspect the page anyway, e.g. from a bounce step.) A candidate is one path's
-p75 worsening ≥ ~30% against its prior-13d value while sibling paths hold — p75 on
-200+ samples doesn't wobble that hard by chance. All paths drifting together is a
-site-wide cause (CDN, a third-party tag, a population shift toward slower
-devices/regions — check the `$geoip_country_code` and `$device_type` mix before
-blaming code) and at most one bundled finding. For a page-scoped step, date the onset
-with a daily p75 series and say "consistent with a deploy on {day}" — you usually
-can't see the team's deploys, so frame it as correlation for them to confirm.
+Page-performance (`$web_vitals` LCP/INP/CLS/FCP) is the dedicated
+`signals-scout-web-vitals`'s territory — it reads each page's p75 against the absolute
+Google bands and its own history. If a bounce step makes you suspect a slow page, note it
+in a `pattern:` entry for that scout to pick up rather than querying vitals here; your
+angle stays the acquisition/site-health frame.
 
 ### Save memory as you go
 
@@ -339,12 +310,12 @@ For each candidate finding:
   aggregate held (that's what makes it yours), date the onset, and name the moving
   part inside the segment. Include `dedupe_keys`
   (`web-analytics:<segment-slug>` plus a qualifier like `:channel-cliff`,
-  `:utm-drift`, `:bounce-step`, `:vitals-lcp`) and a `time_range` for the onset.
+  `:utm-drift`, `:bounce-step`) and a `time_range` for the onset.
   Severity: an acquisition cliff or 404 spike on a major surface P2; attribution
-  breakage P2 (mechanical fix, compounding cost); bounce steps and page-scoped vitals
-  regressions P3, P2 if the page is a top-3 landing surface.
+  breakage P2 (mechanical fix, compounding cost); bounce steps P3, P2 if the page is a
+  top-3 landing surface.
 - **Remember** if below the bar but worth carrying forward (a channel drifting inside
-  the noise band, a new referrer building history, a vitals p75 creeping).
+  the noise band, a new referrer building history).
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry covers it.
 
 Cross-check `inbox-reports-list` before emitting. Sibling courtesy: whole-site metric
@@ -393,7 +364,7 @@ addressed to you.
 - **Send-day and launch-day spikes** (Email, Newsletter, a new `utm_campaign`
   appearing) — deliberate marketing actions. Learn the cadence, write `pattern:`.
 - **Segments below the volume gates** (< ~200 sessions/day channels and entry paths,
-  < ~100/day 404 baselines, < 200 vitals samples/24h) — small numbers wobble; the
+  < ~100/day 404 baselines) — small numbers wobble; the
   Display channel doing 18-then-279 sessions on alternate days is variance.
 - **Aligned windows that disagree with each other** (> ~30% apart) — the baseline
   itself is unstable; you can't call a step against it. Write memory, re-check later.
@@ -403,7 +374,6 @@ addressed to you.
   Corroborate provenance before any surge finding (see untrusted data).
 - **Internal traffic** — localhost, staging hosts, employee-heavy paths. Identify
   once, write `noise:`, exclude from candidate math thereafter.
-- **Vitals absence** — `$web_vitals` is opt-in; not captured is config, not health.
 - **Cross-host pooling** — app and marketing surfaces have different bounce/duration
   physics; every entry-path judgment is per-host.
 - **Path-cleaning side effects** — if the team edits path cleaning rules, grouped
@@ -422,15 +392,12 @@ Direct calls (read-only):
   `$entry_hostname` / `$entry_current_url`, `$entry_referring_domain`,
   `$entry_utm_source` / `_medium` / `_campaign` / `_term` / `_content`, `$is_bounce`,
   `$session_duration`, `$pageview_count`, `$exit_pathname`.
-- `execute-sql` against `events` — web vitals (`$web_vitals` with
-  `$web_vitals_LCP_value` / `_INP_value` / `_CLS_value` / `_FCP_value` and
-  `$pathname`), the project's 404 event, and provenance corroboration (`$lib`,
-  `$device_type`, `$geoip_country_code`).
+- `execute-sql` against `events` — the project's 404 event, and provenance corroboration
+  (`$lib`, `$device_type`, `$geoip_country_code`).
 - `web-analytics-weekly-digest` (`days`, `compare`) — optional whole-site second
   opinion: visitors, pageviews, bounce, top pages/sources with period-over-period
   deltas.
-- `read-data-schema` — confirm `$web_vitals` and any 404-event candidates exist before
-  aggregating.
+- `read-data-schema` — confirm any 404-event candidates exist before aggregating.
 - `inbox-reports-list` — pre-emit dedupe against the inbox.
 
 Harness-level:
