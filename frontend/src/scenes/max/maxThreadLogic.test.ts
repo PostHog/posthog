@@ -32,6 +32,7 @@ import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { sandboxStreamLogic } from './sandboxStreamLogic'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -2967,6 +2968,90 @@ describe('maxThreadLogic', () => {
                 agentMode: AgentMode.SQL,
                 agentModeLockedByUser: false,
             })
+        })
+    })
+
+    describe('sandbox streaming lock', () => {
+        const sandboxRunResponse = {
+            task_id: 'task-1',
+            run_id: 'run-1',
+            trace_id: 'trace-1',
+            run_status: 'queued' as const,
+            just_created_run: true,
+        }
+
+        beforeEach(() => {
+            // jsdom has no EventSource — a minimal stub lets openSseForRun set up its connection
+            ;(globalThis as any).EventSource = class {
+                onopen: ((event: Event) => void) | null = null
+                onmessage: ((event: MessageEvent<string>) => void) | null = null
+                addEventListener(): void {}
+                close(): void {}
+            }
+        })
+
+        afterEach(() => {
+            delete (globalThis as any).EventSource
+        })
+
+        it('holds the streaming lock until the sandbox turn completes and releases exactly once', async () => {
+            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+
+            // The POST finished, but the turn is still streaming — the lock must still be held
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
+
+            // The thread logic connects to the instance keyed by its own conversationId
+            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+
+            // The release listeners are synchronous, so the lock state settles with the dispatch
+            sandboxStreamInstance.actions.markTurnComplete()
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+
+            // A later terminal event must not release the (already released) lock again
+            maxLogicInstance.actions.incrActiveStreamingThreads()
+            sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed' })
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
+            maxLogicInstance.actions.decrActiveStreamingThreads()
+        })
+
+        it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
+            jest.spyOn(api.conversations, 'sandboxCreate').mockRejectedValue(new Error('boom'))
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['pushSandboxError', 'decrActiveStreamingThreads'])
+
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+            expect(
+                sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID }).values.threadItems.some(
+                    (item) =>
+                        item.type === 'error' && item.errorMessage === 'Failed to send your message. Please try again.'
+                )
+            ).toEqual(true)
+        })
+
+        it('releases the lock immediately when no run was started', async () => {
+            const sandboxCreateSpy = jest.spyOn(api.conversations, 'sandboxCreate')
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: null, conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['decrActiveStreamingThreads'])
+
+            expect(sandboxCreateSpy).not.toHaveBeenCalled()
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
     })
 })

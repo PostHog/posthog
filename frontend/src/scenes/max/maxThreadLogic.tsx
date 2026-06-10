@@ -74,6 +74,8 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
+import { posthogAiContextLogic } from './posthogAiContextLogic'
+import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
@@ -141,7 +143,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ panelId }: MaxThreadLogicProps) => ({
+    connect(({ panelId, conversationId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
@@ -161,6 +163,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
+            // Mounts this conversation's sandbox attachment store so its `attachments` are readable
+            // at send time even when no context-chip UI is rendered (a fresh conversation never
+            // mounts it itself).
+            posthogAiContextLogic({ conversationId }),
+            ['attachments as sandboxAttachments'],
         ],
         actions: [
             maxLogic({ panelId }),
@@ -177,6 +184,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ],
             maxGlobalLogic,
             ['loadConversation'],
+            // Pulling the action in (rather than calling the instance's actions directly) mounts this
+            // conversation's stream logic as a dependency, so its listeners actually run. SandboxThread
+            // only mounts it while a sandbox conversation is rendered — too late for the first message
+            // of a new one.
+            sandboxStreamLogic({ conversationId }),
+            [
+                'openSseForRun as openSandboxSse',
+                'pushHumanMessage as pushSandboxHumanMessage',
+                'pushErrorItem as pushSandboxError',
+            ],
         ],
     })),
 
@@ -628,6 +645,65 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.addMessage(message)
             }
 
+            // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
+            // SSE connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
+            // entered for sandbox conversations.
+            //
+            // An *existing* sandbox conversation (`agent_runtime === 'sandbox'`) uses the dedicated
+            // `/sandbox/` routing endpoint. A *brand-new* conversation has no row yet — it's created
+            // lazily on the first message — so `agent_runtime` isn't known here; we detect the
+            // `is_sandbox` flag and let the conversation-create endpoint create it + return the run
+            // IDs as JSON (both endpoints return the identical { task_id, run_id, just_created_run }).
+            const isExistingSandboxConversation = values.conversation?.agent_runtime === 'sandbox'
+            if (isExistingSandboxConversation || isSandbox) {
+                // SandboxThread renders sandboxStreamLogic's threadItems, not this logic's thread,
+                // so the human message must be echoed there too to show up in the UI.
+                if (generationAttempt === 0 && streamData.content && addToThread) {
+                    actions.pushSandboxHumanMessage(streamData.content)
+                }
+                try {
+                    const conversationId = values.conversation?.id || values.conversationId
+                    if (conversationId && streamData.content) {
+                        const { task_id, run_id, just_created_run } = isExistingSandboxConversation
+                            ? await api.conversations.sandbox(conversationId, {
+                                  content: streamData.content,
+                                  trace_id: traceId,
+                                  attached_context: values.sandboxAttachments,
+                              })
+                            : await api.conversations.sandboxCreate({
+                                  conversation: conversationId,
+                                  content: streamData.content,
+                                  trace_id: traceId,
+                                  attached_context: values.sandboxAttachments,
+                              })
+                        actions.openSandboxSse({
+                            taskId: task_id,
+                            runId: run_id,
+                            // Fresh runs need everything from the top; follow-ups resume from latest.
+                            startLatest: !just_created_run,
+                        })
+                        // The streaming lock must span the whole SSE stream so the input stays
+                        // guarded until `_posthog/turn_complete` or a terminal/error event —
+                        // mirrors the LangGraph path holding the lock for its entire stream.
+                        // Released exactly once by the sandboxStreamLogic listeners below; the
+                        // closure nulls itself so a second terminal event is a no-op.
+                        cache.sandboxStreamRelease = (): void => {
+                            cache.sandboxStreamRelease = null
+                            actions.decrActiveStreamingThreads()
+                            releaseStreamingLock()
+                        }
+                        return
+                    }
+                } catch (e) {
+                    posthog.captureException(e)
+                    actions.pushSandboxError('Failed to send your message. Please try again.')
+                }
+                // The POST failed or no run was started — nothing will stream, release the lock now.
+                actions.decrActiveStreamingThreads()
+                releaseStreamingLock()
+                return
+            }
+
             let caughtException = false
 
             try {
@@ -644,10 +720,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (agentMode) {
                     apiData.agent_mode = agentMode
-                }
-
-                if (isSandbox) {
-                    apiData.is_sandbox = true
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -846,6 +918,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             releaseStreamingLock() // release the lock
         },
     })),
+    // Sandbox runs stream through this conversation's sandboxStreamLogic instance, so the streaming
+    // lock taken in streamConversation can only be released when that instance signals the turn
+    // ended — on turn completion, a terminal run status, or a stream error. Its action types are
+    // per-instance (the key is in the path), so they're resolved from props at build time.
+    listeners(({ props, cache }) => {
+        const sandboxStreamActionTypes = sandboxStreamLogic({ conversationId: props.conversationId }).actionTypes
+        return {
+            [sandboxStreamActionTypes.markTurnComplete]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.handleTerminalStatus]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.handleStreamError]: () => cache.sandboxStreamRelease?.(),
+        }
+    }),
     listeners(({ actions, values, cache, props }) => ({
         setConversation: ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
@@ -1372,6 +1456,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s, p) => [s.conversation, p.conversationId],
             (conversation, propsConversationId) => (conversation?.id ? conversation.id : propsConversationId),
         ],
+
+        // The exact id this instance was keyed with. React must bind the per-conversation sandbox
+        // logics with the same id connect() used above, or the two would resolve different instances.
+        sandboxConversationKey: [(_, p) => [p.conversationId], (conversationId): string => conversationId],
 
         effectiveApprovalStatuses: [
             (s) => [s.resolvedApprovalStatuses, s.pendingApprovalsData],
