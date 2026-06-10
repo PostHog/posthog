@@ -253,6 +253,12 @@ class TestBingAdsSource:
                 "InvalidCredentials",
                 "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
             ),
+            # Specific Azure AD code — tenant missing service principal for the Microsoft Advertising API.
+            (
+                "AADSTS650052",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
+                "The app is trying to access a service that your organization lacks a service principal for.",
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
             ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
@@ -280,6 +286,28 @@ class TestBingAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    def test_aadsts650052_message_wins_over_generic_auth_wrappers(self):
+        # The real error string contains "OAuthTokenRequestException", "invalid_client", AND "AADSTS650052"
+        # as substrings. handle_non_retryable in external_data_job.py picks the first matching dict entry,
+        # so AADSTS650052 must come before BOTH generic wrappers — otherwise the user sees the
+        # "reconnect your integration" toast instead of the service-principal guidance, and reconnecting
+        # cannot fix it (only an org admin granting tenant consent can).
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        keys = list(non_retryable_errors.keys())
+
+        aadsts_index = keys.index("AADSTS650052")
+        assert aadsts_index < keys.index("OAuthTokenRequestException")
+        assert aadsts_index < keys.index("invalid_client")
+
+        error_message = (
+            "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
+            "The app is trying to access a service that your organization lacks a service principal for."
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+        assert friendly_errors[0] is not None
+        assert "AADSTS650052" in friendly_errors[0]
+        assert "service principal" in friendly_errors[0]
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

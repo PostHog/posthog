@@ -32,7 +32,12 @@ from posthog.temporal.data_imports.sources.common.http.metrics import (
     status_class,
 )
 from posthog.temporal.data_imports.sources.common.http.sampling import maybe_capture
-from posthog.temporal.data_imports.sources.common.http.url_utils import host_of, scrub_url, url_template
+from posthog.temporal.data_imports.sources.common.http.url_utils import (
+    host_of,
+    redact_literal_values,
+    scrub_url,
+    url_template,
+)
 
 logger = structlog.get_logger(__name__)
 _fallback_logger = logging.getLogger(__name__)
@@ -83,12 +88,19 @@ def record_request(
     *,
     started_at_monotonic: float,
     exception: BaseException | None = None,
+    redact_values: tuple[str, ...] = (),
 ) -> None:
-    """Log + meter a single outbound request. Never raises."""
+    """Log + meter a single outbound request. Never raises.
+
+    `redact_values` are credential strings masked from the logged URL and the
+    captured sample, on top of the name-based scrubbers.
+    """
     elapsed_ms = max(0, int((time.monotonic() - started_at_monotonic) * 1000))
     method = (request.method or "GET").upper()
     raw_url = request.url or ""
     scrubbed_url = scrub_url(raw_url)
+    if redact_values:
+        scrubbed_url = redact_literal_values(scrubbed_url, redact_values)
     template = url_template(raw_url)
     host = host_of(raw_url)
     status_code = response.status_code if response is not None else None
@@ -109,7 +121,7 @@ def record_request(
     ctx = current_job_context()
     _emit_log(record, host=host, url_template=template, ctx=ctx)
     _emit_metrics(record, host=host, ctx=ctx)
-    _maybe_capture_sample(request, response, record=record, ctx=ctx, exception=exception)
+    _maybe_capture_sample(request, response, record=record, ctx=ctx, exception=exception, redact_values=redact_values)
 
 
 def _emit_log(
@@ -165,10 +177,11 @@ def _maybe_capture_sample(
     record: RequestRecord,
     ctx: JobContext | None,
     exception: BaseException | None,
+    redact_values: tuple[str, ...] = (),
 ) -> None:
     if ctx is None or exception is not None:
         return
     try:
-        maybe_capture(request=request, response=response, record=record, ctx=ctx)
+        maybe_capture(request=request, response=response, record=record, ctx=ctx, redact_values=redact_values)
     except Exception:
         _fallback_logger.debug("Failed to capture HTTP sample", exc_info=True)

@@ -1,4 +1,5 @@
-import type { TooltipContext } from 'lib/hog-charts'
+import type { TooltipContext } from '@posthog/quill-charts'
+
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
@@ -8,7 +9,8 @@ import type { FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransf
 
 interface FunnelBarHorizontalTooltipProps {
     context: TooltipContext<FunnelBarHorizontalSegmentMeta>
-    steps: FunnelStepWithConversionMetrics[]
+    step: FunnelStepWithConversionMetrics
+    stepIndex: number
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
@@ -16,15 +18,14 @@ interface FunnelBarHorizontalTooltipProps {
 
 export function FunnelBarHorizontalTooltip({
     context,
-    steps,
+    step,
+    stepIndex,
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
 }: FunnelBarHorizontalTooltipProps): JSX.Element | null {
-    const stepIndex = context.dataIndex
-    const step = steps[stepIndex]
     const entry = context.seriesData[0]
-    if (!step || !entry) {
+    if (!entry) {
         return null
     }
 

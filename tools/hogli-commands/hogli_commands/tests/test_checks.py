@@ -823,6 +823,8 @@ class TestValidateInterfaceBlocks:
             (["backend\\\\.**"], "overly broad"),
             # Specific submodule — not broad.
             (["backend\\\\.models.*"], None),
+            # Facade + routes — routes is public surface, not a mix.
+            (["backend\\\\.facade.*", "backend\\\\.routes.*"], None),
         ],
         ids=[
             "pure_facade",
@@ -833,6 +835,7 @@ class TestValidateInterfaceBlocks:
             "broad_tach_regex",
             "broad_globstar",
             "specific_submodule",
+            "facade_plus_routes",
         ],
     )
     def test_blocks(self, expose: list[str], expected_issue: str | None) -> None:

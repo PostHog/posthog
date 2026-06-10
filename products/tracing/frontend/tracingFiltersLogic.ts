@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
@@ -10,9 +10,11 @@ import type { tracingFiltersLogicType } from './tracingFiltersLogicType'
 
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_SERVICE_NAMES: string[] = []
-export const DEFAULT_ORDER_BY = 'latest' as const
+export const DEFAULT_ORDER_BY = 'timestamp' as const
 
-export type TracingOrderBy = 'latest' | 'earliest'
+// Column the list is ordered by. Direction (asc/desc) is a backend default (desc) until the sort
+// control lands (JON-34); timestamp+desc reproduces the previous "latest" behaviour.
+export type TracingOrderBy = 'timestamp' | 'duration'
 
 export interface OverlayWindow {
     startMs: number
@@ -30,14 +32,8 @@ export interface TracingFilters {
     previousWindowOverride: OverlayWindow | null
 }
 
-export interface TracingFiltersLogicProps {
-    tabId?: string
-}
-
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
-    props({} as TracingFiltersLogicProps),
-    key((p) => p.tabId ?? 'default'),
-    path((tabId) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', tabId]),
+    path(['products', 'tracing', 'frontend', 'tracingFiltersLogic']),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),

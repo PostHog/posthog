@@ -11,6 +11,7 @@ import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
+import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -22,7 +23,6 @@ import {
     hasStringContentField,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
-    isEmptyJSONStructure,
     isGeminiAudioMessage,
     isGeminiDocumentMessage,
     isGeminiImageMessage,
@@ -30,7 +30,6 @@ import {
     isOpenAIFileMessage,
     isOpenAIImageURLMessage,
     looksLikeXml,
-    parsePartialJSON,
     parseToolArgumentsForDisplay,
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
@@ -353,11 +352,34 @@ export function ConversationMessagesDisplay({
     )
 }
 
-export const ImageMessageDisplay = ({
-    message,
-}: {
-    message: { content?: string | { type?: string; image?: string } }
-}): JSX.Element => {
+type ImageDisplayMessage = { content?: string | { type?: string; image?: string } }
+
+function getImageDisplayMessage(value: Record<string, unknown>): ImageDisplayMessage | null {
+    if (value.type === 'input_image') {
+        return typeof value.image_url === 'string' ? { content: { type: 'image', image: value.image_url } } : null
+    }
+
+    if (value.type !== 'image') {
+        return null
+    }
+
+    if (typeof value.content === 'string') {
+        return { content: value.content }
+    }
+
+    if (isObject(value.content) && typeof value.content.image === 'string') {
+        return {
+            content: {
+                type: typeof value.content.type === 'string' ? value.content.type : 'image',
+                image: value.content.image,
+            },
+        }
+    }
+
+    return typeof value.image === 'string' ? { content: { type: 'image', image: value.image } } : null
+}
+
+export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage }): JSX.Element => {
     const { content } = message
 
     if (typeof content === 'string') {
@@ -654,40 +676,19 @@ export const LLMMessageDisplay = React.memo(
                     </>
                 )
             }
-            const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
+            const parsedJsonContainer = getJsonContainerForDisplay(content, { allowEmptyContainers: false })
 
-            // If content looks like JSON (starts with { or [), try to parse it
-            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                try {
-                    const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
-                    // If the partial parser returned an empty container, the input wasn't
-                    // actually JSON (e.g. "[Thinking: ...]" starts with "[" but is plain text)
-                    if (isEmptyJSONStructure(parsed)) {
-                        throw new Error('not JSON')
+            if (parsedJsonContainer) {
+                if (isObject(parsedJsonContainer)) {
+                    const imageMessage = getImageDisplayMessage(parsedJsonContainer)
+                    if (imageMessage) {
+                        return <ImageMessageDisplay message={imageMessage} />
                     }
-                    if (isObject(parsed) && parsed.type === 'image') {
-                        return <ImageMessageDisplay message={parsed} />
+                    if (parsedJsonContainer.type === 'output_text' && 'text' in parsedJsonContainer) {
+                        return <span className="whitespace-pre-wrap">{String(parsedJsonContainer.text)}</span>
                     }
-                    if (isObject(parsed) && parsed.type === 'input_image') {
-                        const message = {
-                            content: {
-                                type: 'image',
-                                image: String((parsed as Record<string, unknown>).image_url),
-                            },
-                        }
-                        return <ImageMessageDisplay message={message} />
-                    }
-                    if (isObject(parsed) && parsed.type === 'output_text' && 'text' in parsed) {
-                        return <span className="whitespace-pre-wrap">{String(parsed.text)}</span>
-                    }
-                    if (typeof parsed === 'object' && parsed !== null) {
-                        return (
-                            <HighlightedJSONViewer src={parsed} name={null} collapsed={5} searchQuery={searchQuery} />
-                        )
-                    }
-                } catch {
-                    // Not valid JSON. Fall through to Markdown/plain text handling.
                 }
+                return <JSONValueDisplay value={parsedJsonContainer} collapsed={5} searchQuery={searchQuery} />
             }
 
             // If the content appears to be XML, render based on the toggle.

@@ -526,6 +526,9 @@ const SortableCell = (
     }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
+    // findMounted() keeps this scene-agnostic: it only acts when webAnalyticsLogic is actually mounted
+    // (i.e. inside the web analytics scene), so reusing this context in product analytics is a no-op.
+    onDisableWebAnalyticsPrecompute: () => webAnalyticsLogic.findMounted()?.actions.setUseWebAnalyticsPrecompute(false),
     columns: {
         breakdown_value: {
             renderTitle: BreakdownValueTitle,
@@ -611,8 +614,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         cross_sell: {
             title: ' ',
             render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
-                const dateRange = (query.source as any)?.dateRange
-                const breakdownBy = (query.source as any)?.breakdownBy
+                const source = query.source as any
+                const dateRange = source?.dateRange
+                const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
 
                 return (
@@ -622,6 +626,8 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             date_to={dateRange?.date_to}
                             breakdownBy={breakdownBy}
                             value={value}
+                            properties={source?.properties}
+                            filter_test_accounts={source?.filterTestAccounts}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />

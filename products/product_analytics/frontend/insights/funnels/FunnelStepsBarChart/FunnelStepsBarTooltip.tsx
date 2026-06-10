@@ -1,4 +1,5 @@
-import type { TooltipContext } from 'lib/hog-charts'
+import type { TooltipContext } from '@posthog/quill-charts'
+
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'

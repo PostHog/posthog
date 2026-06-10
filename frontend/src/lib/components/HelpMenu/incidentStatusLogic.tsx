@@ -61,6 +61,15 @@ const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 const DEFAULT_STATUS: NormalizedStatus = 'operational'
 
+// A failed `fetch` to an external host throws a `TypeError` ("Failed to fetch", "NetworkError when
+// attempting to fetch resource", "Load failed", ...). These are expected and outside our control —
+// ad blockers, tracking-protection extensions, DNS hiccups, brief status-page outages — so they're
+// noise in error tracking rather than real defects. A genuine bug here would surface as a different
+// error type (e.g. a `SyntaxError` from `response.json()`), which we still want to capture.
+function isNetworkError(error: unknown): boolean {
+    return error instanceof TypeError
+}
+
 let currentStatus: NormalizedStatus = DEFAULT_STATUS
 
 export function setIncidentStatus(status: NormalizedStatus): void {
@@ -79,8 +88,21 @@ const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
     '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
 }
 
+// Map hostname to the region-specific status page path (incident.io sub-pages)
+const REGION_PATH_MAP: Record<string, string> = {
+    'us.posthog.com': '/us',
+    'eu.posthog.com': '/eu',
+    localhost: '/us', // Default to US for local dev
+    '127.0.0.1': '/us', // Storybook CI runs at 127.0.0.1:6006
+}
+
 function getRelevantGroupName(): string | null {
     return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
+}
+
+// Region-specific status page URL, falling back to the root page for unknown (self-hosted) hosts
+export function getStatusPageUrl(): string {
+    return `${STATUS_PAGE_BASE}${REGION_PATH_MAP[window.location.hostname] ?? ''}`
 }
 
 function hasRelevantComponents(affectedComponents: AffectedComponent[]): boolean {
@@ -158,7 +180,9 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
-                    // via the rawStatus selector) but still report to error tracking so we keep visibility.
+                    // via the rawStatus selector). We report a reachable-but-erroring status page (non-2xx)
+                    // and unexpected errors, but skip the expected network-level failures so they don't
+                    // pollute error tracking as a recurring issue.
                     try {
                         const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
@@ -171,7 +195,9 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                         const data: Summary = await response.json()
                         return data
                     } catch (error) {
-                        posthog.captureException(error)
+                        if (!isNetworkError(error)) {
+                            posthog.captureException(error)
+                        }
                         return null
                     }
                 },
@@ -180,6 +206,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
     })),
 
     selectors({
+        statusPageUrl: [() => [], (): string => getStatusPageUrl()],
         rawStatus: [
             (s) => [s.summary],
             (summary: Summary | null): NormalizedStatus => {

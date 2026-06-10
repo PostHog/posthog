@@ -40,7 +40,16 @@ class TrackedHTTPAdapter(HTTPAdapter):
     `send()` is the lowest synchronous hook in the requests stack — it sees
     the fully-prepared request and the raw response, exception or not, with
     no SDK-specific framing on top.
+
+    `redact_values` are credential strings to mask wherever they appear in the
+    logged URL or captured sample — value-based masking that complements the
+    name-based denylists for auth injected under an unpredictable param/header
+    name (e.g. an API key in a query param).
     """
+
+    def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), **kwargs: Any) -> None:
+        self._redact_values = redact_values
+        super().__init__(*args, **kwargs)
 
     def send(
         self,
@@ -74,6 +83,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
                     response,
                     started_at_monotonic=started,
                     exception=exception,
+                    redact_values=self._redact_values,
                 )
             except Exception:
                 # Belt-and-braces: record_request should never raise, but if
@@ -81,31 +91,59 @@ class TrackedHTTPAdapter(HTTPAdapter):
                 pass
 
 
-def make_tracked_adapter(retry: Retry | None = None, **kwargs: Any) -> TrackedHTTPAdapter:
+def make_tracked_adapter(
+    retry: Retry | None = None, redact_values: tuple[str, ...] = (), **kwargs: Any
+) -> TrackedHTTPAdapter:
     """Construct a `TrackedHTTPAdapter`.
 
     `retry=None` (the default) uses the built-in `DEFAULT_RETRY` policy. To
     truly opt out of retries, pass `retry=Retry(total=0)`. To override with
     different retry settings, pass a custom `Retry` instance. Any extra
-    kwargs are forwarded to `HTTPAdapter.__init__`.
+    kwargs are forwarded to `HTTPAdapter.__init__`. `redact_values` are
+    credential strings to mask in logged URLs and captured samples.
     """
     if retry is None:
         retry = DEFAULT_RETRY
-    return TrackedHTTPAdapter(max_retries=retry, **kwargs)
+    return TrackedHTTPAdapter(max_retries=retry, redact_values=redact_values, **kwargs)
+
+
+class _NoRedirectSession(requests.Session):
+    """`requests.Session` that never follows redirects.
+
+    Defense-in-depth for SSRF-sensitive sources. The load-bearing SSRF control
+    is the Smokescreen egress proxy that data-warehouse outbound traffic flows
+    through — it re-resolves and blocks internal/metadata hosts on every hop, so
+    DNS-rebinding and redirect chains are handled there. Pinning `allow_redirects`
+    off is a cheap extra layer that keeps a connector's traffic pointed at the
+    host it validated. `requests` reads `allow_redirects` per call and callers
+    like `RESTClient` invoke `send()` without it (so it defaults to `True`), so we
+    pin it off at the session level.
+    """
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        kwargs["allow_redirects"] = False
+        return super().send(request, **kwargs)
 
 
 def make_tracked_session(
     *,
     retry: Retry | None = None,
     headers: dict[str, str] | None = None,
+    redact_values: tuple[str, ...] = (),
+    allow_redirects: bool = True,
 ) -> requests.Session:
     """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters.
 
     See `make_tracked_adapter` for the `retry` parameter semantics — `None`
     uses `DEFAULT_RETRY`; pass `Retry(total=0)` to disable retries.
+    `redact_values` are credential strings to mask in logged URLs and captured
+    samples — for auth injected under a param/header name the denylist can't
+    predict (e.g. an API key in a query param).
+    `allow_redirects=False` returns a session that never follows redirects — an
+    SSRF boundary for sources that fetch user-supplied hosts (see `_NoRedirectSession`).
     """
-    session = requests.Session()
-    adapter = make_tracked_adapter(retry=retry)
+    session: requests.Session = requests.Session() if allow_redirects else _NoRedirectSession()
+    adapter = make_tracked_adapter(retry=retry, redact_values=redact_values)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     if headers:

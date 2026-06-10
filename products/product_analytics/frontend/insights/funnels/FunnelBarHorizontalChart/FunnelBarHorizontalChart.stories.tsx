@@ -29,14 +29,12 @@ export default meta
 
 let uniqueNode = 0
 
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 480, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
-    )
+function Stage({ children, width }: { children: React.ReactNode; width: number }): JSX.Element {
+    // eslint-disable-next-line react/forbid-dom-props
+    return <div style={{ width }}>{children}</div>
 }
 
-function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
+function StoryRender({ insightFixture, width }: { insightFixture: any; width: number }): JSX.Element {
     const [dashboardItemId] = useState(() => `FunnelBarHorizontalChartStory.${uniqueNode++}` as InsightShortId)
     const source = insightFixture.query.source
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
@@ -52,7 +50,7 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
+                <Stage width={width}>
                     <FunnelBarHorizontalChart />
                 </Stage>
             </BindLogic>
@@ -61,9 +59,19 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
 }
 
 export const Default: Story = {
-    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} />,
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} width={720} />,
 }
 
 export const Breakdown: Story = {
-    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} />,
+    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={720} />,
+}
+
+// Narrow widths force the step footers to wrap — each row should grow to fit its own text
+// without overlapping the next step.
+export const DefaultNarrow: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} width={320} />,
+}
+
+export const BreakdownNarrow: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={320} />,
 }

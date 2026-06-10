@@ -167,6 +167,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerHogFlowLegacyPg?: boolean
+    cdpCyclotronWorkerEmail?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
@@ -175,6 +176,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronV2Janitor?: boolean
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
+    cdpHogflowSubscriptionMatcher?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -853,6 +855,7 @@ export interface EventPropertyType {
 }
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export enum PropertyUpdateOperation {
     Set = 'set',

@@ -1,9 +1,10 @@
 import z from 'zod'
 
+import { hasScope, hasScopes } from '@/lib/api'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
-import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
 export const ToolDefinitionSchema = z
@@ -14,7 +15,6 @@ export const ToolDefinitionSchema = z
         summary: z.string(),
         title: z.string(),
         required_scopes: z.array(z.string()),
-        new_mcp: z.boolean().optional(),
         requires_ai_consent: z.boolean().optional(),
         /** PostHog feature flag key that gates this tool. */
         feature_flag: z.string().optional(),
@@ -50,8 +50,7 @@ export type ToolDefinitions = Record<string, ToolDefinition>
 
 const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
-let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
-let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
+let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
@@ -61,26 +60,40 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
-export function getToolDefinitions(version?: number): ToolDefinitions {
+export function getToolDefinitions(): ToolDefinitions {
     const generated = getGeneratedToolDefinitions()
-
-    if (version === 2) {
-        if (!_toolDefinitionsV2) {
-            const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
-            _toolDefinitionsV2 = { ...new_tools, ...base }
-        }
-        return { ..._toolDefinitionsV2, ...generated }
+    if (!_toolDefinitions) {
+        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
     }
-
-    if (!_toolDefinitionsV1) {
-        _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
-    }
-    return { ..._toolDefinitionsV1, ...generated }
+    return { ..._toolDefinitions, ...generated }
 }
 
-export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
-    const toolDefinitions = getToolDefinitions(version)
+let _advertisedOAuthScopes: readonly string[] | undefined = undefined
+
+/**
+ * Scopes published as `scopes_supported` in the MCP protected-resource
+ * metadata: every grantable scope the tool catalog requires, plus identity
+ * scopes (no `:`) that ride every authorize. Narrower than
+ * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
+ * clients are not asked to consent to write access no tool exercises. Filtering
+ * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
+ * scope is rejected at `/authorize`.
+ */
+export function getAdvertisedOAuthScopes(): readonly string[] {
+    if (!_advertisedOAuthScopes) {
+        const required = new Set<string>()
+        for (const definition of Object.values(getToolDefinitions())) {
+            for (const scope of definition.required_scopes ?? []) {
+                required.add(scope)
+            }
+        }
+        _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
+    }
+    return _advertisedOAuthScopes
+}
+
+export function getToolDefinition(toolName: string): ToolDefinition {
+    const toolDefinitions = getToolDefinitions()
 
     const definition = toolDefinitions[toolName]
 
@@ -91,10 +104,19 @@ export function getToolDefinition(toolName: string, version?: number): ToolDefin
     return definition
 }
 
+/**
+ * The product category a tool belongs to (e.g. "Logs", "Tracing"), or undefined
+ * for tools without a catalogued definition (e.g. the `exec` wrapper). Unlike
+ * {@link getToolDefinition} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolCategory(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.category
+}
+
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
-    version?: number | undefined
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
     aiConsentGiven?: boolean | undefined
@@ -112,8 +134,8 @@ export interface ToolFilterOptions {
  * Collect all distinct feature flag keys referenced by tool definitions.
  * Used at init time to batch-evaluate flags before filtering tools.
  */
-export function getRequiredFeatureFlags(version?: number): string[] {
-    const toolDefinitions = getToolDefinitions(version)
+export function getRequiredFeatureFlags(): string[] {
+    const toolDefinitions = getToolDefinitions()
     const flags = new Set<string>()
     for (const definition of Object.values(toolDefinitions)) {
         if (definition.feature_flag) {
@@ -153,15 +175,10 @@ export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: Eva
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
-    const toolDefinitions = getToolDefinitions(version)
+    const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
+    const toolDefinitions = getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
-
-    // Filter out tools that are not supported in new MCP
-    if (version === 2) {
-        entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
-    }
 
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
@@ -208,4 +225,44 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     return entries.map(([toolName, _]) => toolName)
+}
+
+export interface ScopeGatedTool {
+    name: string
+    title: string
+    description: string
+    /** Scopes the tool requires that the current API key is missing. */
+    missingScopes: string[]
+}
+
+/**
+ * Tools that pass every filter except the API key's scopes — i.e. they exist
+ * and are enabled for this session's features, but the token lacks the scopes
+ * to call them. Surfaced by the exec `search` command so an agent gets an
+ * actionable "add this scope" hint instead of silently concluding the tool is
+ * missing.
+ */
+export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions): ScopeGatedTool[] {
+    const toolDefinitions = getToolDefinitions()
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: ScopeGatedTool[] = []
+
+    for (const name of getToolsForFeatures(options)) {
+        if (excluded.has(name)) {
+            continue
+        }
+        const definition = toolDefinitions[name]
+        const required = definition?.required_scopes ?? []
+        if (!definition || required.length === 0 || hasScopes(scopes, required)) {
+            continue
+        }
+        gated.push({
+            name,
+            title: definition.title,
+            description: definition.description,
+            missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+        })
+    }
+
+    return gated
 }

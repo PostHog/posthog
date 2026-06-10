@@ -242,7 +242,7 @@ function InsightCardInternal(
     return (
         <div
             className={clsx(
-                'InsightCard border',
+                'DashboardTileCard InsightCard border',
                 highlighted && 'InsightCard--highlighted',
                 areDetailsShown && 'InsightCard--details-shown',
                 className
@@ -305,12 +305,12 @@ function InsightCardInternal(
                         </div>
                     ) : null}
                 </BindLogic>
-                {showResizeHandles && <DashboardResizeHandles />}
-                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
-                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-                )}
-                {children /* Extras injected by the parent layout (not ReactGridLayout resize handles) */}
             </ErrorBoundary>
+            {showResizeHandles && <DashboardResizeHandles />}
+            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
+            )}
+            {children /* RGL react-resizable-handle nodes injected by react-grid-layout */}
         </div>
     )
 }

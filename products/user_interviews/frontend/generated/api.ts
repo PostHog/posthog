@@ -21,6 +21,8 @@ import type {
     PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
+    PreviewInviteRequestApi,
+    PreviewInviteResultApi,
     SendInvitesRequestApi,
     TestInterviewLinkApi,
     UserInterviewApi,
@@ -54,15 +56,15 @@ export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserIn
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/user_interview_topics/?${stringifiedParams}`
-        : `/api/environments/${projectId}/user_interview_topics/`
+        ? `/api/projects/${projectId}/user_interview_topics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/user_interview_topics/`
 }
 
 /**
@@ -80,7 +82,7 @@ export const userInterviewTopicsList = async (
 }
 
 export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/`
+    return `/api/projects/${projectId}/user_interview_topics/`
 }
 
 /**
@@ -100,7 +102,7 @@ export const userInterviewTopicsCreate = async (
 }
 
 export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/`
 }
 
 /**
@@ -118,7 +120,7 @@ export const userInterviewTopicsRetrieve = async (
 }
 
 export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/`
 }
 
 /**
@@ -139,7 +141,7 @@ export const userInterviewTopicsUpdate = async (
 }
 
 export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/`
 }
 
 /**
@@ -160,7 +162,7 @@ export const userInterviewTopicsPartialUpdate = async (
 }
 
 export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/`
 }
 
 /**
@@ -178,7 +180,7 @@ export const userInterviewTopicsDestroy = async (
 }
 
 export const getUserInterviewTopicsAddIntervieweeCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/add_interviewee/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/add_interviewee/`
 }
 
 /**
@@ -199,7 +201,7 @@ export const userInterviewTopicsAddIntervieweeCreate = async (
 }
 
 export const getUserInterviewTopicsGenerateLinksCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/generate_links/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/generate_links/`
 }
 
 /**
@@ -217,7 +219,7 @@ export const userInterviewTopicsGenerateLinksCreate = async (
 }
 
 export const getUserInterviewTopicsLinksCsvCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/links_csv/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/links_csv/`
 }
 
 /**
@@ -234,8 +236,29 @@ export const userInterviewTopicsLinksCsvCreate = async (
     })
 }
 
+export const getUserInterviewTopicsPreviewInviteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/preview_invite/`
+}
+
+/**
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
+ */
+export const userInterviewTopicsPreviewInviteCreate = async (
+    projectId: string,
+    id: string,
+    previewInviteRequestApi?: PreviewInviteRequestApi,
+    options?: RequestInit
+): Promise<PreviewInviteResultApi> => {
+    return apiMutator<PreviewInviteResultApi>(getUserInterviewTopicsPreviewInviteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(previewInviteRequestApi),
+    })
+}
+
 export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/remove_interviewee/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/remove_interviewee/`
 }
 
 /**
@@ -256,7 +279,7 @@ export const userInterviewTopicsRemoveIntervieweeCreate = async (
 }
 
 export const getUserInterviewTopicsSendInvitesCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/send_invites/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/send_invites/`
 }
 
 /**
@@ -280,7 +303,7 @@ export const userInterviewTopicsSendInvitesCreate = async (
 }
 
 export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${id}/test_link/`
+    return `/api/projects/${projectId}/user_interview_topics/${id}/test_link/`
 }
 
 /**
@@ -306,15 +329,15 @@ export const getUserInterviewTopicsIntervieweesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/?${stringifiedParams}`
-        : `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+        ? `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/?${stringifiedParams}`
+        : `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/`
 }
 
 /**
@@ -336,7 +359,7 @@ export const userInterviewTopicsIntervieweesList = async (
 }
 
 export const getUserInterviewTopicsIntervieweesCreateUrl = (projectId: string, topicId: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/`
 }
 
 /**
@@ -357,7 +380,7 @@ export const userInterviewTopicsIntervieweesCreate = async (
 }
 
 export const getUserInterviewTopicsIntervieweesRetrieveUrl = (projectId: string, topicId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
 }
 
 /**
@@ -376,7 +399,7 @@ export const userInterviewTopicsIntervieweesRetrieve = async (
 }
 
 export const getUserInterviewTopicsIntervieweesUpdateUrl = (projectId: string, topicId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
 }
 
 /**
@@ -398,7 +421,7 @@ export const userInterviewTopicsIntervieweesUpdate = async (
 }
 
 export const getUserInterviewTopicsIntervieweesPartialUpdateUrl = (projectId: string, topicId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
 }
 
 /**
@@ -423,7 +446,7 @@ export const userInterviewTopicsIntervieweesPartialUpdate = async (
 }
 
 export const getUserInterviewTopicsIntervieweesDestroyUrl = (projectId: string, topicId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
 }
 
 /**
@@ -442,7 +465,7 @@ export const userInterviewTopicsIntervieweesDestroy = async (
 }
 
 export const getUserInterviewTopicsIntervieweesBulkCreateUrl = (projectId: string, topicId: string) => {
-    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/bulk/`
+    return `/api/projects/${projectId}/user_interview_topics/${topicId}/interviewees/bulk/`
 }
 
 /**
@@ -470,15 +493,15 @@ export const getUserInterviewsListUrl = (projectId: string, params?: UserIntervi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/user_interviews/?${stringifiedParams}`
-        : `/api/environments/${projectId}/user_interviews/`
+        ? `/api/projects/${projectId}/user_interviews/?${stringifiedParams}`
+        : `/api/projects/${projectId}/user_interviews/`
 }
 
 export const userInterviewsList = async (
@@ -493,7 +516,7 @@ export const userInterviewsList = async (
 }
 
 export const getUserInterviewsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/user_interviews/`
+    return `/api/projects/${projectId}/user_interviews/`
 }
 
 export const userInterviewsCreate = async (
@@ -508,6 +531,9 @@ export const userInterviewsCreate = async (
     if (userInterviewApi.summary !== undefined) {
         formData.append(`summary`, userInterviewApi.summary)
     }
+    if (userInterviewApi.classifications !== undefined) {
+        userInterviewApi.classifications.forEach((value) => formData.append(`classifications`, value))
+    }
     formData.append(`audio`, userInterviewApi.audio)
 
     return apiMutator<UserInterviewApi>(getUserInterviewsCreateUrl(projectId), {
@@ -518,7 +544,7 @@ export const userInterviewsCreate = async (
 }
 
 export const getUserInterviewsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interviews/${id}/`
+    return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
 export const userInterviewsRetrieve = async (
@@ -533,7 +559,7 @@ export const userInterviewsRetrieve = async (
 }
 
 export const getUserInterviewsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interviews/${id}/`
+    return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
 export const userInterviewsUpdate = async (
@@ -549,6 +575,9 @@ export const userInterviewsUpdate = async (
     if (userInterviewApi.summary !== undefined) {
         formData.append(`summary`, userInterviewApi.summary)
     }
+    if (userInterviewApi.classifications !== undefined) {
+        userInterviewApi.classifications.forEach((value) => formData.append(`classifications`, value))
+    }
     formData.append(`audio`, userInterviewApi.audio)
 
     return apiMutator<UserInterviewApi>(getUserInterviewsUpdateUrl(projectId, id), {
@@ -559,7 +588,7 @@ export const userInterviewsUpdate = async (
 }
 
 export const getUserInterviewsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interviews/${id}/`
+    return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
 export const userInterviewsPartialUpdate = async (
@@ -575,6 +604,9 @@ export const userInterviewsPartialUpdate = async (
     if (patchedUserInterviewApi?.summary !== undefined) {
         formData.append(`summary`, patchedUserInterviewApi.summary)
     }
+    if (patchedUserInterviewApi?.classifications !== undefined) {
+        patchedUserInterviewApi?.classifications.forEach((value) => formData.append(`classifications`, value))
+    }
     if (patchedUserInterviewApi?.audio !== undefined) {
         formData.append(`audio`, patchedUserInterviewApi.audio)
     }
@@ -587,7 +619,7 @@ export const userInterviewsPartialUpdate = async (
 }
 
 export const getUserInterviewsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/user_interviews/${id}/`
+    return `/api/projects/${projectId}/user_interviews/${id}/`
 }
 
 export const userInterviewsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -598,7 +630,7 @@ export const userInterviewsDestroy = async (projectId: string, id: string, optio
 }
 
 export const getUserInterviewsSearchCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/user_interviews/search/`
+    return `/api/projects/${projectId}/user_interviews/search/`
 }
 
 /**

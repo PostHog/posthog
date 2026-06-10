@@ -57,12 +57,14 @@ def _build_warning_for_schema(
 ) -> DataWarehouseSyncWarning | None:
     schema_status = schema.status
     source_type = schema.source.source_type if schema.source_id else "unknown"
+    source_id = str(schema.source_id) if schema.source_id else None
 
     def build(*, status: str, message: str) -> DataWarehouseSyncWarning:
         return DataWarehouseSyncWarning(
             table_name=table_name,
             schema_name=schema.name,
             source_type=source_type,
+            source_id=source_id,
             status=status,
             message=message,
         )
