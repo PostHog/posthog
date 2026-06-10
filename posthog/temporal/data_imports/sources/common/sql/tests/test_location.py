@@ -17,7 +17,6 @@ def _source_inputs(
     *,
     source_schema: str | None = None,
     source_table_name: str | None = None,
-    source_catalog: str | None = None,
     **overrides: Any,
 ) -> SourceInputs:
     # Mirror how a real schema row stashes the SQL location keys inside the generic `schema_metadata`.
@@ -26,8 +25,6 @@ def _source_inputs(
         metadata["source_schema"] = source_schema
     if source_table_name is not None:
         metadata["source_table_name"] = source_table_name
-    if source_catalog is not None:
-        metadata["source_catalog"] = source_catalog
     defaults: dict[str, Any] = {
         "schema_name": schema_name,
         "schema_id": "schema-1",
@@ -92,20 +89,6 @@ class TestResolveSourceLocation:
         location = resolve_source_location(inputs, config_namespace="", default=None)
         assert location.schema is None  # driver treats None as "all namespaces", never `WHERE schema = ''`
 
-    @parameterized.expand(
-        [
-            ("source catalog wins", "db1", "db2", "db1"),
-            ("config catalog fallback", None, "db2", "db2"),
-            ("both absent", None, None, None),
-        ]
-    )
-    def test_catalog_resolution(
-        self, _name: str, source_catalog: str | None, config_catalog: str | None, expected: str | None
-    ) -> None:
-        inputs = _source_inputs(source_catalog=source_catalog)
-        location = resolve_source_location(inputs, config_namespace="public", config_catalog=config_catalog)
-        assert location.catalog == expected
-
     def test_response_name_derived_from_schema_name_when_no_storage_key(self) -> None:
         inputs = _source_inputs(schema_name="analytics.users")
         location = resolve_source_location(inputs, config_namespace=None)
@@ -136,7 +119,7 @@ class TestResolveSourceLocation:
         # No metadata, no storage key, non-dotted name: resolves exactly like the pre-multi-schema path.
         inputs = _source_inputs(schema_name="users")
         location = resolve_source_location(inputs, config_namespace="public", default="public")
-        assert location == (None, "public", "users", "users")
+        assert location == ("public", "users", "users")
 
 
 class TestSelfHealHelpers:

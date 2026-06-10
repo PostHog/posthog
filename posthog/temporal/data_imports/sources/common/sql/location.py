@@ -13,11 +13,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 
 
 class ResolvedSourceLocation(NamedTuple):
-    """Where a single warehouse-import row reads from + the Delta subdir it writes to."""
+    """Where a single warehouse-import row reads from + the Delta subdir it writes to.
 
-    # `catalog.schema.table` — catalog is the database/project (constant per connection; `None` for
-    # Postgres/Redshift); schema is the namespace within it (`public`, `dbo`, …) that multi-schema varies.
-    catalog: Optional[str]
+    `schema` is the per-row namespace; the database is fixed per connection (use `config.database`).
+    """
+
     schema: Optional[str]
     table_name: str
     response_name: str
@@ -53,10 +53,9 @@ def resolve_source_location(
     inputs: SourceInputs,
     *,
     config_namespace: Optional[str],
-    config_catalog: Optional[str] = None,
     default: Optional[str] = None,
 ) -> ResolvedSourceLocation:
-    """Resolve `(catalog, schema, table_name, response_name)` for one warehouse-import row.
+    """Resolve `(schema, table_name, response_name)` for one warehouse-import row.
 
     Namespace + table priority: per-schema `schema_metadata` → dotted `schema_name` self-heal →
     `config_namespace` → `default`. `response_name` (the Delta subdir) uses `dwh_storage_key` when
@@ -71,9 +70,8 @@ def resolve_source_location(
 
     schema = source_schema or normalize_namespace(config_namespace) or default
     table_name = source_table_name or inputs.schema_name
-    catalog = _str_or_none(metadata.get("source_catalog")) or config_catalog
 
     storage_key = inputs.dwh_storage_key if isinstance(inputs.dwh_storage_key, str) and inputs.dwh_storage_key else None
     response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
 
-    return ResolvedSourceLocation(catalog=catalog, schema=schema, table_name=table_name, response_name=response_name)
+    return ResolvedSourceLocation(schema=schema, table_name=table_name, response_name=response_name)
