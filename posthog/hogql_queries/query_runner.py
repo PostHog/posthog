@@ -1816,6 +1816,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.to_query(),
                 HogQLContext(
                     team_id=self.team.pk,
+                    user=self.user,
                     enable_select_queries=True,
                     timings=self.timings,
                     modifiers=self.modifiers,

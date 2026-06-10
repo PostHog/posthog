@@ -148,7 +148,9 @@ class MarketingSourceFactory:
         self.context = context
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
-        # Cache warehouse data to avoid repeated queries
+        # Cache warehouse data to avoid repeated queries.
+        # No user here (QueryContext has none): this database only enumerates warehouse table
+        # names to build adapters, so access-controlled system tables being dropped has no effect.
         database = Database.create_for(team=self.context.team)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()

@@ -35,6 +35,7 @@ def translate_hogql(
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
             context.database = Database.create_for(
                 team_id=context.team_id,
+                user=context.user,
                 modifiers=context.modifiers,
                 timings=context.timings,
             )

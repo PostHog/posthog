@@ -146,6 +146,7 @@ def sync_saved_query_to_dag(
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
 
+    # Internal DAG sync (no user); access-controlled system tables are dropped (fail-closed).
     database = Database.create_for(team=team)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()

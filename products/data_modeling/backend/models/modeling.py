@@ -378,6 +378,8 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         enable_select_queries=True,
     )
     if context.database is None:
+        # Internal DAG parsing (no user); access-controlled system tables are dropped (fail-closed),
+        # so saved queries referencing system.* won't resolve their parents here.
         context.database = Database.create_for(
             context.team_id,
             modifiers=context.modifiers,
@@ -665,6 +667,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
+        # Internal model-path resolution (no user); access-controlled system tables are dropped (fail-closed).
         return Database.create_for(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(

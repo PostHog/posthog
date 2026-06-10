@@ -679,6 +679,8 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
+    # No user here: export filters only reference events/persons/sessions, so access-controlled
+    # system tables being dropped (fail-closed) has no effect.
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
     exprs = []
     for filter in filters:

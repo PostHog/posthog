@@ -285,6 +285,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
+            # Internal saved-query resolution (no user); access-controlled system tables are dropped (fail-closed).
             database=database or Database.create_for(self.team.pk),
         )
 

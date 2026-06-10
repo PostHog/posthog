@@ -84,6 +84,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # Build the database once and reuse it for all views.
         from posthog.hogql.database.database import Database
 
+        # Internal managed-view construction (no user); access-controlled system tables are dropped (fail-closed).
         database = Database.create_for(self.team.pk)
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:

@@ -485,6 +485,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                         select_query,
                         context=HogQLContext(
                             team=self.team,
+                            user=self.user,
                             enable_select_queries=True,
                             timings=self.timings,
                             modifiers=self.modifiers,

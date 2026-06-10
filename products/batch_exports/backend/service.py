@@ -1142,6 +1142,8 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
+    # No user here: export models only reference events/persons/sessions, so access-controlled
+    # system tables being dropped (fail-closed) has no effect.
     context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()

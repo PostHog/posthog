@@ -127,7 +127,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(team_id=team_id)
+            database = Database.create_for(
+                team_id=team_id,
+                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+            )
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -718,7 +721,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id)
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
 
     def get_serializer_class(self):
