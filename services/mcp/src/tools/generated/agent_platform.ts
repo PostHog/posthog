@@ -626,9 +626,6 @@ const agentApplicationsRevisionsSkillsUpdate = (): ToolBase<
         if (params.body !== undefined) {
             body['body'] = params.body
         }
-        if (params.files !== undefined) {
-            body['files'] = params.files
-        }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/skills/${encodeURIComponent(String(params.skill_id))}/`,

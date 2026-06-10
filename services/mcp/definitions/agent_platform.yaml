@@ -381,8 +381,8 @@ tools:
             idempotent: true
         title: Delete one skill
         description: >
-            Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't
-            exist. Draft-only.
+            Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist.
+            Draft-only.
     agent-applications-revisions-skills-update:
         operation: agent_applications_revisions_skills_update
         enabled: true
