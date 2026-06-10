@@ -1655,6 +1655,8 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
@@ -1952,6 +1954,8 @@ class TestTicketMessagesAPI(APIBaseTest):
 class TestTicketReplyAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
@@ -2046,6 +2050,17 @@ class TestTicketReplyAPI(APIBaseTest):
             mock_send_email_reply.delay.assert_called_once()
         else:
             mock_send_email_reply.delay.assert_not_called()
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_reply_rejected_when_conversations_disabled(self, mock_send_email_reply, mock_on_commit):
+        self.team.conversations_enabled = False
+        self.team.save()
+
+        response = self.client.post(self.url, {"message": "Hi"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Guard runs before the comment is created, so no fan-out is triggered.
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        mock_send_email_reply.delay.assert_not_called()
 
     def test_reply_rich_content_non_json_serializable_rejected(self, mock_on_commit):
         # A non-JSON-serializable value can't arrive over HTTP (the body is already
