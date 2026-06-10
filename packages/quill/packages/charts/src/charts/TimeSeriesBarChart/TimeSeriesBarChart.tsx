@@ -38,6 +38,8 @@ export interface TimeSeriesBarChartConfig {
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
+    showAxisLines?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
@@ -82,6 +84,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         barCornerRadius,
         showCrosshair,
+        showAxisLines,
         tooltip: tooltipConfig,
         divergingStack,
         fillStyle,
@@ -122,6 +125,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         xAxisLabel: xAxis?.label,
         yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
+        showAxisLines,
         barLayout,
         axisOrientation,
         showCrosshair,

@@ -17,6 +17,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import RecordingsQuery
@@ -26,6 +27,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_SCANNER_ID_KEY,
+    POSTHOG_SESSION_RECORDING_ID_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
 
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -597,6 +603,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 id=workflow_id,
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=dt.timedelta(hours=1),
+                # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_id),
+                        SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(scanner.id)),
+                    ]
+                ),
             )
         except WorkflowAlreadyStartedError as exc:
             # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.

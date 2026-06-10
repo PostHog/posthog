@@ -80,10 +80,13 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
             flattened["customerEmail"] = customer.get("email")
 
     if "assignedToUser" in flattened and isinstance(flattened["assignedToUser"], dict):
-        user = flattened.pop("assignedToUser")
-        flattened["assignedToUserId"] = user.get("id") if user else None
-        flattened["assignedToUserName"] = user.get("fullName") if user else None
-        flattened["assignedToUserEmail"] = user.get("email") if user else None
+        assignee = flattened.pop("assignedToUser")
+        # Customer.assignedToUser is a UserActor wrapping a nested `user`; Thread.assignedTo (aliased
+        # to assignedToUser) resolves to the assignee object directly. Handle both shapes.
+        user = assignee.get("user") if isinstance(assignee.get("user"), dict) else assignee
+        flattened["assignedToUserId"] = user.get("id")
+        flattened["assignedToUserName"] = user.get("fullName")
+        flattened["assignedToUserEmail"] = user.get("email")
 
     if "company" in flattened and isinstance(flattened["company"], dict):
         company = flattened.pop("company")
@@ -147,9 +150,8 @@ def _flatten_timeline_entry(entry: dict[str, Any], thread_id: str) -> dict[str, 
                 flattened["fromName"] = entry_data["from"].get("name")
         elif entry_data.get("__typename") == "NoteEntry":
             flattened["noteId"] = entry_data.get("noteId")
-            flattened["text"] = entry_data.get("text")
-        elif entry_data.get("__typename") == "CustomTimelineEntry":
-            flattened["customEntryId"] = entry_data.get("customTimelineEntryId")
+            flattened["text"] = entry_data.get("noteText")
+        elif entry_data.get("__typename") == "CustomEntry":
             flattened["title"] = entry_data.get("title")
             flattened["externalId"] = entry_data.get("externalId")
 

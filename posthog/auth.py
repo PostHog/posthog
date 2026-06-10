@@ -68,7 +68,7 @@ _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
 SECRET_API_KEY_BODY_COUNTER = Counter(
     "api_auth_secret_api_key_body",
-    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+    "Requests where the team secret token is provided in the request body instead of the Authorization header",
 )
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
@@ -327,12 +327,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     """
-    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
+    Authenticates using a team secret token. Unlike a personal API key, this is not associated with a
     user and should only be used for local_evaluation and flags remote_config (not to be confused with the
     other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
-    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
+    TeamSecretTokenUser object that has the team set. This allows us to use the existing permissioning
     system for local_evaluation and flags remote_config requests.
 
     Only the first key candidate found in the request is tried, and the order is:
@@ -347,7 +347,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         cls,
         request: Union[HttpRequest, Request],
     ) -> Optional[str]:
-        """Try to find project secret API key in request and return it"""
+        """Try to find team secret token in request and return it"""
         if "authorization" in request.headers:
             authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
@@ -375,7 +375,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
+        # get the team from the team secret token
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
@@ -383,9 +383,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             if team is None:
                 return None
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # The team secret token is not associated with a user, so we create a TeamSecretTokenUser
             # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
             return None
 
@@ -394,9 +394,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class TeamSecretTokenUser:
     """
-    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    A "synthetic" user object returned by the TeamSecretTokenAuthentication when authenticating with a team secret token.
     """
 
     def __init__(self, team):

@@ -22,16 +22,28 @@
             "additionalProperties": false,
             "properties": {
                 "accountExecutive": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "accountOwner": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
                 "csm": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "filterExpression": {
                     "$ref": "#/definitions/HogQLExpression",
@@ -174,17 +186,6 @@
             },
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
-        },
-        "AccountsRoleAssignmentFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/integer"
-                },
-                {
-                    "const": "unassigned",
-                    "type": "string"
-                }
-            ]
         },
         "ActionConversionGoal": {
             "additionalProperties": false,
@@ -562,7 +563,8 @@
                 "flags",
                 "llm_analytics",
                 "sandbox",
-                "user_interview"
+                "user_interview",
+                "customer_analytics"
             ],
             "type": "string"
         },
@@ -3852,6 +3854,7 @@
                 "archive_llm_skill",
                 "diagnose_proxy",
                 "web_analytics_doctor",
+                "assess_heatmap",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -3859,7 +3862,11 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries"
+                "summarize_replay_vision_summaries",
+                "draft_replay_vision_scanner_prompt",
+                "upsert_account",
+                "upsert_account_notebook",
+                "open_account"
             ],
             "type": "string"
         },
@@ -11775,6 +11782,9 @@
                 "extra": {
                     "$ref": "#/definitions/ConversationsTicketSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -11790,7 +11800,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ConversionGoalFilter": {
@@ -15921,6 +15931,9 @@
                 "extra": {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -15936,7 +15949,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "EndpointLastExecutionTimesRequest": {
@@ -17479,6 +17492,9 @@
                 "extra": {
                     "$ref": "#/definitions/ErrorTrackingSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -17494,7 +17510,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ErrorTrackingSimilarIssuesQuery": {
@@ -18389,14 +18405,19 @@
         },
         "ExperimentApiExposureConfig": {
             "additionalProperties": false,
-            "description": "Slim exposure config for experiment API payloads.",
+            "description": "Slim exposure config for experiment API payloads. Discriminated by `kind`: 'ExperimentEventExposureConfig' tracks exposure via a custom event, 'ActionsNode' tracks exposure via an action.",
             "properties": {
                 "event": {
-                    "description": "Custom exposure event name.",
+                    "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
                     "type": "string"
                 },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required when kind is 'ActionsNode'."
+                },
                 "kind": {
-                    "const": "ExperimentEventExposureConfig",
+                    "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
+                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
                     "type": "string"
                 },
                 "properties": {
@@ -18407,7 +18428,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
         "ExperimentApiExposureCriteria": {
@@ -20385,6 +20406,85 @@
                 "Resend",
                 "PgAnalyze",
                 "WorkOS",
+                "AmazonS3",
+                "GoogleCloudStorage",
+                "Databricks",
+                "Dynamics365",
+                "SalesforceMarketingCloud",
+                "Db2",
+                "Heap",
+                "AdobeAnalytics",
+                "Matomo",
+                "Optimizely",
+                "Adyen",
+                "GoCardless",
+                "Mollie",
+                "CheckoutCom",
+                "Branch",
+                "Criteo",
+                "Outbrain",
+                "Taboola",
+                "AdRoll",
+                "DisplayVideo360",
+                "GoogleAdManager",
+                "CampaignManager360",
+                "SearchAds360",
+                "AdobeCommerce",
+                "AmazonSellingPartner",
+                "Ebay",
+                "Commercetools",
+                "LightspeedRetail",
+                "ShipStation",
+                "ConstantContact",
+                "Mailgun",
+                "Eloqua",
+                "Sailthru",
+                "Ortto",
+                "Attentive",
+                "Kustomer",
+                "Dixa",
+                "Gladly",
+                "Qualtrics",
+                "Delighted",
+                "AzureDevOps",
+                "Rollbar",
+                "Opsgenie",
+                "IncidentIo",
+                "Pingdom",
+                "Cloudflare",
+                "CosmosDB",
+                "PlanetScale",
+                "SapHana",
+                "Rippling",
+                "HiBob",
+                "Personio",
+                "Deel",
+                "AdpWorkforceNow",
+                "Paylocity",
+                "Gusto",
+                "CultureAmp",
+                "Lattice",
+                "SageIntacct",
+                "FreshBooks",
+                "Expensify",
+                "Ramp",
+                "Brex",
+                "Coupa",
+                "SapConcur",
+                "Apollo",
+                "Crunchbase",
+                "ZoomInfo",
+                "Clari",
+                "Chorus",
+                "Coda",
+                "Guru",
+                "Dropbox",
+                "Docusign",
+                "PandaDoc",
+                "SapErp",
+                "SapSuccessFactors",
+                "OracleEbs",
+                "OracleFusion",
                 "Custom"
             ],
             "type": "string"
@@ -21840,6 +21940,9 @@
                 "extra": {
                     "$ref": "#/definitions/GithubIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -21855,7 +21958,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "GoalLine": {
@@ -24249,6 +24352,10 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showPercentagesOnSeries": {
+                    "description": "Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -24492,6 +24599,9 @@
                 "extra": {
                     "$ref": "#/definitions/LinearIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24507,7 +24617,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LinkedinAdsDefaultSources": {
@@ -24592,6 +24702,9 @@
                 "extra": {
                     "$ref": "#/definitions/LlmEvalReportSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24607,7 +24720,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -24618,6 +24731,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/LlmEvalSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -24634,7 +24750,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LoadingBlock": {
@@ -25112,6 +25228,9 @@
                 "extra": {
                     "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -25127,7 +25246,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LogsOrderBy": {
@@ -29137,6 +29256,9 @@
                 "extra": {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -29152,7 +29274,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "PinterestAdsDefaultSources": {
@@ -38548,6 +38670,9 @@
                 "extra": {
                     "$ref": "#/definitions/SessionProblemSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -38563,7 +38688,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SessionPropertyFilter": {
@@ -39166,6 +39291,10 @@
             },
             "type": "object"
         },
+        "SignalExtraBase": {
+            "additionalProperties": false,
+            "type": "object"
+        },
         "SignalInput": {
             "anyOf": [
                 {
@@ -39205,6 +39334,54 @@
                     "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
+        },
+        "SignalInputBase": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalExtraBase"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "SignalRemediation": {
+            "additionalProperties": false,
+            "properties": {
+                "agent": {
+                    "description": "Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives in the user's codebase, how to apply it. The research agent treats this as authoritative — it still investigates and produces findings, but follows this instead of starting cold.",
+                    "type": "string"
+                },
+                "human": {
+                    "description": "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader.",
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "Suggested report priority; advisory, the research agent may override.",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                }
+            },
+            "required": ["human", "agent"],
+            "type": "object"
         },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
@@ -39362,6 +39539,9 @@
                 "extra": {
                     "$ref": "#/definitions/SignalsScoutSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -39377,7 +39557,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -41244,6 +41424,11 @@
             },
             "type": "object"
         },
+        "TraceOrderColumn": {
+            "description": "Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`).",
+            "enum": ["timestamp", "duration"],
+            "type": "string"
+        },
         "TraceQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41479,7 +41664,13 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "$ref": "#/definitions/LogsOrderBy"
+                    "$ref": "#/definitions/TraceOrderColumn",
+                    "description": "Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`."
+                },
+                "orderDirection": {
+                    "description": "Order direction. Defaults to DESC.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",
@@ -44650,6 +44841,9 @@
                 "extra": {
                     "$ref": "#/definitions/ZendeskTicketSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -44665,7 +44859,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "getEffectiveExcludedColumns": {
