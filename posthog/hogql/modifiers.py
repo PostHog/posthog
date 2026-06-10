@@ -54,7 +54,7 @@ def create_default_modifiers_for_user(
 def create_default_modifiers_for_team(
     team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
 ) -> HogQLQueryModifiers:
-    modifiers = create_default_modifiers_for_team_context(HogQLTeamContext.from_team(team), modifiers)
+    modifiers = create_default_modifiers_for_team_context(HogQLTeamContext.from_team(team), modifiers, cloud=is_cloud())
     _resolve_persons_on_events_default(modifiers, team)
     return modifiers
 
@@ -67,7 +67,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team") ->
     team-independent defaults.
     """
     _resolve_persons_on_events_default(modifiers, team)
-    apply_modifier_defaults(modifiers)
+    apply_modifier_defaults(modifiers, cloud=is_cloud())
 
 
 def _resolve_persons_on_events_default(modifiers: HogQLQueryModifiers, team: "Team") -> None:
@@ -83,11 +83,12 @@ def _resolve_persons_on_events_default(modifiers: HogQLQueryModifiers, team: "Te
 
 
 def create_default_modifiers_for_team_context(
-    team_context: HogQLTeamContext, modifiers: Optional[HogQLQueryModifiers] = None
+    team_context: HogQLTeamContext, modifiers: Optional[HogQLQueryModifiers] = None, *, cloud: bool
 ) -> HogQLQueryModifiers:
     """Resolve default HogQL modifiers from plain team-context data.
 
-    Pure with respect to the ORM: no Django model access and no database query.
+    Pure: no Django model access, no database query, no flag or deploy-setting
+    evaluation — ``cloud`` arrives as an already-resolved boundary value.
     ``personsOnEventsMode`` is intentionally left untouched when not already set — its
     flag-based default is a boundary concern (see ``create_default_modifiers_for_team``).
     """
@@ -116,17 +117,17 @@ def create_default_modifiers_for_team_context(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
-    apply_modifier_defaults(modifiers)
+    apply_modifier_defaults(modifiers, cloud=cloud)
 
     return modifiers
 
 
-def apply_modifier_defaults(modifiers: HogQLQueryModifiers) -> None:
+def apply_modifier_defaults(modifiers: HogQLQueryModifiers, *, cloud: bool) -> None:
     """Fill all team-independent modifier defaults in place.
 
     ``personsOnEventsMode`` is intentionally not set here — it needs the team's
-    flag-based default, resolved at the boundary. ``is_cloud()`` is still read for
-    ``propertyGroupsMode`` and becomes an injected config value in a later step.
+    flag-based default, resolved at the boundary. ``cloud`` is the deployment bool,
+    likewise resolved at the boundary (``is_cloud()`` on the Django side).
     """
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
@@ -152,7 +153,7 @@ def apply_modifier_defaults(modifiers: HogQLQueryModifiers) -> None:
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
-    if modifiers.propertyGroupsMode is None and is_cloud():
+    if modifiers.propertyGroupsMode is None and cloud:
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if modifiers.convertToProjectTimezone is None:

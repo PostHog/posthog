@@ -43,7 +43,7 @@ class TestEngineIsolationGate(SimpleTestCase):
     def _print_context(self) -> HogQLContext:
         team_context = _team_context()
         modifiers = create_default_modifiers_for_team_context(
-            team_context, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+            team_context, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED), cloud=False
         )
         return HogQLContext(
             team_id=team_context.team_id,
