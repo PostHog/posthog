@@ -707,7 +707,7 @@ def _require_email_code(
             status=400,
         )
 
-    if error := _enforce_email_code_rate_limit(user.email):
+    if error := _enforce_email_code_rate_limit(request_id, user.email):
         return error
 
     team = _resolve_team_for_existing_user(user, team_id)
@@ -761,7 +761,7 @@ def _require_email_code(
     )
 
 
-def _enforce_email_code_rate_limit(email: str) -> Response | None:
+def _enforce_email_code_rate_limit(request_id: str, email: str) -> Response | None:
     """Cap codes sent per recipient address so the endpoint can't be used to bomb an inbox.
 
     Fixed-window counter like _enforce_partner_rate_limit; the same 2x burst caveat
@@ -783,6 +783,7 @@ def _enforce_email_code_rate_limit(email: str) -> Response | None:
         retry_after = EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
         response = Response(
             {
+                "id": request_id,
                 "type": "error",
                 "error": {"code": "rate_limited", "message": "Too many codes sent to this email. Try again later."},
             },
@@ -1186,6 +1187,15 @@ def _exchange_authorization_code(request: Request) -> Response:
             return Response(
                 {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=401
             )
+        if not isinstance(code_verifier, str) or not re.fullmatch(r"[A-Za-z0-9\-._~]{43,128}", code_verifier):
+            _capture_provisioning_event("token_exchange", "malformed_code_verifier", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_request",
+                    "error_description": "code_verifier must be 43-128 characters using the RFC 7636 charset",
+                },
+                status=400,
+            )
         computed = (
             base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
             .rstrip(b"=")
@@ -1200,6 +1210,14 @@ def _exchange_authorization_code(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
     else:
+        # RFC 9700: a verifier supplied for a code that was issued without a challenge
+        # signals a PKCE downgrade attempt; reject rather than silently ignore it.
+        if request.data.get("code_verifier"):
+            _capture_provisioning_event("token_exchange", "unexpected_code_verifier", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_grant", "error_description": "code_verifier provided for a non-PKCE code"},
+                status=400,
+            )
         if error := _verify_hmac_if_present(request):
             return error
 
@@ -1207,7 +1225,13 @@ def _exchange_authorization_code(request: Request) -> Response:
     # to burn the partner's bucket. Auth codes are single-use by spec, so the
     # tradeoff (rate-limited client loses the code) is acceptable — clients can
     # re-initiate the OAuth flow if rate-limited.
-    cache.delete(cache_key)
+    # cache.delete returns False if the key was already gone: a concurrent exchange
+    # consumed the code first, so this request must not also mint tokens.
+    if not cache.delete(cache_key):
+        _capture_provisioning_event("token_exchange", "code_already_consumed", grant_type="authorization_code")
+        return Response(
+            {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
+        )
 
     partner_id = code_data.get("partner_id", "")
     if partner_id:

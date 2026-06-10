@@ -882,6 +882,73 @@ class TestEmailCodeLinking(ProvisioningTestBase):
         )
         assert res.status_code == 400
 
+    @parameterized.expand(
+        [
+            ("non_ascii", "verificador-con-acentos-áéíóú-padding-padding-pad"),
+            ("too_short", "abc"),
+            ("bad_chars", "a" * 42 + "!@#$%^&*()"),
+        ]
+    )
+    def test_malformed_verifier_returns_400_not_500(self, _name, bad_verifier):
+        _, code = self._request_code()
+        body = urlencode({"grant_type": "authorization_code", "code": code, "code_verifier": bad_verifier}).encode()
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_request"
+        # A failed attempt must not consume the code
+        assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is not None
+
+    def test_verifier_rejected_for_non_pkce_code(self):
+        code = secrets.token_urlsafe(32)
+        cache.set(
+            f"{AUTH_CODE_CACHE_PREFIX}{code}",
+            {
+                "issued_at": timezone.now().isoformat(),
+                "user_id": self.existing_user.id,
+                "org_id": str(self.organization.id),
+                "team_id": self.team.id,
+                "stripe_account_id": "acct_123",
+                "scopes": ["query:read"],
+                "region": "US",
+            },
+            timeout=300,
+        )
+        body = urlencode(
+            {"grant_type": "authorization_code", "code": code, "code_verifier": self.code_verifier}
+        ).encode()
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+
+    def test_code_consumed_by_concurrent_exchange_rejected(self):
+        _, code = self._request_code()
+        body = urlencode(
+            {"grant_type": "authorization_code", "code": code, "code_verifier": self.code_verifier}
+        ).encode()
+        # Simulate another exchange winning the race between cache.get and cache.delete
+        with patch("ee.api.agentic_provisioning.views.cache.delete", return_value=False):
+            res = self.client.post(
+                "/api/agentic/oauth/token",
+                data=body,
+                content_type="application/x-www-form-urlencoded",
+                HTTP_API_VERSION="0.1d",
+            )
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+
     def test_emailed_code_rejected_with_wrong_verifier(self):
         _, code = self._request_code()
         body = urlencode(
