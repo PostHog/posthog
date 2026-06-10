@@ -473,7 +473,9 @@ function DetailPane({
                 <ScrollTextIcon className={HEAD} />,
                 'Instructions · agent.md',
                 md ? (
-                    <BundleFileBody file={md} />
+                    <Pad>
+                        <BundleFileBody file={md} />
+                    </Pad>
                 ) : (
                     <Pad>
                         <Muted>No agent.md in this revision.</Muted>
