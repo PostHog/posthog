@@ -55,11 +55,11 @@ describe('performWideEventsQueryInTwoPhases', () => {
         expect(result).toBe(emptyResponse)
     })
 
-    it('hydrates phase 2 with uuid filter and a narrow time window derived from phase-1 timestamps', async () => {
+    it('hydrates phase 2 by exact (uuid, timestamp) tuples, drops the original filter, and bounds the window', async () => {
         const phaseOneRows = [
-            ['uuid-newest', '2024-06-09T12:00:05.000Z'],
-            ['uuid-middle', '2024-06-09T12:00:03.000Z'],
-            ['uuid-oldest', '2024-06-09T12:00:01.000Z'],
+            ['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T07:45:08.404000-07:00'],
+            ['019eaca0-c933-7806-9aab-e211b2cdf59b', '2026-06-09T06:44:38.960000-07:00'],
+            ['019e8f53-c8b8-748d-8619-f4ffb26e8e93', '2026-06-03T14:11:33.301000-07:00'],
         ]
         const hydratedResponse = { results: [['event-row', 'person-row']] }
 
@@ -73,22 +73,26 @@ describe('performWideEventsQueryInTwoPhases', () => {
         // Phase 2 keeps the original wide select so the caller still gets the hydrated columns.
         expect(phaseTwo.select).toEqual(intent.select)
 
-        // Phase 2 appends an extra fixedProperties group with `uuid IN [...]` and keeps the original filter.
-        expect(phaseTwo.fixedProperties).toHaveLength((intent.fixedProperties?.length ?? 0) + 1)
-        const uuidFilterGroup = phaseTwo.fixedProperties![phaseTwo.fixedProperties!.length - 1]
-        expect(uuidFilterGroup).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: PropertyFilterType.HogQL,
-                    key: expect.stringMatching(/uuid IN \['uuid-newest', 'uuid-middle', 'uuid-oldest'\]/),
-                },
-            ],
-        })
+        // Phase 2 drops the original filter — phase 1 already certified those UUIDs.
+        expect(phaseTwo.fixedProperties).toBeUndefined()
+        expect(phaseTwo.properties).toBeUndefined()
 
-        // Phase 2 window is bounded by the oldest/newest phase-1 timestamps with a 1-second pad on each side.
-        expect(phaseTwo.after).toBe('2024-06-09T12:00:00.000Z')
-        expect(phaseTwo.before).toBe('2024-06-09T12:00:06.000Z')
+        // Phase 2 hydrates by exact (uuid, timestamp) tuples for primary-key granule pruning.
+        // Timestamps are converted to UTC microsecond precision so the equality match is exact.
+        expect(phaseTwo.where).toHaveLength(1)
+        const whereFragment = phaseTwo.where![0]
+        expect(whereFragment).toContain('(uuid, timestamp) IN (')
+        expect(whereFragment).toContain("'019eacd8-2ab7-76b0-8e40-604d7f8e6961'")
+        expect(whereFragment).toContain("'019eaca0-c933-7806-9aab-e211b2cdf59b'")
+        expect(whereFragment).toContain("'019e8f53-c8b8-748d-8619-f4ffb26e8e93'")
+        expect(whereFragment).toContain("toDateTime64('2026-06-09 14:45:08.404000', 6, 'UTC')")
+        expect(whereFragment).toContain("toDateTime64('2026-06-09 13:44:38.960000', 6, 'UTC')")
+        expect(whereFragment).toContain("toDateTime64('2026-06-03 21:11:33.301000', 6, 'UTC')")
+
+        // Phase 2 window is bounded by the oldest/newest phase-1 timestamps with a 1-second pad
+        // on each side as a belt-and-suspenders narrowing for granule pruning.
+        expect(phaseTwo.after).toBe('2026-06-03T21:11:32.301Z')
+        expect(phaseTwo.before).toBe('2026-06-09T14:45:09.404Z')
 
         // Phase 2 limit matches the candidate count so we never re-widen the result.
         expect(phaseTwo.limit).toBe(phaseOneRows.length)
@@ -96,47 +100,52 @@ describe('performWideEventsQueryInTwoPhases', () => {
         expect(result).toBe(hydratedResponse)
     })
 
-    it('passes through additional fields on the intent query (filterTestAccounts, properties, where)', async () => {
-        const intentWithExtras: EventsQuery = {
+    it('preserves caller-supplied `where` fragments in phase 2 and appends the tuple filter', async () => {
+        const intentWithWhere: EventsQuery = {
             ...intent,
-            filterTestAccounts: true,
             where: ['team_id = 1'],
-            properties: [{ type: PropertyFilterType.HogQL, key: "properties.foo = 'bar'" }],
         }
         mockedPerformQuery
-            .mockResolvedValueOnce({ results: [['uuid-a', '2024-06-09T12:00:00.000Z']] })
+            .mockResolvedValueOnce({
+                results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T07:45:08.404000-07:00']],
+            })
             .mockResolvedValueOnce({ results: [] })
 
-        await performWideEventsQueryInTwoPhases(intentWithExtras)
+        await performWideEventsQueryInTwoPhases(intentWithWhere)
 
         const phaseOne = mockedPerformQuery.mock.calls[0][0] as EventsQuery
         const phaseTwo = mockedPerformQuery.mock.calls[1][0] as EventsQuery
 
-        expect(phaseOne.filterTestAccounts).toBe(true)
+        // Phase 1 keeps the original where (alongside the original filter) for correctness.
         expect(phaseOne.where).toEqual(['team_id = 1'])
-        expect(phaseOne.properties).toEqual(intentWithExtras.properties)
-        expect(phaseTwo.filterTestAccounts).toBe(true)
-        expect(phaseTwo.where).toEqual(['team_id = 1'])
-        expect(phaseTwo.properties).toEqual(intentWithExtras.properties)
+
+        // Phase 2 keeps the caller's where and appends the tuple filter at the end.
+        expect(phaseTwo.where).toHaveLength(2)
+        expect(phaseTwo.where![0]).toBe('team_id = 1')
+        expect(phaseTwo.where![1]).toContain('(uuid, timestamp) IN (')
     })
 
     it('handles single-result phase 1 by collapsing the window to one timestamp ± 1s', async () => {
         mockedPerformQuery
-            .mockResolvedValueOnce({ results: [['uuid-solo', '2024-06-09T12:00:05.000Z']] })
+            .mockResolvedValueOnce({
+                results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T12:00:05.000000Z']],
+            })
             .mockResolvedValueOnce({ results: [['hydrated']] })
 
         await performWideEventsQueryInTwoPhases(intent)
 
         const phaseTwo = mockedPerformQuery.mock.calls[1][0] as EventsQuery
-        expect(phaseTwo.after).toBe('2024-06-09T12:00:04.000Z')
-        expect(phaseTwo.before).toBe('2024-06-09T12:00:06.000Z')
+        expect(phaseTwo.after).toBe('2026-06-09T12:00:04.000Z')
+        expect(phaseTwo.before).toBe('2026-06-09T12:00:06.000Z')
         expect(phaseTwo.limit).toBe(1)
     })
 
     it('does not mutate the intent query', async () => {
         const intentCopy = JSON.parse(JSON.stringify(intent))
         mockedPerformQuery
-            .mockResolvedValueOnce({ results: [['uuid-a', '2024-06-09T12:00:00.000Z']] })
+            .mockResolvedValueOnce({
+                results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T12:00:00.000000Z']],
+            })
             .mockResolvedValueOnce({ results: [] })
 
         await performWideEventsQueryInTwoPhases(intent)
