@@ -55,10 +55,10 @@ class TestHandleSandboxMessage(APIBaseTest):
                 }
             )
 
-        assert result["task_id"] == str(task.id)
-        assert result["run_id"] == str(run.id)
-        assert result["just_created_run"] is True
-        assert result["trace_id"] == "trace-1"
+        assert result.task_id == str(task.id)
+        assert result.run_id == str(run.id)
+        assert result.just_created_run is True
+        assert result.trace_id == "trace-1"
 
         # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
         _, kwargs = m_car.call_args
@@ -140,10 +140,10 @@ class TestHandleSandboxMessage(APIBaseTest):
                 }
             )
 
-        assert result["task_id"] == str(task.id)
-        assert result["run_id"] == str(run.id)
-        assert result["just_created_run"] is False
-        assert result["run_status"] == TaskRun.Status.IN_PROGRESS
+        assert result.task_id == str(task.id)
+        assert result.run_id == str(run.id)
+        assert result.just_created_run is False
+        assert result.run_status == TaskRun.Status.IN_PROGRESS
 
         # The live workflow is signalled, no new Run created.
         m_signal.assert_called_once()
@@ -171,12 +171,12 @@ class TestHandleSandboxMessage(APIBaseTest):
         ):
             result = self._service().handle({"content": "resume please", "trace_id": "trace-3"})
 
-        assert result["task_id"] == str(task.id)
-        assert result["just_created_run"] is True
+        assert result.task_id == str(task.id)
+        assert result.just_created_run is True
 
         new_run = task.runs.order_by("-created_at").first()
         assert new_run is not None
-        assert str(new_run.id) == result["run_id"]
+        assert str(new_run.id) == result.run_id
         assert str(new_run.id) != str(run.id)
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
@@ -268,9 +268,9 @@ class TestHandleSandboxCancel(APIBaseTest):
 
         # The command is delivered; the run stays live until the agent acts on it,
         # so the response reports the current (not yet terminal) status.
-        assert result["task_id"] == str(task.id)
-        assert result["run_id"] == str(run.id)
-        assert result["run_status"] == TaskRun.Status.IN_PROGRESS
+        assert result.task_id == str(task.id)
+        assert result.run_id == str(run.id)
+        assert result.run_status == TaskRun.Status.IN_PROGRESS
         m_cancel.assert_called_once()
 
     def test_cancel_delivery_failure_raises_502(self):
@@ -289,7 +289,7 @@ class TestHandleSandboxCancel(APIBaseTest):
         task, run = self._task_with_run(TaskRun.Status.COMPLETED)
         with patch(f"{ROUTING}.send_cancel") as m_cancel:
             result = self._service().cancel()
-        assert result["run_status"] == TaskRun.Status.COMPLETED
+        assert result.run_status == TaskRun.Status.COMPLETED
         m_cancel.assert_not_called()
 
     def test_cancel_without_task_raises(self):

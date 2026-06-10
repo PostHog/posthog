@@ -653,15 +653,15 @@ class ConversationViewSet(
             user,
             "prompt sent",
             {
-                "trace_id": result["trace_id"],
+                "trace_id": result.trace_id,
                 "conversation_id": str(conversation.id),
                 "execution_type": "sandbox",
-                "just_created_run": result["just_created_run"],
+                "just_created_run": result.just_created_run,
             },
             team=self.team,
             request=request,
         )
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(result.model_dump(), status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
@@ -671,7 +671,7 @@ class ConversationViewSet(
             # Sandbox runs are cancelled in-process via the products/tasks command
             # path; no LangGraph workflow is involved.
             result = MessageRoutingService(conversation, cast(User, request.user)).cancel()
-            return Response(result, status=status.HTTP_200_OK)
+            return Response(result.model_dump(), status=status.HTTP_200_OK)
 
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE

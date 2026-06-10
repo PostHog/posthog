@@ -9,10 +9,11 @@ a Django SSE relay.
 
 import json
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 
+from pydantic import BaseModel
 from rest_framework import exceptions, status
 
 from posthog.models.user import User
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
     from products.posthog_ai.backend.models.assistant import Conversation
 
 
-class SandboxRouteResult(TypedDict):
+class SandboxRouteResult(BaseModel):
     """Outcome of routing one sandbox message — the IDs the frontend opens SSE against."""
 
     task_id: str
@@ -47,7 +48,7 @@ class SandboxRouteResult(TypedDict):
     just_created_run: bool
 
 
-class SandboxCancelResult(TypedDict):
+class SandboxCancelResult(BaseModel):
     """Outcome of cancelling the conversation's current sandbox Run."""
 
     task_id: str
