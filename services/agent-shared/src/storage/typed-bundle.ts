@@ -219,13 +219,61 @@ export async function readTypedBundle(
     }
 }
 
-function deriveSkillDescription(body: string): string {
-    for (const line of body.split('\n')) {
+/**
+ * Derive a skill's one-line description from its `SKILL.md`. Prefers the YAML
+ * frontmatter `description:` — the authored signal the model uses to decide
+ * when to load a skill — and falls back to the first prose line of the body
+ * when there's no frontmatter or no `description:` field. Capped at 280 chars.
+ *
+ * The frontmatter parse matters: without it, a `SKILL.md` that opens with the
+ * conventional `---` fence yields `"---"` as the description (the fence is the
+ * first non-heading line), which silently kills the model's load signal.
+ */
+export function deriveSkillDescription(raw: string): string {
+    const fm = splitFrontmatter(raw)
+    if (fm) {
+        const desc = frontmatterDescription(fm.block)
+        if (desc) {
+            return desc.slice(0, 280)
+        }
+    }
+    // No frontmatter description — first non-empty, non-heading prose line of
+    // the body (skipping the frontmatter block when present).
+    for (const line of (fm ? fm.body : raw).split('\n')) {
         const t = line.trim()
         if (!t || t.startsWith('#')) {
             continue
         }
         return t.slice(0, 280)
+    }
+    return ''
+}
+
+/** Split a leading `---`-fenced YAML frontmatter block off a SKILL.md.
+ *  Returns the block + the body after it, or null when the file doesn't open
+ *  with a terminated frontmatter fence. */
+function splitFrontmatter(raw: string): { block: string; body: string } | null {
+    const lines = raw.split('\n')
+    if (lines[0]?.trim() !== '---') {
+        return null
+    }
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '---') {
+            return { block: lines.slice(1, i).join('\n'), body: lines.slice(i + 1).join('\n') }
+        }
+    }
+    return null // unterminated fence — treat as no frontmatter
+}
+
+/** The `description:` value from a frontmatter block, surrounding quotes
+ *  stripped. Empty string when absent. Plain scalars only — these SKILL.md
+ *  files don't use folded/block YAML for the description. */
+function frontmatterDescription(block: string): string {
+    for (const line of block.split('\n')) {
+        const m = /^description:\s*(.*)$/.exec(line)
+        if (m) {
+            return m[1].trim().replace(/^["']|["']$/g, '')
+        }
     }
     return ''
 }
