@@ -18,8 +18,11 @@ class SignalScoutRunSummary(BaseModel):
 
     summary: str = Field(
         description=(
-            "One paragraph describing what was looked at, what was found, and what "
-            "was skipped. An empty findings list is a real outcome — say so plainly."
+            "Markdown close-out: a one-or-two-sentence verdict line first (what was "
+            "found, or that nothing was), then a blank line, then short structured "
+            "detail — what was checked, what was skipped, what was remembered. An "
+            "empty findings list is a real outcome — say so plainly. Not one long "
+            "paragraph."
         )
     )
 
@@ -51,8 +54,8 @@ _BASE_PROMPT_TAIL = """# How a run works
      (call `signals-scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary.
 4. **Close out.** End your turn by emitting a JSON object matching the schema in
-   the *Output format* section below. The `summary` field is one paragraph on
-   what you looked at, what you found, and what you skipped. An empty findings
+   the *Output format* section below. The `summary` field is your run close-out
+   — see *Writing the summary* for how to structure it. An empty findings
    list is a real outcome on a quiet day — "looked but found nothing meaningful"
    is a genuine, useful summary, not a failure. Don't manufacture findings to
    fill space. The harness parses the JSON and writes `summary` to the run row
@@ -98,6 +101,22 @@ These are defaults for when your skill body says nothing about format. If your
 skill defines its own description structure (a fixed template, required sections,
 a machine-parseable shape), follow that instead — the skill body owns the prose
 contract.
+
+# Writing the summary (how it renders in run history)
+
+Your close-out `summary` is rendered as GitHub-flavored markdown in the scout's
+run history, **collapsed to the first ~2 lines** until expanded. The same rules
+as the description apply — front-load, structure, no walls:
+
+- **Verdict first.** Open with one or two sentences stating the outcome: what
+  was found (with the key number), or that the run was quiet. That lead is the
+  entire collapsed preview. Follow it with a blank line.
+- **Then short structured detail.** Use `-` lists or `**bold**` labels for what
+  you checked, what you skipped (and why), and what you wrote to memory. Two to
+  five short bullets beat one long paragraph — a reader scanning run history
+  should get the shape of the run without reading every word.
+- Keep it a close-out, not a transcript: methodology and tool-by-tool narration
+  belong in the task log, not the summary.
 
 # Dedupe rules
 
