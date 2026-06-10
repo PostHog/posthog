@@ -7139,6 +7139,24 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    export interface AgentNotice {
+      /** Unique identifier of the notice. */
+      id: string;
+      /** Notice text intended for the project's AI agent sessions. */
+      message: string;
+      /**
+         * Optional feature flag key gating delivery; when set, deliver only if the flag evaluates true.
+         * @nullable
+         */
+      readonly feature_flag_key: string | null;
+      /** When the notice becomes active. */
+      starts_at: string;
+      /** When the notice stops being delivered. */
+      expires_at: string;
+      /** When the notice was created. */
+      created_at: string;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;

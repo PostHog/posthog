@@ -9,10 +9,25 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentNoticeApi,
     BulkNotificationIdsRequestApi,
     NotificationsListParams,
     PaginatedNotificationEventListApi,
 } from './api.schemas'
+
+export const getAgentNoticesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_notices/`
+}
+
+/**
+ * Active agent notices for this project (staff-authored, time-windowed), newest first, capped at 5.
+ */
+export const agentNoticesList = async (projectId: string, options?: RequestInit): Promise<AgentNoticeApi[]> => {
+    return apiMutator<AgentNoticeApi[]>(getAgentNoticesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getNotificationsListUrl = (projectId: string, params?: NotificationsListParams) => {
     const normalizedParams = new URLSearchParams()

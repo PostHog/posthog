@@ -58,6 +58,7 @@ rules:
                               |Account
                               |Action
                               |AgentArtifact
+                              |AgentNotice
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -301,6 +302,7 @@ rules:
                         |Account
                         |Action
                         |AgentArtifact
+                        |AgentNotice
                         |Alert
                         |AlertConfiguration
                         |Annotation

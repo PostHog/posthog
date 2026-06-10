@@ -3,6 +3,20 @@ from rest_framework import serializers
 from products.notifications.backend.facade.enums import SourceType
 
 
+class AgentNoticeSerializer(serializers.Serializer):
+    """Read serializer for `AgentNoticeData` facade DTOs."""
+
+    id = serializers.UUIDField(help_text="Unique identifier of the notice.")
+    message = serializers.CharField(help_text="Notice text intended for the project's AI agent sessions.")
+    feature_flag_key = serializers.CharField(
+        allow_null=True,
+        help_text="Optional feature flag key gating delivery; when set, deliver only if the flag evaluates true.",
+    )
+    starts_at = serializers.DateTimeField(help_text="When the notice becomes active.")
+    expires_at = serializers.DateTimeField(help_text="When the notice stops being delivered.")
+    created_at = serializers.DateTimeField(help_text="When the notice was created.")
+
+
 class NotificationEventSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     team_id = serializers.IntegerField(allow_null=True)

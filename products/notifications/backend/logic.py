@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -8,14 +10,14 @@ from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Team, User
 
 from products.notifications.backend.cache import invalidate_unread_count_for_users
-from products.notifications.backend.facade.contracts import NotificationData
+from products.notifications.backend.facade.contracts import AgentNoticeData, NotificationData
 from products.notifications.backend.facade.enums import (
     AC_RESOURCE_TYPES,
     NotificationOnlyResourceType,
     NotificationType,
     TargetType,
 )
-from products.notifications.backend.models import NotificationEvent
+from products.notifications.backend.models import AgentNotice, NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
 logger = structlog.get_logger(__name__)
@@ -152,3 +154,36 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     transaction.on_commit(_on_commit)
 
     return event
+
+
+_MAX_AGENT_NOTICES = 5
+
+
+def list_active_agent_notices(team_id: int) -> list[AgentNoticeData]:
+    """Active agent notices for a project: team-targeted or broadcast, within
+    their delivery window, newest first, capped at 5."""
+    now = timezone.now()
+    # unscoped() is deliberate: broadcast notices (team NULL) are excluded by the
+    # fail-closed manager, so we escape it and filter by team explicitly instead.
+    notices = (
+        AgentNotice.objects.unscoped()
+        .select_related("feature_flag")
+        .filter(
+            Q(team_id=team_id) | Q(team__isnull=True),
+            is_active=True,
+            starts_at__lte=now,
+            expires_at__gt=now,
+        )
+        .order_by("-starts_at")[:_MAX_AGENT_NOTICES]
+    )
+    return [
+        AgentNoticeData(
+            id=str(notice.id),
+            message=notice.message,
+            feature_flag_key=notice.feature_flag.key if notice.feature_flag is not None else None,
+            starts_at=notice.starts_at,
+            expires_at=notice.expires_at,
+            created_at=notice.created_at,
+        )
+        for notice in notices
+    ]

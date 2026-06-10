@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from products.notifications.backend.facade.enums import (
@@ -30,3 +31,13 @@ class NotificationData:
     source_id: str | None = None
     priority: Priority = Priority.NORMAL
     resolver: RecipientsResolver | None = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class AgentNoticeData:
+    id: str
+    message: str
+    feature_flag_key: str | None
+    starts_at: datetime
+    expires_at: datetime
+    created_at: datetime
