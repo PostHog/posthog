@@ -1,5 +1,4 @@
 import temporalio.activity
-from structlog import get_logger
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -10,8 +9,6 @@ from posthog.temporal.delete_teams.types import (
     ProjectRecordInputs,
     TeamDataActivityInputs,
 )
-
-LOGGER = get_logger(__name__)
 
 
 def _resolve_deleted_by(user_id: int) -> str:
