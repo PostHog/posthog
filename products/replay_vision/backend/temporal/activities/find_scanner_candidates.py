@@ -44,7 +44,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
-    limit = inputs.candidate_limit or DEFAULT_CANDIDATE_LIMIT
+    limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
