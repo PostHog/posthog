@@ -16,16 +16,23 @@ from django.utils import timezone
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 
-_RECENT_DAYS = 14
+_DEFAULT_RECENT_DAYS = 14
+_MAX_RECENT_DAYS = 365
 _HISTOGRAM_BUCKET_TARGET = 21
 _TOP_TAGS = 10
 
 
-def compute_observation_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
+def compute_observation_stats(
+    scanner: ReplayScanner,
+    queryset: QuerySet[ReplayObservation],
+    recent_days: int = _DEFAULT_RECENT_DAYS,
+) -> dict[str, Any]:
+    # Clamp so a hostile or stale client can't ask for "last 9,999 days" or 0.
+    clamped_recent_days = max(1, min(recent_days, _MAX_RECENT_DAYS))
     status_counts = _status_counts(queryset)
     payload: dict[str, Any] = {
         "status_counts": status_counts,
-        "coverage": _coverage(queryset),
+        "coverage": _coverage(queryset, clamped_recent_days),
         "available_tags": [],
         "monitor": None,
         "classifier": None,
@@ -65,8 +72,8 @@ def _status_counts(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     }
 
 
-def _coverage(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    cutoff = timezone.now() - timedelta(days=_RECENT_DAYS)
+def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
+    cutoff = timezone.now() - timedelta(days=recent_days)
     with_sessions = queryset.exclude(session_id="")
     aggregates = with_sessions.aggregate(
         total=Count("session_id", distinct=True),
@@ -75,7 +82,7 @@ def _coverage(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     return {
         "recent_sessions": aggregates["recent"] or 0,
         "total_sessions": aggregates["total"] or 0,
-        "recent_days": _RECENT_DAYS,
+        "recent_days": recent_days,
     }
 
 

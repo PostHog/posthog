@@ -2097,6 +2097,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
                 filename: filename || `replay-${values.sessionRecordingId}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                skip_inactivity: values.skipInactivitySetting,
             })
         },
         takeScreenshot: async () => {

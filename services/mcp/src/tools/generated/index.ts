@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
+import { GENERATED_TOOLS as business_knowledge } from './business_knowledge'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
@@ -49,6 +50,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...alerts,
     ...annotations,
     ...batch_exports,
+    ...business_knowledge,
     ...cdp_function_templates,
     ...cdp_functions,
     ...cohorts,

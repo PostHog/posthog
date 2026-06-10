@@ -90,7 +90,21 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     tags: zod
         .string()
         .optional()
-        .describe('JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.'),
+        .describe(
+            'JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.'
+        ),
+    tags_all: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.'
+        ),
+    tags_exclude: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.'
+        ),
 })
 
 /**

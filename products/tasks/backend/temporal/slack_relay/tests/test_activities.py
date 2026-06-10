@@ -108,6 +108,41 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @parameterized.expand(
+        [
+            # ``mentioning_slack_user_id`` is the immutable thread creator;
+            # ``latest_actor_slack_user_id`` is set by the follow-up handler
+            # when someone else (or the creator themselves) replies. The bot
+            # tags the latest actor when present, otherwise the creator.
+            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
+            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mention_prefix_uses_latest_actor_then_mentioner(
+        self,
+        _name,
+        latest_actor,
+        expected_prefix,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-mention-{_name}",
+                text="agent reply",
+            )
+        )
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].startswith(expected_prefix)
+
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
