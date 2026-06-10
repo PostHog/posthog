@@ -48,14 +48,13 @@ impl Context {
             .signed_duration_since(self.server_received_at)
     }
 
-    /// Parse the `PostHog-Sdk-Info` header (`<canonical-$lib-name>/<semver>`)
-    /// into `($lib, $lib_version)` for property materialization. The name
-    /// segment is the value the SDK would send as `$lib` on the v0 pipeline
-    /// (e.g. "posthog-rs"), so we split at the LAST '/' to tolerate names
-    /// containing slashes. Returns `None` when either segment is empty —
-    /// callers must skip injection rather than substitute placeholders, which
-    /// would pollute SDK Health and trigger false outdated-SDK alerts.
+    /// Parse `PostHog-Sdk-Info` (`<canonical-$lib-name>/<semver>`, split at
+    /// the last '/') into `($lib, $lib_version)`. Returns `None` for malformed
+    /// or oversized values — callers skip injection, never inject placeholders.
     pub fn sdk_lib_and_version(&self) -> Option<(&str, &str)> {
+        if self.sdk_info.len() > MAX_SDK_INFO_LEN {
+            return None;
+        }
         let (lib, version) = self.sdk_info.rsplit_once('/')?;
         let (lib, version) = (lib.trim(), version.trim());
         if lib.is_empty() || version.is_empty() {
@@ -427,6 +426,15 @@ mod tests {
         );
         let ctx = test_context(&headers).unwrap();
         assert_eq!(ctx.sdk_lib_and_version(), Some(("posthog-rs", "1.2.3")));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_rejects_oversized_value() {
+        let mut headers = valid_headers();
+        let long = format!("posthog-rs/{}", "9".repeat(MAX_SDK_INFO_LEN));
+        headers.insert(POSTHOG_SDK_INFO, HeaderValue::from_str(&long).unwrap());
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), None);
     }
 
     #[test]

@@ -36,14 +36,17 @@ pub async fn handle_request(
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
 
-    // Non-fatal: a PostHog-Sdk-Info value that doesn't parse as
-    // <lib>/<version> means $lib/$lib_version can't be materialized for this
-    // batch (no placeholders are injected — they'd pollute SDK Health).
-    // Count it once per request so misbehaving SDKs are visible in Grafana.
+    // Non-fatal: unusable PostHog-Sdk-Info means $lib/$lib_version can't be
+    // materialized for this batch. Count once per request for visibility.
     if context.sdk_lib_and_version().is_none() {
+        let reason = if context.sdk_info.len() > MAX_SDK_INFO_LEN {
+            "sdk_info_oversized"
+        } else {
+            "sdk_info_unparseable"
+        };
         metrics::counter!(
             CAPTURE_V1_WARNING_METRIC,
-            "reason" => "sdk_info_unparseable",
+            "reason" => reason,
             "path" => context.path,
         )
         .increment(1);

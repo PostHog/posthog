@@ -86,9 +86,8 @@ impl Event {
         self.uuid.trim()
     }
 
-    /// Trimmed accessor for the raw distinct_id string. Prefer this over
-    /// direct field access so callers are insulated from client-submitted
-    /// whitespace and padded IDs resolve to the same person.
+    /// Trimmed distinct_id. Prefer over direct field access so padded IDs
+    /// resolve to the same person.
     pub fn distinct_id(&self) -> &str {
         self.distinct_id.trim()
     }
@@ -287,23 +286,14 @@ impl WrappedEvent {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
 
-        // Materialize $lib/$lib_version from the PostHog-Sdk-Info header so
-        // downstream surfaces (SDK Health, usage reports, Library columns)
-        // attribute v1 traffic — v1 SDKs carry identity in headers, not
-        // properties, and the header otherwise dies here in capture.
-        // Client-wins: a key already present in the raw properties is left
-        // alone (injections are appended after client keys, so last-key-wins
-        // parsers would otherwise let the header override the client value).
-        // Malformed headers inject nothing — no "unknown"/"0.0.0" placeholders
-        // — and are counted per-request in the handler instead.
+        // Materialize $lib/$lib_version from the required PostHog-Sdk-Info
+        // header — the canonical v1 SDK identity. Appended after client keys,
+        // so the header wins under last-key-wins parsing (same duplicate-key
+        // semantics as the injections above). Unusable headers inject nothing
+        // and are counted per-request in the handler.
         if let Some((lib, lib_version)) = ctx.sdk_lib_and_version() {
-            let raw = self.event.properties.get();
-            if !raw.contains("\"$lib\"") {
-                inject!(buf, first, "$lib", lib);
-            }
-            if !raw.contains("\"$lib_version\"") {
-                inject!(buf, first, "$lib_version", lib_version);
-            }
+            inject!(buf, first, "$lib", lib);
+            inject!(buf, first, "$lib_version", lib_version);
         }
 
         Ok(buf)
@@ -1109,28 +1099,31 @@ mod tests {
     }
 
     #[test]
-    fn serialize_lib_injection_client_properties_win() {
+    fn serialize_lib_injection_header_wins_over_client_properties() {
         let mut wrapped = pageview_event();
         wrapped.event.properties =
             raw_obj(r#"{"$lib":"client-lib","$lib_version":"9.9.9","custom_prop":42}"#);
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
 
-        assert_eq!(data.properties["$lib"], "client-lib");
-        assert_eq!(data.properties["$lib_version"], "9.9.9");
+        // Injections append after client keys; last-key-wins parsing makes
+        // the header authoritative.
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
         assert_eq!(data.properties["custom_prop"], 42);
     }
 
     #[test]
-    fn serialize_lib_injection_partial_client_override() {
-        let mut wrapped = pageview_event();
-        wrapped.event.properties = raw_obj(r#"{"$lib":"client-lib"}"#);
-        let ctx = serialize_ctx();
+    fn serialize_oversized_sdk_info_skips_lib_injection() {
+        use crate::v1::constants::MAX_SDK_INFO_LEN;
+
+        let wrapped = pageview_event();
+        let mut ctx = serialize_ctx();
+        ctx.sdk_info = format!("posthog-rs/{}", "9".repeat(MAX_SDK_INFO_LEN));
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
 
-        // Client-sent $lib wins; missing $lib_version still injected from header.
-        assert_eq!(data.properties["$lib"], "client-lib");
-        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        assert!(!data.properties.contains_key("$lib"));
+        assert!(!data.properties.contains_key("$lib_version"));
     }
 
     #[test]
@@ -1296,8 +1289,7 @@ mod tests {
 
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        // No session/window/options to inject, but $lib/$lib_version are
-        // always materialized from the (valid) PostHog-Sdk-Info header.
+        // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
         let props = &data.properties;
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
@@ -1373,8 +1365,10 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
-        assert_eq!(props["$lib"], "posthog-js");
-        assert_eq!(props["$lib_version"], "1.150.0");
+        // Non-identity client properties survive; $lib/$lib_version come from
+        // the Sdk-Info header (header-wins).
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
         assert_eq!(props["$referrer"], "https://google.com");
         assert_eq!(props["$session_id"], "sess-abc");
     }
