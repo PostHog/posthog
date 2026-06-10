@@ -33,6 +33,17 @@ def _hogql_query() -> dict[str, Any]:
     return {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
 
 
+def _funnels_config(metric: str = "conversion_from_start") -> dict[str, Any]:
+    return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": None}
+
+
+def _funnels_query() -> dict[str, Any]:
+    return {
+        "kind": "FunnelsQuery",
+        "series": [{"kind": "EventsNode", "event": "a"}, {"kind": "EventsNode", "event": "b"}],
+    }
+
+
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
     if bounds is None:
@@ -279,6 +290,42 @@ class TestValidateAlertConfig:
                 _base_threshold(type="percentage"),
                 "daily",
                 "Absolute value alerts require an absolute threshold",
+            ),
+            (
+                "valid_funnels_config",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_config_with_trends_query_rejected",
+                _base_query(),
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "Funnel alert config requires a FunnelsQuery insight",
+            ),
+            (
+                "funnels_relative_condition_rejected",
+                _funnels_query(),
+                _base_condition("relative_decrease"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "Funnel alerts only support absolute value conditions",
+            ),
+            (
+                "funnels_from_previous_at_step_zero_rejected",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 0},
+                _base_threshold(),
+                "daily",
+                "undefined at the first step",
             ),
         ]
     )

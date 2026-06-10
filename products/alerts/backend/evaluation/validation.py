@@ -7,6 +7,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    FunnelsAlertConfig,
     HogQLAlertConfig,
     HogQLAlertEvaluation,
     InsightThreshold,
@@ -137,11 +138,30 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
+def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
+    # A funnel STEPS result is a single snapshot, so funnel alerts are absolute-only in v1
+    # (relative change needs a prior window — a deliberate fast-follow).
+    if ctx.query_kind != NodeKind.FUNNELS_QUERY:
+        raise ValueError(f"Funnel alert config requires a FunnelsQuery insight, got '{ctx.query_kind}'")
+    if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE:
+        raise ValueError("Funnel alerts only support absolute value conditions")
+    try:
+        parsed = FunnelsAlertConfig.model_validate(ctx.config)
+    except Exception:
+        raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")
+    if parsed.metric == "conversion_from_previous" and parsed.funnel_step == 0:
+        raise ValueError("conversion_from_previous is undefined at the first step; use conversion_from_start instead")
+    _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
+    if ctx.require_threshold_bounds and ctx.detector_config is None:
+        validate_threshold_bounds_required(ctx.threshold_config)
+
+
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
 # config type the threshold path supports. Adding a kind = adding an entry here and an extractor.
 _ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], None]] = {
     "HogQLAlertConfig": _validate_hogql_alert_config,
     "TrendsAlertConfig": _validate_trends_alert_config,
+    "FunnelsAlertConfig": _validate_funnels_alert_config,
 }
 
 

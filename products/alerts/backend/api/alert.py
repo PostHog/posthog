@@ -543,18 +543,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError("Alerts are not supported for this insight.")
         if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
             raise ValidationError("SQL insight alerts are not enabled for your account.")
+        if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
+            raise ValidationError("Funnel insight alerts are not enabled for your account.")
 
     def _hogql_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("hogql-insight-alerts")
+
+    def _funnel_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("funnel-insight-alerts")
+
+    def _insight_alert_flag_enabled(self, flag: str) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
         # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create a SQL alert in a team where the flag is disabled. get_organization
-        # is always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
         # invariant can't silently degrade to an unscoped check.
         user = self.context["request"].user
         org = self.context["get_organization"]()
         return bool(
             posthoganalytics.feature_enabled(
-                "hogql-insight-alerts",
+                flag,
                 str(user.distinct_id),
                 groups={"organization": str(org.id)},
             )

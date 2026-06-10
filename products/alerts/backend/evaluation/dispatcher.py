@@ -7,6 +7,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import Extractor
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
+from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -16,6 +17,7 @@ from products.product_analytics.backend.models.insight import Insight
 EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLExtractor(),
+    NodeKind.FUNNELS_QUERY: FunnelsExtractor(),
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared
