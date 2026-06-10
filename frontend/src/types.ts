@@ -7162,6 +7162,13 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Runtime the conversation was created on. Stamped at create-time from the `phai-sandbox-mode`
+     * flag and never re-read. Existing rows default to `'langgraph'`.
+     */
+    agent_runtime?: 'langgraph' | 'sandbox'
+    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. */
+    task?: { id: string; current_run_id: string | null } | null
 }
 
 export interface ConversationDetail extends Conversation {
