@@ -37,9 +37,11 @@ from posthog.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     format_projected_select_clause,
     project_arrow_columns,
+    render_named_conditions,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -82,6 +84,7 @@ def _build_query(
     add_limit: bool = False,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     # Every identifier interpolated below is validated by the bracket
     # quoter — bad input (`;`, `]`, whitespace, etc.) raises before any
@@ -92,7 +95,11 @@ def _build_query(
     select_clause = format_projected_select_clause(projected, _IDENTIFIER_QUOTER)
     base_query = f"SELECT {top}{select_clause} FROM {qualified_table}"
 
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
+        if filter_conditions:
+            return f"{base_query} WHERE {' AND '.join(filter_conditions)}", filter_params
         return base_query, {}
 
     if incremental_field is None or incremental_field_type is None:
@@ -103,15 +110,14 @@ def _build_query(
 
     operator = incremental_type_to_operator(incremental_field_type)
     quoted_incremental = _IDENTIFIER_QUOTER.quote(incremental_field)
-    query = f"{base_query} WHERE {quoted_incremental} {operator} %(incremental_value)s"
+    conditions = [f"{quoted_incremental} {operator} %(incremental_value)s", *filter_conditions]
+    query = f"{base_query} WHERE {' AND '.join(conditions)}"
     # it is only safe to have this order by nested in a CTE if TOP is also specified
     # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
     if add_limit:
         query = f"{query} ORDER BY {quoted_incremental} ASC"
 
-    return query, {
-        "incremental_value": db_incremental_field_last_value,
-    }
+    return query, {"incremental_value": db_incremental_field_last_value, **filter_params}
 
 
 class MSSQLColumn(Column):
@@ -573,6 +579,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
@@ -597,6 +604,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
@@ -619,6 +627,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     if incremental_field:
                         query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"
