@@ -45,6 +45,13 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
+# Opt-in: bring the PostHog app (the `hogli up` dev stack) up in the
+# background on every workspace start. Mutable and sticky on the workspace, so
+# it stays in effect for future starts until explicitly flipped off. On
+# template versions that don't define it yet, the retry shim drops it with a
+# visible warning.
+AUTO_START_APP_PARAMETER = "auto_start_app"
+
 # Create-time region selector. The template defines `workspace_region` with a
 # us-east-1 default; eu-central-1 became a valid option when the EU
 # infrastructure went live. The value is immutable after creation, so it is
@@ -1137,6 +1144,7 @@ def create_workspace(
     region: str = DEFAULT_REGION,
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
+    start_app: bool = False,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -1169,6 +1177,8 @@ def create_workspace(
         parameters[GIT_EMAIL_PARAMETER] = git_email
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
+    if start_app:
+        parameters[AUTO_START_APP_PARAMETER] = "true"
 
     resolved_preset = resolve_template_preset(template, preset)
     base_args = [

@@ -23,6 +23,7 @@ from hogli.manifest import get_manifest
 
 from . import mutagen
 from .coder import (
+    AUTO_START_APP_PARAMETER,
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
     DEFAULT_REGION,
@@ -305,7 +306,7 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
-def _sync_workspace_parameters(name: str) -> None:
+def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
     """Push local config (git identity, dotfiles) to workspace parameters before start.
 
     `workspace_region` is intentionally not forwarded: it is immutable, so Coder
@@ -325,15 +326,31 @@ def _sync_workspace_parameters(name: str) -> None:
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    if extra:
+        params.update(extra)
+
     if params:
         update_workspace_parameters(name, params)
 
 
-def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
+def _start_app_param(start_app: bool | None) -> dict[str, str]:
+    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is)."""
+    if start_app is None:
+        return {}
+    return {AUTO_START_APP_PARAMETER: "true" if start_app else "false"}
+
+
+def _start_existing_workspace(
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
+        if start_app is not None:
+            # Pushing the parameter needs `coder update`, which rebuilds a
+            # running workspace -- only safe on the pre-start sync below.
+            click.echo("Note: --start-app/--no-start-app takes effect on the next start.")
         _print_connection_info(name)
         return
 
@@ -342,7 +359,7 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         click.echo("Wait for the current operation to complete.")
         return
 
-    _sync_workspace_parameters(name)
+    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -1284,6 +1301,15 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
         "Defaults to the value saved by `devbox:setup --configure-region`, then us-east-1."
     ),
 )
+@click.option(
+    "--start-app/--no-start-app",
+    "start_app",
+    default=None,
+    help=(
+        "Bring the PostHog app up in the background on every workspace start. "
+        "Sticky on the workspace until flipped with --no-start-app."
+    ),
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
@@ -1291,6 +1317,7 @@ def devbox_start(
     template: str,
     preset: str,
     region: str | None,
+    start_app: bool | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -1303,7 +1330,7 @@ def devbox_start(
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
-        _start_existing_workspace(name, ws, verbose=verbose)
+        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
         return
 
     config = load_config()
@@ -1320,6 +1347,7 @@ def devbox_start(
         region=effective_region,
         template=template,
         preset=preset,
+        start_app=bool(start_app),
         verbose=verbose,
     )
     click.echo("Created.")
