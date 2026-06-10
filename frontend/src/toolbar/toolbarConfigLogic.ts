@@ -659,13 +659,20 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A non-ok HTTP status from the CORS HEAD probe is an expected outcome when the
+            // derived uiHost doesn't route /toolbar_oauth/check (reverse-proxied or misconfigured
+            // ui_host), not a JS exception worth an error-tracking issue. The analytics capture
+            // below still records it for diagnostics.
+            if (errorType !== 'http_error') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
