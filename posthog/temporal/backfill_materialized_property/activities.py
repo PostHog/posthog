@@ -11,6 +11,7 @@ import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models import MaterializedColumnSlot
@@ -275,8 +276,13 @@ class PopulateSlotAssignmentsResult:
 @activity.defn
 @close_db_connections
 def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> PopulateSlotAssignmentsResult:
-    """Sync slot assignments from Postgres to `dmat_slot_assignments` on every host, then
-    reload `dmat_slot_assignments_dict` everywhere.
+    """Sync slot assignments from Postgres to `dmat_slot_assignments` on every data
+    host, then reload `dmat_slot_assignments_dict` on each of them.
+
+    Scoped to DATA nodes because that is where the table and dictionary exist (created
+    by migration 0274 / the cloud runbook) and where the backfill mutation reads them;
+    prod clusters also contain ingestion/shufflehog hosts that don't have the table, so
+    mapping all hosts would fail there.
 
     Two-phase: TRUNCATE+INSERT on every host, then RELOAD on every host. If any host
     fails the populate, the reload never runs — the next mutation won't see a partially-
@@ -305,12 +311,12 @@ def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> Populate
         client.execute(reload_sql)
 
     cluster = get_cluster()
-    populate_results = cluster.map_all_hosts(populate).result()
-    cluster.map_all_hosts(reload).result()
+    populate_results = cluster.map_hosts_by_role(populate, NodeRole.DATA).result()
+    cluster.map_hosts_by_role(reload, NodeRole.DATA).result()
 
     rows_written = next(iter(populate_results.values()), 0)
     logger.info(
-        "Populated dmat_slot_assignments and reloaded dictionary on all hosts",
+        "Populated dmat_slot_assignments and reloaded dictionary on all data hosts",
         host_count=len(populate_results),
         rows_per_host=rows_written,
     )
