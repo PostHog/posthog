@@ -2,8 +2,9 @@
  * `<SecretEditDialog />` — set, rotate, or clear a single secret on an
  * agent's encrypted env block.
  *
- * Mounted from `<ConnectionsTab>` when the URL carries `?edit_secret=KEY`
- * (and optionally `?callback_session=<id>`). Closing the dialog drops
+ * Mounted from the configuration surface (`<AgentConfigView>`) when the URL
+ * carries `?edit_secret=KEY` (and optionally `?callback_session=<id>`). The
+ * explorer's secret rows open it via `onEditSecret`. Closing the dialog drops
  * both params via the parent's URL-state setter. On a successful save or
  * clear, dispatches `SECRET_SET_EVENT` so any listening surface (the
  * dock's chat runner) can react — that's the concierge callback path.

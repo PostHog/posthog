@@ -21,6 +21,18 @@ export type ConciergePageContext =
     | { kind: 'agent-list' }
     | { kind: 'agent'; agent: AgentApplicationRef }
     | { kind: 'agent-bundle'; agent: AgentApplicationRef; revisionLabel?: string }
+    | {
+          /**
+           * The configuration explorer. `view` is the section in focus
+           * (e.g. `tools`, `skills`, `secrets`); `item` is the specific
+           * entry when a leaf is open (a tool/skill id, secret key, …).
+           * Lets the concierge talk about exactly what's on screen.
+           */
+          kind: 'agent-config'
+          agent: AgentApplicationRef
+          view?: string
+          item?: string
+      }
     | { kind: 'agent-revisions'; agent: AgentApplicationRef }
     | { kind: 'agent-sessions'; agent: AgentApplicationRef }
     | { kind: 'agent-session'; agent: AgentApplicationRef; sessionId: string }
@@ -88,6 +100,12 @@ export function getStarterPrompts(context: ChatContext): StarterPrompt[] {
                 { id: 'b-2', label: 'Add a new skill', prompt: 'I want to add a new skill to this bundle. Help me draft it.' },
                 { id: 'b-3', label: 'Simplify', prompt: 'Where could this bundle be simpler without losing capability?' },
             ]
+        case 'agent-config':
+            return [
+                { id: 'c-1', label: 'Explain what I\'m viewing', prompt: 'Explain the configuration section I\'m currently looking at and what it controls.' },
+                { id: 'c-2', label: 'Edit this', prompt: 'Help me change the configuration I currently have open.' },
+                { id: 'c-3', label: 'What\'s missing?', prompt: 'Review this agent\'s configuration and call out anything missing or misconfigured.' },
+            ]
         case 'agent-revisions':
             return [
                 { id: 'r-1', label: 'Compare last two', prompt: 'What changed between the live revision and the most recent draft?' },
@@ -127,6 +145,13 @@ export function describeContext(context: ChatContext): { mode: string; subject: 
         case 'agent-revisions':
         case 'agent-sessions':
             return { mode: 'Concierge', subject: context.page.agent.name }
+        case 'agent-config':
+            return {
+                mode: 'Concierge',
+                subject: context.page.view
+                    ? `${context.page.agent.name} · ${context.page.view}`
+                    : `${context.page.agent.name} · config`,
+            }
         case 'agent-session':
             return { mode: 'Concierge', subject: `${context.page.agent.name} · session` }
         case 'unknown':

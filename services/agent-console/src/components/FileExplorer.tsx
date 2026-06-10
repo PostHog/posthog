@@ -31,6 +31,8 @@ export interface FileTreeNode {
     description?: string
     /** Optional icon override for the file row. Default is a generic file icon. */
     icon?: React.ReactNode
+    /** Optional right-aligned slot (e.g. an approval lock or a "needs attention" badge). */
+    trailing?: React.ReactNode
     children?: FileTreeNode[]
 }
 
@@ -272,12 +274,27 @@ function FolderRow({
     depth: number
 }): React.ReactElement {
     const [open, setOpen] = useState(true)
+    // Folders are selectable when they carry a `path` (e.g. a config section
+    // whose detail is a section overview). Clicking always toggles open; if it
+    // has a path it also selects, so the selection stays put across toggles.
+    const isSelected = !!node.path && selected === node.path
     return (
         <li>
             <button
                 type="button"
-                onClick={() => setOpen((o) => !o)}
-                className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                onClick={() => {
+                    setOpen((o) => !o)
+                    if (node.path) {
+                        onSelect(node.path)
+                    }
+                }}
+                aria-current={isSelected ? 'true' : undefined}
+                className={
+                    (isSelected
+                        ? 'bg-accent text-foreground'
+                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground') +
+                    ' flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left transition-colors'
+                }
                 style={{ paddingLeft: `${8 + depth * 12}px` }}
             >
                 {open ? (
@@ -285,12 +302,14 @@ function FolderRow({
                 ) : (
                     <ChevronRightIcon className="h-3 w-3 shrink-0" />
                 )}
-                {open ? (
-                    <FolderOpenIcon className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                    <FolderIcon className="h-3.5 w-3.5 shrink-0" />
-                )}
-                <span className="truncate">{node.name}</span>
+                {node.icon ??
+                    (open ? (
+                        <FolderOpenIcon className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                        <FolderIcon className="h-3.5 w-3.5 shrink-0" />
+                    ))}
+                <span className="min-w-0 flex-1 truncate">{node.name}</span>
+                {node.trailing ? <span className="ml-auto shrink-0 pl-1">{node.trailing}</span> : null}
             </button>
             {open && node.children && node.children.length > 0 ? (
                 <TreeView
@@ -341,6 +360,7 @@ function FileRow({
                         </span>
                     ) : null}
                 </span>
+                {node.trailing ? <span className="mt-px shrink-0 pl-1">{node.trailing}</span> : null}
             </button>
         </li>
     )

@@ -60,7 +60,7 @@ export function BundleTree({ files, selectedPath, onSelectPath, agentSlug }: Bun
             onSelectPath={handleSelect}
             emptyMessage="This revision has no bundle files yet."
         >
-            {selectedFile ? <FileViewer file={selectedFile} agentSlug={agentSlug} /> : <EmptyViewer />}
+            {selectedFile ? <BundleFileViewer file={selectedFile} agentSlug={agentSlug} /> : <EmptyViewer />}
         </FileExplorer>
     )
 }
@@ -151,7 +151,7 @@ function FileIconFor({ language }: { language: BundleFileLanguage }): React.Reac
 
 /* ── Right pane: file viewer ─────────────────────────────────────── */
 
-function FileViewer({ file, agentSlug }: { file: BundleFile; agentSlug?: string }): React.ReactElement {
+export function BundleFileViewer({ file, agentSlug }: { file: BundleFile; agentSlug?: string }): React.ReactElement {
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center gap-2 border-b border-border bg-muted/10 px-3 py-1.5">
@@ -165,20 +165,19 @@ function FileViewer({ file, agentSlug }: { file: BundleFile; agentSlug?: string 
                         <EditWithAIButton
                             prompt={`Help me edit \`${file.path}\` in \`${agentSlug}\`.`}
                             agentSlug={agentSlug}
-                            label="Edit"
                             compact
                         />
                     </div>
                 ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3">
-                <FileBody file={file} />
+                <BundleFileBody file={file} />
             </div>
         </div>
     )
 }
 
-function FileBody({ file }: { file: BundleFile }): React.ReactElement {
+export function BundleFileBody({ file }: { file: BundleFile }): React.ReactElement {
     if (file.language === 'json') {
         // The JSON content is stored as a string; parse it for the tree view.
         let parsed: unknown = null

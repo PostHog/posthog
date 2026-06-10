@@ -172,7 +172,6 @@ export function ConfigPanel({
             <EditWithAIButton
                 prompt={`Help me edit the \`${section}\` for \`${agentSlug}\`.`}
                 agentSlug={agentSlug}
-                label="Edit"
                 compact
             />
         )
@@ -330,7 +329,7 @@ export function ConfigPanel({
                 label="Secrets"
                 count={secrets.length}
                 highlighted={highlightedSection === 'secrets'}
-                info="Env-variable names this agent reads from the encrypted env block. Values are never displayed — set them via the connections tab or the dock's `set_secret` tool."
+                info="Env-variable names this agent reads from the encrypted env block. Values are never displayed — set them in the secrets section or via the dock's `set_secret` tool."
                 action={editAction('secrets')}
             >
                 {secrets.length === 0 ? (

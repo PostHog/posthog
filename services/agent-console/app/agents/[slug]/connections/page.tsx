@@ -1,14 +1,30 @@
 /**
- * `/agents/[slug]/connections` — secrets, integrations, MCP servers.
+ * `/agents/[slug]/connections` — retired tab, kept as a redirect.
  *
- * Owns its own URL state: `?edit_secret=<KEY>` opens the editor modal,
- * `?callback_session=<id>` carries the concierge callback target. The
- * params are scoped to this segment by construction — navigating to
- * any other tab drops them automatically.
+ * Secrets, integrations, MCPs, and Slack setup all live in the
+ * configuration explorer now. Old links (and concierge deep links that
+ * predate the move) carry `?edit_secret=` / `?callback_session=` — preserve
+ * them so the secret editor still opens on the configuration surface.
  */
 
-import { ConnectionsSegment } from './connections-client'
+'use client'
 
-export default function ConnectionsPage(): React.ReactElement {
-    return <ConnectionsSegment />
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useEffect } from 'react'
+
+export default function ConnectionsRedirect(): null {
+    const router = useRouter()
+    const params = useParams()
+    const searchParams = useSearchParams()
+
+    useEffect(() => {
+        const slug = typeof params?.slug === 'string' ? params.slug : Array.isArray(params?.slug) ? params.slug[0] : ''
+        if (!slug) {
+            return
+        }
+        const qs = searchParams?.toString()
+        router.replace(`/agents/${slug}/configuration${qs ? `?${qs}` : ''}`)
+    }, [params, router, searchParams])
+
+    return null
 }

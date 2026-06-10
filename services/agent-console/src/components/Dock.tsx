@@ -113,7 +113,6 @@ function asTransportError(err: Error | null): TransportError | null {
  *
  *     overview      → `/agents/<slug>`
  *     configuration → `/agents/<slug>/configuration`
- *     connections   → `/agents/<slug>/connections`
  *     sessions      → `/agents/<slug>/sessions`
  *     memory        → `/agents/<slug>/memory`
  *
@@ -130,10 +129,13 @@ function urlForFocus(args: FocusArgs): string | null {
     }
     const base = `/agents/${args.slug}`
     switch (args.kind) {
-        case 'tab':
+        case 'tab': {
             // Overview is the root segment of `[slug]`, the other tabs
-            // are their own child segments.
-            return args.tab === 'overview' ? base : `${base}/${args.tab}`
+            // are their own child segments. `connections` was folded into
+            // configuration — keep accepting it from older agents.
+            const tab = args.tab === 'connections' ? 'configuration' : args.tab
+            return tab === 'overview' ? base : `${base}/${tab}`
+        }
         case 'revision':
             return `${base}/configuration?revision=${encodeURIComponent(args.revisionId)}`
         case 'spec_section':
@@ -386,6 +388,8 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
                     page: page.kind,
                     agent,
                     session_id: sessionId ?? null,
+                    config_view: page.kind === 'agent-config' ? (page.view ?? null) : undefined,
+                    config_item: page.kind === 'agent-config' ? (page.item ?? null) : undefined,
                     url,
                     follow_enabled: focusEnabled,
                     client: { kind: 'agent-console', version: '1' },
@@ -612,6 +616,16 @@ function buildContextEnvelope(context: ChatContext, currentUrl: string | null): 
     }
     if (page.kind === 'agent-bundle' && page.revisionLabel) {
         data.revision_label = page.revisionLabel
+    }
+    if (page.kind === 'agent-config') {
+        // What the user has open in the config explorer, so the concierge
+        // can talk about exactly that (e.g. "the tools section", a skill).
+        if (page.view) {
+            data.config_view = page.view
+        }
+        if (page.item) {
+            data.config_item = page.item
+        }
     }
     return `[console-context]\n${JSON.stringify(data)}\n[/console-context]\n\n`
 }

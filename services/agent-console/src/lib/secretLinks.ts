@@ -40,16 +40,17 @@ export interface SecretEditUrlOpts {
 /**
  * Build the in-app URL pointing at the editor for a specific secret.
  *
- * Path: `/agents/<slug>/connections` with `?edit_secret=<KEY>` and an
- * optional `callback_session=<id>`. Path-only — the agent / dock
- * supplies the origin if it needs an absolute URL.
+ * Path: `/agents/<slug>/configuration` with `?edit_secret=<KEY>` and an
+ * optional `callback_session=<id>`. The configuration surface mounts the
+ * secret editor (secrets live in the config explorer now). Path-only — the
+ * agent / dock supplies the origin if it needs an absolute URL.
  */
 export function buildSecretEditUrl({ agentSlug, secret, callbackSessionId }: SecretEditUrlOpts): string {
     const params = new URLSearchParams({ edit_secret: secret })
     if (callbackSessionId) {
         params.set('callback_session', callbackSessionId)
     }
-    return `/agents/${encodeURIComponent(agentSlug)}/connections?${params.toString()}`
+    return `/agents/${encodeURIComponent(agentSlug)}/configuration?${params.toString()}`
 }
 
 /**

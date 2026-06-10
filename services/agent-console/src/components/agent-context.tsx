@@ -3,7 +3,7 @@
  *
  * The `[slug]/layout.tsx` does the fetches once (agent + revisions) and
  * provides them through this context. Child segments (`overview`,
- * `configuration`, `connections`, `sessions`, `memory`) read from
+ * `configuration`, `sessions`, `approvals`, `memory`) read from
  * `useAgent()` / `useRevisions()` so there's no per-tab refetch and a
  * tab switch is a pure soft-nav with no data flash.
  *

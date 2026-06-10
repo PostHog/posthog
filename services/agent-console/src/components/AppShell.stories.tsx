@@ -19,7 +19,6 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { getSnapshot, navigate, reset, setParams, subscribe } from '../../.storybook/mocks/router-store'
 import { AgentsListClient } from '../../app/agents-list-client'
 import { ConfigurationSegment } from '../../app/agents/[slug]/configuration/configuration-client'
-import { ConnectionsSegment } from '../../app/agents/[slug]/connections/connections-client'
 import { MemorySegment } from '../../app/agents/[slug]/memory/memory-client'
 import { OverviewSegment } from '../../app/agents/[slug]/overview-client'
 import { SessionsSegment } from '../../app/agents/[slug]/sessions/sessions-client'
@@ -57,7 +56,6 @@ function AgentDetailSurface({ slug, children }: { slug: string; children: React.
  *   /agents                            → agents list
  *   /agents/<slug>                     → overview
  *   /agents/<slug>/configuration       → configuration
- *   /agents/<slug>/connections         → connections
  *   /agents/<slug>/memory              → memory
  *   /agents/<slug>/sessions            → sessions
  *   /registry                          → registry
@@ -78,8 +76,6 @@ function matchRoute(pathname: string): {
         const segment =
             tab === 'configuration' ? (
                 <ConfigurationSegment />
-            ) : tab === 'connections' ? (
-                <ConnectionsSegment />
             ) : tab === 'memory' ? (
                 <MemorySegment />
             ) : tab === 'sessions' ? (

@@ -1,0 +1,1308 @@
+/**
+ * `<AgentConfigExplorer />` — EXPERIMENTAL alternative to the
+ * `RevisionsBrowser` config view.
+ *
+ * The whole revision is one filesystem. There is no separate "bundle" —
+ * the files the runner reads are folded into the config they belong to:
+ * the system prompt is `Instructions`, a skill's `SKILL.md` body renders
+ * under the skill, a custom tool's `source.ts` renders under the tool.
+ *
+ * Left tree (on the shared `<FileExplorer>`):
+ *   Model · Instructions · Triggers/ · Tools/ · Skills/ · MCPs/ ·
+ *   Secrets/ · Limits · Auth
+ * Section folders (Tools, Skills, …) are selectable — their detail is a
+ * high-level explainer (how native vs custom vs client tools differ, how
+ * skills load). Item leaves show a meta card + the actual content below.
+ *
+ * Right-side row affordances: an approval lock on gated tools, and a
+ * "needs attention" warning on secrets / MCPs / triggers whose required
+ * secret isn't set yet — the latter opens an inline set-secret popover in
+ * the detail pane.
+ *
+ * Storybook-first (`AgentConfigExplorer.stories.tsx`). The agent overview
+ * + revision dropdown stay in the host scene; this is just the body.
+ */
+
+'use client'
+
+import {
+    AlertTriangleIcon,
+    CalendarClockIcon,
+    CodeIcon,
+    GlobeIcon,
+    HashIcon,
+    InfoIcon,
+    KeyIcon,
+    LinkIcon,
+    LockIcon,
+    MessageSquareIcon,
+    PuzzleIcon,
+    ScrollTextIcon,
+    ServerIcon,
+    ShieldIcon,
+    SparklesIcon,
+    TimerIcon,
+    UserIcon,
+    WebhookIcon,
+    WrenchIcon,
+    ZapIcon,
+} from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
+
+import type { BundleFile } from '@posthog/agent-chat/fixtures'
+
+import { getTriggerRequiredSecrets } from '@/lib/triggerSecrets'
+
+import { BundleFileBody } from './BundleTree'
+import { EditWithAIButton } from './EditWithAIButton'
+import { FileExplorer, type FileTreeNode } from './FileExplorer'
+
+/* ── Spec subset types ──────────────────────────────────────────── */
+
+type ToolKind = 'native' | 'client' | 'custom' | 'custom_template'
+interface ToolRef {
+    kind: ToolKind | string
+    id: string
+    path?: string
+    from_template?: string
+    description?: string
+    requires_approval?: boolean
+}
+interface SkillRef {
+    id: string
+    path: string
+    description?: string
+    /** Registry lineage when pinned from a template; absent = bundle-authored. */
+    from_template?: string
+}
+interface Trigger {
+    type: string
+    config?: Record<string, unknown>
+}
+interface McpToolEntry {
+    name: string
+    requires_approval?: boolean
+}
+interface McpRef {
+    id: string
+    url: string
+    secrets?: string[]
+    tools?: Array<string | McpToolEntry>
+}
+interface Limits {
+    max_turns?: number
+    max_tool_calls?: number
+    max_wall_seconds?: number
+}
+
+// Secret keys grouped by the trigger type that requires them, derived from
+// the shared trigger-secrets registry (`getTriggerRequiredSecrets`) so a
+// trigger missing a key — and the Secrets section — stay in lockstep with
+// the platform. `via` records which trigger contributed a secret.
+function requiredSecretsByTrigger(spec: Record<string, unknown>): Record<string, string[]> {
+    const out: Record<string, string[]> = {}
+    for (const req of getTriggerRequiredSecrets(spec)) {
+        ;(out[req.trigger] ??= []).push(req.key)
+    }
+    return out
+}
+
+export interface AgentConfigExplorerProps {
+    /** The revision's `spec` JSON (model, triggers, tools, skills, …). */
+    spec: Record<string, unknown>
+    /** The revision's bundle files (agent.md, skills/<id>/SKILL.md, tools/…). */
+    files: BundleFile[]
+    /**
+     * Secret keys that are currently SET on the agent. When provided, any
+     * required key not in this list is flagged as "needs attention". When
+     * omitted, no secret warnings are shown.
+     */
+    setSecrets?: string[]
+    /**
+     * Open the secret editor for `key` (the host mounts the real
+     * `<SecretEditDialog>`, driven by `?edit_secret=`). Covers set / rotate
+     * / clear. When omitted, secret rows are read-only.
+     */
+    onEditSecret?: (key: string) => void
+    /** Start the "add a secret the spec doesn't declare" flow (host-owned). */
+    onAddCustomSecret?: () => void
+    /**
+     * Slack app-manifest setup, rendered under a `slack` trigger's detail.
+     * The host fills this with the live `<SlackSetupCard>`; omitted in
+     * Storybook / when there's no slack trigger.
+     */
+    slackSetup?: ReactNode
+    /** Controlled selection (a node path). Falls back to `cfg:model`. */
+    selectedPath?: string | null
+    onSelectPath?: (path: string) => void
+    /** Slug — threads "Edit with AI" into the bundle file viewer when set. */
+    agentSlug?: string
+    /**
+     * Outer height (passed through to `<FileExplorer>`). Pass `'100%'` to
+     * fill a flex parent; defaults to the explorer's own viewport-based
+     * height for standalone use.
+     */
+    height?: string
+}
+
+const CFG = 'cfg:'
+const LEAF = 'h-3.5 w-3.5 shrink-0'
+
+export function AgentConfigExplorer({
+    spec,
+    files,
+    setSecrets,
+    onEditSecret,
+    onAddCustomSecret,
+    slackSetup,
+    selectedPath,
+    onSelectPath,
+    agentSlug,
+    height,
+}: AgentConfigExplorerProps): React.ReactElement {
+    const [internal, setInternal] = useState<string>(`${CFG}model`)
+    const selected = selectedPath ?? internal
+    const select = (path: string): void => {
+        setInternal(path)
+        onSelectPath?.(path)
+    }
+
+    const isMissing = useMemo(() => {
+        return (key: string): boolean => setSecrets !== undefined && !setSecrets.includes(key)
+    }, [setSecrets])
+
+    const tree = useMemo(() => buildTree(spec, isMissing), [spec, isMissing])
+
+    return (
+        <FileExplorer
+            storageKey="file-explorer:agent-config"
+            tree={tree}
+            selectedPath={selected}
+            onSelectPath={select}
+            emptyMessage="This revision has no configuration yet."
+            height={height}
+        >
+            <DetailPane
+                spec={spec}
+                files={files}
+                selected={selected}
+                agentSlug={agentSlug}
+                isMissing={isMissing}
+                setSecrets={setSecrets}
+                onEditSecret={onEditSecret}
+                onAddCustomSecret={onAddCustomSecret}
+                slackSetup={slackSetup}
+                onSelectPath={select}
+            />
+        </FileExplorer>
+    )
+}
+
+/* ── Tree builder ───────────────────────────────────────────────── */
+
+const tools = (s: Record<string, unknown>): ToolRef[] => (Array.isArray(s.tools) ? (s.tools as ToolRef[]) : [])
+const skills = (s: Record<string, unknown>): SkillRef[] => (Array.isArray(s.skills) ? (s.skills as SkillRef[]) : [])
+const triggers = (s: Record<string, unknown>): Trigger[] => (Array.isArray(s.triggers) ? (s.triggers as Trigger[]) : [])
+const mcps = (s: Record<string, unknown>): McpRef[] => (Array.isArray(s.mcps) ? (s.mcps as McpRef[]) : [])
+const secrets = (s: Record<string, unknown>): string[] => (Array.isArray(s.secrets) ? (s.secrets as string[]) : [])
+
+function stripNamespace(id: string): string {
+    const slash = id.indexOf('/')
+    return slash === -1 ? id : id.slice(slash + 1)
+}
+
+function warnBadge(title: string): ReactNode {
+    return (
+        <span title={title}>
+            <AlertTriangleIcon className="h-3.5 w-3.5 text-amber-500" />
+        </span>
+    )
+}
+function lockBadge(): ReactNode {
+    return (
+        <span title="Calls to this tool require human approval before they run.">
+            <LockIcon className="h-3 w-3 text-amber-500" />
+        </span>
+    )
+}
+function customPill(): ReactNode {
+    return (
+        <span
+            title="Authored in this agent's bundle."
+            className="rounded bg-violet-500/15 px-1 py-px text-[0.5625rem] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300"
+        >
+            custom
+        </span>
+    )
+}
+/** Combine 0+ trailing badges into one inline group (undefined when empty). */
+function trailingBadges(nodes: ReactNode[]): ReactNode | undefined {
+    const items = nodes.filter(Boolean)
+    if (items.length === 0) {
+        return undefined
+    }
+    return (
+        <span className="flex items-center gap-1">
+            {items.map((n, i) => (
+                <span key={i}>{n}</span>
+            ))}
+        </span>
+    )
+}
+
+const integrations = (s: Record<string, unknown>): string[] =>
+    Array.isArray(s.integrations) ? (s.integrations as string[]) : []
+
+interface SecretEntry {
+    key: string
+    /** Trigger type that requires this key (e.g. "slack"), if any. */
+    via?: string
+}
+
+/**
+ * Every secret the agent reads: the spec's top-level `secrets[]` plus any
+ * keys triggers require (e.g. Slack's signing secret), declared-first and
+ * deduped. The agent reads both the same way, so the Secrets section lists
+ * both — annotated with the trigger that contributed it.
+ */
+function allSecretKeys(spec: Record<string, unknown>): SecretEntry[] {
+    const out: SecretEntry[] = []
+    const seen = new Set<string>()
+    for (const key of secrets(spec)) {
+        if (!seen.has(key)) {
+            seen.add(key)
+            out.push({ key })
+        }
+    }
+    for (const req of getTriggerRequiredSecrets(spec)) {
+        if (!seen.has(req.key)) {
+            seen.add(req.key)
+            out.push({ key: req.key, via: req.trigger })
+        }
+    }
+    return out
+}
+
+function buildTree(spec: Record<string, unknown>, isMissing: (k: string) => boolean): FileTreeNode {
+    const children: FileTreeNode[] = [
+        { type: 'file', name: 'model', path: `${CFG}model`, icon: <SparklesIcon className={LEAF} /> },
+        { type: 'file', name: 'instructions', path: `${CFG}instructions`, icon: <ScrollTextIcon className={LEAF} /> },
+    ]
+
+    const reqByTrigger = requiredSecretsByTrigger(spec)
+    const trg = triggers(spec)
+    if (trg.length) {
+        children.push({
+            type: 'folder',
+            name: 'triggers',
+            path: `${CFG}triggers`,
+            icon: <ZapIcon className={LEAF} />,
+            children: trg.map((t, i) => {
+                const missing = (reqByTrigger[t.type] ?? []).filter(isMissing)
+                return {
+                    type: 'file',
+                    name: t.type,
+                    path: `${CFG}trigger/${i}`,
+                    icon: <TriggerIcon type={t.type} />,
+                    trailing: missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : undefined,
+                }
+            }),
+        })
+    }
+
+    const tls = tools(spec)
+    if (tls.length) {
+        children.push({
+            type: 'folder',
+            name: 'tools',
+            path: `${CFG}tools`,
+            icon: <WrenchIcon className={LEAF} />,
+            children: tls.map((t) => {
+                const isCustom = t.kind === 'custom' || t.kind === 'custom_template'
+                return {
+                    type: 'file',
+                    name: stripNamespace(t.id),
+                    path: `${CFG}tool/${t.id}`,
+                    icon: <ToolKindIcon kind={t.kind} />,
+                    trailing: trailingBadges([
+                        isCustom ? customPill() : null,
+                        t.requires_approval ? lockBadge() : null,
+                    ]),
+                }
+            }),
+        })
+    }
+
+    const sks = skills(spec)
+    if (sks.length) {
+        children.push({
+            type: 'folder',
+            name: 'skills',
+            path: `${CFG}skills`,
+            icon: <PuzzleIcon className={LEAF} />,
+            children: sks.map((s) => ({
+                type: 'file',
+                name: s.id,
+                path: `${CFG}skill/${s.id}`,
+                description: s.description,
+                icon: <PuzzleIcon className={LEAF} />,
+                trailing: s.from_template ? undefined : customPill(),
+            })),
+        })
+    }
+
+    const ms = mcps(spec)
+    if (ms.length) {
+        children.push({
+            type: 'folder',
+            name: 'mcps',
+            path: `${CFG}mcps`,
+            icon: <ServerIcon className={LEAF} />,
+            children: ms.map((m) => {
+                const missing = (m.secrets ?? []).filter(isMissing)
+                return {
+                    type: 'file',
+                    name: m.id,
+                    path: `${CFG}mcp/${m.id}`,
+                    icon: <ServerIcon className={LEAF} />,
+                    trailing: missing.length ? warnBadge(`Needs secret(s): ${missing.join(', ')}`) : undefined,
+                }
+            }),
+        })
+    }
+
+    const intg = integrations(spec)
+    if (intg.length) {
+        children.push({
+            type: 'folder',
+            name: 'integrations',
+            path: `${CFG}integrations`,
+            icon: <LinkIcon className={LEAF} />,
+            children: intg.map((name) => ({
+                type: 'file',
+                name,
+                path: `${CFG}integration/${name}`,
+                icon: <LinkIcon className={LEAF} />,
+            })),
+        })
+    }
+
+    const scr = allSecretKeys(spec)
+    if (scr.length) {
+        const anyMissing = scr.some((s) => isMissing(s.key))
+        children.push({
+            type: 'folder',
+            name: 'secrets',
+            path: `${CFG}secrets`,
+            icon: <KeyIcon className={LEAF} />,
+            trailing: anyMissing ? warnBadge('One or more secrets are not set.') : undefined,
+            children: scr.map((s) => ({
+                type: 'file',
+                name: s.key,
+                path: `${CFG}secret/${s.key}`,
+                icon: <KeyIcon className={LEAF} />,
+                trailing: isMissing(s.key) ? warnBadge(`${s.key} is not set — needs attention.`) : undefined,
+            })),
+        })
+    }
+
+    children.push({ type: 'file', name: 'limits', path: `${CFG}limits`, icon: <TimerIcon className={LEAF} /> })
+    children.push({ type: 'file', name: 'auth', path: `${CFG}auth`, icon: <ShieldIcon className={LEAF} /> })
+
+    return { type: 'folder', name: '', children }
+}
+
+/* ── Detail pane ────────────────────────────────────────────────── */
+
+function DetailPane({
+    spec,
+    files,
+    selected,
+    agentSlug,
+    isMissing,
+    setSecrets,
+    onEditSecret,
+    onAddCustomSecret,
+    slackSetup,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    files: BundleFile[]
+    selected: string
+    agentSlug?: string
+    isMissing: (k: string) => boolean
+    setSecrets?: string[]
+    onEditSecret?: (key: string) => void
+    onAddCustomSecret?: () => void
+    slackSetup?: ReactNode
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const rest = selected.startsWith(CFG) ? selected.slice(CFG.length) : selected
+    const [section, ...idParts] = rest.split('/')
+    const id = idParts.join('/')
+    const fileFor = (path: string): BundleFile | undefined => files.find((f) => f.path === path)
+    const slug = agentSlug ?? 'this agent'
+
+    // Every detail Card gets the same chrome — icon + title + an "Edit with
+    // AI" pill + an info toggle that explains the section — via this helper.
+    const card = (icon: ReactNode, title: string, body: ReactNode, editPrompt: string): React.ReactElement => (
+        <Card
+            icon={icon}
+            title={title}
+            path={selected}
+            body={body}
+            agentSlug={agentSlug}
+            editPrompt={editPrompt}
+            info={SECTION_INFO[section]}
+        />
+    )
+
+    switch (section) {
+        case 'model':
+            return card(
+                <SparklesIcon className={HEAD} />,
+                'Model',
+                <ModelBody spec={spec} />,
+                `Help me change the model or reasoning for \`${slug}\`.`
+            )
+        case 'instructions': {
+            const md = fileFor('agent.md')
+            // Goes through `card()` like every other section so it gets the
+            // info toggle + "Edit with AI"; the body is the agent.md content.
+            return card(
+                <ScrollTextIcon className={HEAD} />,
+                'Instructions · agent.md',
+                md ? (
+                    <BundleFileBody file={md} />
+                ) : (
+                    <Pad>
+                        <Muted>No agent.md in this revision.</Muted>
+                    </Pad>
+                ),
+                `Help me write the system prompt (agent.md) for \`${slug}\`.`
+            )
+        }
+        case 'triggers':
+            return card(
+                <ZapIcon className={HEAD} />,
+                'Triggers',
+                <TriggersOverview spec={spec} />,
+                `Help me with the triggers for \`${slug}\`.`
+            )
+        case 'trigger': {
+            const t = triggers(spec)[Number(id)]
+            const required = t ? (requiredSecretsByTrigger(spec)[t.type] ?? []) : []
+            return card(
+                <TriggerIcon type={t?.type} />,
+                `Trigger · ${t?.type ?? id}`,
+                <TriggerBody
+                    trigger={t}
+                    requiredKeys={required}
+                    isMissing={isMissing}
+                    onEditSecret={onEditSecret}
+                    slackSetup={t?.type === 'slack' ? slackSetup : undefined}
+                />,
+                `Help me configure the ${t?.type ?? ''} trigger for \`${slug}\`.`
+            )
+        }
+        case 'tools':
+            return card(
+                <WrenchIcon className={HEAD} />,
+                'Tools',
+                <ToolsOverview spec={spec} />,
+                `Help me with the tools for \`${slug}\`.`
+            )
+        case 'tool': {
+            const t = tools(spec).find((x) => x.id === id)
+            return card(
+                <ToolKindIcon kind={t?.kind} />,
+                id,
+                <ToolBody tool={t} sourceFile={fileFor(`tools/${id}/source.ts`)} />,
+                `Help me with the \`${id}\` tool on \`${slug}\`.`
+            )
+        }
+        case 'skills':
+            return card(
+                <PuzzleIcon className={HEAD} />,
+                'Skills',
+                <SkillsOverview spec={spec} />,
+                `Help me with the skills for \`${slug}\`.`
+            )
+        case 'skill': {
+            const s = skills(spec).find((x) => x.id === id)
+            return card(
+                <PuzzleIcon className={HEAD} />,
+                `Skill · ${id}`,
+                <SkillBody skill={s} bodyFile={fileFor(`skills/${id}/SKILL.md`)} />,
+                `Help me edit the \`${id}\` skill on \`${slug}\`.`
+            )
+        }
+        case 'mcps':
+            return card(
+                <ServerIcon className={HEAD} />,
+                'MCPs',
+                <Pad>
+                    <Muted>Remote MCP servers the agent connects to at session start.</Muted>
+                </Pad>,
+                `Help me with the MCP servers for \`${slug}\`.`
+            )
+        case 'mcp': {
+            const m = mcps(spec).find((x) => x.id === id)
+            return card(
+                <ServerIcon className={HEAD} />,
+                `MCP · ${id}`,
+                <McpBody mcp={m} isMissing={isMissing} onEditSecret={onEditSecret} />,
+                `Help me with the \`${id}\` MCP connection on \`${slug}\`.`
+            )
+        }
+        case 'integrations':
+            return card(
+                <LinkIcon className={HEAD} />,
+                'Integrations',
+                <IntegrationsOverview spec={spec} onSelectPath={onSelectPath} />,
+                `Help me with the integrations for \`${slug}\`.`
+            )
+        case 'integration':
+            return card(
+                <LinkIcon className={HEAD} />,
+                `Integration · ${id}`,
+                <IntegrationBody name={id} />,
+                `Help me wire up the \`${id}\` integration for \`${slug}\`.`
+            )
+        case 'secrets':
+            return card(
+                <KeyIcon className={HEAD} />,
+                'Secrets',
+                <SecretsOverview
+                    spec={spec}
+                    setSecrets={setSecrets}
+                    isMissing={isMissing}
+                    onSelectPath={onSelectPath}
+                    onAddCustomSecret={onAddCustomSecret}
+                />,
+                `Help me set up the secrets for \`${slug}\`.`
+            )
+        case 'secret': {
+            const via = allSecretKeys(spec).find((s) => s.key === id)?.via
+            return card(
+                <KeyIcon className={HEAD} />,
+                `Secret · ${id}`,
+                <SecretBody name={id} via={via} missing={isMissing(id)} onEditSecret={onEditSecret} />,
+                `Help me set the \`${id}\` secret for \`${slug}\`.`
+            )
+        }
+        case 'limits':
+            return card(
+                <TimerIcon className={HEAD} />,
+                'Limits',
+                <LimitsBody spec={spec} />,
+                `Help me adjust the limits for \`${slug}\`.`
+            )
+        case 'auth':
+            return card(
+                <ShieldIcon className={HEAD} />,
+                'Auth',
+                <AuthBody spec={spec} />,
+                `Help me configure auth for \`${slug}\`.`
+            )
+        default: {
+            const file = fileFor(selected)
+            return file ? <BundleFileBody file={file} /> : <Empty>Pick a configuration item.</Empty>
+        }
+    }
+}
+
+const HEAD = 'h-4 w-4 shrink-0 text-muted-foreground'
+
+// One-paragraph "what is this section" copy, surfaced by the header info
+// toggle. Singular item paths alias to their section.
+const SECTION_INFO: Record<string, string> = {
+    model: 'The LLM every request goes to. `reasoning` sets the extended-thinking budget — higher for planning-heavy work, lower or omitted for simple lookups.',
+    instructions:
+        'The system prompt (agent.md), prepended to every turn. Keep it short and let skills carry the depth.',
+    triggers:
+        "What can start a session: cron schedules, chat messages, webhooks, Slack mentions, or MCP transport. A ⚠ flags a trigger whose required secret isn't set.",
+    tools: 'Callable functions the agent has. Native = built-in runner tools (no setup); custom = authored in this bundle and run in a sandbox; client = fulfilled by the host UI. A 🔒 marks calls that need approval first.',
+    skills: 'Markdown playbooks loaded on demand via @posthog/load-skill. Only the index (id + description) sits in the prompt; a body costs tokens only when the model loads it — so the description is the signal for when to load.',
+    mcps: 'Remote MCP servers the agent connects to at session start. Each exposes a curated tool list; some of those tools are approval-gated.',
+    integrations:
+        'Team-level integrations (e.g. slack, github) the agent expects to be configured at the project level. The agent reuses the team connection — it does not hold its own credential.',
+    secrets:
+        "Encrypted env values the agent reads (referenced as ${KEY} in tool args); values are never shown. A ⚠ means a required key isn't set yet.",
+    limits: 'Per-session safety caps the runner enforces. When one is hit the session ends with `max_*_reached` and the last partial output is kept.',
+    auth: 'How inbound triggers authenticate. oauth + pat are end-user identities; posthog_internal is service-to-service; shared_secret verifies webhook callers.',
+}
+SECTION_INFO.trigger = SECTION_INFO.triggers
+SECTION_INFO.tool = SECTION_INFO.tools
+SECTION_INFO.skill = SECTION_INFO.skills
+SECTION_INFO.mcp = SECTION_INFO.mcps
+SECTION_INFO.integration = SECTION_INFO.integrations
+SECTION_INFO.secret = SECTION_INFO.secrets
+
+function Card({
+    icon,
+    title,
+    path,
+    body,
+    agentSlug,
+    editPrompt,
+    info,
+}: {
+    icon: ReactNode
+    title: string
+    path: string
+    body: ReactNode
+    agentSlug?: string
+    editPrompt?: string
+    info?: ReactNode
+}): React.ReactElement {
+    const [infoOpen, setInfoOpen] = useState(false)
+    return (
+        <div className="flex h-full flex-col">
+            <div className="flex items-center gap-2 border-b border-border bg-muted/10 px-3 py-1.5">
+                {icon}
+                <span className="font-mono text-[0.8125rem] text-foreground">{title}</span>
+                <div className="ml-auto flex items-center gap-2">
+                    {agentSlug ? (
+                        <EditWithAIButton
+                            prompt={editPrompt ?? `Help me edit the ${title} configuration of \`${agentSlug}\`.`}
+                            agentSlug={agentSlug}
+                            compact
+                        />
+                    ) : null}
+                    {info ? (
+                        <button
+                            type="button"
+                            onClick={() => setInfoOpen((o) => !o)}
+                            aria-pressed={infoOpen}
+                            aria-label={infoOpen ? 'Hide section info' : 'Show section info'}
+                            className={
+                                'flex h-5 w-5 items-center justify-center rounded transition-colors ' +
+                                (infoOpen
+                                    ? 'bg-primary text-primary-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:bg-muted hover:text-foreground')
+                            }
+                        >
+                            <InfoIcon className="h-3 w-3" />
+                        </button>
+                    ) : null}
+                    <code className="hidden text-[0.625rem] text-muted-foreground/60 sm:inline">{path}</code>
+                </div>
+            </div>
+            {info && infoOpen ? (
+                <div className="border-b border-primary/30 bg-primary/5 px-3 py-2 text-[0.8125rem] leading-relaxed text-foreground/80">
+                    {info}
+                </div>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-auto">{body}</div>
+        </div>
+    )
+}
+
+/* ── Section overviews (the "high-level info + explainers") ─────── */
+
+function ExplainerRow({ tag, tone, children }: { tag: string; tone: string; children: ReactNode }): React.ReactElement {
+    return (
+        <div className="flex gap-2.5">
+            <span
+                className={`mt-0.5 inline-flex h-fit shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide ${tone}`}
+            >
+                {tag}
+            </span>
+            <p className="text-[0.8125rem] leading-relaxed text-foreground/85">{children}</p>
+        </div>
+    )
+}
+
+function ToolsOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    const byKind = tools(spec).reduce<Record<string, number>>((acc, t) => {
+        acc[t.kind] = (acc[t.kind] ?? 0) + 1
+        return acc
+    }, {})
+    return (
+        <Pad>
+            <p className="text-sm text-foreground/90">
+                The callable functions this agent has. They differ by where they run and what they need:
+            </p>
+            <div className="space-y-2.5">
+                <ExplainerRow tag="Built-in" tone="bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                    <b>Native</b> tools ship with the runner (`@posthog/*`). No setup, no code in the bundle — every
+                    agent can call them.
+                </ExplainerRow>
+                <ExplainerRow tag="Custom" tone="bg-violet-500/15 text-violet-700 dark:text-violet-300">
+                    Authored in this agent's bundle (`tools/&lt;id&gt;/source.ts`), compiled at freeze, and run in a
+                    per-session sandbox. Open one to read its source.
+                </ExplainerRow>
+                <ExplainerRow tag="Client" tone="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                    Fulfilled by the host UI (e.g. this console). Only available when the user is in a client that
+                    implements them; otherwise the call returns `unhandled_client_tool`.
+                </ExplainerRow>
+            </div>
+            <p className="text-[0.6875rem] text-muted-foreground">
+                A 🔒 on a tool means its calls are approval-gated. This agent:{' '}
+                {Object.entries(byKind)
+                    .map(([k, n]) => `${n} ${k}`)
+                    .join(', ') || 'no tools'}
+                .
+            </p>
+        </Pad>
+    )
+}
+
+function SkillsOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    return (
+        <Pad>
+            <p className="text-sm text-foreground/90">
+                Markdown playbooks the agent loads on demand via `@posthog/load-skill` — {skills(spec).length} here.
+            </p>
+            <div className="space-y-2.5">
+                <ExplainerRow tag="Lazy" tone="bg-muted text-muted-foreground">
+                    Only the skill <b>index</b> (id + description) is in the system prompt. The body costs tokens only
+                    when the model decides to load it — so the description is the one signal for <i>when</i> to load it.
+                </ExplainerRow>
+                <ExplainerRow tag="Body" tone="bg-muted text-muted-foreground">
+                    Each skill's body is `skills/&lt;id&gt;/SKILL.md` in the bundle. Open a skill to read it inline.
+                </ExplainerRow>
+            </div>
+        </Pad>
+    )
+}
+
+function TriggersOverview({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    return (
+        <Pad>
+            <p className="text-sm text-foreground/90">What can start a session — {triggers(spec).length} configured.</p>
+            <Muted>Open a trigger to see its config. A ⚠ flags a trigger whose required secret isn't set.</Muted>
+        </Pad>
+    )
+}
+
+function SecretsOverview({
+    spec,
+    setSecrets,
+    isMissing,
+    onSelectPath,
+    onAddCustomSecret,
+}: {
+    spec: Record<string, unknown>
+    setSecrets?: string[]
+    isMissing: (k: string) => boolean
+    onSelectPath: (path: string) => void
+    onAddCustomSecret?: () => void
+}): React.ReactElement {
+    const declared = allSecretKeys(spec)
+    const declaredKeys = new Set(declared.map((s) => s.key))
+    // Keys set on the application that the spec doesn't declare — the agent
+    // won't read them, so flag them as orphans (mirrors the connections view).
+    const extras = (setSecrets ?? []).filter((k) => !declaredKeys.has(k)).sort()
+    return (
+        <Pad>
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-foreground/90">Env keys this agent reads. Values are never shown.</p>
+                {onAddCustomSecret ? (
+                    <button
+                        type="button"
+                        onClick={onAddCustomSecret}
+                        className="inline-flex shrink-0 items-center gap-1 rounded border border-border/60 bg-card px-2 py-1 text-[0.6875rem] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                    >
+                        <KeyIcon className="h-3 w-3" /> Add custom
+                    </button>
+                ) : null}
+            </div>
+            <div className="flex flex-col gap-1">
+                {declared.map((s) => (
+                    <SecretOverviewRow key={s.key} entry={s} missing={isMissing(s.key)} onSelectPath={onSelectPath} />
+                ))}
+            </div>
+            {extras.length ? (
+                <div className="space-y-1">
+                    <p className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">Set but not on spec</p>
+                    {extras.map((k) => (
+                        <SecretOverviewRow
+                            key={k}
+                            entry={{ key: k }}
+                            missing={false}
+                            orphan
+                            onSelectPath={onSelectPath}
+                        />
+                    ))}
+                </div>
+            ) : null}
+        </Pad>
+    )
+}
+
+function SecretOverviewRow({
+    entry,
+    missing,
+    orphan,
+    onSelectPath,
+}: {
+    entry: SecretEntry
+    missing: boolean
+    orphan?: boolean
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    return (
+        <button
+            type="button"
+            onClick={() => onSelectPath(`${CFG}secret/${entry.key}`)}
+            className="flex items-center gap-2 rounded border border-border/60 bg-card px-2 py-1.5 text-left hover:bg-accent/40"
+        >
+            <KeyIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            <code className="flex-1 truncate font-mono text-[0.75rem] text-foreground">{entry.key}</code>
+            {entry.via ? <Chip>via {entry.via}</Chip> : null}
+            {orphan ? <Chip>orphan</Chip> : null}
+            {missing ? (
+                <span className="inline-flex items-center gap-1 text-[0.6875rem] text-amber-600 dark:text-amber-300">
+                    <AlertTriangleIcon className="h-3 w-3" /> not set
+                </span>
+            ) : (
+                <span className="text-[0.6875rem] text-emerald-600 dark:text-emerald-300">set</span>
+            )}
+        </button>
+    )
+}
+
+function IntegrationsOverview({
+    spec,
+    onSelectPath,
+}: {
+    spec: Record<string, unknown>
+    onSelectPath: (path: string) => void
+}): React.ReactElement {
+    const intg = integrations(spec)
+    return (
+        <Pad>
+            <p className="text-sm text-foreground/90">
+                Team-level integrations this agent expects to be configured at the project level.
+            </p>
+            {intg.length ? (
+                <div className="flex flex-col gap-1">
+                    {intg.map((name) => (
+                        <button
+                            key={name}
+                            type="button"
+                            onClick={() => onSelectPath(`${CFG}integration/${name}`)}
+                            className="flex items-center gap-2 rounded border border-border/60 bg-card px-2 py-1.5 text-left hover:bg-accent/40"
+                        >
+                            <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="flex-1 truncate text-[0.75rem] font-medium text-foreground">{name}</span>
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <Muted>No integrations declared.</Muted>
+            )}
+        </Pad>
+    )
+}
+
+function IntegrationBody({ name }: { name: string }): React.ReactElement {
+    return (
+        <Pad>
+            <Row label="integration">
+                <Chip>{name}</Chip>
+            </Row>
+            <p className="text-sm text-muted-foreground">
+                The agent reuses the team's <code className="font-mono">{name}</code> connection. Configure it once at
+                the project level — there's no per-agent credential here.
+            </p>
+        </Pad>
+    )
+}
+
+/* ── Item detail bodies ─────────────────────────────────────────── */
+
+function ModelBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    const model = typeof spec.model === 'string' ? spec.model : undefined
+    const reasoning = typeof spec.reasoning === 'string' ? spec.reasoning : undefined
+    return (
+        <Pad>
+            <Row label="model">{model ? <Chip>{model}</Chip> : <Muted>not set</Muted>}</Row>
+            <Row label="reasoning">{reasoning ? <Chip>{reasoning}</Chip> : <Muted>default</Muted>}</Row>
+        </Pad>
+    )
+}
+
+function TriggerBody({
+    trigger,
+    requiredKeys,
+    isMissing,
+    onEditSecret,
+    slackSetup,
+}: {
+    trigger?: Trigger
+    requiredKeys: string[]
+    isMissing: (k: string) => boolean
+    onEditSecret?: (key: string) => void
+    /** Slack app-manifest setup, rendered for a slack trigger. */
+    slackSetup?: ReactNode
+}): React.ReactElement {
+    if (!trigger) {
+        return (
+            <Pad>
+                <Muted>Trigger not found.</Muted>
+            </Pad>
+        )
+    }
+    const cfg = trigger.config ?? {}
+    const missing = requiredKeys.filter(isMissing)
+    return (
+        <div className="flex h-full flex-col">
+            <Pad>
+                <Row label="type">
+                    <Chip>{trigger.type}</Chip>
+                </Row>
+                {Object.keys(cfg).map((k) => (
+                    <Row key={k} label={k}>
+                        <code className="text-[0.75rem] text-foreground">{JSON.stringify(cfg[k])}</code>
+                    </Row>
+                ))}
+                {missing.length ? (
+                    <Attention>
+                        Requires secret(s) not yet set: {missing.join(', ')}.
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {missing.map((k) => (
+                                <EditSecretButton key={k} name={k} missing onEditSecret={onEditSecret} />
+                            ))}
+                        </div>
+                    </Attention>
+                ) : null}
+            </Pad>
+            {slackSetup ? <div className="border-t border-border">{slackSetup}</div> : null}
+        </div>
+    )
+}
+
+const TOOL_KIND_META: Record<string, { label: string; blurb: string }> = {
+    native: {
+        label: 'Built-in (native)',
+        blurb: 'Ships with the runner. No bundle code, no setup — runs server-side.',
+    },
+    custom: {
+        label: 'Custom (bundle)',
+        blurb: 'Authored in this bundle and compiled at freeze; runs in a per-session sandbox.',
+    },
+    custom_template: { label: 'Custom (template)', blurb: 'Pinned to a published custom-tool template.' },
+    client: {
+        label: 'Client (host UI)',
+        blurb: 'Fulfilled by the connecting client (e.g. this console); a no-op elsewhere.',
+    },
+}
+
+function ToolBody({ tool, sourceFile }: { tool?: ToolRef; sourceFile?: BundleFile }): React.ReactElement {
+    if (!tool) {
+        return (
+            <Pad>
+                <Muted>Tool not found.</Muted>
+            </Pad>
+        )
+    }
+    const meta = TOOL_KIND_META[tool.kind] ?? { label: tool.kind, blurb: '' }
+    return (
+        <div className="flex h-full flex-col">
+            <div className="space-y-3 p-4">
+                <Row label="id">
+                    <code className="text-[0.75rem] text-foreground">{tool.id}</code>
+                </Row>
+                <Row label="kind">
+                    <Chip>{meta.label}</Chip>
+                </Row>
+                {meta.blurb ? (
+                    <p className="text-[0.75rem] leading-relaxed text-muted-foreground">{meta.blurb}</p>
+                ) : null}
+                <Row label="approval">
+                    {tool.requires_approval ? (
+                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                            <LockIcon className="h-3 w-3" /> required before each call
+                        </span>
+                    ) : (
+                        <Muted>not gated</Muted>
+                    )}
+                </Row>
+                {tool.description ? (
+                    <p className="text-sm leading-relaxed text-foreground/90">{tool.description}</p>
+                ) : null}
+                {tool.from_template ? (
+                    <Row label="template">
+                        <Chip>{tool.from_template}</Chip>
+                    </Row>
+                ) : null}
+            </div>
+            {sourceFile ? (
+                <div className="min-h-0 flex-1 border-t border-border">
+                    <div className="border-b border-border bg-muted/10 px-4 py-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                        source · {sourceFile.path}
+                    </div>
+                    <div className="overflow-auto p-4">
+                        <BundleFileBody file={sourceFile} />
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+function SkillBody({ skill, bodyFile }: { skill?: SkillRef; bodyFile?: BundleFile }): React.ReactElement {
+    if (!skill) {
+        return (
+            <Pad>
+                <Muted>Skill not found.</Muted>
+            </Pad>
+        )
+    }
+    return (
+        <div className="flex h-full flex-col">
+            <div className="space-y-2 p-4">
+                <Row label="id">
+                    <code className="text-[0.75rem] text-foreground">{skill.id}</code>
+                </Row>
+                <p className="text-sm leading-relaxed text-foreground/90">
+                    {skill.description || <Muted>No description.</Muted>}
+                </p>
+                <p className="text-[0.6875rem] text-muted-foreground">
+                    The description is the only signal the model gets for when to load this skill.
+                </p>
+            </div>
+            <div className="min-h-0 flex-1 border-t border-border">
+                <div className="border-b border-border bg-muted/10 px-4 py-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                    body · {bodyFile?.path ?? `skills/${skill.id}/SKILL.md`}
+                </div>
+                <div className="overflow-auto p-4">
+                    {bodyFile ? <BundleFileBody file={bodyFile} /> : <Muted>Body not in the loaded bundle.</Muted>}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function McpBody({
+    mcp,
+    isMissing,
+    onEditSecret,
+}: {
+    mcp?: McpRef
+    isMissing: (k: string) => boolean
+    onEditSecret?: (key: string) => void
+}): React.ReactElement {
+    if (!mcp) {
+        return (
+            <Pad>
+                <Muted>MCP not found.</Muted>
+            </Pad>
+        )
+    }
+    const toolList = (mcp.tools ?? []).map((t) => (typeof t === 'string' ? { name: t } : t))
+    const missing = (mcp.secrets ?? []).filter(isMissing)
+    return (
+        <Pad>
+            <Row label="url">
+                <code className="text-[0.75rem] text-foreground">{mcp.url}</code>
+            </Row>
+            {missing.length ? (
+                <Attention>
+                    Missing secret(s): {missing.join(', ')}.
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {missing.map((k) => (
+                            <EditSecretButton key={k} name={k} missing onEditSecret={onEditSecret} />
+                        ))}
+                    </div>
+                </Attention>
+            ) : null}
+            <Row label="tools">
+                <span className="text-sm">{toolList.length}</span>
+            </Row>
+            <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+                {toolList.map((t) => (
+                    <div
+                        key={t.name}
+                        className="flex items-center gap-1.5 rounded border border-border/60 bg-card px-2 py-1"
+                    >
+                        <code className="flex-1 truncate font-mono text-[0.6875rem] text-foreground">{t.name}</code>
+                        {t.requires_approval ? <LockIcon className="h-3 w-3 shrink-0 text-amber-500" /> : null}
+                    </div>
+                ))}
+            </div>
+        </Pad>
+    )
+}
+
+function SecretBody({
+    name,
+    via,
+    missing,
+    onEditSecret,
+}: {
+    name: string
+    via?: string
+    missing: boolean
+    onEditSecret?: (key: string) => void
+}): React.ReactElement {
+    return (
+        <Pad>
+            <Row label="key">
+                <code className="text-[0.75rem] text-foreground">{name}</code>
+            </Row>
+            {via ? (
+                <Row label="required by">
+                    <Chip>{via} trigger</Chip>
+                </Row>
+            ) : null}
+            <Row label="status">
+                {missing ? (
+                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                        <AlertTriangleIcon className="h-3 w-3" /> not set
+                    </span>
+                ) : (
+                    <span className="text-emerald-600 dark:text-emerald-300">set</span>
+                )}
+            </Row>
+            <p className="text-sm text-muted-foreground">
+                Value is never shown. {missing ? 'Set it below.' : 'Rotate or clear it below.'}
+            </p>
+            <EditSecretButton name={name} missing={missing} onEditSecret={onEditSecret} />
+        </Pad>
+    )
+}
+
+function LimitsBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    const limits = (spec.limits && typeof spec.limits === 'object' ? spec.limits : {}) as Limits
+    return (
+        <Pad>
+            <Row label="max turns">{stat(limits.max_turns)}</Row>
+            <Row label="max tool calls">{stat(limits.max_tool_calls)}</Row>
+            <Row label="max wall seconds">{stat(limits.max_wall_seconds)}</Row>
+        </Pad>
+    )
+}
+
+function AuthBody({ spec }: { spec: Record<string, unknown> }): React.ReactElement {
+    const auth = (spec.auth && typeof spec.auth === 'object' ? spec.auth : {}) as {
+        modes?: Array<{ type: string }>
+        mode?: string
+    }
+    const modes = auth.modes?.map((m) => m.type) ?? (auth.mode ? [auth.mode] : [])
+    return (
+        <Pad>
+            <Row label="modes">
+                {modes.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                        {modes.map((m) => (
+                            <Chip key={m}>{m}</Chip>
+                        ))}
+                    </div>
+                ) : (
+                    <Muted>none</Muted>
+                )}
+            </Row>
+        </Pad>
+    )
+}
+
+/* ── Set-secret affordance ──────────────────────────────────────── */
+
+/**
+ * A pill that hands off to the host's secret editor (`onEditSecret`). The
+ * host mounts the real `<SecretEditDialog>` — the canonical set / rotate /
+ * clear flow shared with the connections surface — so this component stays
+ * pure (Storybook-safe) and there's one editor, one set of copy.
+ */
+function EditSecretButton({
+    name,
+    missing,
+    onEditSecret,
+}: {
+    name: string
+    missing: boolean
+    onEditSecret?: (key: string) => void
+}): React.ReactElement | null {
+    if (!onEditSecret) {
+        return null
+    }
+    return (
+        <button
+            type="button"
+            onClick={() => onEditSecret(name)}
+            className="inline-flex items-center gap-1 rounded border border-border/60 bg-card px-2 py-1 text-[0.75rem] text-foreground hover:bg-accent/40"
+        >
+            <KeyIcon className="h-3 w-3" /> {missing ? 'Set' : 'Rotate'} {name}
+        </button>
+    )
+}
+
+/* ── Small shared bits ──────────────────────────────────────────── */
+
+function Pad({ children }: { children: ReactNode }): React.ReactElement {
+    return <div className="space-y-3 p-4">{children}</div>
+}
+/**
+ * The common detail "row": a rounded, subtly-tinted card with the field
+ * label above its value. Used by every detail body so the model page,
+ * tool page, secret page, etc. all read the same.
+ */
+function Row({ label, children }: { label: string; children: ReactNode }): React.ReactElement {
+    return (
+        <div className="flex items-start gap-3 rounded-md border border-border/40 bg-muted/30 px-3 py-2">
+            <span className="w-32 shrink-0 break-words pt-0.5 text-[0.625rem] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
+                {label}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-sm text-foreground">{children}</div>
+        </div>
+    )
+}
+function Chip({ children }: { children: ReactNode }): React.ReactElement {
+    return (
+        <span className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[0.6875rem] text-foreground">
+            {children}
+        </span>
+    )
+}
+function Attention({ children }: { children: ReactNode }): React.ReactElement {
+    return (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[0.8125rem] text-amber-800 dark:text-amber-200">
+            {children}
+        </div>
+    )
+}
+function Muted({ children }: { children: ReactNode }): React.ReactElement {
+    return <span className="text-xs italic text-muted-foreground">{children}</span>
+}
+function Empty({ children }: { children: ReactNode }): React.ReactElement {
+    return <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">{children}</div>
+}
+function stat(value?: number): ReactNode {
+    return value !== undefined ? (
+        <span className="font-mono text-sm text-foreground">{value}</span>
+    ) : (
+        <Muted>unset</Muted>
+    )
+}
+
+/* ── Icons ──────────────────────────────────────────────────────── */
+
+function TriggerIcon({ type }: { type?: string }): React.ReactElement {
+    switch (type) {
+        case 'cron':
+            return <CalendarClockIcon className={LEAF} />
+        case 'slack':
+            return <MessageSquareIcon className={LEAF} />
+        case 'webhook':
+            return <WebhookIcon className={LEAF} />
+        case 'chat':
+            return <HashIcon className={LEAF} />
+        case 'mcp':
+            return <ServerIcon className={LEAF} />
+        default:
+            return <GlobeIcon className={LEAF} />
+    }
+}
+function ToolKindIcon({ kind }: { kind?: string }): React.ReactElement {
+    if (kind === 'client') {
+        return <UserIcon className={LEAF} />
+    }
+    if (kind === 'custom' || kind === 'custom_template') {
+        return <CodeIcon className={LEAF} />
+    }
+    return <SparklesIcon className={LEAF} />
+}

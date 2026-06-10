@@ -45,17 +45,17 @@ import { ConfirmDialog } from './ConfirmDialog'
 
 /** State chip values — multi-select; archived is off by default. */
 const STATE_FILTERS = ['live', 'ready', 'draft', 'archived'] as const
-type StateFilter = (typeof STATE_FILTERS)[number]
-const DEFAULT_STATE_FILTERS: ReadonlySet<StateFilter> = new Set(['live', 'ready', 'draft'])
+export type StateFilter = (typeof STATE_FILTERS)[number]
+export const DEFAULT_STATE_FILTERS: ReadonlySet<StateFilter> = new Set(['live', 'ready', 'draft'])
 
 /* ── Helpers (hoisted; some bundlers misbehave with same-file fn decls
  * declared below their JSX consumers — keep these above the components). */
 
-function shortId(id: string): string {
+export function shortId(id: string): string {
     return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
 }
 
-function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dotClass: string; label: string } {
+export function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dotClass: string; label: string } {
     // Saturated `-foreground` variants for visibility on the light surface.
     if (isLive) {
         return { dotClass: 'bg-success-foreground', label: 'live' }
@@ -78,7 +78,7 @@ function formatDate(iso: string): string {
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium' })
 }
 
-function formatRelative(iso: string): string {
+export function formatRelative(iso: string): string {
     const ts = new Date(iso).getTime()
     if (!ts) {
         return '—'
@@ -119,7 +119,7 @@ export interface RevisionsBrowserProps {
     onTryDraft?: (revisionId: string) => void
 }
 
-type LifecycleAction = 'freeze' | 'promote' | 'archive'
+export type LifecycleAction = 'freeze' | 'promote' | 'archive'
 
 interface PendingAction {
     action: LifecycleAction
@@ -615,7 +615,7 @@ function ConfigPanelCard({
 
 /* ── Popover-mounted revision picker ────────────────────────────── */
 
-function RevisionPicker({
+export function RevisionPicker({
     agent,
     visibleRevisions,
     totalCount,
@@ -704,7 +704,7 @@ function RevisionPicker({
     )
 }
 
-function dialogCopy(
+export function dialogCopy(
     pending: PendingAction,
     agent: AgentApplicationFixture
 ): { title: string; description: React.ReactNode; confirmLabel: string } {
@@ -754,7 +754,7 @@ function dialogCopy(
     }
 }
 
-function RevisionActions({
+export function RevisionActions({
     revision,
     isLive,
     hasLiveRevision,
