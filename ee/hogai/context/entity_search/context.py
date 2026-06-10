@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -42,6 +43,7 @@ class EntityKind(StrEnum):
     NOTEBOOKS = "notebooks"
     SURVEYS = "surveys"
     ALERTS = "alerts"
+    ACCOUNTS = "accounts"
     ALL = "all"
 
 
@@ -55,6 +57,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
     EntityKind.COHORTS: "cohort",
     EntityKind.SURVEYS: "survey",
     EntityKind.ALERTS: "alert_configuration",
+    EntityKind.ACCOUNTS: "account",
 }
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -218,6 +221,9 @@ class EntitySearchContext:
         elif entity_type == "insight":
             # Use specialized queryset filtered by recent view time
             return await self._list_insights(limit, offset)
+        elif entity_type == "account":
+            # Account uses a fail-closed manager, so it can't go through the shared FTS path
+            return await self._list_accounts(limit, offset)
         else:
             # Fetch database entities
             db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
@@ -337,6 +343,27 @@ class EntitySearchContext:
 
         return all_entities, total_count
 
+    async def _list_accounts(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+        """List customer accounts, newest first. Uses the unscoped manager since Account is fail-closed."""
+        return await database_sync_to_async(self._list_accounts_sync, thread_sensitive=False)(limit, offset)
+
+    def _list_accounts_sync(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team=self._team).order_by("-created_at")
+        )
+        total_count = queryset.count()
+        accounts = list(queryset[offset : offset + limit].values("id", "name", "external_id"))
+
+        all_entities: list[dict[str, Any]] = [
+            {
+                "type": "account",
+                "result_id": str(account["id"]),
+                "extra_fields": {"name": account["name"], "external_id": account["external_id"]},
+            }
+            for account in accounts
+        ]
+        return all_entities, total_count
+
     def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
         """
         Get the row values for an entity.
@@ -424,5 +451,7 @@ class EntitySearchContext:
                 return f"{base_url}/error_tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
+            case "account":
+                return f"{base_url}/customer_analytics/accounts"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

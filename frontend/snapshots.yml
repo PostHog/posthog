@@ -3848,6 +3848,10 @@ snapshots:
         hash: v1.k794b7964.09249f0d06bf5ef94eaddfcd5a97b97943ed42cae7097741dd3989418ec11f50.ROO2zs_uTFgPB7eI8fwi2GIwSo_HHTlhAal5XWBmz7Y
     mcp-apps-feature-flags--testing-no-match--light:
         hash: v1.k794b7964.b5eec4d4100dc834d4c7c891e4962c9effa643ff190f3b0957d816d82ebb7269.9Hg0pCpNp895WlYr8k2m97K0fvniLuzPcRSAIWUCtg8
+    mcp-apps-funnels--steep-dropoff--light:
+        hash: v1.k794b7964.923aafaf8e1bce9f1caa2410cd58f7378ff97f8e9fb569e0ce18b45dfb885ff8.osZQjoZOyTIkZuiFFYz_vt8LWPp7oKhCd1an1UQjLwM
+    mcp-apps-funnels--three-step--light:
+        hash: v1.k794b7964.18bd10f06238debddaf314abc41971a2a811e0cc74174b10b3f224ed7df15066.8JtCrE123e2LAu3dIKIT_F0E_u29Q2wT-UKli7kracs
     mcp-apps-surveys--active-popover--light:
         hash: v1.k794b7964.c47633461e9a437f0761e09f795eb793b02ed0bac4489ce757a5837dbaa3f847.wclUgXFjBkoHXJLNP2R3ncawfRArgVyVEUWbIiQve0o
     mcp-apps-surveys--completed--light:
@@ -4742,6 +4746,10 @@ snapshots:
         hash: v1.k794b7964.241ca6352364efc887eb32759aaa96ae0ff93d3cf21be7d8fbd5032bc7d58744.j-U61D5ssKdEhV9WCyEgR_571UQZK9m_iekEU1lzjOU
     scenes-app-data-pipelines-event-filtering--single-condition--light:
         hash: v1.k794b7964.654785f46f338c9d70eaca3ca79a94dab9fad11d53d181f8cceb47f5c63bc7fe.DbcJz_BltmCqPJ7Vt6ltmCkK93W0lSjHJC2yeBhOedE
+    scenes-app-data-pipelines-event-filtering--single-condition-root-is-editable--dark:
+        hash: v1.k794b7964.ec8d51d0f3575a14ff1d475fb7e80cee563a885b3e42c3e3013715e74b8c22f0.whV3GNR0rpMn7AQzwWDaLbgtDZ_0bCRcL_RDryWRdEU
+    scenes-app-data-pipelines-event-filtering--single-condition-root-is-editable--light:
+        hash: v1.k794b7964.ffc2f29fa56ddd5603428d5d0bf495be64ff40686fd6d73bcb5a9ac7d1f4e2fd.9NmyKM03GKv4v_V2pYq-CMXBWjFEE_YRfB5Es8FbMbM
     scenes-app-data-pipelines-event-filtering--switch-mode-to-dry-run--dark:
         hash: v1.k794b7964.6b80e9052b063c0763a074015093299d509932a53547c5e35ca654b76817fa02.Ky-1qxUDc4jUpY10x0Silq9QdkVjc0aAkRajQPW9oxM
     scenes-app-data-pipelines-event-filtering--switch-mode-to-dry-run--light:
@@ -5795,9 +5803,9 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.f2136f46f5946ffdd00316ec9f195c08ccae540ab2e2f0022a22631ef6d20ff6.nUefq9IWQvO8EuUAwIcjmRcN9dqhOXqr_Pi83bQ8gDk
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.8e7139903f0757d1a146e0fdecb609897adab5e44759388e6519071de71fb3da.fn33v4OSYyLwpEedq8dy4MBX5S-X6dvnqUodLsegFyY
+        hash: v1.k794b7964.8eb727ffc92903b8783e6b9d9ead9665c4c051d5a250747e320f12cd56cbc283.s0HuvGumzXMgZkSkaKB3VXe8Qoj95m3fEIYGgdNpvdA
     scenes-app-settings-environment--settings-environment-access-control--light:
-        hash: v1.k794b7964.20b3ba9ad4c71ab66d2416cab2e3315d249c054b762cfa39f6c4869aead1dc1e.ICoy0vmj9nEkTU-gn1v-51B3gJK7Tc7_DFUJlZaDrbs
+        hash: v1.k794b7964.b7c88c1ee291902a35dcc2099e0f45124ba38b454d4e81a506d7e16af837c64e.gIBdXCQwFKxIMPz_5QHIbvM72jx10TdYve9NE3cfPMs
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.9f86feacf66829a02d5c14b62d237c3abe5e96cc13f88dd9e1d32397c30d2112.i48i7eB2z6UfXa3VwFKDH0SjzebQXoZPcfON8C_SoCg
     scenes-app-settings-environment--settings-environment-autocapture--light:

@@ -1,6 +1,7 @@
 import json
 import base64
 import hashlib
+from typing import cast
 from urllib.parse import urlencode
 
 import pytest
@@ -9,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache as real_cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from cryptography.hazmat.primitives import serialization
@@ -21,8 +22,10 @@ from posthog.api.oauth.cimd import (
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
     CIMDFetchError,
+    CIMDMetadataDocument,
     CIMDValidationError,
     _fetch_lock_key,
+    _resolve_scopes,
     fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
     get_application_by_client_id,
@@ -982,6 +985,17 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
             self.assertNotIn(hidden_scope, app.scopes)
         self.assertIn("insight:read", app.scopes)
 
+    # Duplicate scopes in the metadata array collapse to one entry, order preserved.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_duplicate_scopes_deduped(self, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": ["insight:read", "dashboard:write", "insight:read"]})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, ["insight:read", "dashboard:write"])
+
     # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_absent_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
@@ -1045,3 +1059,56 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
 
         assert app is not None
         self.assertEqual(app.scopes, [])
+
+    # A present, non-empty com.posthog.scopes that strips to nothing is rejected, not
+    # stored as [] (which would widen the app to the broad UNPRIVILEGED default via the
+    # empty-ceiling fallback). Mirrors DCR's all-stripped rejection; no app is created.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_all_non_grantable_scopes_on_creation_rejected(self, mock_get, _url_mock):
+        only_non_grantable = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write"]
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": only_non_grantable}), headers={})
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        self.assertFalse(OAuthApplication.objects.filter(cimd_metadata_url=VALID_CIMD_URL).exists())
+
+    # On refresh, a doc whose scopes all strip out is rejected and the existing ceiling is
+    # left untouched (fail-closed) rather than widened to the default.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_all_non_grantable_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": ["insight:read"]}), headers={})
+        created = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert created is not None
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        only_non_grantable = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write"]
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": only_non_grantable}), headers={})
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        created.refresh_from_db()
+        self.assertEqual(created.scopes, ["insight:read"])
+
+
+class TestResolveScopes(SimpleTestCase):
+    """`_resolve_scopes` parsing in isolation — no DB, so it runs without local services."""
+
+    def test_absent_or_malformed_field_returns_none(self) -> None:
+        self.assertIsNone(_resolve_scopes({}))
+        self.assertIsNone(_resolve_scopes({"com.posthog": {}}))
+        # Malformed partner JSON: a non-list scopes value hits the runtime guard and returns None.
+        self.assertIsNone(_resolve_scopes(cast(CIMDMetadataDocument, {"com.posthog": {"scopes": "not-a-list"}})))
+
+    def test_explicit_empty_list_is_use_default(self) -> None:
+        # Distinct from all-stripped: an explicitly empty array is the legitimate "use default" signal.
+        self.assertEqual(_resolve_scopes({"com.posthog": {"scopes": []}}), [])
+
+    def test_partial_strip_keeps_grantable(self) -> None:
+        resolved = _resolve_scopes({"com.posthog": {"scopes": ["insight:read", "llm_gateway:read"]}})
+        self.assertEqual(resolved, ["insight:read"])
+
+    def test_all_non_grantable_raises(self) -> None:
+        with self.assertRaises(CIMDValidationError):
+            _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})

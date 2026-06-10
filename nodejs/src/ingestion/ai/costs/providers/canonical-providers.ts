@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-09 11:02:10 UTC
+// Generated at: 2026-06-09 20:36:32 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,6 +11,7 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
