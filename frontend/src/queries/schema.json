@@ -22,16 +22,28 @@
             "additionalProperties": false,
             "properties": {
                 "accountExecutive": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "accountOwner": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
                 "csm": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "filterExpression": {
                     "$ref": "#/definitions/HogQLExpression",
@@ -174,17 +186,6 @@
             },
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
-        },
-        "AccountsRoleAssignmentFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/integer"
-                },
-                {
-                    "const": "unassigned",
-                    "type": "string"
-                }
-            ]
         },
         "ActionConversionGoal": {
             "additionalProperties": false,
@@ -562,7 +563,8 @@
                 "flags",
                 "llm_analytics",
                 "sandbox",
-                "user_interview"
+                "user_interview",
+                "customer_analytics"
             ],
             "type": "string"
         },
@@ -3852,6 +3854,7 @@
                 "archive_llm_skill",
                 "diagnose_proxy",
                 "web_analytics_doctor",
+                "assess_heatmap",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -3860,7 +3863,10 @@
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
-                "draft_replay_vision_scanner_prompt"
+                "draft_replay_vision_scanner_prompt",
+                "upsert_account",
+                "upsert_account_notebook",
+                "open_account"
             ],
             "type": "string"
         },
@@ -20400,6 +20406,85 @@
                 "Resend",
                 "PgAnalyze",
                 "WorkOS",
+                "AmazonS3",
+                "GoogleCloudStorage",
+                "Databricks",
+                "Dynamics365",
+                "SalesforceMarketingCloud",
+                "Db2",
+                "Heap",
+                "AdobeAnalytics",
+                "Matomo",
+                "Optimizely",
+                "Adyen",
+                "GoCardless",
+                "Mollie",
+                "CheckoutCom",
+                "Branch",
+                "Criteo",
+                "Outbrain",
+                "Taboola",
+                "AdRoll",
+                "DisplayVideo360",
+                "GoogleAdManager",
+                "CampaignManager360",
+                "SearchAds360",
+                "AdobeCommerce",
+                "AmazonSellingPartner",
+                "Ebay",
+                "Commercetools",
+                "LightspeedRetail",
+                "ShipStation",
+                "ConstantContact",
+                "Mailgun",
+                "Eloqua",
+                "Sailthru",
+                "Ortto",
+                "Attentive",
+                "Kustomer",
+                "Dixa",
+                "Gladly",
+                "Qualtrics",
+                "Delighted",
+                "AzureDevOps",
+                "Rollbar",
+                "Opsgenie",
+                "IncidentIo",
+                "Pingdom",
+                "Cloudflare",
+                "CosmosDB",
+                "PlanetScale",
+                "SapHana",
+                "Rippling",
+                "HiBob",
+                "Personio",
+                "Deel",
+                "AdpWorkforceNow",
+                "Paylocity",
+                "Gusto",
+                "CultureAmp",
+                "Lattice",
+                "SageIntacct",
+                "FreshBooks",
+                "Expensify",
+                "Ramp",
+                "Brex",
+                "Coupa",
+                "SapConcur",
+                "Apollo",
+                "Crunchbase",
+                "ZoomInfo",
+                "Clari",
+                "Chorus",
+                "Coda",
+                "Guru",
+                "Dropbox",
+                "Docusign",
+                "PandaDoc",
+                "SapErp",
+                "SapSuccessFactors",
+                "OracleEbs",
+                "OracleFusion",
                 "Custom"
             ],
             "type": "string"
@@ -24265,6 +24350,10 @@
             "properties": {
                 "showLegend": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showPercentagesOnSeries": {
+                    "description": "Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect.",
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {

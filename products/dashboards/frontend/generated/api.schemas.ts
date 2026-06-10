@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -64,8 +64,8 @@ export interface UserBasicApi {
 
 /**
  * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
+ * * `global` - Global
+ * * `feature_flag` - Feature Flag
  */
 export type DashboardTemplateScopeEnumApi =
     (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
@@ -89,7 +89,10 @@ export interface DashboardTemplateApi {
      */
     dashboard_description?: string | null
     dashboard_filters?: unknown
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 255
+     */
     tags?: string[] | null
     tiles?: unknown
     variables?: unknown
@@ -106,7 +109,10 @@ export interface DashboardTemplateApi {
     /** @nullable */
     readonly team_id: number | null
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 255
+     */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
@@ -134,7 +140,10 @@ export interface PatchedDashboardTemplateApi {
      */
     dashboard_description?: string | null
     dashboard_filters?: unknown
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 255
+     */
     tags?: string[] | null
     tiles?: unknown
     variables?: unknown
@@ -151,7 +160,10 @@ export interface PatchedDashboardTemplateApi {
     /** @nullable */
     readonly team_id?: number | null
     scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 255
+     */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
@@ -164,9 +176,9 @@ export interface CopyDashboardTemplateApi {
 
 /**
  * * `default` - Default
- * `template` - Template
- * `duplicate` - Duplicate
- * `unlisted` - Unlisted (product-embedded)
+ * * `template` - Template
+ * * `duplicate` - Duplicate
+ * * `unlisted` - Unlisted (product-embedded)
  */
 export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
 
@@ -179,7 +191,7 @@ export const CreationModeEnumApi = {
 
 /**
  * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
+ * * `37` - Only those invited to this dashboard can edit
  */
 export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
 
@@ -221,9 +233,9 @@ export interface DashboardBasicApi {
     readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
     /** Controls who can edit the dashboard.
-
-  * `21` - Everyone in the project can edit
-  * `37` - Only those invited to this dashboard can edit */
+     *
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
     readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -549,7 +561,7 @@ export interface CustomEventConversionGoalApi {
 
 export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-  -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
     /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
@@ -1830,14 +1842,14 @@ export type TrendsFilterApiResultCustomizations =
 
 export interface TrendsFilterApi {
     /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
-
-  - `numeric` (default): raw numbers, e.g. `1,234`.
-  - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
-  - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
-  - `percentage`: values are already in the 0-100 range; appends `%`.
-  - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
-  - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
-  - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
+     *
+     * - `numeric` (default): raw numbers, e.g. `1,234`.
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+     * - `percentage`: values are already in the 0-100 range; appends `%`.
+     * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+     * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+     * - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
     aggregationAxisFormat?: AggregationAxisFormatApi | null
     /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: string | null
@@ -2864,6 +2876,8 @@ export const LifecycleToggleApi = {
 
 export interface LifecycleFilterApi {
     showLegend?: boolean | null
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean | null
     showValuesOnSeries?: boolean | null
     stacked?: boolean | null
     toggledLifecycles?: LifecycleToggleApi[] | null
@@ -7019,10 +7033,13 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    accountExecutive?: string | number | null
-    accountOwner?: string | number | null
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: number[] | null
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
-    csm?: string | number | null
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'
@@ -7380,10 +7397,10 @@ export interface HogQueryApi {
 
 /**
  * The query definition for this insight. The `kind` field determines the query type:
-- `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
-- `DataVisualizationNode` — SQL insights using HogQL
-- `DataTableNode` — raw data tables
-- `HogQuery` — Hog language queries
+ * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+ * - `DataVisualizationNode` — SQL insights using HogQL
+ * - `DataTableNode` — raw data tables
+ * - `HogQuery` — Hog language queries
  */
 export type _InsightQuerySchemaApi = InsightVizNodeApi | DataTableNodeApi | DataVisualizationNodeApi | HogQueryApi
 
@@ -7434,21 +7451,21 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
-          DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-          A dashboard ID for each of the dashboards that this insight is displayed on.
-           */
+     *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+     *         A dashboard ID for each of the dashboards that this insight is displayed on.
+     *          */
     dashboards?: number[]
     /**
-      A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-       */
+     *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+     *      */
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     /**
      *
-      The datetime this insight's results were generated.
-      If added to one or more dashboards the insight can be refreshed separately on each.
-      Returns the appropriate last_refresh datetime for the context the insight is viewed in
-      (see from_dashboard query parameter).
-
+     *     The datetime this insight's results were generated.
+     *     If added to one or more dashboards the insight can be refreshed separately on each.
+     *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+     *     (see from_dashboard query parameter).
+     *
      * @nullable
      */
     readonly last_refresh: string | null
@@ -7459,9 +7476,9 @@ export interface InsightApi {
     readonly cache_target_age: string | null
     /**
      *
-      The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-      by querying the database.
-
+     *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+     *     by querying the database.
+     *
      * @nullable
      */
     readonly next_allowed_client_refresh: string | null
@@ -7508,7 +7525,7 @@ export interface InsightApi {
     readonly alerts: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at: string | null
-    /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -7528,7 +7545,7 @@ export interface TextApi {
 
 /**
  * * `left` - left
- * `right` - right
+ * * `right` - right
  */
 export type PlacementEnumApi = (typeof PlacementEnumApi)[keyof typeof PlacementEnumApi]
 
@@ -7539,7 +7556,7 @@ export const PlacementEnumApi = {
 
 /**
  * * `primary` - Primary
- * `secondary` - Secondary
+ * * `secondary` - Secondary
  */
 export type StyleEnumApi = (typeof StyleEnumApi)[keyof typeof StyleEnumApi]
 
@@ -7565,10 +7582,10 @@ export interface ButtonTileApi {
 
 /**
  * * `last_seen` - last_seen
- * `first_seen` - first_seen
- * `occurrences` - occurrences
- * `users` - users
- * `sessions` - sessions
+ * * `first_seen` - first_seen
+ * * `occurrences` - occurrences
+ * * `users` - users
+ * * `sessions` - sessions
  */
 export type ErrorTrackingIssueOrderByEnumApi =
     (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
@@ -7583,7 +7600,7 @@ export const ErrorTrackingIssueOrderByEnumApi = {
 
 /**
  * * `ASC` - ASC
- * `DESC` - DESC
+ * * `DESC` - DESC
  */
 export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
 
@@ -7594,11 +7611,11 @@ export const OrderDirectionEnumApi = {
 
 /**
  * * `archived` - archived
- * `active` - active
- * `resolved` - resolved
- * `pending_release` - pending_release
- * `suppressed` - suppressed
- * `all` - all
+ * * `active` - active
+ * * `resolved` - resolved
+ * * `pending_release` - pending_release
+ * * `suppressed` - suppressed
+ * * `all` - all
  */
 export type ErrorTrackingIssueStatusEnumApi =
     (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
@@ -7614,7 +7631,7 @@ export const ErrorTrackingIssueStatusEnumApi = {
 
 /**
  * * `user` - user
- * `role` - role
+ * * `role` - role
  */
 export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
@@ -7627,9 +7644,9 @@ export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
     id: string | number | null
     /** Assignee target type: user or role.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
 }
 
@@ -7648,12 +7665,12 @@ export interface WidgetFilterConfigEntryApi {
 
 /**
  * * `-14d` - -14d
- * `-1h` - -1h
- * `-24h` - -24h
- * `-30d` - -30d
- * `-3h` - -3h
- * `-7d` - -7d
- * `-90d` - -90d
+ * * `-1h` - -1h
+ * * `-24h` - -24h
+ * * `-30d` - -30d
+ * * `-3h` - -3h
+ * * `-7d` - -7d
+ * * `-90d` - -90d
  */
 export type DateFromEnumApi = (typeof DateFromEnumApi)[keyof typeof DateFromEnumApi]
 
@@ -7669,14 +7686,14 @@ export const DateFromEnumApi = {
 
 export interface WidgetDateRangeApi {
     /** Relative lookback window (for example '-7d'). Omit to use the project default range.
-
-  * `-14d` - -14d
-  * `-1h` - -1h
-  * `-24h` - -24h
-  * `-30d` - -30d
-  * `-3h` - -3h
-  * `-7d` - -7d
-  * `-90d` - -90d */
+     *
+     * * `-14d` - -14d
+     * * `-1h` - -1h
+     * * `-24h` - -24h
+     * * `-30d` - -30d
+     * * `-3h` - -3h
+     * * `-7d` - -7d
+     * * `-90d` - -90d */
     date_from?: DateFromEnumApi | null
 }
 
@@ -7693,26 +7710,26 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column.
-
-  * `first_seen` - first_seen
-  * `last_seen` - last_seen
-  * `occurrences` - occurrences
-  * `sessions` - sessions
-  * `users` - users */
+     *
+     * * `first_seen` - first_seen
+     * * `last_seen` - last_seen
+     * * `occurrences` - occurrences
+     * * `sessions` - sessions
+     * * `users` - users */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction for orderBy.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /** Issue status filter.
-
-  * `archived` - archived
-  * `active` - active
-  * `resolved` - resolved
-  * `pending_release` - pending_release
-  * `suppressed` - suppressed
-  * `all` - all */
+     *
+     * * `archived` - archived
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `pending_release` - pending_release
+     * * `suppressed` - suppressed
+     * * `all` - all */
     status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
     assignee?: ErrorTrackingAssigneeApi | null
@@ -7726,11 +7743,11 @@ export interface ErrorTrackingListWidgetConfigApi {
 
 /**
  * * `activity_score` - activity_score
- * `click_count` - click_count
- * `console_error_count` - console_error_count
- * `duration` - duration
- * `recording_duration` - recording_duration
- * `start_time` - start_time
+ * * `click_count` - click_count
+ * * `console_error_count` - console_error_count
+ * * `duration` - duration
+ * * `recording_duration` - recording_duration
+ * * `start_time` - start_time
  */
 export type SessionReplayListWidgetConfigOrderByEnumApi =
     (typeof SessionReplayListWidgetConfigOrderByEnumApi)[keyof typeof SessionReplayListWidgetConfigOrderByEnumApi]
@@ -7757,18 +7774,18 @@ export interface SessionReplayListWidgetConfigApi {
      */
     limit?: number
     /** Recording ranking column.
-
-  * `activity_score` - activity_score
-  * `click_count` - click_count
-  * `console_error_count` - console_error_count
-  * `duration` - duration
-  * `recording_duration` - recording_duration
-  * `start_time` - start_time */
+     *
+     * * `activity_score` - activity_score
+     * * `click_count` - click_count
+     * * `console_error_count` - console_error_count
+     * * `duration` - duration
+     * * `recording_duration` - recording_duration
+     * * `start_time` - start_time */
     orderBy?: SessionReplayListWidgetConfigOrderByEnumApi
     /** Sort direction for orderBy.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /** Optional relative date range override. */
     dateRange?: WidgetDateRangeApi | null
@@ -7849,8 +7866,8 @@ export interface PatchedMoveTileRequestApi {
 
 /**
  * * `preserve` - preserve
- * `two_column` - two_column
- * `full_width` - full_width
+ * * `two_column` - two_column
+ * * `full_width` - full_width
  */
 export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
 
@@ -7867,10 +7884,10 @@ export interface ReorderTilesRequestApi {
      */
     tile_order: number[]
     /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
-
-  * `preserve` - preserve
-  * `two_column` - two_column
-  * `full_width` - full_width */
+     *
+     * * `preserve` - preserve
+     * * `two_column` - two_column
+     * * `full_width` - full_width */
     layout?: LayoutEnumApi
 }
 
@@ -8032,8 +8049,8 @@ export interface AddDashboardWidgetsBatchResponseApi {
 
 /**
  * * `add` - add
- * `remove` - remove
- * `set` - set
+ * * `remove` - remove
+ * * `set` - set
  */
 export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
 
@@ -8050,10 +8067,10 @@ export interface BulkUpdateTagsRequestApi {
      */
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-  * `add` - add
-  * `remove` - remove
-  * `set` - set */
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]

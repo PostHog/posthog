@@ -30,6 +30,8 @@ from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
@@ -44,6 +46,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
@@ -51,6 +54,7 @@ from .constants import (
     PENDING_EMBEDDING_SCAN_CAP,
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -1614,6 +1618,16 @@ def _rrf_fuse(
     return [cid for cid, _score in fused]
 
 
+def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+    """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
+    return KnowledgeChunk.objects.filter(
+        team_id=team_id,
+        source__status=SourceStatus.READY,
+        document__tombstoned_at__isnull=True,
+        document__safety_verdict=SafetyVerdict.SAFE,
+    )
+
+
 @dataclass(frozen=True)
 class KnowledgeSearchResult:
     """A single chunk returned by a knowledge search, with source context."""
@@ -1658,13 +1672,8 @@ def search_knowledge(
         processed = processed.replace(" & ", " | ")
         search_query = SearchQuery(processed, config="english", search_type="raw")
         fts_anchors = list(
-            KnowledgeChunk.objects.filter(
-                team_id=team_id,
-                source__status=SourceStatus.READY,
-                document__tombstoned_at__isnull=True,
-                document__safety_verdict=SafetyVerdict.SAFE,
-                content_search_vector=search_query,
-            )
+            _safe_chunks_qs(team_id)
+            .filter(content_search_vector=search_query)
             .annotate(rank=SearchRank(F("content_search_vector"), search_query))
             .only("id", "document_id", "ordinal", "char_count")
             .order_by("-rank", "char_count", "id")[:limit]
@@ -1688,13 +1697,7 @@ def search_knowledge(
         # re-join against Postgres with all safety filters and trim after.
         fetch_limit = limit * BK_SEMANTIC_OVERFETCH
         anchor_chunks = list(
-            KnowledgeChunk.objects.filter(
-                id__in=fused_ids[:fetch_limit],
-                team_id=team_id,
-                source__status=SourceStatus.READY,
-                document__tombstoned_at__isnull=True,
-                document__safety_verdict=SafetyVerdict.SAFE,
-            ).only("id", "document_id", "ordinal")
+            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
         )
         if not anchor_chunks:
             return []
@@ -1723,13 +1726,8 @@ def search_knowledge(
     )
 
     chunks = (
-        KnowledgeChunk.objects.filter(
-            window_filter,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-        )
+        _safe_chunks_qs(team_id)
+        .filter(window_filter)
         .select_related("source", "document")
         .only(
             "id",
@@ -1759,6 +1757,64 @@ def search_knowledge(
             content=c.content,
         )
         for c in ordered
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Drill-down: wider context window for a single document
+# ---------------------------------------------------------------------------
+
+
+@with_team_scope(canonical=True)
+def get_document_window(
+    team_id: int,
+    document_id: UUID,
+    center_ordinal: int,
+    *,
+    radius: int = BK_DRILLDOWN_DEFAULT_RADIUS,
+) -> list[KnowledgeSearchResult]:
+    """
+    Return a contiguous span of chunks from one document, centered on
+    ``center_ordinal``. Reuses the exact same safety filters as
+    ``search_knowledge`` so drill-down can never surface content that search
+    wouldn't return.
+    """
+    radius = max(0, min(radius, BK_DRILLDOWN_MAX_RADIUS))
+    center_ordinal = max(0, center_ordinal)
+    low = max(0, center_ordinal - radius)
+    high = center_ordinal + radius
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(document_id=document_id, ordinal__gte=low, ordinal__lte=high)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("ordinal")
+    )
+
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for c in chunks
     ]
 
 
@@ -1948,9 +2004,12 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The document's stable `created_at`, passed as the embedding row `timestamp`
-    # so a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
-    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # The embedding row `timestamp`. The first-emission path passes the
+    # document's stable `created_at` so a re-emit of the same chunk_id collapses
+    # onto one ClickHouse sort key / partition instead of duplicating under a
+    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
+    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
+    # the extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2076,6 +2135,45 @@ def list_documents_for_embedding_reconciliation(
     ]
 
 
+def list_documents_for_embedding_refresh(
+    *,
+    now: datetime.datetime | None = None,
+    window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
+    limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+) -> list[DocumentToEmbed]:
+    """
+    Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
+    aging toward the 3-month ClickHouse TTL, so their chunks can be re-emitted
+    before the rows expire and the doc silently drops to FTS-only.
+
+    The returned ``DocumentToEmbed.timestamp`` is ``now`` (NOT the doc's
+    ``created_at``): the shared table TTLs on the embedding row ``timestamp``,
+    so the re-emit must carry a fresh timestamp to actually reset the clock —
+    re-emitting under the old ``created_at`` would land an already-/soon-expired
+    row and keep losing vectors. The extra row this creates is correctness-safe:
+    the read path always re-joins to Postgres and dedups candidates by chunk_id.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - window
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=now,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
 @with_team_scope(canonical=True)
 def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
     """
@@ -2091,6 +2189,26 @@ def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None
         id=document_id,
         safety_verdict=SafetyVerdict.SAFE,
         embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def restamp_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Bump ``embeddings_emitted_at`` to now after a TTL-refresh re-emit.
+
+    Unlike ``mark_document_embeddings_emitted`` (gated on NULL, for first
+    emission), this re-stamps an ALREADY-stamped doc so it drops out of the
+    refresh window for another full cycle. Still gated on the doc being SAFE
+    AND already stamped: a content change that flipped it to ``unknown``
+    mid-pass NULLs the stamp, and that new (unembedded) content must go through
+    the normal pending-emit path rather than being re-stamped here.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=False,
     ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
 
 
