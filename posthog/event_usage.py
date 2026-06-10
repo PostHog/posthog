@@ -379,7 +379,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "$pathname": pathname,
         "$session_id": sanitize_header_value(request.headers.get("X-Posthog-Session-Id")),
         "was_impersonated": is_impersonated_session(request),
-        "access_method": str(access_method) if access_method else None,
+        "access_method": access_method,
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
