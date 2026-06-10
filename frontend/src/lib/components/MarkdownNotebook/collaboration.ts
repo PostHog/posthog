@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook, serializeNode } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
 import { NotebookBlockNode, NotebookCollaborationConflict, NotebookDocument } from './types'
-import { cloneNotebookNode, getNodeFingerprint } from './utils'
+import { cloneNotebookNode, getNodeFingerprint, getNodeSignature } from './utils'
 
 export type NotebookMarkdownMergeInput = {
     baseMarkdown: string
@@ -27,6 +27,7 @@ export function mergeNotebookMarkdownChanges({
     const baseById = new Map(baseDocument.nodes.map((node) => [node.id, node]))
     const localById = new Map(localDocument.nodes.map((node) => [node.id, node]))
     const remoteById = new Map(remoteDocument.nodes.map((node) => [node.id, node]))
+    const remoteIndexById = new Map(remoteDocument.nodes.map((node, index) => [node.id, index]))
     const outputNodes: NotebookBlockNode[] = []
     const outputIds = new Set<string>()
     const conflicts: NotebookCollaborationConflict[] = []
@@ -80,6 +81,21 @@ export function mergeNotebookMarkdownChanges({
 
     localDocument.nodes.forEach((localNode, localIndex) => {
         if (!baseById.has(localNode.id) && !remoteById.has(localNode.id)) {
+            if (
+                mergeLocalOnlyNodeWithRemoteOnlyOutput(
+                    outputNodes,
+                    outputIds,
+                    baseById,
+                    localById,
+                    remoteIndexById,
+                    localDocument.nodes,
+                    remoteDocument.nodes,
+                    localIndex,
+                    localNode
+                )
+            ) {
+                return
+            }
             insertLocalOnlyNode(outputNodes, outputIds, localDocument.nodes, localIndex, localNode)
         }
     })
@@ -143,6 +159,134 @@ function insertLocalOnlyNode(
 
     nodes.push(clonedNode)
     outputIds.add(clonedNode.id)
+}
+
+type SharedAnchorIds = {
+    previousId?: string
+    nextId?: string
+}
+
+function mergeLocalOnlyNodeWithRemoteOnlyOutput(
+    nodes: NotebookBlockNode[],
+    outputIds: Set<string>,
+    baseById: Map<string, NotebookBlockNode>,
+    localById: Map<string, NotebookBlockNode>,
+    remoteIndexById: Map<string, number>,
+    localNodes: NotebookBlockNode[],
+    remoteNodes: NotebookBlockNode[],
+    localIndex: number,
+    localNode: NotebookBlockNode
+): boolean {
+    const localAnchors = getSharedAnchorIds(localNodes, localIndex, baseById)
+
+    for (let outputIndex = 0; outputIndex < nodes.length; outputIndex++) {
+        const remoteOnlyNode = nodes[outputIndex]
+        if (baseById.has(remoteOnlyNode.id) || localById.has(remoteOnlyNode.id)) {
+            continue
+        }
+
+        const remoteIndex = remoteIndexById.get(remoteOnlyNode.id)
+        if (remoteIndex === undefined) {
+            continue
+        }
+
+        const remoteAnchors = getSharedAnchorIds(remoteNodes, remoteIndex, baseById)
+        if (!areSharedAnchorIdsEqual(localAnchors, remoteAnchors)) {
+            continue
+        }
+
+        const mergedNode = mergeInsertedNotebookBlockNodes(localNode, remoteOnlyNode)
+        if (!mergedNode) {
+            continue
+        }
+
+        if (outputIds.has(mergedNode.id) && mergedNode.id !== remoteOnlyNode.id) {
+            return false
+        }
+
+        nodes[outputIndex] = mergedNode
+        outputIds.delete(remoteOnlyNode.id)
+        outputIds.add(mergedNode.id)
+        return true
+    }
+
+    return false
+}
+
+function getSharedAnchorIds(
+    nodes: NotebookBlockNode[],
+    index: number,
+    baseById: Map<string, NotebookBlockNode>
+): SharedAnchorIds {
+    let previousId: string | undefined
+    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex--) {
+        const candidate = nodes[previousIndex]
+        if (baseById.has(candidate.id)) {
+            previousId = candidate.id
+            break
+        }
+    }
+
+    let nextId: string | undefined
+    for (let nextIndex = index + 1; nextIndex < nodes.length; nextIndex++) {
+        const candidate = nodes[nextIndex]
+        if (baseById.has(candidate.id)) {
+            nextId = candidate.id
+            break
+        }
+    }
+
+    return { previousId, nextId }
+}
+
+function areSharedAnchorIdsEqual(left: SharedAnchorIds, right: SharedAnchorIds): boolean {
+    return left.previousId === right.previousId && left.nextId === right.nextId
+}
+
+function mergeInsertedNotebookBlockNodes(
+    localNode: NotebookBlockNode,
+    remoteNode: NotebookBlockNode
+): NotebookBlockNode | null {
+    if (!isMergeableInsertedTextNode(localNode) || !isMergeableInsertedTextNode(remoteNode)) {
+        return null
+    }
+    if (getNodeSignature(localNode) !== getNodeSignature(remoteNode)) {
+        return null
+    }
+
+    const localMarkdown = serializeNode(localNode)
+    const remoteMarkdown = serializeNode(remoteNode)
+
+    if (localMarkdown === remoteMarkdown || isInsertedNodeMarkdownPrefix(localNode, remoteMarkdown, localMarkdown)) {
+        return cloneNotebookNode(localNode)
+    }
+
+    if (isInsertedNodeMarkdownPrefix(remoteNode, localMarkdown, remoteMarkdown)) {
+        return {
+            ...cloneNotebookNode(remoteNode),
+            id: localNode.id,
+        }
+    }
+
+    return null
+}
+
+function isMergeableInsertedTextNode(node: NotebookBlockNode): boolean {
+    return (
+        node.type === 'paragraph' ||
+        node.type === 'heading' ||
+        node.type === 'blockquote' ||
+        node.type === 'list' ||
+        node.type === 'code'
+    )
+}
+
+function isInsertedNodeMarkdownPrefix(node: NotebookBlockNode, shorter: string, longer: string): boolean {
+    if (node.type === 'list') {
+        return longer === shorter || longer.startsWith(`${shorter}\n`)
+    }
+
+    return longer.startsWith(shorter)
 }
 
 function mergeNotebookBlockNodeText(

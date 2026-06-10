@@ -857,6 +857,24 @@ Initial draft with more local typing`
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
+    it('keeps a locally extended inserted list when an earlier autosave echo returns', () => {
+        const baseMarkdown = '# hi'
+        const remoteMarkdown = `# hi
+
+- list again
+- and again`
+        const localMarkdown = `# hi
+
+- list again
+- and again
+- a`
+
+        const result = mergeNotebookMarkdownChanges({ baseMarkdown, localMarkdown, remoteMarkdown })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual(localMarkdown)
+    })
+
     it('keeps locally inserted blocks near their surrounding anchors when remote changes also arrive', () => {
         const baseMarkdown = `# Activation
 
