@@ -1,11 +1,12 @@
 """``CustomSignalAgent`` that flags stale external-API version pins as cited inbox reports.
 
-The deterministic detector (``products/signals/backend/api_deprecation``) finds in-code API version
+The deterministic detector (``scanner`` + ``extractors`` in this package) finds in-code API version
 pins; this agent researches each against the vendor's real changelog and files one READY report for
 the deprecations it can cite. It rides the shared custom-agent rails — launch it with ``run_agent``,
 passing the detector's inventory as ``initial_prompt`` (see ``research.build_research_initial_prompt``).
 The base class handles the sandbox, persistence, and the ``auto_start`` hand-off to PostHog Code, so
-there is no bespoke Temporal workflow or dispatcher here.
+there is no bespoke Temporal workflow or dispatcher here. This module stays Temporal-free — the
+workflow activity imports it dynamically via ``import_agent_class``.
 
 Classification gates remediation without a separate dispatcher: mechanical+cited+confident findings
 are marked immediately actionable (eligible for an auto-started draft PR), everything else is marked
@@ -24,7 +25,7 @@ from products.signals.backend.api_deprecation.schema import (
     ResearchedDeprecationList,
 )
 from products.signals.backend.api_deprecation.severity import score_severity, select_most_urgent
-from products.signals.backend.custom_agent.base import CustomSignalAgent
+from products.signals.backend.custom_agent import CustomSignalAgent
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,

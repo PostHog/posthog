@@ -12,7 +12,7 @@ from products.signals.backend.api_deprecation.scanner import scan_repo
 from products.signals.backend.api_deprecation.schema import Classification, Pin, ResearchedDeprecation
 from products.signals.backend.api_deprecation.severity import score_severity, select_most_urgent
 
-FIXTURES = Path(__file__).with_name("fixtures")
+FIXTURES = Path(__file__).parents[1] / "api_deprecation" / "fixtures"
 META = next(e for e in EXTRACTORS if e.vendor == "meta")
 GOOGLE = next(e for e in EXTRACTORS if e.vendor == "google_ads")
 TODAY = date(2026, 6, 9)
@@ -32,7 +32,9 @@ def _pin(vendor: str = "meta", version: str = "v21.0") -> Pin:
     )
 
 
-def _cited(version: str, cutoff: date | None, classification=Classification.MECHANICAL) -> ResearchedDeprecation:
+def _cited(
+    version: str, cutoff: date | None, classification: Classification = Classification.MECHANICAL
+) -> ResearchedDeprecation:
     return ResearchedDeprecation(
         pin=_pin(version=version),
         is_deprecated=True,
@@ -131,3 +133,19 @@ def test_select_most_urgent_orders_by_severity_then_date():
 def test_build_research_initial_prompt_embeds_pins():
     prompt = build_research_initial_prompt([_pin(version="v21.0")])
     assert "v21.0" in prompt and "graph.facebook.com" in prompt and "whatsapp.template.ts" in prompt
+
+
+def test_build_research_initial_prompt_embeds_pins_as_verbatim_json():
+    # The agent's research output must echo each pin verbatim, so the inventory has to carry every
+    # required Pin field (vendor/extractor included) as copyable JSON.
+    pin = _pin(version="v21.0")
+    assert pin.model_dump_json() in build_research_initial_prompt([pin])
+
+
+def test_agent_class_loads_via_production_import_path():
+    # The Temporal activity imports the agent dynamically by dotted path; a module move that
+    # misses this wiring would only fail at runtime without this check.
+    from products.signals.backend.custom_agent.loader import import_agent_class  # noqa: PLC0415 — Django-only dep
+
+    agent_class = import_agent_class("products.signals.backend.api_deprecation.agent.ApiDeprecationAgent")
+    assert agent_class.identifier() == ("signals", "api_deprecation")

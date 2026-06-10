@@ -154,6 +154,24 @@ left alone), `tombstoned` (rows the team already soft-deleted — left alone, ne
 coordinator stops dispatching them). Same function the coordinator and runner call lazily —
 this command is just the impatient path.
 
+## API deprecation detector
+
+`run_api_deprecation_detector` scans CDP destination templates for in-code external-API version
+pins (e.g. Meta Graph `v21.0`). The default mode is read-only — no DB, no network. With
+`--research`, it launches the `ApiDeprecationAgent` (shared custom-agent workflow, see
+`../api_deprecation/`), which researches each pin against the vendor's real changelog and files a
+cited `SignalReport` into the inbox. The run id is derived from the inventory hash, so re-running
+while a research run for the same pins is in flight is a no-op.
+
+```bash
+# Inventory only (read-only)
+python manage.py run_api_deprecation_detector
+python manage.py run_api_deprecation_detector --json
+
+# Research the pins into a cited inbox report
+python manage.py run_api_deprecation_detector --research --team-id 1 --repository posthog/posthog
+```
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

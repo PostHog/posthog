@@ -29,19 +29,25 @@ published changelog / versioning / sunset pages as the source of truth. Rules:
 BATCH_RESEARCH_INSTRUCTION = (
     "Research every pinned version listed in your initial context against its vendor's changelog. "
     "Open each code site to see which fields/endpoints are used. Return a ResearchedDeprecationList "
-    "with one item per pin — cite a source (evidence_url + evidence_quote) for any deprecation claim."
+    "with one item per pin — copy each item's `pin` object verbatim from the inventory JSON, and "
+    "cite a source (evidence_url + evidence_quote) for any deprecation claim."
 )
 
 
-def _format_pin(pin: Pin) -> str:
-    location = f"`{pin.file}:{pin.line}`" + (f" (endpoint {pin.endpoint})" if pin.endpoint else "")
-    return (
-        f"- {pin.product} — host `{pin.host}`, pinned `{pin.pinned_version}` at {location}; "
-        f"persisted_per_row={pin.persisted_per_row} (if true, a fix also needs a data migration)"
-    )
-
-
 def build_research_initial_prompt(pins: list[Pin]) -> str:
-    """The agent's ``initial_prompt``: the research persona plus the detector's factual inventory."""
-    inventory = "\n".join(_format_pin(pin) for pin in pins) or "(no pins detected)"
-    return f"{RESEARCH_SYSTEM_NOTE}\n\n## Detected in-code API version pins\n{inventory}"
+    """The agent's ``initial_prompt``: the research persona plus the detector's factual inventory.
+
+    Pins are embedded as one JSON object per line so the research output can echo each ``pin``
+    verbatim — the report renders pin fields (vendor, file, line, persisted_per_row) straight from
+    the echoed objects, so a paraphrased pin (e.g. ``vendor: "Meta"`` instead of ``"meta"``) would
+    corrupt the report.
+    """
+    inventory = "\n".join(pin.model_dump_json() for pin in pins) or "(no pins detected)"
+    return (
+        f"{RESEARCH_SYSTEM_NOTE}\n\n"
+        "## Detected in-code API version pins (one JSON object per line)\n"
+        f"{inventory}\n\n"
+        "In your research output, copy each `pin` object verbatim from this inventory — do not rename, "
+        "reformat, or drop fields. `persisted_per_row: true` means the version is baked into persisted "
+        "rows, so a fix also needs a data migration, not just a source bump."
+    )

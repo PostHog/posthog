@@ -12,15 +12,24 @@ reads each vendor's real changelog and files a cited ``SignalReport`` into the i
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
 from products.signals.backend.api_deprecation.scanner import scan_repo
+from products.signals.backend.api_deprecation.schema import Pin
 
 # products/signals/backend/management/commands/<this> → repo root is five parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
+
+
+def _inventory_run_id(pins: list[Pin]) -> str:
+    """Stable workflow run id for an inventory, so re-running while a research run for the same
+    set of pins is still in flight is a no-op instead of a duplicate report."""
+    digest = hashlib.sha256("\n".join(sorted(p.model_dump_json() for p in pins)).encode()).hexdigest()
+    return digest[:16]
 
 
 class Command(BaseCommand):
@@ -53,20 +62,26 @@ class Command(BaseCommand):
         # Heavy/Django-side imports deferred so the read-only detect path stays light.
         from posthog.models import Team  # noqa: PLC0415
 
+        from products.signals.backend.api_deprecation.agent import ApiDeprecationAgent  # noqa: PLC0415
         from products.signals.backend.api_deprecation.research import build_research_initial_prompt  # noqa: PLC0415
-        from products.signals.backend.custom_agent.examples.api_deprecation_agent import (  # noqa: PLC0415
-            ApiDeprecationAgent,
-        )
+        from products.signals.backend.custom_agent import AIDataProcessingNotApprovedError  # noqa: PLC0415
         from products.signals.backend.temporal.custom_agent import run_agent  # noqa: PLC0415
 
         try:
             team = Team.objects.select_related("organization").get(id=options["team_id"])
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found.")
-        handle = run_agent(
-            ApiDeprecationAgent,
-            team=team,
-            initial_prompt=build_research_initial_prompt(pins),
-            repository=options["repository"],
-        )
-        self.stdout.write(f"started workflow {handle.workflow_id}")
+        try:
+            handle = run_agent(
+                ApiDeprecationAgent,
+                team=team,
+                initial_prompt=build_research_initial_prompt(pins),
+                repository=options["repository"],
+                id=_inventory_run_id(pins),
+            )
+        except AIDataProcessingNotApprovedError as error:
+            raise CommandError(str(error))
+        if handle.started:
+            self.stdout.write(f"started workflow {handle.workflow_id}")
+        else:
+            self.stdout.write(f"workflow {handle.workflow_id} is already running for this inventory; not restarting")
