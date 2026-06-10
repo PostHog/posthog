@@ -28,11 +28,13 @@ in this order within the window:
             `is_production_host`. `$ip`/GeoIP can't be used instead: a
             developer's local backend still reaches us over the public
             internet from a public IP.
-  - MOBILE: enough distinct physical devices on events that affirm
-            `$is_emulator: false`. A single non-emulator event is *not*
+  - MOBILE: enough distinct physical devices (`$device_id`) on events that
+            affirm `$is_emulator: false`. A single non-emulator event is *not*
             production evidence — a developer testing on their own phone looks
             identical — but several distinct physical devices means the app
-            shipped to real hands.
+            shipped to real hands. Events without a `$device_id` fail closed:
+            distinct_ids churn under login/logout/reinstall, so they can't
+            stand in for devices.
   - SERVER: enough distinct users on events from server-side SDKs. There is no
             environment signal at all in backend events, so this is a pure
             diversity proxy and intentionally has the highest bar.
@@ -40,22 +42,34 @@ in this order within the window:
 Detection is fail-closed: each leg requires its positive signal, and anything
 local/private/reserved/ambiguous does not qualify. A false positive silently
 corrupts the activation metric and is hard to detect; a false negative is
-recoverable — the daily sweep re-checks unflagged teams.
+recoverable while the team keeps sending production traffic — the sweep
+re-checks unflagged teams. One segment is permanently invisible by design:
+teams whose only traffic is posthog-js from non-public origins (Electron /
+Capacitor wrapper apps report localhost-style hosts; intranet or VPN-only
+deployments report private ones) can never satisfy any leg.
 """
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Final, Literal
 
 from django.db import transaction
 
+import structlog
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
+
+logger = structlog.get_logger(__name__)
 
 # --- Heuristic parameters ---------------------------------------------------
 # Tune these to recalibrate the metric.
@@ -63,16 +77,33 @@ from posthog.ph_client import ph_scoped_capture
 WINDOW_DAYS: Final[int] = 30
 SWEEP_BATCH_SIZE: Final[int] = 5_000
 
-# Cap on distinct hosts fetched per team. Bounds the result set when a team
-# emits pathological host cardinality; a production host pushed past the cap
-# is only a transient false negative — the next daily run resamples.
+# How long after an evaluation a still-unflagged team is left alone before the
+# sweep re-checks it. Production events stay detectable for WINDOW_DAYS, so a
+# backoff well below the window cannot miss a team that keeps sending traffic —
+# it only defers detection by at most the backoff. This is what keeps both the
+# ClickHouse scan volume and the `posthog_team` write churn bounded as the
+# population of never-qualifying teams grows.
+RECHECK_BACKOFF: Final[timedelta] = timedelta(days=7)
+
+# Cap on distinct hosts fetched per team, bounding result size and aggregation
+# state when a team emits pathological host cardinality. Retention under the
+# cap is NOT a random resample: a production host crowded out by >1k distinct
+# noise hosts can stay crowded out on later runs too. The SQL prefilter on the
+# dominant dev noise (localhost/loopback, which also covers port-churn) is what
+# keeps real production hosts inside the cap in practice.
 HOSTS_PER_TEAM_CAP: Final[int] = 1_000
 
-# MOBILE: distinct physical devices (`$device_id`, falling back to
-# `distinct_id`) on `$is_emulator: false` events. One developer owns one or
-# two test phones; this many distinct real devices means the app shipped.
-# Device IDs are stabler than anonymous distinct_ids against one developer's
-# login/logout/reinstall churn.
+# Hostnames are capped at 253 characters by RFC 1035; anything longer is
+# crafted input and fails closed. The SQL-side substring cap (256) bounds
+# aggregation memory against unbounded user-controlled `$host` values.
+MAX_HOSTNAME_LENGTH: Final[int] = 253
+SQL_HOST_LENGTH_CAP: Final[int] = 256
+
+# MOBILE: distinct physical devices (`$device_id`) on `$is_emulator: false`
+# events. One developer owns one or two test phones; this many distinct real
+# devices means the app shipped. Device IDs are required (no distinct_id
+# fallback) because anonymous distinct_ids churn under one developer's
+# login/logout/reinstall cycles.
 MOBILE_PHYSICAL_DEVICES_THRESHOLD: Final[int] = 3
 
 # SERVER: distinct users on events from server-side SDKs. Backend events carry
@@ -126,6 +157,26 @@ RESERVED_TLD_SUFFIXES: Final[tuple[str, ...]] = (
     ".home.arpa",
 )
 
+# Well-known dev-tunnel and wildcard-DNS suffixes. These are public hosts that
+# overwhelmingly serve a developer's local machine (ngrok/cloudflared tunnels,
+# nip.io-style wildcard DNS resolving to an embedded IP, tailnet-only hosts),
+# so they don't count as production. Preview-deploy platforms (e.g.
+# *.vercel.app) are deliberately NOT listed — real production apps live there.
+DEV_TUNNEL_SUFFIXES: Final[tuple[str, ...]] = (
+    ".ngrok.io",
+    ".ngrok-free.app",
+    ".ngrok.app",
+    ".trycloudflare.com",
+    ".loca.lt",
+    ".serveo.net",
+    ".nip.io",
+    ".sslip.io",
+    ".xip.io",
+    ".localtest.me",
+    ".lvh.me",
+    ".ts.net",
+)
+
 
 # --- Criterion --------------------------------------------------------------
 
@@ -138,14 +189,19 @@ def is_production_host(raw_host: str) -> bool:
     literals classify by address range via `ipaddress` (`is_global`), which is
     stricter than plain RFC 1918: CGNAT (100.64/10, e.g. Tailscale),
     documentation and benchmarking ranges all stay non-production. IPv4-mapped
-    IPv6 literals classify by the embedded IPv4 address.
+    IPv6 literals classify by the embedded IPv4 address. Trailing dots are
+    stripped before matching — browsers report `location.host` as `localhost.`
+    for `http://localhost./`, and an FQDN trailing dot must not defeat the
+    localhost/suffix/IP checks.
     """
-    host = _strip_port_and_brackets(raw_host.strip().lower())
-    if not host:
+    host = _strip_port_and_brackets(raw_host.strip().lower()).rstrip(".")
+    if not host or len(host) > MAX_HOSTNAME_LENGTH:
         return False
     if host == "localhost" or host.endswith(".localhost"):
         return False
     if host.endswith(RESERVED_TLD_SUFFIXES):
+        return False
+    if host.endswith(DEV_TUNNEL_SUFFIXES):
         return False
 
     try:
@@ -189,7 +245,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     only collects per-team evidence — candidate origin hosts (`$host`, falling
     back to the host of `$current_url`), physical-device counts, and
     server-side user counts; host classification happens in
-    `is_production_host` so it stays unit-testable. The exact-localhost
+    `is_production_host` so it stays unit-testable. The localhost/loopback
     prefilter in SQL is an optimization only (it keeps the dominant dev noise
     out of the result set and away from the per-team cap); correctness lives
     in the Python classifier. `$is_emulator` is matched against its raw JSON
@@ -200,35 +256,52 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     if not team_id_list:
         return {}
 
+    # Use materialized property columns where the deployment has them; the
+    # fallback is the JSONExtractString these expressions would otherwise be.
+    # `$is_emulator` stays on JSONExtractRaw deliberately: JSONExtractString
+    # returns '' for JSON booleans, so the string-expression fallback would
+    # silently kill the mobile leg on deployments without the materialized
+    # column, while the raw value works everywhere.
+    host_expr, _ = get_property_string_expr("events", "$host", "'$host'", "properties")
+    current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
+    device_id_expr, _ = get_property_string_expr("events", "$device_id", "'$device_id'", "properties")
+    lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+
     # Internal background job, not a customer-facing query — tag it so it's
     # attributed to growth in ClickHouse query analytics (and so it doesn't trip
-    # the untagged-query guard that raises in local dev).
+    # the untagged-query guard that raises in local dev). Routed to the offline
+    # cluster on cloud: this is a fleet sweep over raw events and must not
+    # compete with customer-facing queries.
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
     with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
         rows = sync_execute(
-            """
+            f"""
             SELECT
                 team_id,
                 groupUniqArrayIf(%(hosts_per_team_cap)s)(
                     host,
-                    host != '' AND host != 'localhost' AND NOT startsWith(host, 'localhost:')
+                    host != ''
+                    AND host != 'localhost'
+                    AND NOT startsWith(host, 'localhost:')
+                    AND NOT startsWith(host, '127.0.0.1')
                 ) AS candidate_hosts,
                 uniqIf(
-                    if(device_id != '', device_id, distinct_id),
-                    is_emulator_raw IN ('false', '"false"')
+                    device_id,
+                    device_id != '' AND is_emulator_raw IN ('false', '"false"')
                 ) AS physical_devices,
                 uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
             FROM (
                 SELECT
                     team_id,
                     distinct_id,
-                    if(
-                        JSONExtractString(properties, '$host') != '',
-                        JSONExtractString(properties, '$host'),
-                        domain(JSONExtractString(properties, '$current_url'))
+                    substring(
+                        if({host_expr} != '', {host_expr}, domain({current_url_expr})),
+                        1,
+                        %(host_length_cap)s
                     ) AS host,
                     JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
-                    JSONExtractString(properties, '$device_id') AS device_id,
-                    JSONExtractString(properties, '$lib') AS lib
+                    {device_id_expr} AS device_id,
+                    {lib_expr} AS lib
                 FROM events
                 WHERE team_id IN %(team_ids)s
                   AND timestamp >= now() - toIntervalDay(%(window_days)s)
@@ -242,10 +315,16 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                 "team_ids": team_id_list,
                 "window_days": WINDOW_DAYS,
                 "hosts_per_team_cap": HOSTS_PER_TEAM_CAP,
+                "host_length_cap": SQL_HOST_LENGTH_CAP,
                 "server_side_libs": list(SERVER_SIDE_LIBS),
                 "mobile_threshold": MOBILE_PHYSICAL_DEVICES_THRESHOLD,
                 "server_threshold": SERVER_LIB_USERS_THRESHOLD,
             },
+            workload=workload,
+            # One pathological batch must time out rather than occupy the pool
+            # and shard CPU indefinitely; the op's retry policy contains the
+            # failure to that batch.
+            settings={"max_execution_time": 600},
         )
 
     qualifying: dict[int, ProductionTrafficSignal] = {}
@@ -281,7 +360,9 @@ def _mark_teams_ingested_production_event(team_signals: Mapping[int, ProductionT
         teams_to_mark = list(
             Team.objects.select_for_update(skip_locked=True)
             .filter(id__in=list(team_signals.keys()), ingested_production_event=False)
-            .only("id", "uuid")
+            # `groups()` below reads organization_id — fetch it here so the
+            # emit loop stays free of per-team lazy-load queries.
+            .only("id", "uuid", "organization_id")
         )
         if not teams_to_mark:
             return 0
@@ -290,9 +371,23 @@ def _mark_teams_ingested_production_event(team_signals: Mapping[int, ProductionT
             ingested_production_event_last_checked_at=now,
         )
 
+    # Audit trail: the signal kind only otherwise exists in the emitted
+    # analytics events, which are at-most-once — log it so a bad run can be
+    # scoped and repaired from worker logs.
+    marked_kinds = {team.id: team_signals[team.id].kind for team in teams_to_mark}
+    for start in range(0, len(teams_to_mark), 500):
+        chunk = teams_to_mark[start : start + 500]
+        logger.info(
+            "marked_teams_ingested_production_event",
+            team_signals={team.id: marked_kinds[team.id] for team in chunk},
+        )
+
     # Emit outside the transaction so the PostHog client round-trip doesn't
-    # hold row locks. Lost events on worker exit are guarded by
-    # `ph_scoped_capture`'s explicit flush.
+    # hold row locks. Emission is at-most-once: rows are already marked, so a
+    # crash between the commit above and the flush loses those events for good
+    # (re-runs filter on ingested_production_event=False). The column is the
+    # source of truth; the per-team guard below keeps one bad team from
+    # forfeiting the rest of the batch.
     with ph_scoped_capture() as capture:
         for team in teams_to_mark:
             signal = team_signals[team.id]
@@ -301,13 +396,20 @@ def _mark_teams_ingested_production_event(team_signals: Mapping[int, ProductionT
                 "production_host": signal.production_host,
                 "distinct_count": signal.distinct_count,
                 "window_days": WINDOW_DAYS,
+                # Parity with nodejs captureTeamEvent, which stamps the team
+                # uuid on team-scoped events.
+                "team": str(team.uuid),
             }
-            capture(
-                distinct_id=str(team.uuid),
-                event="first team production event ingested",
-                properties={key: value for key, value in properties.items() if value is not None},
-                groups=groups(team=team),
-            )
+            try:
+                capture(
+                    distinct_id=str(team.uuid),
+                    event="first team production event ingested",
+                    properties={key: value for key, value in properties.items() if value is not None},
+                    groups=groups(team=team),
+                )
+            except Exception as e:
+                capture_exception(e, {"team": "team-growth", "team_id": team.id})
+                logger.exception("production_event_activation_capture_failed", team_id=team.id)
     return len(teams_to_mark)
 
 
@@ -328,9 +430,10 @@ def evaluate_and_mark_team_batch(team_ids: Iterable[int], now: datetime) -> tupl
     qualifying_signals = _teams_meeting_criterion(batch)
     marked = _mark_teams_ingested_production_event(qualifying_signals, now=now) if qualifying_signals else 0
 
-    # Bump `_last_checked_at` for the rest so we know we evaluated them.
-    # Qualifying teams already had `_last_checked_at` set inside the
-    # transition helper, so don't double-write them here.
+    # Stamp `_last_checked_at` for the rest — the candidate query uses it to
+    # skip recently-checked teams (RECHECK_BACKOFF), so this write is what
+    # keeps the sweep's recurring cost bounded. Qualifying teams already had
+    # it set inside the transition helper, so don't double-write them here.
     non_qualifying = [tid for tid in batch if tid not in qualifying_signals]
     if non_qualifying:
         Team.objects.filter(id__in=non_qualifying).update(

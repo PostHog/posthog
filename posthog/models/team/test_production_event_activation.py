@@ -92,6 +92,7 @@ class TestIsProductionHost(TestCase):
             ("2606:4700::6810:84e5",),
             ("[2606:4700::6810:84e5]:443",),
             ("::ffff:8.8.8.8",),  # IPv4-mapped public address
+            ("example.com.",),  # trailing-dot FQDN of a real domain is still production
         ]
     )
     def test_production_hosts(self, host: str) -> None:
@@ -132,6 +133,20 @@ class TestIsProductionHost(TestCase):
             ("fc00::1",),
             ("::ffff:127.0.0.1",),
             ("::ffff:192.168.0.1",),
+            ("localhost.",),  # trailing dots must not defeat the deny rules
+            ("localhost.:3000",),
+            ("app.localhost.",),
+            ("myapp.test.",),
+            ("127.0.0.1.",),
+            ("192.168.1.10.",),
+            ("abc123.ngrok-free.app",),  # dev tunnels
+            ("tunnel.ngrok.io",),
+            ("foo.trycloudflare.com",),
+            ("bar.loca.lt",),
+            ("127.0.0.1.nip.io",),  # wildcard DNS to an embedded private IP
+            ("myhost.ts.net",),  # tailnet-only host
+            ("app.lvh.me",),
+            ("a" * 300 + ".com",),  # longer than any valid hostname — crafted input
         ]
     )
     def test_non_production_hosts(self, host: str) -> None:
@@ -203,6 +218,16 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
             _seed_event(
                 self.team.id,
                 properties={"$lib": "posthog-ios", "$is_emulator": False, "$device_id": "device-0"},
+                distinct_id=f"mobile-user-{i}",
+            )
+        self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
+
+    def test_mobile_without_device_id_does_not_qualify(self) -> None:
+        # Without $device_id, distinct_ids can't stand in for devices — fail closed.
+        for i in range(MOBILE_PHYSICAL_DEVICES_THRESHOLD + 2):
+            _seed_event(
+                self.team.id,
+                properties={"$lib": "posthog-ios", "$is_emulator": False},
                 distinct_id=f"mobile-user-{i}",
             )
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
@@ -282,6 +307,7 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
                 "detection_signal": "production_host",
                 "production_host": PRODUCTION_HOST,
                 "window_days": WINDOW_DAYS,
+                "team": str(self.team.uuid),
             },
         )
 
@@ -299,8 +325,25 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
                 "detection_signal": "mobile_physical_devices",
                 "distinct_count": 4,
                 "window_days": WINDOW_DAYS,
+                "team": str(self.team.uuid),
             },
         )
+
+    def test_capture_failure_for_one_team_does_not_drop_the_rest(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+
+        with _mock_capture() as capture:
+            capture.side_effect = [Exception("boom"), None]
+            marked = _mark_teams_ingested_production_event(
+                {self.team.id: PRODUCTION_HOST_SIGNAL, other.id: PRODUCTION_HOST_SIGNAL}, now=_FIXED_NOW
+            )
+
+        self.assertEqual(marked, 2)
+        self.assertEqual(capture.call_count, 2)
+        self.team.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(self.team.ingested_production_event)
+        self.assertTrue(other.ingested_production_event)
 
     def test_already_flagged_team_is_noop(self) -> None:
         self.team.ingested_production_event = True

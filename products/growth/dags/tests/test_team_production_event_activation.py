@@ -6,6 +6,8 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from posthog.models.organization import Organization
+from posthog.models.team.production_event_activation import RECHECK_BACKOFF
 from posthog.models.team.team import Team
 
 from products.growth.dags.team_production_event_activation import detect_first_team_production_event_job
@@ -69,3 +71,60 @@ class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
             self.team.ingested_production_event_last_checked_at,
             datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC),
         )
+
+    def test_demo_team_is_excluded_from_the_sweep(self) -> None:
+        demo_team = Team.objects.create(organization=self.organization, name="demo", is_demo=True)
+        _seed_event(demo_team.id, host="hedgebox.net")
+
+        with _mock_capture() as capture:
+            result = detect_first_team_production_event_job.execute_in_process()
+
+        self.assertTrue(result.success)
+        demo_team.refresh_from_db()
+        self.assertFalse(demo_team.ingested_production_event)
+        # Never evaluated at all — not even the bookkeeping stamp.
+        self.assertIsNone(demo_team.ingested_production_event_last_checked_at)
+        capture.assert_not_called()
+
+    def test_internal_metrics_org_team_is_excluded_from_the_sweep(self) -> None:
+        internal_org = Organization.objects.create(name="internal", for_internal_metrics=True)
+        internal_team = Team.objects.create(organization=internal_org, name="internal")
+        _seed_event(internal_team.id, host="app.example.com")
+
+        with _mock_capture():
+            result = detect_first_team_production_event_job.execute_in_process()
+
+        self.assertTrue(result.success)
+        internal_team.refresh_from_db()
+        self.assertFalse(internal_team.ingested_production_event)
+        self.assertIsNone(internal_team.ingested_production_event_last_checked_at)
+
+    def test_recently_checked_team_is_skipped(self) -> None:
+        recently_checked_at = datetime.now(tz=UTC) - timedelta(hours=1)
+        Team.objects.filter(id=self.team.id).update(
+            ingested_production_event_last_checked_at=recently_checked_at,
+        )
+        _seed_event(self.team.id, host="app.example.com")
+
+        with _mock_capture() as capture:
+            result = detect_first_team_production_event_job.execute_in_process()
+
+        self.assertTrue(result.success)
+        self.team.refresh_from_db()
+        self.assertFalse(self.team.ingested_production_event)
+        # Untouched: skipped teams keep their previous check timestamp.
+        self.assertEqual(self.team.ingested_production_event_last_checked_at, recently_checked_at)
+        capture.assert_not_called()
+
+    def test_stale_checked_team_is_rechecked(self) -> None:
+        Team.objects.filter(id=self.team.id).update(
+            ingested_production_event_last_checked_at=datetime.now(tz=UTC) - RECHECK_BACKOFF - timedelta(days=1),
+        )
+        _seed_event(self.team.id, host="app.example.com")
+
+        with _mock_capture():
+            result = detect_first_team_production_event_job.execute_in_process()
+
+        self.assertTrue(result.success)
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.ingested_production_event)
