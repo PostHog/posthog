@@ -146,6 +146,9 @@ class TicketPagination(pagination.LimitOffsetPagination):
     max_limit = 1000
 
 
+MAX_TAG_FILTER_VALUES = 50
+
+
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
@@ -372,7 +375,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 tags_list = json.loads(tags_param)
                 if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_all_param = self.request.query_params.get("tags_all")
+        if tags_all_param:
+            try:
+                tags_all_list = json.loads(tags_all_param)
+                if isinstance(tags_all_list, list) and tags_all_list:
+                    # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
+                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
+                        queryset = queryset.filter(tagged_items__tag__name=tag_name)
+                    queryset = queryset.distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_exclude_param = self.request.query_params.get("tags_exclude")
+        if tags_exclude_param:
+            try:
+                tags_exclude_list = json.loads(tags_exclude_param)
+                if isinstance(tags_exclude_list, list) and tags_exclude_list:
+                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
 
@@ -553,7 +577,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 "tags",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.',
+                description='JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_all",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_exclude",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.',
             ),
             OpenApiParameter(
                 "order_by",

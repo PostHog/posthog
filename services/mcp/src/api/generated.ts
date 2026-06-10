@@ -47842,9 +47842,17 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     * JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.
      */
     tags?: string;
+    /**
+     * JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.
+     */
+    tags_all?: string;
+    /**
+     * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
+     */
+    tags_exclude?: string;
     };
 
     export type ConversationsTicketsListChannelDetail = typeof ConversationsTicketsListChannelDetail[keyof typeof ConversationsTicketsListChannelDetail];
