@@ -126,8 +126,8 @@ pub struct TeamFiltersBuilder {
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse (the [`LeafSink`] callbacks), consumed by
-    /// [`classify`] at [`freeze`](Self::freeze). Dropped leaves and behavioral negation do not
-    /// survive into the parsed tree, so the signals are captured here rather than re-walked.
+    /// [`classify`] at [`freeze`](Self::freeze). Dropped leaves do not survive into the parsed tree,
+    /// so the loss signal is captured here; negation and empty groups are recovered from the tree.
     flags: HashMap<CohortId, CohortParseFlags>,
 }
 
@@ -138,7 +138,6 @@ impl LeafSink for TeamFiltersBuilder {
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
         bytecode: &Arc<Vec<Value>>,
-        negated: bool,
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -148,8 +147,6 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_default()
             .insert(cohort_id);
-        // First-wins: leaves sharing a conditionHash carry identical bytecode, so the Arc is cloned
-        // at most once per conditionHash.
         self.by_condition_to_bytecode
             .entry(condition_hash)
             .or_insert_with(|| Arc::clone(bytecode));
@@ -157,7 +154,6 @@ impl LeafSink for TeamFiltersBuilder {
 
         let flags = self.flags.entry(cohort_id).or_default();
         flags.state_keyed_leaf_count += 1;
-        flags.has_negation |= negated;
     }
 
     fn record_cohort_ref(&mut self, cohort_id: CohortId) {
@@ -856,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn negated_behavioral_leaf_is_excluded_has_negation() {
+    fn negated_single_behavioral_leaf_is_excluded_top_level_negation() {
         let mut leaf = behavioral_performed_event(7);
         leaf.as_object_mut()
             .unwrap()
@@ -869,7 +865,7 @@ mod tests {
 
         assert_eq!(
             frozen.eligibility[&CohortId(1)],
-            CohortEligibility::Excluded(ExcludedReason::HasNegation),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
         );
         assert!(
             frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
@@ -906,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn negated_person_leaf_is_excluded_has_negation() {
+    fn negated_single_person_leaf_is_excluded_top_level_negation() {
         let mut leaf = person_leaf();
         leaf.as_object_mut()
             .unwrap()
@@ -919,7 +915,7 @@ mod tests {
 
         assert_eq!(
             frozen.eligibility[&CohortId(1)],
-            CohortEligibility::Excluded(ExcludedReason::HasNegation),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
         );
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
     }
@@ -1050,6 +1046,71 @@ mod tests {
             frozen.by_lsk_to_composable_cohorts[&beh_lsk],
             vec![CohortId(2)],
             "the same leaf, as one input to cohort 2, fans Stage 2 back to cohort 2",
+        );
+    }
+
+    #[test]
+    fn and_a_neg_b_is_composable_with_both_lsks_in_composable_map() {
+        let mut neg_person = person_leaf();
+        neg_person
+            .as_object_mut()
+            .unwrap()
+            .insert("negation".to_string(), json!(true));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), neg_person]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2Composable,
+            "AND(A, ¬B) is composable — the root is not all-negated",
+        );
+        let beh_lsk = frozen.by_condition_to_lsk[&HASH][0];
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&beh_lsk],
+            vec![CohortId(1)],
+        );
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&per_lsk],
+            vec![CohortId(1)],
+        );
+        assert!(
+            frozen.by_lsk.contains_key(&per_lsk),
+            "the negated leaf carries state metadata",
+        );
+    }
+
+    #[test]
+    fn and_leaf_empty_or_is_excluded_empty_group() {
+        let filters = json!({
+            "properties": {
+                "type": "AND",
+                "values": [
+                    behavioral_performed_event(7),
+                    { "type": "OR", "values": [] },
+                ],
+            }
+        });
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &filters)
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
+        );
+        assert!(
+            frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+            "an empty-group cohort must not map as single-leaf",
         );
     }
 

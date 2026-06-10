@@ -1,10 +1,9 @@
 //! Pure Boolean composition over Stage 1 leaf membership.
 //!
 //! [`leaf_membership`] turns one leaf's stored state into a member bit; [`evaluate_tree`] folds those
-//! bits up a cohort's AND/OR tree. Reached only for a `Stage2Composable` cohort (≥2 positive,
-//! state-keyed, cohort-ref-free leaves), so composition is positive AND/OR only — the per-person
-//! projection of the existing pipeline's set algebra (`INTERSECT DISTINCT` for AND, `UNION DISTINCT`
-//! for OR in `hogql_cohort_query.py`): `person ∈ A∩B ⟺ bit_A ∧ bit_B`, `person ∈ A∪B ⟺ bit_A ∨ bit_B`.
+//! bits up a cohort's AND/OR tree, XOR-ing each leaf's membership against its `negated()` bit. An
+//! all-absent membership map evaluates to `false` for any non-root-negated tree, so a person with no
+//! Stage 1 state is never a member.
 
 use std::collections::HashMap;
 
@@ -54,10 +53,8 @@ pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> boo
 }
 
 /// Fold a cohort's filter tree into one membership bit over `membership` (`LeafStateKey → member?`).
-/// `And` is `all` and `Or` is `any`, so an empty group yields the operator's identity (`And` → `true`,
-/// `Or` → `false`). A leaf absent from `membership` reads as `false`. A `CohortRef` leaf is unreachable
-/// for a composable cohort; if one is reached it reads `false` and counts
-/// [`STAGE2_UNEXPECTED_COHORT_REF`], surfacing a classification regression.
+/// Each leaf's raw membership is XOR'd with its `negated()` bit. A `CohortRef` leaf reads `false`
+/// and counts [`STAGE2_UNEXPECTED_COHORT_REF`].
 pub fn evaluate_tree(node: &FilterNode, membership: &HashMap<LeafStateKey, bool>) -> bool {
     match node {
         FilterNode::Group { op, children } => match op {
@@ -69,7 +66,7 @@ pub fn evaluate_tree(node: &FilterNode, membership: &HashMap<LeafStateKey, bool>
                 .any(|child| evaluate_tree(child, membership)),
         },
         FilterNode::Leaf(leaf) => match leaf.leaf_state_key() {
-            Some(lsk) => membership.get(&lsk).copied().unwrap_or(false),
+            Some(lsk) => membership.get(&lsk).copied().unwrap_or(false) ^ leaf.negated(),
             None => {
                 counter!(STAGE2_UNEXPECTED_COHORT_REF).increment(1);
                 false
@@ -88,18 +85,23 @@ mod tests {
     use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
     use crate::filters::CohortId;
     use crate::stage1::pick_state::PredicateOp;
+    use crate::stage2::eligibility::condition_negation;
 
     fn lsk(byte: u8) -> LeafStateKey {
         LeafStateKey([byte; 16])
     }
 
-    /// A person-property leaf node carrying `key` so the tree walk can route it to `membership`.
     fn person_leaf(key: LeafStateKey) -> FilterNode {
+        person_leaf_neg(key, false)
+    }
+
+    fn person_leaf_neg(key: LeafStateKey, negated: bool) -> FilterNode {
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: key.0,
             leaf_state_key: key,
             bytecode: Arc::new(Vec::new()),
             raw: Value::Null,
+            negated,
         }))
     }
 
@@ -315,8 +317,6 @@ mod tests {
 
     #[test]
     fn evaluate_unexpected_cohort_ref_reads_false() {
-        // A cohort-ref leaf cannot appear in a composable cohort; if one does, it reads false rather
-        // than mis-composing (and bumps stage2_unexpected_cohort_ref_total).
         let tree = group(BoolOp::Or, vec![person_leaf(lsk(1)), cohort_ref_leaf()]);
         assert!(
             evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
@@ -326,5 +326,153 @@ mod tests {
             !evaluate_tree(&tree, &HashMap::from([(lsk(1), false)])),
             "the cohort ref reads false, so OR(false, ref) is false",
         );
+    }
+
+    // ── XOR negation ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn xor_truth_table_for_and_a_neg_b() {
+        let tree = group(
+            BoolOp::And,
+            vec![person_leaf(lsk(1)), person_leaf_neg(lsk(2), true)],
+        );
+        let cases = [
+            ((true, true), false),   // A ∧ ¬B: true ∧ false = false
+            ((true, false), true),   // A ∧ ¬B: true ∧ true = true
+            ((false, true), false),  // A ∧ ¬B: false ∧ false = false
+            ((false, false), false), // A ∧ ¬B: false ∧ true = false
+        ];
+        for ((a, b), expected) in cases {
+            let map = HashMap::from([(lsk(1), a), (lsk(2), b)]);
+            assert_eq!(
+                evaluate_tree(&tree, &map),
+                expected,
+                "AND(A={a}, ¬B={b}) should be {expected}",
+            );
+        }
+    }
+
+    #[test]
+    fn negated_absent_leaf_reads_true() {
+        let tree = group(
+            BoolOp::And,
+            vec![person_leaf(lsk(1)), person_leaf_neg(lsk(2), true)],
+        );
+        assert!(
+            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
+            "absent negated leaf reads true via false ^ true",
+        );
+    }
+
+    #[test]
+    fn and_a_neg_a_same_lsk_always_false() {
+        // Both leaves share one LSK but opposite negation bits → always false.
+        let tree = group(
+            BoolOp::And,
+            vec![person_leaf(lsk(1)), person_leaf_neg(lsk(1), true)],
+        );
+        assert!(
+            !evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
+            "true AND (true ^ true = false) = false",
+        );
+        assert!(
+            !evaluate_tree(&tree, &HashMap::from([(lsk(1), false)])),
+            "false AND (false ^ true = true) = false",
+        );
+    }
+
+    #[test]
+    fn nested_and_c_or_a_neg_b() {
+        let tree = group(
+            BoolOp::And,
+            vec![
+                person_leaf(lsk(3)),
+                group(
+                    BoolOp::Or,
+                    vec![person_leaf(lsk(1)), person_leaf_neg(lsk(2), true)],
+                ),
+            ],
+        );
+        // C=true, A=false, B=false → OR(false, true) = true → AND(true, true) = true.
+        assert!(evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(3), true), (lsk(1), false), (lsk(2), false)]),
+        ));
+        // C=true, A=false, B=true → OR(false, false) = false → AND(true, false) = false.
+        assert!(!evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(3), true), (lsk(1), false), (lsk(2), true)]),
+        ));
+        // C=false → AND fails regardless.
+        assert!(!evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(3), false), (lsk(1), true), (lsk(2), false)]),
+        ));
+    }
+
+    #[test]
+    fn all_absent_invariant_exhaustive() {
+        // For every non-root-negated depth-≤2 tree with ≤3 leaves, both ops × all negation
+        // assignments: evaluate_tree with an empty map must return false.
+        let empty = HashMap::new();
+        let ops = [BoolOp::And, BoolOp::Or];
+        let negs = [false, true];
+
+        // Depth 1: single leaf under a group.
+        for &neg in &negs {
+            let leaf = person_leaf_neg(lsk(1), neg);
+            for &op in &ops {
+                let tree = group(op, vec![leaf.clone()]);
+                if !condition_negation(&tree) {
+                    assert!(
+                        !evaluate_tree(&tree, &empty),
+                        "depth=1, op={op:?}, neg={neg}",
+                    );
+                }
+            }
+        }
+
+        // Depth 1: two leaves.
+        for &neg_a in &negs {
+            for &neg_b in &negs {
+                let a = person_leaf_neg(lsk(1), neg_a);
+                let b = person_leaf_neg(lsk(2), neg_b);
+                for &op in &ops {
+                    let tree = group(op, vec![a.clone(), b.clone()]);
+                    if !condition_negation(&tree) {
+                        assert!(
+                            !evaluate_tree(&tree, &empty),
+                            "depth=1, op={op:?}, neg_a={neg_a}, neg_b={neg_b}",
+                        );
+                    }
+                }
+            }
+        }
+
+        // Depth 2: outer(inner(leaf, leaf), leaf) — 3 leaves, 2 group ops, 8 neg combos.
+        for &neg_a in &negs {
+            for &neg_b in &negs {
+                for &neg_c in &negs {
+                    let a = person_leaf_neg(lsk(1), neg_a);
+                    let b = person_leaf_neg(lsk(2), neg_b);
+                    let c = person_leaf_neg(lsk(3), neg_c);
+                    for &inner_op in &ops {
+                        for &outer_op in &ops {
+                            let tree = group(
+                                outer_op,
+                                vec![group(inner_op, vec![a.clone(), b.clone()]), c.clone()],
+                            );
+                            if !condition_negation(&tree) {
+                                assert!(
+                                    !evaluate_tree(&tree, &empty),
+                                    "depth=2, outer={outer_op:?}, inner={inner_op:?}, \
+                                     neg=({neg_a},{neg_b},{neg_c})",
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

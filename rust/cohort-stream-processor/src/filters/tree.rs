@@ -11,9 +11,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::filters::leaf_classifier::{
-    classify_leaf, explicit_negation, LeafClass, LeafDropReason,
-};
+use crate::filters::leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StateVariant;
@@ -94,6 +92,8 @@ pub struct BehavioralLeafConfig {
     /// snapshots share one allocation. Excluded from [`LeafStateKey`], which hashes `condition_hash`
     /// (already `sha256(bytecode)`).
     pub bytecode: Arc<Vec<Value>>,
+    /// Excluded from [`LeafStateKey`] — state is shared between positive and negated instances.
+    pub negated: bool,
 }
 
 impl BehavioralLeafConfig {
@@ -122,6 +122,8 @@ pub struct PersonLeafConfig {
     /// See [`BehavioralLeafConfig::bytecode`].
     pub bytecode: Arc<Vec<Value>>,
     pub raw: Value,
+    /// See [`BehavioralLeafConfig::negated`].
+    pub negated: bool,
 }
 
 /// A reference to another cohort. No `conditionHash` at Stage 1 — cohort refs are skipped during
@@ -141,6 +143,14 @@ pub enum CohortLeaf {
 }
 
 impl CohortLeaf {
+    pub fn negated(&self) -> bool {
+        match self {
+            Self::PersonProperty(leaf) => leaf.negated,
+            Self::Behavioral(leaf) => leaf.negated,
+            Self::CohortRef(config) => config.negation,
+        }
+    }
+
     /// The leaf's Stage 1 state key, or `None` for a cohort reference (not state-keyed).
     pub fn leaf_state_key(&self) -> Option<LeafStateKey> {
         match self {
@@ -203,15 +213,13 @@ pub struct CohortTree {
 pub trait LeafSink {
     /// Records a kept, state-keyed leaf's `condition_hash → {leaf_state_key, cohort_id, bytecode}`
     /// edges and its `conditionHash` dedup membership. `bytecode` is borrowed; the implementation
-    /// clones the `Arc` only on first insert per `conditionHash`. `negated` is the leaf's negation
-    /// bit ([`explicit_negation`](crate::filters::leaf_classifier::explicit_negation)).
+    /// clones the `Arc` only on first insert per `conditionHash`.
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
         bytecode: &Arc<Vec<Value>>,
-        negated: bool,
     );
 
     /// A cohort-reference leaf, kept in the tree but not state-keyed.
@@ -272,7 +280,7 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
                 leaf.leaf_state_key(),
                 leaf.bytecode(),
             ) {
-                sink.record_state_keyed(cohort_id, hash, lsk, bytecode, explicit_negation(node));
+                sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
             }
             Some(FilterNode::Leaf(leaf))
         }
@@ -305,13 +313,11 @@ mod tests {
 
     #[derive(Default)]
     struct CollectingSink {
-        state_keyed: Vec<(CohortId, [u8; 16], LeafStateKey, bool)>,
+        state_keyed: Vec<(CohortId, [u8; 16], LeafStateKey)>,
         cohort_refs: Vec<CohortId>,
         dropped: Vec<(CohortId, LeafDropReason)>,
     }
 
-    // Bytecode capture is covered against the real `TeamFiltersBuilder` elsewhere; this sink only
-    // observes the leaf-disposition edges, so it ignores the bytecode argument.
     impl LeafSink for CollectingSink {
         fn record_state_keyed(
             &mut self,
@@ -319,9 +325,8 @@ mod tests {
             hash: [u8; 16],
             lsk: LeafStateKey,
             _bytecode: &Arc<Vec<Value>>,
-            negated: bool,
         ) {
-            self.state_keyed.push((cohort_id, hash, lsk, negated));
+            self.state_keyed.push((cohort_id, hash, lsk));
         }
         fn record_cohort_ref(&mut self, cohort_id: CohortId) {
             self.cohort_refs.push(cohort_id);
@@ -409,27 +414,40 @@ mod tests {
             "properties": { "type": "AND", "values": [person_leaf(&HASH_A), negated] },
         });
         let mut sink = CollectingSink::default();
-        parse(&filters, &mut sink);
+        let tree = parse(&filters, &mut sink);
 
-        let negated_bits: Vec<bool> = sink.state_keyed.iter().map(|&(.., neg)| neg).collect();
-        assert_eq!(negated_bits, vec![false, true]);
+        let FilterNode::Group { children, .. } = &tree.root else {
+            panic!("root should be a group");
+        };
+        let bits: Vec<bool> = children
+            .iter()
+            .map(|child| match child {
+                FilterNode::Leaf(leaf) => leaf.negated(),
+                _ => panic!("expected a leaf"),
+            })
+            .collect();
+        assert_eq!(bits, vec![false, true]);
     }
 
     #[test]
     fn not_in_operator_is_not_a_parse_time_negation() {
-        // `operator: "not_in"` on a person/behavioral leaf is a value-list predicate, not a
-        // composition negation — only an explicit `negation: true` sets the bit.
         let mut not_in = person_leaf(&HASH_A);
         not_in["operator"] = json!("not_in");
         let filters = json!({ "properties": { "type": "AND", "values": [not_in] } });
         let mut sink = CollectingSink::default();
-        parse(&filters, &mut sink);
+        let tree = parse(&filters, &mut sink);
 
-        assert_eq!(sink.state_keyed.len(), 1);
-        assert!(
-            !sink.state_keyed[0].3,
-            "not_in alone must not set the negation bit",
-        );
+        let FilterNode::Group { children, .. } = &tree.root else {
+            panic!("root should be a group");
+        };
+        assert_eq!(children.len(), 1);
+        match &children[0] {
+            FilterNode::Leaf(leaf) => assert!(
+                !leaf.negated(),
+                "not_in alone must not set the negation bit",
+            ),
+            _ => panic!("expected a leaf"),
+        }
     }
 
     #[test]

@@ -232,6 +232,7 @@ mod tests {
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
             bytecode: Arc::new(vec![]),
+            negated: false,
         }
         .with_state_key()
     }

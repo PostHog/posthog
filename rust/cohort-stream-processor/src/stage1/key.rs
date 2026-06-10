@@ -94,6 +94,7 @@ mod tests {
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
             bytecode: Arc::new(vec![]),
+            negated: false,
         }
         .with_state_key()
     }
@@ -141,6 +142,7 @@ mod tests {
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
             bytecode: Arc::new(vec![]),
+            negated: false,
         }
         .with_state_key()
     }
@@ -203,11 +205,13 @@ mod tests {
 
     #[test]
     fn negation_is_excluded_from_the_key() {
-        // `negation` is structurally absent from `BehavioralLeafConfig`: the state is invariant to
-        // it and the output is inverted at Stage 2.
+        let positive = baseline();
+        let mut negated = baseline();
+        negated.negated = true;
         assert_eq!(
-            LeafStateKey::for_behavioral(&baseline()),
-            LeafStateKey::for_behavioral(&baseline()),
+            LeafStateKey::for_behavioral(&positive),
+            LeafStateKey::for_behavioral(&negated),
+            "configs differing only in `negated` must hash equal — state is invariant to negation",
         );
     }
 }

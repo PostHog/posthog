@@ -118,6 +118,7 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         leaf_state_key: LeafStateKey([0u8; 16]),
         state_variant: None,
         bytecode,
+        negated: explicit_negation(node),
     }
     .with_state_key();
 
@@ -139,15 +140,10 @@ fn classify_cohort_ref(node: &Value) -> LeafClass {
     }
 }
 
-/// Whether a person/behavioral leaf is negated for Stage 2 composition: the explicit `negation: true`
-/// flag alone, mirroring the composition oracle (`hogql_cohort_query.py:690`, which builds each
-/// leaf's negation from `prop.negation`). A bare `operator: "not_in"` is *not* a composition negation
-/// here — it is a value-list predicate already compiled into the leaf bytecode, so the state tracks
-/// the correct membership. Cohort-ref leaves differ: see `cohort_ref_negation`.
-///
-/// Read at parse time because negation is not retained on any parsed leaf, and [`LeafStateKey`]
-/// excludes it (state is invariant to it) — so a frozen-tree re-walk could not recover it.
-pub(crate) fn explicit_negation(node: &Value) -> bool {
+/// Whether a person/behavioral leaf is negated for Stage 2 composition: `negation: true` only.
+/// A bare `operator: "not_in"` is a value-list predicate compiled into the bytecode, not a
+/// composition negation. Cohort-ref leaves differ: see [`cohort_ref_negation`].
+fn explicit_negation(node: &Value) -> bool {
     node.get("negation")
         .and_then(Value::as_bool)
         .unwrap_or(false)
@@ -174,6 +170,7 @@ fn classify_person(node: &Value) -> LeafClass {
         leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
         bytecode,
         raw: node.clone(),
+        negated: explicit_negation(node),
     }))
 }
 
@@ -551,5 +548,89 @@ mod tests {
             classify_leaf(&node),
             LeafClass::Drop(LeafDropReason::UnknownLeafType)
         ));
+    }
+
+    #[test]
+    fn behavioral_leaf_with_negation_true_is_kept_negated() {
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+            "negation": true,
+        });
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept behavioral leaf");
+        };
+        assert!(leaf.negated);
+    }
+
+    #[test]
+    fn behavioral_leaf_without_negation_is_not_negated() {
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+        });
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept behavioral leaf");
+        };
+        assert!(!leaf.negated);
+    }
+
+    #[test]
+    fn person_leaf_with_negation_true_is_kept_negated() {
+        let node = json!({
+            "type": "person",
+            "key": "email",
+            "value": "a@b.com",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+            "negation": true,
+        });
+        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept person leaf");
+        };
+        assert!(leaf.negated);
+    }
+
+    #[test]
+    fn person_leaf_without_negation_is_not_negated() {
+        let node = json!({
+            "type": "person",
+            "key": "email",
+            "value": "a@b.com",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+        });
+        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept person leaf");
+        };
+        assert!(!leaf.negated);
+    }
+
+    #[test]
+    fn behavioral_negation_false_is_not_negated() {
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+            "negation": false,
+        });
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept behavioral leaf");
+        };
+        assert!(!leaf.negated);
     }
 }

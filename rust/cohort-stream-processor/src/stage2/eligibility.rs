@@ -4,20 +4,14 @@
 //!
 //! - [`SingleLeaf`](CohortEligibility::SingleLeaf) — exactly one state-keyed leaf, whose flip *is*
 //!   the cohort's membership. Mapped into `by_lsk_to_single_leaf_cohorts` and emitted.
-//! - [`Stage2Composable`](CohortEligibility::Stage2Composable) — ≥2 positive state-keyed leaves with
-//!   no cohort references; not emitted.
+//! - [`Stage2Composable`](CohortEligibility::Stage2Composable) — ≥2 state-keyed leaves (some
+//!   potentially negated) with no cohort references.
 //! - [`Excluded`](CohortEligibility::Excluded) — not emitted, with a reason for observability.
 //!
-//! Two signals classification needs do not survive the parse, so they are captured during it (in
-//! [`CohortParseFlags`]) rather than re-walked from the frozen tree:
-//!
-//! - A dropped leaf produces no node, so a multi-leaf cohort whose sibling dropped would otherwise
-//!   look single-leaf; [`CohortParseFlags::has_dropped_leaf`] records the loss so its lone survivor
-//!   never drives whole-cohort membership.
-//! - Behavioral-leaf negation is not read into the parsed leaf and is excluded from [`LeafStateKey`];
-//!   [`CohortParseFlags::has_negation`] captures it so a negated cohort is not classified `Composable`.
+//! A dropped leaf produces no node, so [`CohortParseFlags::has_dropped_leaf`] records the loss
+//! during the parse. Negation and empty groups are recovered from the frozen tree.
 
-use crate::filters::tree::{CohortTree, FilterNode};
+use crate::filters::tree::{BoolOp, CohortTree, FilterNode};
 use crate::stage1::key::LeafStateKey;
 
 /// Per-cohort signals accumulated while parsing the cohort's filter tree, via the
@@ -29,10 +23,6 @@ pub struct CohortParseFlags {
     pub state_keyed_leaf_count: u32,
     /// The cohort has ≥1 cohort-reference leaf.
     pub has_cohort_ref: bool,
-    /// The cohort has ≥1 person/behavioral leaf with an explicit `negation: true`. A bare `operator:
-    /// "not_in"` is a value-list predicate, not a composition negation, so it does not set this (see
-    /// [`explicit_negation`](crate::filters::leaf_classifier::explicit_negation)).
-    pub has_negation: bool,
     /// The cohort lost ≥1 leaf during parse (unsupported variant, malformed, …). The dropped
     /// constraint is gone, so the cohort cannot be composed correctly from what survived.
     pub has_dropped_leaf: bool,
@@ -42,10 +32,14 @@ pub struct CohortParseFlags {
 /// `cohort_eligibility_total{class}` counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExcludedReason {
-    /// Neither a single state-keyed leaf nor ≥2 composable leaves — an empty cohort.
+    /// Neither a single state-keyed leaf nor ≥2 composable leaves. Defensive-only: `EmptyGroup`
+    /// fires first for any zero-leaf tree, since every such tree has an empty group.
     NotMultiLeaf,
-    /// Has a negated leaf.
-    HasNegation,
+    /// The root condition is negated (AND: all children negated; OR: any child negated).
+    TopLevelNegation,
+    /// A group anywhere in the tree has zero children. Without exclusion an empty AND evaluates to
+    /// `true` (identity), making everyone a member.
+    EmptyGroup,
     /// Has a cohort-reference leaf.
     HasCohortRef,
     /// Lost a leaf during parse; the dropped constraint cannot be recovered, so the cohort is never
@@ -58,7 +52,8 @@ impl ExcludedReason {
     fn metric_class(self) -> &'static str {
         match self {
             Self::NotMultiLeaf => "excluded_not_multi_leaf",
-            Self::HasNegation => "excluded_has_negation",
+            Self::TopLevelNegation => "excluded_top_level_negation",
+            Self::EmptyGroup => "excluded_empty_group",
             Self::HasCohortRef => "excluded_has_cohort_ref",
             Self::HasDroppedLeaf => "excluded_has_dropped_leaf",
         }
@@ -87,25 +82,47 @@ impl CohortEligibility {
     }
 }
 
+/// Whether a tree's root condition is negated: leaf → its `negated()` bit; AND → all children
+/// negated; OR → any child negated. Empty AND is `false` (unreachable — `has_empty_group` fires
+/// first).
+pub(crate) fn condition_negation(node: &FilterNode) -> bool {
+    match node {
+        FilterNode::Leaf(leaf) => leaf.negated(),
+        FilterNode::Group { op, children } => match op {
+            BoolOp::And => !children.is_empty() && children.iter().all(condition_negation),
+            BoolOp::Or => children.iter().any(condition_negation),
+        },
+    }
+}
+
+/// Whether any group in the tree has zero children.
+fn has_empty_group(node: &FilterNode) -> bool {
+    match node {
+        FilterNode::Leaf(_) => false,
+        FilterNode::Group { children, .. } => {
+            children.is_empty() || children.iter().any(has_empty_group)
+        }
+    }
+}
+
 /// Classify a parsed cohort for composition from its tree and accumulated parse flags.
 ///
-/// Exclusions are checked first, most-permanent → least: a dropped leaf can never be recovered, so
-/// it outranks negation and cohort references. A cohort clear of all three is `SingleLeaf` (exactly
-/// one state-keyed leaf) or `Stage2Composable` (≥2); only an empty cohort falls through to
-/// [`ExcludedReason::NotMultiLeaf`].
+/// Exclusion precedence (most-permanent first): dropped leaf → empty group → root-negated →
+/// cohort reference. Dropped fires first so drop-created empty groups are attributed correctly.
 pub fn classify(tree: &CohortTree, flags: &CohortParseFlags) -> CohortEligibility {
     if flags.has_dropped_leaf {
         return CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf);
     }
-    if flags.has_negation {
-        return CohortEligibility::Excluded(ExcludedReason::HasNegation);
+    if has_empty_group(&tree.root) {
+        return CohortEligibility::Excluded(ExcludedReason::EmptyGroup);
+    }
+    if condition_negation(&tree.root) {
+        return CohortEligibility::Excluded(ExcludedReason::TopLevelNegation);
     }
     if flags.has_cohort_ref {
         return CohortEligibility::Excluded(ExcludedReason::HasCohortRef);
     }
 
-    // No drops, negation, or cohort refs: every leaf node is a kept, state-keyed leaf, so the tree
-    // walk and `state_keyed_leaf_count` agree on the leaf count.
     match single_supported_leaf(&tree.root) {
         Some(lsk) => CohortEligibility::SingleLeaf(lsk),
         None if flags.state_keyed_leaf_count >= 2 => CohortEligibility::Stage2Composable,
@@ -158,37 +175,56 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::filters::tree::{BoolOp, CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
+    use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
     use crate::filters::{CohortId, TeamId};
 
     const HASH_A: [u8; 16] = *b"aaaaaaaaaaaaaaaa";
     const HASH_B: [u8; 16] = *b"bbbbbbbbbbbbbbbb";
+    const HASH_C: [u8; 16] = *b"cccccccccccccccc";
 
     fn person_leaf(hash: [u8; 16]) -> FilterNode {
+        person_leaf_negated(hash, false)
+    }
+
+    fn person_leaf_negated(hash: [u8; 16], negated: bool) -> FilterNode {
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: hash,
             leaf_state_key: LeafStateKey::for_person_property(&hash),
             bytecode: Arc::new(Vec::new()),
             raw: Value::Null,
+            negated,
         }))
     }
 
     fn cohort_ref_leaf() -> FilterNode {
+        cohort_ref_leaf_negated(false)
+    }
+
+    fn cohort_ref_leaf_negated(negation: bool) -> FilterNode {
         FilterNode::Leaf(CohortLeaf::CohortRef(CohortRefLeafConfig {
             referenced_cohort_id: CohortId(99),
-            negation: false,
+            negation,
         }))
     }
 
     fn and(children: Vec<FilterNode>) -> CohortTree {
+        tree_with(BoolOp::And, children)
+    }
+
+    fn or(children: Vec<FilterNode>) -> CohortTree {
+        tree_with(BoolOp::Or, children)
+    }
+
+    fn tree_with(op: BoolOp, children: Vec<FilterNode>) -> CohortTree {
         CohortTree {
             cohort_id: CohortId(1),
             team_id: TeamId(7),
-            root: FilterNode::Group {
-                op: BoolOp::And,
-                children,
-            },
+            root: FilterNode::Group { op, children },
         }
+    }
+
+    fn group(op: BoolOp, children: Vec<FilterNode>) -> FilterNode {
+        FilterNode::Group { op, children }
     }
 
     /// Flags for a clean tree of `n` positive state-keyed leaves.
@@ -218,17 +254,16 @@ mod tests {
     }
 
     #[test]
-    fn empty_cohort_is_not_multi_leaf() {
+    fn empty_cohort_is_empty_group() {
         let tree = and(vec![]);
         assert_eq!(
             classify(&tree, &positive(0)),
-            CohortEligibility::Excluded(ExcludedReason::NotMultiLeaf),
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
         );
     }
 
     #[test]
     fn dropped_leaf_excludes_even_with_a_lone_survivor() {
-        // One survivor in the tree but a sibling dropped: must be Excluded, not SingleLeaf.
         let tree = and(vec![person_leaf(HASH_A)]);
         let flags = CohortParseFlags {
             state_keyed_leaf_count: 1,
@@ -239,24 +274,6 @@ mod tests {
             classify(&tree, &flags),
             CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
         );
-    }
-
-    #[test]
-    fn negation_excludes_single_and_composable_shapes() {
-        for count in [1, 2] {
-            let leaves: Vec<FilterNode> = (0..count).map(|_| person_leaf(HASH_A)).collect();
-            let tree = and(leaves);
-            let flags = CohortParseFlags {
-                state_keyed_leaf_count: count as u32,
-                has_negation: true,
-                ..Default::default()
-            };
-            assert_eq!(
-                classify(&tree, &flags),
-                CohortEligibility::Excluded(ExcludedReason::HasNegation),
-                "count={count}",
-            );
-        }
     }
 
     #[test]
@@ -273,38 +290,269 @@ mod tests {
         );
     }
 
+    // ── condition_negation ──────────────────────────────────────────────────────
+
     #[test]
-    fn exclusion_precedence_is_dropped_then_negation_then_cohort_ref() {
-        let tree = and(vec![person_leaf(HASH_A), person_leaf(HASH_B)]);
-        let all = CohortParseFlags {
-            state_keyed_leaf_count: 2,
-            has_cohort_ref: true,
-            has_negation: true,
+    fn condition_negation_leaf_bits() {
+        assert!(!condition_negation(&person_leaf(HASH_A)));
+        assert!(condition_negation(&person_leaf_negated(HASH_A, true)));
+    }
+
+    #[test]
+    fn condition_negation_and_propagation() {
+        // AND all-negated → true; AND mixed → false; AND all-positive → false.
+        assert!(condition_negation(&group(
+            BoolOp::And,
+            vec![
+                person_leaf_negated(HASH_A, true),
+                person_leaf_negated(HASH_B, true),
+            ],
+        )));
+        assert!(!condition_negation(&group(
+            BoolOp::And,
+            vec![person_leaf(HASH_A), person_leaf_negated(HASH_B, true)],
+        )));
+        assert!(!condition_negation(&group(
+            BoolOp::And,
+            vec![person_leaf(HASH_A), person_leaf(HASH_B)],
+        )));
+    }
+
+    #[test]
+    fn condition_negation_or_propagation() {
+        // OR any-negated → true; OR all-positive → false.
+        assert!(condition_negation(&group(
+            BoolOp::Or,
+            vec![person_leaf(HASH_A), person_leaf_negated(HASH_B, true)],
+        )));
+        assert!(condition_negation(&group(
+            BoolOp::Or,
+            vec![
+                person_leaf_negated(HASH_A, true),
+                person_leaf_negated(HASH_B, true),
+            ],
+        )));
+        assert!(!condition_negation(&group(
+            BoolOp::Or,
+            vec![person_leaf(HASH_A), person_leaf(HASH_B)],
+        )));
+    }
+
+    #[test]
+    fn condition_negation_empty_groups_are_false() {
+        assert!(!condition_negation(&group(BoolOp::And, vec![])));
+        assert!(!condition_negation(&group(BoolOp::Or, vec![])));
+    }
+
+    #[test]
+    fn condition_negation_cohort_ref_negated_is_true() {
+        assert!(condition_negation(&cohort_ref_leaf_negated(true)));
+        assert!(!condition_negation(&cohort_ref_leaf_negated(false)));
+    }
+
+    // ── classifier shapes ───────────────────────────────────────────────────────
+
+    #[test]
+    fn and_a_neg_b_is_composable() {
+        // AND(A, ¬B): root is not negated (AND needs ALL negated), so it's composable.
+        let tree = and(vec![person_leaf(HASH_A), person_leaf_negated(HASH_B, true)]);
+        assert_eq!(
+            classify(&tree, &positive(2)),
+            CohortEligibility::Stage2Composable,
+        );
+    }
+
+    #[test]
+    fn or_a_neg_b_is_composable() {
+        // OR(A, ¬B): root is negated (OR with any negated), so excluded.
+        let tree = or(vec![person_leaf(HASH_A), person_leaf_negated(HASH_B, true)]);
+        assert_eq!(
+            classify(&tree, &positive(2)),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn or_neg_a_neg_b_is_top_level_negation() {
+        let tree = or(vec![
+            person_leaf_negated(HASH_A, true),
+            person_leaf_negated(HASH_B, true),
+        ]);
+        assert_eq!(
+            classify(&tree, &positive(2)),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn and_neg_a_neg_b_is_top_level_negation() {
+        let tree = and(vec![
+            person_leaf_negated(HASH_A, true),
+            person_leaf_negated(HASH_B, true),
+        ]);
+        assert_eq!(
+            classify(&tree, &positive(2)),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn bare_negated_leaf_is_top_level_negation() {
+        // A single negated leaf under AND(¬A) propagates to the root.
+        let tree = and(vec![person_leaf_negated(HASH_A, true)]);
+        assert_eq!(
+            classify(&tree, &positive(1)),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn nested_negated_and_propagates() {
+        // AND(¬A) → root negated; OR(AND(¬A)) → root negated (OR any).
+        let tree = or(vec![group(
+            BoolOp::And,
+            vec![person_leaf_negated(HASH_A, true)],
+        )]);
+        assert_eq!(
+            classify(&tree, &positive(1)),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn and_c_or_a_neg_b_is_composable() {
+        // AND(C, OR(A, ¬B)): root is AND with two children. The OR child is negated but the AND
+        // needs ALL negated. C is positive → root is not negated → composable.
+        let tree = and(vec![
+            person_leaf(HASH_C),
+            group(
+                BoolOp::Or,
+                vec![person_leaf(HASH_A), person_leaf_negated(HASH_B, true)],
+            ),
+        ]);
+        assert_eq!(
+            classify(&tree, &positive(3)),
+            CohortEligibility::Stage2Composable,
+        );
+    }
+
+    #[test]
+    fn and_c_or_neg_a_neg_b_is_composable() {
+        // AND(C, OR(¬A, ¬B)): the OR child is negated, but C is positive so root AND is not.
+        let tree = and(vec![
+            person_leaf(HASH_C),
+            group(
+                BoolOp::Or,
+                vec![
+                    person_leaf_negated(HASH_A, true),
+                    person_leaf_negated(HASH_B, true),
+                ],
+            ),
+        ]);
+        assert_eq!(
+            classify(&tree, &positive(3)),
+            CohortEligibility::Stage2Composable,
+        );
+    }
+
+    // ── empty-group ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn root_empty_and_is_empty_group() {
+        let tree = and(vec![]);
+        assert_eq!(
+            classify(&tree, &positive(0)),
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
+        );
+    }
+
+    #[test]
+    fn nested_empty_or_is_empty_group() {
+        // AND(leaf, OR()): the nested empty OR triggers EmptyGroup.
+        let tree = and(vec![person_leaf(HASH_A), group(BoolOp::Or, vec![])]);
+        assert_eq!(
+            classify(&tree, &positive(1)),
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
+        );
+    }
+
+    #[test]
+    fn or_with_empty_and_child_is_empty_group() {
+        // OR(A, B, AND()): the empty AND child is the always-true divergence the oracle rejects.
+        let tree = or(vec![
+            person_leaf(HASH_A),
+            person_leaf(HASH_B),
+            group(BoolOp::And, vec![]),
+        ]);
+        assert_eq!(
+            classify(&tree, &positive(2)),
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
+        );
+    }
+
+    // ── precedence ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn precedence_dropped_over_empty_group() {
+        // AND(¬A, OR()) + dropped flag: dropped fires first.
+        let tree = and(vec![
+            person_leaf_negated(HASH_A, true),
+            group(BoolOp::Or, vec![]),
+        ]);
+        let flags = CohortParseFlags {
+            state_keyed_leaf_count: 1,
             has_dropped_leaf: true,
+            ..Default::default()
         };
         assert_eq!(
-            classify(&tree, &all),
+            classify(&tree, &flags),
             CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
         );
+    }
+
+    #[test]
+    fn precedence_empty_group_over_top_level_negation() {
+        // AND(¬A, OR()): both EmptyGroup and TopLevelNegation apply, but EmptyGroup wins.
+        let tree = and(vec![
+            person_leaf_negated(HASH_A, true),
+            group(BoolOp::Or, vec![]),
+        ]);
         assert_eq!(
-            classify(
-                &tree,
-                &CohortParseFlags {
-                    has_dropped_leaf: false,
-                    ..all
-                }
-            ),
-            CohortEligibility::Excluded(ExcludedReason::HasNegation),
+            classify(&tree, &positive(1)),
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
         );
+    }
+
+    #[test]
+    fn precedence_top_level_negation_over_cohort_ref() {
+        // AND(¬A, ¬ref): both TopLevelNegation and HasCohortRef apply.
+        let tree = and(vec![
+            person_leaf_negated(HASH_A, true),
+            cohort_ref_leaf_negated(true),
+        ]);
+        let flags = CohortParseFlags {
+            state_keyed_leaf_count: 1,
+            has_cohort_ref: true,
+            ..Default::default()
+        };
         assert_eq!(
-            classify(
-                &tree,
-                &CohortParseFlags {
-                    has_dropped_leaf: false,
-                    has_negation: false,
-                    ..all
-                }
-            ),
+            classify(&tree, &flags),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+        );
+    }
+
+    #[test]
+    fn positive_negated_a_with_positive_cohort_ref_is_cohort_ref() {
+        // AND(¬A, ref⁺): root is not all-negated (ref is positive), so no TopLevelNegation;
+        // HasCohortRef fires.
+        let tree = and(vec![person_leaf_negated(HASH_A, true), cohort_ref_leaf()]);
+        let flags = CohortParseFlags {
+            state_keyed_leaf_count: 1,
+            has_cohort_ref: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            classify(&tree, &flags),
             CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
         );
     }
@@ -324,8 +572,12 @@ mod tests {
             "excluded_not_multi_leaf",
         );
         assert_eq!(
-            CohortEligibility::Excluded(ExcludedReason::HasNegation).metric_class(),
-            "excluded_has_negation",
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation).metric_class(),
+            "excluded_top_level_negation",
+        );
+        assert_eq!(
+            CohortEligibility::Excluded(ExcludedReason::EmptyGroup).metric_class(),
+            "excluded_empty_group",
         );
         assert_eq!(
             CohortEligibility::Excluded(ExcludedReason::HasCohortRef).metric_class(),
@@ -339,7 +591,6 @@ mod tests {
 
     #[test]
     fn nested_groups_count_one_leaf_as_single() {
-        // A single leaf nested under OR(AND(..)) is still one state-keyed leaf.
         let tree = CohortTree {
             cohort_id: CohortId(1),
             team_id: TeamId(7),

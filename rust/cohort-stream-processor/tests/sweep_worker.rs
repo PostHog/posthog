@@ -1260,6 +1260,48 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     assert_eq!(changes[1].status, MembershipStatus::Left);
 }
 
+// ── Negation + sweep ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sweep_expiry_of_negated_leaf_emits_entered() {
+    // AND(A 7d, ¬B 1d): one $pageview matches both → non-member (A=true, ¬B=false).
+    // Sweep expires B's 1-day window while A's 7-day survives → AND(true, ¬absent=true) → Entered.
+    let (_dir, store) = temp_store();
+
+    let a = behavioral_leaf(7);
+    let mut neg_b = behavioral_leaf(1);
+    neg_b
+        .as_object_mut()
+        .unwrap()
+        .insert("negation".to_string(), json!(true));
+
+    let filters = build_team_filters(vec![a, neg_b]);
+    let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
+    assert_eq!(lsks.len(), 2);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+
+    send_event(&tracker, &tx, event_at(alice, ts, 0), 0).await;
+    send_sweep(&tx, event_ms + 2 * DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(statuses, vec![MembershipStatus::Entered]);
+    assert_eq!(stage2_bit(&store, 1, alice), Some(true));
+}
+
 // Pin that the worker's per-partition state types line up with what the sweep evicts (a compile-time
 // reminder if the variant enum is reshaped).
 #[test]

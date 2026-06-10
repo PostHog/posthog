@@ -20,8 +20,8 @@ pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 /// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
 /// Rebuild-driven (every cohort is re-classified each refresh), so graph its rate, not its level.
 /// `class` is one of `single_leaf`, `stage2_composable`, or `excluded_<reason>`
-/// (`excluded_not_multi_leaf`, `excluded_has_negation`, `excluded_has_cohort_ref`,
-/// `excluded_has_dropped_leaf`).
+/// (`excluded_not_multi_leaf`, `excluded_top_level_negation`, `excluded_empty_group`,
+/// `excluded_has_cohort_ref`, `excluded_has_dropped_leaf`).
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 
 // ── Stage 2 composition ────────────────────────────────────────────────────────

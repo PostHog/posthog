@@ -612,7 +612,6 @@ mod tests {
 
     #[test]
     fn transitions_touching_no_composable_cohort_emit_nothing() {
-        // A single-leaf cohort's leaf is not in the composable index, so a flip on it composes nothing.
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7)]); // single-leaf cohort
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
@@ -632,5 +631,79 @@ mod tests {
             changes.is_empty(),
             "a single-leaf cohort is handled by map_transition, not Stage 2",
         );
+    }
+
+    // ── Negation XOR ────────────────────────────────────────────────────────────
+
+    fn negated_person_leaf() -> Value {
+        json!({
+            "type": "person", "key": "email", "value": "u@p.com", "operator": "exact",
+            "conditionHash": "fedcba9876543210",
+            "bytecode": ["_H", 1, 32, "u@p.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+            "negation": true,
+        })
+    }
+
+    #[test]
+    fn negated_leaf_absent_means_entered() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7), negated_person_leaf()]);
+        let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
+        let alice = person(1);
+
+        // A true, B absent → AND(true, ¬absent=true) → Entered.
+        write_stage1(&store, beh_lsk, alice, behavioral_match());
+
+        let changes = compose_stage2(
+            PARTITION,
+            &store,
+            &filters,
+            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            EVENT_MS,
+            TS,
+        )
+        .unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+    }
+
+    #[test]
+    fn negated_leaf_present_means_left() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7), negated_person_leaf()]);
+        let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
+        let alice = person(1);
+
+        write_stage1(&store, beh_lsk, alice, behavioral_match());
+        let entered = compose_stage2(
+            PARTITION,
+            &store,
+            &filters,
+            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            EVENT_MS,
+            TS,
+        )
+        .unwrap();
+        assert_eq!(entered.len(), 1);
+        assert_eq!(entered[0].status, MembershipStatus::Entered);
+
+        // B flips true → AND(true, ¬true=false) → Left.
+        write_stage1(&store, per_lsk, alice, person_state(true));
+        let left = compose_stage2(
+            PARTITION,
+            &store,
+            &filters,
+            &[transition(
+                per_lsk,
+                alice,
+                PERSON_HASH,
+                TransitionKind::Entered,
+            )],
+            EVENT_MS,
+            TS,
+        )
+        .unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].status, MembershipStatus::Left);
     }
 }
