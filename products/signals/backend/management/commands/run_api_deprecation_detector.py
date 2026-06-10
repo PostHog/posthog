@@ -19,7 +19,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.signals.backend.api_deprecation.scanner import scan_repo
+from products.signals.backend.api_deprecation.scanner import filter_usages, scan_repo
 from products.signals.backend.api_deprecation.schema import ApiUsage
 
 # products/signals/backend/management/commands/<this> → repo root is five parents up.
@@ -42,9 +42,18 @@ class Command(BaseCommand):
         parser.add_argument("--research", action="store_true", help="Launch the triage + research agent.")
         parser.add_argument("--team-id", type=int, default=None, help="Team to research/emit for.")
         parser.add_argument("--repository", default="posthog/posthog", help="owner/repo the agent researches.")
+        parser.add_argument(
+            "--filter",
+            action="append",
+            dest="filters",
+            default=None,
+            help="Only include usages whose host/endpoint/file contains this substring (repeatable).",
+        )
+        parser.add_argument("--limit", type=int, default=None, help="Cap the inventory at N usages.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         usages = scan_repo(options["repo_root"])
+        usages = filter_usages(usages, tuple(options["filters"] or ()), options["limit"])
 
         if options["json"]:
             self.stdout.write(json.dumps([u.model_dump(mode="json") for u in usages], indent=2))

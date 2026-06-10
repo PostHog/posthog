@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from products.signals.backend.api_deprecation.extractors import extract_usages, is_test_path
 from products.signals.backend.api_deprecation.research import build_research_initial_prompt
-from products.signals.backend.api_deprecation.scanner import ScanTarget, scan_repo
+from products.signals.backend.api_deprecation.scanner import ScanTarget, filter_usages, scan_repo
 from products.signals.backend.api_deprecation.schema import (
     ApiUsage,
     Classification,
@@ -124,6 +124,17 @@ def test_scan_repo_excludes_test_files():
     assert ("graph.facebook.com", "v19.0") in {
         (u.host, u.version) for u in scan_repo(FIXTURES, _TARGETS, include_test_files=True)
     }
+
+
+def test_filter_usages_by_pattern_then_limit():
+    usages = [
+        _usage(endpoint="/v21/customers/{…}:uploadClickConversions"),
+        _usage(endpoint="/api/chat.postMessage"),
+        _usage(endpoint="/v2/objects"),
+    ]
+    assert filter_usages(usages, ("uploadclick",)) == [usages[0]]  # case-insensitive
+    assert filter_usages(usages, ("graph.facebook.com",), limit=2) == usages[:2]
+    assert filter_usages(usages) == usages  # no patterns/limit -> unchanged
 
 
 def test_scan_repo_sets_persisted_per_row_from_target():

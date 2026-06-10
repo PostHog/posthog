@@ -67,3 +67,27 @@ def scan_repo(
     if not include_test_files:
         usages = [usage for usage in usages if not usage.is_test_file]
     return usages
+
+
+def filter_usages(
+    usages: list[ApiUsage],
+    patterns: tuple[str, ...] = (),
+    limit: int | None = None,
+) -> list[ApiUsage]:
+    """Subset an inventory: keep usages whose host, endpoint, or file contains any of the
+    case-insensitive ``patterns``, then cap at ``limit``. For scoped/debug research runs —
+    a smaller inventory researches much faster than the full surface.
+    """
+    if patterns:
+        lowered = tuple(pattern.lower() for pattern in patterns)
+        usages = [
+            usage
+            for usage in usages
+            if any(
+                pattern in usage.host.lower() or pattern in usage.endpoint.lower() or pattern in usage.file.lower()
+                for pattern in lowered
+            )
+        ]
+    if limit is not None:
+        usages = usages[:limit]
+    return usages
