@@ -76,16 +76,13 @@ list_minio_volumes() {
     done
 }
 
+# The compose file in the directory you run this from is authoritative — whoever runs
+# the command controls how containers come up. We deliberately do NOT read the running
+# container's recorded compose path: the objectstorage container is shared across
+# worktrees (same COMPOSE_PROJECT_NAME), so it may have last been started from another
+# worktree still on MinIO. Trusting that label would force-recreate MinIO again instead
+# of swapping to the SeaweedFS your freshly-pulled compose defines. So: pull, run, done.
 detect_compose_file() {
-    OBJ_CONTAINER=$(docker ps -a --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}" | head -1)
-    if [ -n "$OBJ_CONTAINER" ]; then
-        DETECTED=$(docker inspect "$OBJ_CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || echo "")
-        if [ -n "$DETECTED" ]; then
-            echo "$DETECTED"
-            return
-        fi
-    fi
-
     if [ -f "docker-compose.dev.yml" ]; then
         echo "docker-compose.dev.yml"
     elif [ -f "docker-compose.yml" ]; then
