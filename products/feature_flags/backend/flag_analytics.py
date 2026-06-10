@@ -230,11 +230,24 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
         capture_exception(error)
 
 
+def _enriched_flag_key_expr_sql() -> str:
+    """SQL expression for the `feature_flag` property, using the materialized column when available.
+
+    This query spans all teams so it can't go through the HogQL printer; the
+    materialized-column lookup has to be done by hand, with a JSONExtractString
+    fallback for instances where the property isn't materialized.
+    """
+    column = get_materialized_column_for_property("events", "properties", "feature_flag")
+    if column is not None:
+        return column.name
+    return "JSONExtractString(properties, 'feature_flag')"
+
+
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
     result = sync_execute(
-        """
-        SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key
+        f"""
+        SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
         GROUP BY team_id, flag_key
