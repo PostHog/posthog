@@ -215,6 +215,11 @@
             "description": "Creating a new agent from scratch — discover building blocks, design spec, write agent.md and skills, configure tools. Load only when the user is creating a NEW agent; for editing, use editing-agents-safely instead."
         },
         {
+            "id": "choosing-the-model",
+            "path": "skills/choosing-the-model.md",
+            "description": "Picking `spec.model` + `spec.reasoning` for an agent's actual job — the cost/quality axes (model family, reasoning level, context budget) and how to match model to task without defaulting to the most or least expensive. Load whenever you're about to set or review an agent's model, or the user asks which / cheapest model to use."
+        },
+        {
             "id": "secrets-and-integrations",
             "path": "skills/secrets-and-integrations.md",
             "description": "Wiring credentials without seeing them — when to invoke the `set_secret` client tool (the inline form rendered next to your tool call), when to fall back to a deep-link, integrations vs secrets, trigger-required keys (e.g. SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN), what to do when a tool needs auth. ALWAYS load when the user mentions a secret, env key, API key, OAuth, integration, missing credential, Slack setup, or any auth-related error — `set_secret` is the default path in agent-console clients, do not hand out URLs to /connections without loading this skill first."

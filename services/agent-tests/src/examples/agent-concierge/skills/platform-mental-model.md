@@ -95,7 +95,7 @@ agent's prompt live?" or "where do I edit the model?":
 - The **model** is in `spec.model`. Edit via
   `revisions-partial-update` on a draft.
 - The **system prompt** is `bundle/agent.md`. Edit via
-  `revisions-file-update`.
+  `revisions-agent-md-update`.
 - The **skills the model can load** are listed in `spec.skills[]`
   (id + path + description). The bodies live in `bundle/skills/*.md`.
 - A **session's conversation** is on the session row (via
@@ -123,7 +123,6 @@ This is the most common source of confusion. Be precise.
 | --------------------- | -------------------------------------------------- | ------------------------ | --------------------------------------------------------------------- |
 | **Native**            | `{ kind: "native", id: "@posthog/foo" }`           | In the runner process    | `@posthog/query`, `@posthog/web-fetch`, `@posthog/slack-post-message` |
 | **Custom**            | `{ kind: "custom", id, path: "tools/x/" }`         | In a per-session sandbox | Anything the team writes themselves                                   |
-| **Custom template**   | `{ kind: "custom_template", from_template }`       | Same sandbox             | Reusable customs from a team's template library                       |
 | **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.            |
 | **Client**            | `{ kind: "client", from_native \| id }`            | In the connecting client | `@posthog/ui/focus`, `@posthog/ui/toast`                              |
 

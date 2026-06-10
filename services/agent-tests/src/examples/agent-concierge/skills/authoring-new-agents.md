@@ -230,12 +230,6 @@ both "how to triage an alert" AND "how to format a Slack reply"),
 **split into skills**. The runtime auto-builds the skill index from
 the typed resources; the model loads them on demand.
 
-Before writing a brand-new skill or custom tool, **check the
-registry** — `agent-skill-templates-list` /
-`agent-custom-tool-templates-list`. If a canonical `@posthog/*`
-template fits, pin it via `spec.skills[].from_template` instead of
-re-authoring. Load `skills/using-the-registry` for the full pattern.
-
 For custom tools you call **`tools-update`** with `{ description,
 args_schema, source }`. The janitor runs an AST shape check + esbuild
 compile **synchronously inside the PUT** — a bad shape returns 422

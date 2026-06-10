@@ -102,7 +102,7 @@ Drill in narrowly. Don't repeat the whole summary.
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "show me its prompt"           | `@posthog/agent-applications-revisions-system-prompt` for live revision                                                                                        |
 | "what skills does it have?"    | Already in `spec.skills[]` — render the table                                                                                                                  |
-| "read me skill X"              | `@posthog/agent-applications-revisions-file-retrieve` with `path: "skills/X.md"`                                                                               |
+| "read me skill X"              | `@posthog/agent-applications-revisions-bundle-retrieve` — the skill body is in the returned `skills[]`                                                         |
 | "what was the latest session?" | `@posthog/agent-applications-sessions-list` with `limit: 1`, then `@posthog/agent-applications-sessions-retrieve` + `@posthog/agent-applications-session-logs` |
 | "how much is it costing?"      | Load `skills/cost-and-quota-analysis` and run the standard query                                                                                               |
 | "show me the bundle"           | `@posthog/agent-applications-revisions-manifest-retrieve` — file tree only                                                                                     |

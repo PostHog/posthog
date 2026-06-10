@@ -133,7 +133,7 @@ only when a concrete external client demands them.
 ### 6. Confirm before destructive bundle edits
 
 `bundle-update` in `replace` mode wipes files not in the new
-manifest. `revisions-file-destroy` deletes content with no undo.
+manifest. `skills-destroy` / `tools-destroy` delete content with no undo.
 
 Before either:
 
