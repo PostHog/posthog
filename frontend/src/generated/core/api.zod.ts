@@ -313,7 +313,6 @@ export const organizationsProjectsCreateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsCreateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -855,10 +854,10 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsCreateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -915,7 +914,6 @@ export const organizationsProjectsUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -1457,10 +1455,10 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -1517,7 +1515,6 @@ export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -2061,10 +2058,10 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -2121,7 +2118,6 @@ export const organizationsProjectsAddProductIntentPartialUpdateBodyRecordingDoma
 
 export const organizationsProjectsAddProductIntentPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsAddProductIntentPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsAddProductIntentPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsAddProductIntentPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -2679,10 +2675,10 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsAddProductIntentPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -2739,7 +2735,6 @@ export const organizationsProjectsChangeOrganizationCreateBodyRecordingDomainsIt
 
 export const organizationsProjectsChangeOrganizationCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsChangeOrganizationCreateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsChangeOrganizationCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsChangeOrganizationCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -3289,10 +3284,10 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsChangeOrganizationCreateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -3348,7 +3343,6 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyReco
 
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -3919,10 +3913,10 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsCompleteProductOnboardingPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -3979,7 +3973,6 @@ export const organizationsProjectsDefaultEvaluationContextsCreateBodyRecordingDo
 
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsDefaultEvaluationContextsCreateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -4537,10 +4530,10 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsDefaultEvaluationContextsCreateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -4597,7 +4590,6 @@ export const organizationsProjectsDefaultReleaseConditionsUpdateBodyRecordingDom
 
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsDefaultReleaseConditionsUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -5155,10 +5147,10 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsDefaultReleaseConditionsUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -5215,7 +5207,6 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyRecord
 
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -5781,10 +5772,10 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -5841,7 +5832,6 @@ export const organizationsProjectsExperimentsConfigPartialUpdateBodyRecordingDom
 
 export const organizationsProjectsExperimentsConfigPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsExperimentsConfigPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsExperimentsConfigPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsExperimentsConfigPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -6399,10 +6389,10 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsExperimentsConfigPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -6458,7 +6448,6 @@ export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyReco
 
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -7029,10 +7018,10 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsGenerateConversationsPublicTokenCreateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -7091,7 +7080,6 @@ export const organizationsProjectsLogsConfigPartialUpdateBodyRecordingDomainsIte
 
 export const organizationsProjectsLogsConfigPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsLogsConfigPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsLogsConfigPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsLogsConfigPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -7637,10 +7625,10 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsLogsConfigPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -7697,7 +7685,6 @@ export const organizationsProjectsResetTokenPartialUpdateBodyRecordingDomainsIte
 
 export const organizationsProjectsResetTokenPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsResetTokenPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsResetTokenPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsResetTokenPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -8243,10 +8230,10 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsResetTokenPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
@@ -8303,7 +8290,6 @@ export const organizationsProjectsRotateSecretTokenPartialUpdateBodyRecordingDom
 
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
-export const organizationsProjectsRotateSecretTokenPartialUpdateBodyBaseCurrencyDefault = `USD`
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -8861,10 +8847,10 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                 'ZAR',
                 'ZMW',
             ])
+            .optional()
             .describe(
                 '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
-            )
-            .default(organizationsProjectsRotateSecretTokenPartialUpdateBodyBaseCurrencyDefault),
+            ),
         capture_dead_clicks: zod
             .boolean()
             .nullish()
