@@ -22,7 +22,7 @@ import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
-import { asyncHandler, errorHandler } from './http-utils'
+import { asyncHandler, errorHandler, requestLogger } from './http-utils'
 import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
@@ -127,6 +127,9 @@ export interface BuildAppOpts {
 
 export function buildApp(opts: BuildAppOpts): Express {
     const app = express()
+    // First in the chain so it sees — and times — every request, including
+    // those that never match a route (404s) or fail body parsing (400s).
+    app.use(requestLogger(log))
     const bus = opts.bus
     const resolver = new RevisionResolver({
         revisions: opts.revisions,

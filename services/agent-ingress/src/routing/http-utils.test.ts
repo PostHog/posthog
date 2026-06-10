@@ -11,8 +11,9 @@ import request from 'supertest'
 import { z } from 'zod'
 
 import { createLogger } from '@posthog/agent-shared'
+import type { Logger } from '@posthog/agent-shared'
 
-import { asyncHandler, errorHandler } from './http-utils'
+import { asyncHandler, errorHandler, requestLogger } from './http-utils'
 import { AmbiguousRevisionError } from './resolver'
 
 function buildHarness(routes: (r: Router) => void): express.Express {
@@ -104,5 +105,90 @@ describe('asyncHandler', () => {
         const res = await request(app).get('/sync-throw')
         expect(res.status).toBe(400)
         expect(res.body.error).toBe('ambiguous_revision')
+    })
+})
+
+interface LogRecord {
+    level: 'debug' | 'info' | 'warn' | 'error'
+    obj: Record<string, unknown>
+    msg: string
+}
+
+function fakeLogger(): { records: LogRecord[]; log: Logger } {
+    const records: LogRecord[] = []
+    const mk =
+        (level: LogRecord['level']) =>
+        (obj: Record<string, unknown>, msg: string): void => {
+            records.push({ level, obj, msg })
+        }
+    const log = { debug: mk('debug'), info: mk('info'), warn: mk('warn'), error: mk('error') } as unknown as Logger
+    return { records, log }
+}
+
+// supertest resolves once the response is received; the server's `finish`
+// event fires a microtask later, so let the loop turn before asserting.
+function tick(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve))
+}
+
+describe('requestLogger', () => {
+    function appWith(log: Logger): express.Express {
+        const app = express()
+        app.use(requestLogger(log))
+        app.get('/healthz', (_req: Request, res: Response) => {
+            res.json({ ok: true })
+        })
+        app.get('/ok', (_req: Request, res: Response) => {
+            res.json({ ok: true })
+        })
+        app.get('/boom', (_req: Request, res: Response) => {
+            res.status(500).json({ error: 'x' })
+        })
+        return app
+    }
+
+    function lastRequestLine(records: LogRecord[]): LogRecord | undefined {
+        return records.filter((r) => r.msg === 'request').at(-1)
+    }
+
+    it('logs one info line per successful request with method, url, status, duration', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/ok')
+        await tick()
+        const line = lastRequestLine(records)!
+        expect(line.level).toBe('info')
+        expect(line.obj).toMatchObject({ method: 'GET', url: '/ok', status: 200 })
+        expect(typeof line.obj.duration_ms).toBe('number')
+        expect(line.obj.duration_ms as number).toBeGreaterThanOrEqual(0)
+    })
+
+    it('logs a request_start line at debug', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/ok')
+        await tick()
+        expect(records.some((r) => r.msg === 'request_start' && r.level === 'debug')).toBe(true)
+    })
+
+    it('escalates a 5xx to error', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/boom')
+        await tick()
+        expect(lastRequestLine(records)!.level).toBe('error')
+    })
+
+    it('escalates a 4xx to warn', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/missing') // no route → express 404
+        await tick()
+        const line = lastRequestLine(records)!
+        expect(line.level).toBe('warn')
+        expect(line.obj.status).toBe(404)
+    })
+
+    it('demotes /healthz probe spam to debug', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/healthz')
+        await tick()
+        expect(lastRequestLine(records)!.level).toBe('debug')
     })
 })
