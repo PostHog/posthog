@@ -543,7 +543,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_status_changed_system_actor_uses_customer_distinct_id(self, mock_capture):
         """System actions (e.g. snooze wake) use the customer's distinct_id, not an actor's."""
         capture_ticket_status_changed(self.ticket, "on_hold", "open", actor_type="system")
@@ -555,7 +555,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_id"] is None
         assert call_kwargs["properties"]["actor_email"] is None
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_status_changed_external_actor_uses_customer_distinct_id(self, mock_capture):
         """External actions (e.g. GitHub sync) use the customer's distinct_id."""
         capture_ticket_status_changed(self.ticket, "open", "resolved", actor_type="external")
