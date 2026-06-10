@@ -316,7 +316,7 @@
      WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2020-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   GROUP BY id
   ORDER BY last_seen DESC
   LIMIT 101
@@ -350,7 +350,7 @@
      WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2020-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   GROUP BY id
   ORDER BY last_seen DESC
   LIMIT 101
@@ -650,7 +650,7 @@
      WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2020-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   GROUP BY id
   ORDER BY last_seen DESC
   LIMIT 101

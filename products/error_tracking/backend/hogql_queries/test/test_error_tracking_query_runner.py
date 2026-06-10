@@ -133,7 +133,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     def setUp(self):
         super(ErrorTrackingQueryRunnerTestsMixin, self).setUp()  # type: ignore[misc] # noqa: UP008
 
-        with freeze_time("2020-01-10 12:11:00"):
+        with freeze_time("2022-01-10 12:11:00"):
             _create_person(
                 team=self.team,
                 distinct_ids=[self.distinct_id_one],
@@ -303,9 +303,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
-        results = self._calculate(
-            issueId=self.issue_id_one, withAggregations=True, dateRange=DateRange(date_from="-3y")
-        )["results"]
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], self.issue_id_one)
@@ -423,7 +421,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "684bd8ae-498f-4548-bc05-e621b5b5b9aa")
 
-    @freeze_time("2020-01-10 12:11:00")
+    @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_only_returns_exception_events(self):
         _create_event(
@@ -481,9 +479,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_correctly_counts_persons(self):
-        results = self._calculate(
-            issueId=self.issue_id_one, withAggregations=True, dateRange=DateRange(date_from="-3y")
-        )["results"]
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["users"], 2)
 
@@ -540,9 +536,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
-        results = self._calculate(withAggregations=True, orderBy="occurrences", dateRange=DateRange(date_from="-3y"))[
-            "results"
-        ]
+        results = self._calculate(withAggregations=True, orderBy="occurrences")["results"]
         self.assertEqual(len(results), 2)
 
         # count is (2 x issue_one) + (1 x issue_three)
@@ -676,7 +670,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         results = self._calculate(groupKey="nonexistent", groupTypeIndex=0)["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2020-01-10T12:11:00")
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_first_seen_filters(self):
         cutoff_time = now() - relativedelta(hours=2)
@@ -717,11 +711,11 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(len(results), 1)
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
-    @freeze_time("2020-01-12")
+    @freeze_time("2022-01-12")
     @snapshot_clickhouse_queries
     def test_volume_aggregation_simple(self):
         results = self._calculate(
-            volumeResolution=3, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
+            volumeResolution=3, dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"), withAggregations=True
         )["results"]
         self.assertEqual(len(results), 3)
 
