@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { isSourceMapsRecommendation, recommendationsTabLogic } from '../recommendations/recommendationsTabLogic'
 import { SourceMapsFixModal } from '../recommendations/SourceMapsFixModal'
-import { sourceMapsFixWizardLogic } from '../recommendations/sourceMapsFixWizardLogic'
+import { SOURCE_MAPS_DOCS_URL, sourceMapsFixWizardLogic } from '../recommendations/sourceMapsFixWizardLogic'
 
 // Dismissal is independent of the source maps recommendation's own dismissed_at —
 // dismissing here only hides this banner, via the standard localStorage-backed pattern.
@@ -43,11 +43,7 @@ export function SourceMapsBanner(): JSX.Element | null {
                         source maps, so their stack traces aren't readable. Run the wizard or follow the docs to upload
                         them.
                     </span>
-                    <LemonButton
-                        type="secondary"
-                        to="https://posthog.com/docs/error-tracking/upload-source-maps"
-                        targetBlank
-                    >
+                    <LemonButton type="secondary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
                         Read docs
                     </LemonButton>
                 </div>

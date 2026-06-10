@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { RecommendationCard } from './RecommendationCard'
 import { SourceMapsFixModal } from './SourceMapsFixModal'
-import { sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
+import { SOURCE_MAPS_DOCS_URL, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import type { SourceMapsRecommendation } from './types'
 
 export function SourceMapsRecommendationCard({
@@ -41,11 +41,7 @@ export function SourceMapsRecommendationCard({
                 </div>
             </div>
             <div className="flex justify-center gap-2 mt-2">
-                <LemonButton
-                    type="secondary"
-                    to="https://posthog.com/docs/error-tracking/upload-source-maps"
-                    targetBlank
-                >
+                <LemonButton type="secondary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
                     Read docs
                 </LemonButton>
                 <LemonButton type="primary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>
