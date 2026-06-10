@@ -497,7 +497,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/generate-insight-metadata",
-            posthog_properties=billable_ai_properties(team, "insight-ai-metadata-generation"),
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
         )
 
         parsed = json.loads(content.strip())

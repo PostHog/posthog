@@ -250,7 +250,7 @@ def get_insight_analysis(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/analysis",
-            posthog_properties=billable_ai_properties(team, "insight-ai-analysis"),
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-analysis"),
         )
         return content
 
@@ -299,7 +299,7 @@ def get_ai_suggestions(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/suggestions",
-            posthog_properties=billable_ai_properties(team, "insight-ai-suggestions"),
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-suggestions"),
         )
 
         # Parse JSON from content
