@@ -118,16 +118,7 @@ const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
                 search: params.search,
             },
         })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
-                ),
-            },
-            '/endpoints'
-        )
+        return await withPostHogUrl(context, result, '/endpoints')
     },
 })
 

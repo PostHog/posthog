@@ -108,6 +108,91 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Endpoint execution failed", kwargs["message"])
         self.assertIn("error=", kwargs["message"])
 
+    def test_successful_run_returns_execution_id_matching_log(self):
+        endpoint = self._create_hogql_endpoint("logs_exec_id", "SELECT 1")
+
+        with mock.patch("products.endpoints.backend.api.log_endpoint_execution") as mock_log:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        execution_id = response.json()["execution_id"]
+        self.assertTrue(execution_id)
+        # The id returned to the client must be the same one written to the logs, so it can be traced.
+        self.assertEqual(execution_id, mock_log.call_args.kwargs["instance_id"])
+
+    def test_invalid_refresh_mode_emits_error_log_and_clean_message(self):
+        endpoint = self._create_hogql_endpoint("logs_bad_refresh", "SELECT 1")
+
+        with mock.patch("products.endpoints.backend.api.log_endpoint_execution") as mock_log:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "hey"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # A rejected request must still surface as a failed execution in the logs.
+        mock_log.assert_called_once()
+        kwargs = mock_log.call_args.kwargs
+        self.assertEqual(kwargs["level"], "ERROR")
+        self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
+        self.assertIn("Endpoint execution failed", kwargs["message"])
+
+        # The customer-facing error must be clean — no pydantic internals leaking through.
+        body = response.json()
+        serialized = str(body)
+        self.assertNotIn("errors.pydantic.dev", serialized)
+        self.assertNotIn("JSON parse error", serialized)
+        self.assertIn("refresh", serialized)
+        self.assertIn("cache", serialized)
+
+    @parameterized.expand(
+        [
+            ("invalid_limit", {"limit": 0}, status.HTTP_400_BAD_REQUEST),
+            ("offset_without_limit", {"offset": 5}, status.HTTP_400_BAD_REQUEST),
+            ("version_not_found", {"version": 999}, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_rejected_run_params_emit_error_log(self, _name, body, expected_status):
+        # Version/limit/offset parsing returns a 4xx Response instead of raising, but the rejection
+        # must still surface in the logs.
+        endpoint = self._create_hogql_endpoint(f"logs_reject_{_name}", "SELECT 1")
+
+        with mock.patch("products.endpoints.backend.api.log_endpoint_execution") as mock_log:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", body, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        mock_log.assert_called_once()
+        kwargs = mock_log.call_args.kwargs
+        self.assertEqual(kwargs["level"], "ERROR")
+        self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
+        self.assertIn("Endpoint execution failed", kwargs["message"])
+
+    def test_validate_run_request_failure_emits_error_log(self):
+        # `direct` refresh is valid per the schema but rejected by validate_run_request for a
+        # non-materialized endpoint — this failure must still surface in the logs.
+        endpoint = self._create_hogql_endpoint("logs_bad_validate", "SELECT 1")
+
+        with mock.patch("products.endpoints.backend.api.log_endpoint_execution") as mock_log:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "direct"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_log.assert_called_once()
+        kwargs = mock_log.call_args.kwargs
+        self.assertEqual(kwargs["level"], "ERROR")
+        self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
+        self.assertIn("Endpoint execution failed", kwargs["message"])
+        self.assertIn("refresh", kwargs["message"])
+
     def test_logs_action_returns_endpoint_entries(self):
         endpoint = self._create_hogql_endpoint("logs_read", "SELECT 1")
         create_log_entry(

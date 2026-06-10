@@ -14951,6 +14951,8 @@ export namespace Schemas {
     export interface EndpointRunResponse {
       /** URL-safe endpoint name that was executed. */
       name: string;
+      /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+      execution_id?: string;
       /** Query result rows. Each row is a list of values matching the columns order. */
       results?: unknown[];
       /** Column names from the query SELECT clause. */

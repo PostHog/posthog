@@ -5,7 +5,7 @@ import builtins
 import dataclasses
 from collections.abc import Iterator
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -17,7 +17,10 @@ from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -383,6 +386,18 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text='Per-column bucket function overrides, e.g. {"timestamp": "hour"}',
     )
+
+
+class _RunRejected(Exception):
+    """Internal control-flow signal: a run request was rejected during validation.
+
+    Carries the 4xx Response to return to the caller. Caught in `run()`, where the rejection is
+    logged once — alongside DRF ValidationErrors — so every rejected run surfaces in the logs.
+    """
+
+    def __init__(self, response: Response):
+        self.response = response
+        super().__init__()
 
 
 @extend_schema_view(
@@ -1927,8 +1942,8 @@ class EndpointViewSet(
     @staticmethod
     def _parse_int_param(
         body_value: int | None, query_param: str | None, name: str, min_value: int | None = None
-    ) -> tuple[int | None, Response | None]:
-        """Parse an integer from the request body or query params. Returns (value, error_response)."""
+    ) -> int | None:
+        """Parse an integer from the request body or query params. Raises `_RunRejected` if invalid."""
         value = body_value
         if value is None and query_param is not None:
             try:
@@ -1936,16 +1951,14 @@ class EndpointViewSet(
                 if min_value is not None and value < min_value:
                     raise ValueError()
             except (ValueError, TypeError):
-                return None, Response(
-                    {"error": f"Invalid {name} parameter: {query_param}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                raise _RunRejected(
+                    Response({"error": f"Invalid {name} parameter: {query_param}"}, status=status.HTTP_400_BAD_REQUEST)
                 )
         elif value is not None and min_value is not None and value < min_value:
-            return None, Response(
-                {"error": f"Invalid {name} parameter: {value}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            raise _RunRejected(
+                Response({"error": f"Invalid {name} parameter: {value}"}, status=status.HTTP_400_BAD_REQUEST)
             )
-        return value, None
+        return value
 
     def _apply_pagination_to_query(self, query: dict, limit: int, offset: int) -> tuple[dict, EndpointPagination]:
         """Apply pagination to a HogQL query. Returns (modified_query, pagination).
@@ -2241,6 +2254,69 @@ class EndpointViewSet(
             )
             raise
 
+    def _log_rejected_run(self, endpoint: Endpoint, reason: str) -> None:
+        """Record a rejected run request as a failed execution so it surfaces in the endpoint logs.
+
+        Request validation runs before the execution block, so a rejected request would otherwise
+        never appear in the logs. Each rejection gets its own execution id.
+        """
+        log_endpoint_execution(
+            team_id=self.team_id,
+            endpoint_id=str(endpoint.id),
+            instance_id=str(uuid.uuid4()),
+            level="ERROR",
+            message=f"Endpoint execution failed · invalid request · {reason}",
+        )
+
+    def _resolve_version(
+        self, endpoint: Endpoint, version_number: int | None, name: str | None
+    ) -> EndpointVersion | None:
+        """Return the requested version, or None when no specific version was asked for and none exist.
+
+        Raises `_RunRejected` (404) only when a specific `version_number` was requested but not found —
+        matching the original behavior where an unspecified version falls through to the inline path.
+        """
+        try:
+            return endpoint.get_version(version_number)
+        except EndpointVersion.DoesNotExist:
+            if version_number is not None:
+                raise _RunRejected(
+                    Response(
+                        {
+                            "error": f"Version {version_number} not found for endpoint '{name}'",
+                            "current_version": endpoint.current_version,
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                )
+            return None
+
+    @staticmethod
+    def _format_validation_detail(detail: Any) -> str:
+        """Flatten a DRF ValidationError detail (str | list | dict, possibly nested) into one line."""
+        if isinstance(detail, dict):
+            return "; ".join(
+                f"{field}: {EndpointViewSet._format_validation_detail(messages)}" for field, messages in detail.items()
+            )
+        if isinstance(detail, list):
+            return "; ".join(EndpointViewSet._format_validation_detail(item) for item in detail)
+        return str(detail)
+
+    @staticmethod
+    def _parse_run_request(request: Request) -> EndpointRunRequest:
+        """Parse and validate the run request body into a clean, field-level 400 on failure.
+
+        Raises a DRF ValidationError so the caller never sees pydantic's raw error dump. Rejection
+        logging is handled centrally in `run()`.
+        """
+        try:
+            return EndpointRunRequest.model_validate(request.data)
+        except PydanticValidationError as exc:
+            field_errors = {
+                ".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()
+            }
+            raise ValidationError(field_errors)
+
     @extend_schema(
         request=EndpointRunRequest,
         responses={200: EndpointRunResponseSerializer},
@@ -2251,63 +2327,56 @@ class EndpointViewSet(
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
         self._enforce_object_level_access(endpoint)
-        data = self.get_model(request.data, EndpointRunRequest)
 
-        # Track endpoint execution for deprecation monitoring
-        report_user_action(
-            user=cast(User, request.user),
-            event="endpoint executed",
-            properties={
-                "endpoint_id": str(endpoint.id),
-                "endpoint_name": endpoint.name,
-                "has_filters_override": bool(data.filters_override),
-                "has_variables": bool(data.variables),
-                "has_limit": data.limit is not None,
-                "has_offset": data.offset is not None,
-                "refresh_mode": data.refresh.value if data.refresh else None,
-            },
-            team=self.team,
-            request=request,
-        )
+        # All run-request validation lives in one place so every rejection — whether it raises a DRF
+        # ValidationError or returns a 4xx Response — is logged exactly once before we bail out.
+        try:
+            data = self._parse_run_request(request)
 
-        version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")
-        if err:
-            return err
-        limit, err = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
-        if err:
-            return err
-        offset, err = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
-        if err:
-            return err
-
-        if offset is not None and limit is None:
-            return Response(
-                {"error": "offset requires limit to be set"},
-                status=status.HTTP_400_BAD_REQUEST,
+            # Track endpoint execution for deprecation monitoring
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint executed",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "has_filters_override": bool(data.filters_override),
+                    "has_variables": bool(data.variables),
+                    "has_limit": data.limit is not None,
+                    "has_offset": data.offset is not None,
+                    "refresh_mode": data.refresh.value if data.refresh else None,
+                },
+                team=self.team,
+                request=request,
             )
 
-        version_obj = None
-        try:
-            version_obj = endpoint.get_version(version_number)
-        except EndpointVersion.DoesNotExist:
-            if version_number is not None:
-                return Response(
-                    {
-                        "error": f"Version {version_number} not found for endpoint '{name}'",
-                        "current_version": endpoint.current_version,
-                    },
-                    status=status.HTTP_404_NOT_FOUND,
+            version_number = self._parse_int_param(data.version, request.query_params.get("version"), "version")
+            limit = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
+            offset = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
+
+            if offset is not None and limit is None:
+                raise _RunRejected(
+                    Response({"error": "offset requires limit to be set"}, status=status.HTTP_400_BAD_REQUEST)
                 )
 
-        self.validate_run_request(data, endpoint, version_obj)
+            version_obj = self._resolve_version(endpoint, version_number, name)
 
-        if offset is not None and version_obj:
-            query_kind = version_obj.query.get("kind")
-            if query_kind != "HogQLQuery":
-                return Response(
-                    {"error": "offset is only supported for HogQL endpoints"},
-                    status=status.HTTP_400_BAD_REQUEST,
+            self.validate_run_request(data, endpoint, version_obj)
+
+            if offset is not None and version_obj and version_obj.query.get("kind") != "HogQLQuery":
+                raise _RunRejected(
+                    Response(
+                        {"error": "offset is only supported for HogQL endpoints"}, status=status.HTTP_400_BAD_REQUEST
+                    )
                 )
+        except ValidationError as exc:
+            self._log_rejected_run(endpoint, self._format_validation_detail(exc.detail))
+            raise
+        except _RunRejected as rejected:
+            data_ = rejected.response.data
+            reason = data_.get("error", data_) if isinstance(data_, dict) else data_
+            self._log_rejected_run(endpoint, str(reason))
+            return rejected.response
 
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
@@ -2472,6 +2541,7 @@ class EndpointViewSet(
 
         if isinstance(result.data, dict):
             result.data["name"] = endpoint.name
+            result.data["execution_id"] = execution_id
             if version_obj:
                 result.data["endpoint_version"] = version_obj.version
                 result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()

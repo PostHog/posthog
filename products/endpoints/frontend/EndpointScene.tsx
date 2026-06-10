@@ -8,6 +8,7 @@ import {
     IconDatabase,
     IconEndpoints,
     IconGraph,
+    IconLive,
     IconPause,
     IconPlay,
     IconPlayFilled,
@@ -236,6 +237,17 @@ export function EndpointScene(): JSX.Element {
                             >
                                 <IconPlayFilled />
                                 Open playground
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.LOGS }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-view-logs"
+                            >
+                                <IconLive />
+                                View logs
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() =>

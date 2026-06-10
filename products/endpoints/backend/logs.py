@@ -26,7 +26,11 @@ def build_execution_message(
     version: Optional[int] = None,
     error: Optional[str] = None,
 ) -> str:
-    """One human-readable line carrying the extra data as searchable `key=value` tokens."""
+    """One human-readable line carrying the extra data as searchable `key=value` tokens.
+
+    Only non-sensitive execution metadata belongs here. Never add variable values — they
+    routinely carry PII (emails, customer IDs, filter values) and must stay out of logs.
+    """
     prefix = "Endpoint executed" if succeeded else "Endpoint execution failed"
     tokens = {
         "path": execution_type,
