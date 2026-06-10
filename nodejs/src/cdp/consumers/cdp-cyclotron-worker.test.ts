@@ -221,7 +221,9 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.queueMetadata).toBeUndefined()
             // No logs from initial invoke
             expect(result.logs.map((x) => x.message)).toEqual([
-                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Response: {}. Retrying in'),
+                expect.stringContaining(
+                    'HTTP fetch failed on attempt 1 with status code 500. Response: {}. Retrying in'
+                ),
             ])
 
             // Now invoke the result again
