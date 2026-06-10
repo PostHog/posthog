@@ -10,8 +10,8 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { useOpenAi } from 'scenes/max/useOpenAi'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -319,7 +319,6 @@ export function SidePanelSupport(): JSX.Element {
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const { openAi } = useOpenAi()
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
@@ -374,7 +373,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openAi()
+                                                newInternalTab(`${urls.ai()}#panel=max`)
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
