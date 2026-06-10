@@ -34,6 +34,7 @@ Allowed: `>`, `>=`, `<`, `<=`, `=`, `!=`. Aliases accepted on input: `==` → `=
 Categories: `NUMERIC`, `INTEGER`, `STRING`, `BOOLEAN`, `DATE`, `TIMESTAMP`, `UNKNOWN`.
 Classifier maps each dialect's native `data_type` string (lowercased, strip `Nullable(...)`,
 strip params like `varchar(255)` / `numeric(10,2)`) to a category. Value validation/coercion:
+
 - INTEGER → Python int (reject bool, reject non-integral float/str)
 - NUMERIC → int/float/Decimal-parseable string
 - STRING → str
@@ -50,6 +51,7 @@ paths are clearest. SQL common modules:
 `posthog/temporal/data_imports/sources/common/sql/`.
 
 ### Backend — core (Step 1)
+
 - `.../common/sql/predicates.py` — NEW. Driver-free: `RowFilter` dataclass/TypedDict,
   `ColumnTypeCategory` enum, `OPERATORS` frozen map, `classify_column_type()`,
   `validate_and_coerce_row_filters()` (validates against schema_metadata columns + types),
@@ -63,18 +65,21 @@ paths are clearest. SQL common modules:
   `row_filters` and emit ANDed conditions across all param styles (named/positional/format).
 
 ### Backend — model + migration (Step 2)
+
 - `posthog/warehouse/models/external_data_schema.py` (or wherever `ExternalDataSchema` lives) —
   add `row_filters = models.JSONField(null=True, blank=True, default=None)`.
 - New migration in the `warehouse_sources` app (mirror the `enabled_columns` migration); update
   `max_migration.txt`.
 
 ### Backend — SourceInputs threading (Step 3)
+
 - `.../data_imports/sources/common/typings.py` (`SourceInputs`) — add `row_filters` field with a
   `TYPE_CHECKING` quoted import to avoid a cycle.
 - `.../data_imports/import_data_sync.py` — resolve `schema.row_filters` and pass into
   `SourceInputs(...)` (mirror `enabled_columns` resolution).
 
 ### Backend — serializer validation (Step 4)
+
 - `posthog/warehouse/api/external_data_schema.py`:
   - custom JSON-backed field class with `@extend_schema_field` for typed generated output.
   - `row_filters` field on `ExternalDataSchemaSerializer` + `Meta.fields`.
@@ -84,9 +89,11 @@ paths are clearest. SQL common modules:
   - validate + persist `row_filters` in the source-creation loop (schema_metadata in scope).
 
 ### Backend — 6 SQL sources (Step 5)
+
 Thread `row_filters` from each source's `source_for_pipeline`/`build_pipeline` into `_build_query`
 and apply to non-sampling DATA paths only (sampling/count/estimate queries stay unfiltered —
 harmless over-estimate, documented):
+
 - `postgres/` — `postgres.py` (`_build_query`, incremental + full branches), `source.py`,
   `partitioned_tables.py` (`build_partition_query`). psycopg `sql.Literal`.
 - `redshift/` — `redshift.py`. psycopg `sql.Literal`.
@@ -98,6 +105,7 @@ harmless over-estimate, documented):
   can't filter, so filtered plain tables MUST use the query-job path.
 
 ### Frontend (Step 6)
+
 - `products/data_warehouse/frontend/types.ts` (or wherever `AvailableColumn` lives) — add
   `RowFilter`, `RowFilterOperator` types; add `row_filters?` to the two schema interfaces.
 - NEW `rowFilterUtils.ts` — TS classifier mirroring backend (type categories + client validation).
@@ -108,6 +116,7 @@ harmless over-estimate, documented):
   payload) and `SchemaForm.tsx` (render `RowFilterEditor`; both editors commit-without-closing).
 
 ### Tests (Step 7)
+
 - `.../common/sql/tests/test_predicates.py` — classifier, validation, coercion, injection guards.
 - `.../common/sql/tests/test_query_builder.py` — `row_filters` across param styles.
 - Per-source `_build_query` row-filter tests (postgres incl. partition, redshift, mysql, mssql,
@@ -115,6 +124,7 @@ harmless over-estimate, documented):
 - Serializer PATCH tests for `row_filters` (DB-backed; run in CI).
 
 ### Post-merge / cannot run in sandbox
+
 - `hogli build:openapi` — regenerate `api.schemas.ts` / `api.zod.ts` after serializer change
   (needs dev DB). Frontend compiles via hand-written `~/types` regardless.
 - Frontend `format` / `typescript:check` — needs `node_modules`; CI will run.
@@ -122,17 +132,18 @@ harmless over-estimate, documented):
 ## Progress
 
 - [x] Step 0: branch + this plan file pushed
-- [x] Step 1: core predicates modules + query_builder (predicates.py, predicates_psycopg.py, __init__ exports, SelectQueryBuilder.row_filters) — logic verified
+- [x] Step 1: core predicates modules + query_builder (predicates.py, predicates_psycopg.py, **init** exports, SelectQueryBuilder.row_filters) — logic verified
 - [ ] Step 1b: tests for predicates + query_builder (deferred to Step 7)
 - [x] Step 2: model field + migration (warehouse_sources 0006) — makemigrations --check reports no drift
 - [x] Step 3: SourceInputs threading (typings.SourceInputs.row_filters + import_data_sync resolves & re-validates)
 - [x] Step 4: serializer + source validation (RowFiltersField + extend_schema_field; ExternalDataSchemaSerializer.update validates; bulk-update serializer field; source-creation loop validates + persists)
 - [x] Step 5: 6 SQL sources (MySQL, MSSQL, Snowflake, Redshift, Postgres incl. partitioned/windowed, BigQuery via query job + ScalarQueryParameter) — all import cleanly
 - [x] Step 6: frontend (RowFilter/RowFilterOperator types; rowFilterUtils.ts classifier + validation; RowFilterEditor.tsx; RowFiltersSection in ConfigurationTab; schemaSceneLogic PATCH payload; wizard action+reducer+create payload; SchemaForm combined modal). Not type-checked/formatted locally — no node_modules; CI will.
-- [x] Step 7: tests — test_predicates.py + test_query_builder.py row_filters (128 pass); per-source _build_query/_get_query/build_partition_query tests for all 6 dialects (52 pass, incl. BigQuery tuple-return fix); serializer PATCH tests (collect cleanly, run in CI). 329 non-DB tests green locally.
+- [x] Step 7: tests — test_predicates.py + test_query_builder.py row_filters (128 pass); per-source \_build_query/\_get_query/build_partition_query tests for all 6 dialects (52 pass, incl. BigQuery tuple-return fix); serializer PATCH tests (collect cleanly, run in CI). 329 non-DB tests green locally.
 - [x] Step 8: draft PR opened.
 
 ### Before marking PR ready (cannot run in this sandbox — no dev DB / node_modules)
+
 - `hogli build:openapi` — serializer added `row_filters`, so `products/data_warehouse/frontend/generated/api.schemas.ts` + `api.zod.ts` are stale. Run locally to regenerate (CI also regenerates + diffs). Frontend compiles regardless via hand-written `~/types`.
 - `pnpm --filter=@posthog/frontend typescript:check` and `format` — verify the new TS.
 - DB-backed tests (`TestExternalDataSchemaRowFilters`, `*RealDb`) run in CI.
