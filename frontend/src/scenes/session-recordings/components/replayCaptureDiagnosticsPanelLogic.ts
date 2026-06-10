@@ -1,4 +1,4 @@
-import { defaults, kea, key, path, props } from 'kea'
+import { BreakPointFunction, defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -59,7 +59,10 @@ export const replayCaptureDiagnosticsPanelLogic = kea<replayCaptureDiagnosticsPa
     }),
     lazyLoaders(({ props }) => ({
         sessionEventProperties: {
-            loadSessionEventProperties: async (_, breakpoint): Promise<Record<string, any> | null> => {
+            loadSessionEventProperties: async (
+                _?: any,
+                breakpoint?: BreakPointFunction
+            ): Promise<Record<string, any> | null> => {
                 // The timestamp bounds let the events sort key prune the scan;
                 // without them this single-session lookup reads the team's
                 // entire event history.
@@ -82,7 +85,7 @@ LIMIT 1`
                         scene: 'ReplayCaptureDiagnostics',
                         productKey: 'session_replay',
                     })
-                    breakpoint()
+                    breakpoint?.()
                     const row = result?.results?.[0]?.[0]
                     if (!row) {
                         return null
