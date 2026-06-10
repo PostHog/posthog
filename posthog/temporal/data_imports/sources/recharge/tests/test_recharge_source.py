@@ -52,6 +52,14 @@ class TestRechargeSourceGetSchemas:
         assert collections.supports_incremental is False
         assert collections.incremental_fields == []
 
+    def test_products_is_full_refresh_only(self) -> None:
+        # The 2021-11 `/products` endpoint has no `sort_by` or `*_min` filter, so
+        # it can't sync incrementally — it must be advertised as full-refresh.
+        schemas = RechargeSource().get_schemas(_config(), team_id=1)
+        products = next(s for s in schemas if s.name == "products")
+        assert products.supports_incremental is False
+        assert products.incremental_fields == []
+
     def test_filters_by_names(self) -> None:
         schemas = RechargeSource().get_schemas(_config(), team_id=1, names=["customers", "orders"])
         assert {s.name for s in schemas} == {"customers", "orders"}

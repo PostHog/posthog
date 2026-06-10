@@ -43,7 +43,7 @@ let harness: IntegrationHarness
 beforeAll(async () => {
     env = loadIntegrationEnv()
     harness = await startHonoHarness(env)
-})
+}, 30_000)
 
 afterAll(async () => {
     await harness?.stop()

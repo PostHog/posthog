@@ -6,38 +6,20 @@ import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { dayjs } from 'lib/dayjs'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
-import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
-
-// Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable buttons on metered orgs.
-function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
-    if (!quota || quota.monthly_quota <= 0) {
-        return {}
-    }
-    const resetsOn = dayjs(quota.period_end).format('MMM D')
-    if (quota.exhausted) {
-        return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
-    }
-    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
-        return {
-            tooltip: `${quota.remaining.toLocaleString()} observations left this month (resets ${resetsOn})`,
-        }
-    }
-    return {}
-}
 
 export function ObservationsDock(): JSX.Element | null {
     const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
@@ -88,6 +70,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    data-attr="vision-scan-pick-scanner"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
                                     <span className="flex items-center justify-between gap-2 w-full">
                                         <span className="truncate">{scanner.name}</span>
@@ -108,7 +92,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 loading={observing}
                 disabledReason={quotaDisabledReason}
                 tooltip={quotaTooltip}
-                data-attr="vision-observe-recording"
+                data-attr="vision-scan-recording"
             >
                 Scan this recording
             </LemonButton>
@@ -166,6 +150,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         onClick={() => setDockOpen(!dockOpen)}
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
                         aria-label={dockOpen ? 'Collapse observations' : 'Expand observations'}
+                        data-attr="vision-dock-toggle"
                     />
                 )}
             </div>

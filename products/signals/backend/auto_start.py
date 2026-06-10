@@ -155,13 +155,17 @@ async def maybe_autostart_implementation_task(
 
     team = await Team.objects.select_related("organization").aget(id=team_id)
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
+    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
 
     task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
         team_id, priority.priority, reviewers_content, team_default_priority
     )
     if task_user is None:
         return
+
+    base_branch = None
+    if repository and team_config:
+        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
 
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
@@ -172,6 +176,7 @@ async def maybe_autostart_implementation_task(
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
+        branch=base_branch,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR

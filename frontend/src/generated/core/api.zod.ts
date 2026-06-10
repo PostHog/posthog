@@ -11,13 +11,13 @@ import * as zod from 'zod'
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document under
+ * `posthog_verification_token`. When PostHog fetches the metadata, matching
+ * the token links the partner app to this organization and grants a higher
+ * default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreateBodyLabelMax = 40
 
@@ -33,6 +33,12 @@ export const domainsCreateBodySamlEntityIdMax = 512
 
 export const domainsCreateBodySamlAcsUrlMax = 512
 
+export const domainsCreateBodyIdJagIssuerUrlMax = 512
+
+export const domainsCreateBodyIdJagJwksUrlMax = 512
+
+export const domainsCreateBodyIdJagAllowedClientsItemMax = 256
+
 export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -41,6 +47,20 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
+    id_jag_issuer_url: zod
+        .string()
+        .max(domainsCreateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(domainsCreateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(domainsCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -51,6 +71,12 @@ export const domainsUpdateBodySamlEntityIdMax = 512
 
 export const domainsUpdateBodySamlAcsUrlMax = 512
 
+export const domainsUpdateBodyIdJagIssuerUrlMax = 512
+
+export const domainsUpdateBodyIdJagJwksUrlMax = 512
+
+export const domainsUpdateBodyIdJagAllowedClientsItemMax = 256
+
 export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -59,6 +85,20 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
+    id_jag_issuer_url: zod
+        .string()
+        .max(domainsUpdateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(domainsUpdateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(domainsUpdateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -69,6 +109,12 @@ export const domainsPartialUpdateBodySamlEntityIdMax = 512
 
 export const domainsPartialUpdateBodySamlAcsUrlMax = 512
 
+export const domainsPartialUpdateBodyIdJagIssuerUrlMax = 512
+
+export const domainsPartialUpdateBodyIdJagJwksUrlMax = 512
+
+export const domainsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
+
 export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -77,6 +123,20 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsPartialUpdateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
+    id_jag_issuer_url: zod
+        .string()
+        .max(domainsPartialUpdateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(domainsPartialUpdateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(domainsPartialUpdateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 /**
@@ -90,6 +150,12 @@ export const domainsScimTokenCreateBodySamlEntityIdMax = 512
 
 export const domainsScimTokenCreateBodySamlAcsUrlMax = 512
 
+export const domainsScimTokenCreateBodyIdJagIssuerUrlMax = 512
+
+export const domainsScimTokenCreateBodyIdJagJwksUrlMax = 512
+
+export const domainsScimTokenCreateBodyIdJagAllowedClientsItemMax = 256
+
 export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsScimTokenCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -98,6 +164,20 @@ export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsScimTokenCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
+    id_jag_issuer_url: zod
+        .string()
+        .max(domainsScimTokenCreateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(domainsScimTokenCreateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(domainsScimTokenCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -108,6 +188,12 @@ export const domainsVerifyCreateBodySamlEntityIdMax = 512
 
 export const domainsVerifyCreateBodySamlAcsUrlMax = 512
 
+export const domainsVerifyCreateBodyIdJagIssuerUrlMax = 512
+
+export const domainsVerifyCreateBodyIdJagJwksUrlMax = 512
+
+export const domainsVerifyCreateBodyIdJagAllowedClientsItemMax = 256
+
 export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -116,6 +202,20 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsVerifyCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
+    id_jag_issuer_url: zod
+        .string()
+        .max(domainsVerifyCreateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(domainsVerifyCreateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(domainsVerifyCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const invitesCreateBodyTargetEmailMax = 254
@@ -166,7 +266,7 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
-Sends a single dedicated delegation email and records the inviting user as having delegated.
+ * Sends a single dedicated delegation email and records the inviting user as having delegated.
  */
 export const invitesDelegateCreateBodyMessageMax = 1000
 
@@ -1808,8 +1908,8 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
 
 /**
  * Manage logs product configuration for this project's canonical environment.
-Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
-alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+ * alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdateBodyNameMax = 200
 
@@ -2413,9 +2513,9 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemCreateBodyTypeMax = 100
 
@@ -2432,9 +2532,9 @@ export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUpdateBodyTypeMax = 100
 
@@ -2451,9 +2551,9 @@ export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemPartialUpdateBodyTypeMax = 100
 
@@ -2518,9 +2618,9 @@ export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zo
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLinkCreateBodyTypeMax = 100
 
@@ -2537,9 +2637,9 @@ export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemMoveCreateBodyTypeMax = 100
 
@@ -2572,9 +2672,9 @@ export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewCreateBodyTypeMax = 100
 
@@ -2591,9 +2691,9 @@ export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
 
@@ -2610,8 +2710,8 @@ export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object(
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutCreateBodyTypeMax = 100
 
@@ -2646,8 +2746,8 @@ export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
 
@@ -2682,8 +2782,8 @@ export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
 
@@ -2725,8 +2825,8 @@ export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.ob
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderCreateBodyProtocolMax = 64
 
@@ -2747,8 +2847,8 @@ export const DesktopPersistedFolderCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderUpdateBodyProtocolMax = 64
 
@@ -2769,8 +2869,8 @@ export const DesktopPersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderPartialUpdateBodyProtocolMax = 64
 
@@ -3180,22 +3280,22 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -3227,331 +3327,6 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.obj
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
-
-export const subscriptionsCreateBodyIntervalMax = 2147483647
-
-export const subscriptionsCreateBodyBysetposMin = -2147483648
-export const subscriptionsCreateBodyBysetposMax = 2147483647
-
-export const subscriptionsCreateBodyCountMin = -2147483648
-export const subscriptionsCreateBodyCountMax = 2147483647
-
-export const subscriptionsCreateBodyTitleMax = 100
-
-export const subscriptionsCreateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(1)
-            .max(subscriptionsCreateBodyIntervalMax)
-            .describe(
-                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
-            ),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsCreateBodyBysetposMin)
-            .max(subscriptionsCreateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsCreateBodyCountMin)
-            .max(subscriptionsCreateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsCreateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const subscriptionsUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsUpdateBodyBysetposMin = -2147483648
-export const subscriptionsUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsUpdateBodyCountMin = -2147483648
-export const subscriptionsUpdateBodyCountMax = 2147483647
-
-export const subscriptionsUpdateBodyTitleMax = 100
-
-export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(1)
-            .max(subscriptionsUpdateBodyIntervalMax)
-            .describe(
-                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
-            ),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsUpdateBodyBysetposMin)
-            .max(subscriptionsUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsUpdateBodyCountMin)
-            .max(subscriptionsUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
-export const subscriptionsPartialUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyCountMin = -2147483648
-export const subscriptionsPartialUpdateBodyCountMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyTitleMax = 100
-
-export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .optional()
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .optional()
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(1)
-            .max(subscriptionsPartialUpdateBodyIntervalMax)
-            .optional()
-            .describe(
-                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
-            ),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyBysetposMin)
-            .max(subscriptionsPartialUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyCountMin)
-            .max(subscriptionsPartialUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsPartialUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
@@ -3807,24 +3582,24 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**OAuth fast path:** when the current project already has a team-level
-GitHub installation, and the user has no ``UserIntegration`` for that
-installation yet, we skip the org picker and redirect straight to
-``/login/oauth/authorize`` so the user only authorizes themselves.
-``connect_from`` is preserved for first-party clients so they return to
-the originating client immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
+ *
+ * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+ * ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+ * under projects).
+ *
+ * Usually returns ``install_url`` pointing at ``/installations/new`` so the
+ * user can pick any GitHub org (new or already connected).  GitHub's install
+ * page handles both cases: orgs where the app is installed show "Configure"
+ * (no admin needed), orgs where it isn't show "Install" (needs admin).
+ *
+ * **OAuth fast path:** when the current project already has a team-level
+ * GitHub installation, and the user has no ``UserIntegration`` for that
+ * installation yet, we skip the org picker and redirect straight to
+ * ``/login/oauth/authorize`` so the user only authorizes themselves.
+ * ``connect_from`` is preserved for first-party clients so they return to
+ * the originating client immediately.
+ *
+ * In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking
  */
 export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
@@ -3840,12 +3615,12 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
 
 /**
  * Mark the current user as having exited onboarding with a non-delegated reason.
-Idempotent: the skip timestamp is only set on the first successful call.
-
-Callers wanting to delegate setup to a teammate must use the dedicated
-/organizations/{id}/invites/delegate/ endpoint, which atomically creates the
-invite and sets reason="delegated". This endpoint rejects that reason so state
-can't be faked without a real invite.
+ * Idempotent: the skip timestamp is only set on the first successful call.
+ *
+ * Callers wanting to delegate setup to a teammate must use the dedicated
+ * /organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+ * invite and sets reason="delegated". This endpoint rejects that reason so state
+ * can't be faked without a real invite.
  */
 export const usersOnboardingSkipCreateBodyStepAtSkipMax = 64
 
