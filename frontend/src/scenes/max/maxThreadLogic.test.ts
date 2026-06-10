@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import api, { ApiError } from 'lib/api'
@@ -1032,6 +1033,80 @@ describe('maxThreadLogic', () => {
                         }),
                     ]),
                 })
+        })
+    })
+
+    describe('stream interruption recovery', () => {
+        it('replaces the failure bubble with the server answer when the turn completed despite a stream error', async () => {
+            const recoveredConversation: ConversationDetail = {
+                ...MOCK_CONVERSATION,
+                status: ConversationStatus.Idle,
+                messages: [
+                    { type: AssistantMessageType.Human, content: 'hello', id: 'human-1' },
+                    { type: AssistantMessageType.Assistant, content: 'Here is your answer.', id: 'assistant-1' },
+                ],
+            } as ConversationDetail
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(recoveredConversation)
+            // A mid-stream error that is not a retryable network error — e.g. an interruption
+            // misclassified as a generic failure, which lands directly on the terminal path.
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new Error('stream interrupted'))
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            logic.actions.setConversation(MOCK_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(logic.values.threadRaw).toEqual([
+                expect.objectContaining({ id: 'human-1', content: 'hello', status: 'completed' }),
+                expect.objectContaining({ id: 'assistant-1', content: 'Here is your answer.', status: 'completed' }),
+            ])
+            expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(false)
+
+            // The turn must be reported as a (recovered) success, not a failure.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'success', recovered_from_stream_interruption: true })
+            )
+        })
+
+        it('keeps the failure bubble when the server has no answer for the latest turn', async () => {
+            const unfinishedConversation: ConversationDetail = {
+                ...MOCK_CONVERSATION,
+                status: ConversationStatus.Idle,
+                messages: [{ type: AssistantMessageType.Human, content: 'hello', id: 'human-1' }],
+            } as ConversationDetail
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(unfinishedConversation)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new Error('stream interrupted'))
+
+            logic.actions.setConversation(MOCK_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(true)
+        })
+
+        it('keeps the failure bubble when the conversation is still in progress server-side', async () => {
+            const inProgressConversation: ConversationDetail = {
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                messages: [
+                    { type: AssistantMessageType.Human, content: 'hello', id: 'human-1' },
+                    { type: AssistantMessageType.Assistant, content: 'partial', id: 'assistant-1' },
+                ],
+            } as ConversationDetail
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(inProgressConversation)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new Error('stream interrupted'))
+
+            logic.actions.setConversation(MOCK_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(true)
         })
     })
 

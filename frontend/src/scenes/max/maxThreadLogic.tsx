@@ -801,24 +801,54 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
+                        // Remove streaming (loading) messages so the server becomes the source of truth.
+                        actions.finalizeStreamingMessages()
+
+                        // The stream errored, but the turn may have completed server-side anyway — a
+                        // common outcome when a corporate proxy severs the long-lived SSE connection
+                        // mid-flight. Reload the conversation and reconcile: if the latest human turn
+                        // now has a completed answer, show it instead of a misleading failure bubble.
+                        const conversationId = values.conversation?.id
+                        let recoveredAnswer = false
+                        if (conversationId) {
+                            try {
+                                await maxGlobalLogic.asyncActions.loadConversation(conversationId)
+                            } catch {
+                                // Reload itself failed (still offline / proxy still dropping the
+                                // connection) — fall back to the failure bubble below.
+                            }
+                            if ((logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
+                                const reloaded = maxGlobalLogic.values.conversationHistory.find(
+                                    (c) => c.id === conversationId
+                                )
+                                if (conversationAnsweredLatestTurn(reloaded)) {
+                                    actions.setThread(updateMessagesWithCompletedStatus(reloaded?.messages ?? []))
+                                    recoveredAnswer = true
+                                }
+                            }
+                        }
+
                         posthog.capture('max conversation turn completed', {
-                            status: 'failure',
-                            conversation_id: values.conversation?.id,
+                            status: recoveredAnswer ? 'success' : 'failure',
+                            conversation_id: conversationId,
                             trace_id: traceId,
                             agent_mode: agentMode,
                             generation_attempt: generationAttempt,
-                            error_status_code: e instanceof ApiError ? e.status : undefined,
-                            error_type: isNetworkError
-                                ? 'network_error'
-                                : e instanceof ApiError
-                                  ? 'api_error'
-                                  : 'unknown_error',
+                            // Flags a stream interruption that silently recovered, so these are still
+                            // distinguishable from genuine first-try successes in telemetry.
+                            recovered_from_stream_interruption: recoveredAnswer || undefined,
+                            error_status_code: !recoveredAnswer && e instanceof ApiError ? e.status : undefined,
+                            error_type: recoveredAnswer
+                                ? undefined
+                                : isNetworkError
+                                  ? 'network_error'
+                                  : e instanceof ApiError
+                                    ? 'api_error'
+                                    : 'unknown_error',
                         })
-                        // Remove streaming messages and reload from server (source of truth)
-                        actions.finalizeStreamingMessages()
-                        actions.addMessage(relevantErrorMessage)
-                        if (values.conversation?.id) {
-                            actions.loadConversation(values.conversation.id)
+
+                        if (!recoveredAnswer) {
+                            actions.addMessage(relevantErrorMessage)
                         }
                     }
                 }
@@ -2203,4 +2233,27 @@ function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): Thre
         ...message,
         status: 'completed',
     }))
+}
+
+/**
+ * Whether a reloaded conversation contains a completed assistant answer for the latest human turn.
+ * Used to reconcile an optimistic failure bubble against server state: when an SSE stream is severed
+ * mid-flight (common behind corporate proxies) the turn often still completes server-side, so we
+ * should show the persisted answer rather than a misleading failure message.
+ */
+function conversationAnsweredLatestTurn(conversation: ConversationDetail | undefined): boolean {
+    if (!conversation || conversation.status !== ConversationStatus.Idle) {
+        return false
+    }
+    const messages = conversation.messages
+    if (!messages?.length) {
+        return false
+    }
+    const lastHumanIndex = messages.findLastIndex(isHumanMessage)
+    if (lastHumanIndex === -1) {
+        return false
+    }
+    // A genuine answer is an assistant message with content following the latest human message; a
+    // turn that truly failed leaves no such message (it ends on the human message or a failure).
+    return messages.slice(lastHumanIndex + 1).some((message) => isAssistantMessage(message) && !!message.content)
 }
