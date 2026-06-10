@@ -3,9 +3,9 @@
 //! Maps the Stage 1 worker's per-leaf [`LeafTransition`]s to per-cohort
 //! [`CohortMembershipChange`]s and produces them to `cohort_membership_changed_shadow`.
 //!
-//! Without boolean composition, a single leaf flip can only determine membership for a single-leaf
-//! cohort; [`map_transition`] fans out only to single-leaf cohorts owning the transition's leaf, and
-//! a leaf belonging only to multi-leaf cohorts maps to nothing.
+//! [`map_transition`] fans out a leaf flip only to the single-leaf cohorts owning it; composable
+//! (multi-leaf) cohorts are emitted by Stage 2's `compose_stage2`, not here. A leaf owned only by
+//! `Excluded` cohorts maps to nothing.
 //!
 //! Produces are flushed and acked **before** the worker marks its Kafka offset; the flush is
 //! at-least-once, which is idempotent for the per-cohort parity diff.
@@ -76,8 +76,9 @@ impl From<TransitionKind> for MembershipStatus {
 }
 
 /// Project one leaf transition to one membership change per single-leaf cohort owning its
-/// [`LeafStateKey`](crate::stage1::key::LeafStateKey). A leaf belonging only to multi-leaf cohorts
-/// yields nothing and bumps `output_transitions_unmapped_total{reason="multi_leaf_cohort"}`.
+/// [`LeafStateKey`](crate::stage1::key::LeafStateKey). Composable (multi-leaf) cohorts are emitted by
+/// Stage 2's `compose_stage2`, not here; only a leaf with no single-leaf *and* no composable owner
+/// yields nothing and bumps `output_transitions_unmapped_total{reason="no_emitting_cohort"}`.
 pub fn map_transition<'a>(
     filters: &'a TeamFilters,
     transition: &'a LeafTransition,
@@ -87,8 +88,14 @@ pub fn map_transition<'a>(
         .by_lsk_to_single_leaf_cohorts
         .get(&transition.leaf_state_key)
         .map_or(&[], Vec::as_slice);
-    if cohorts.is_empty() {
-        counter!(OUTPUT_TRANSITIONS_UNMAPPED, "reason" => "multi_leaf_cohort").increment(1);
+    // A leaf owned by a composable cohort is mapped by Stage 2 in the same pass, so it is not
+    // unmapped; count only a leaf no emitting cohort owns (its cohorts are all `Excluded`).
+    if cohorts.is_empty()
+        && !filters
+            .by_lsk_to_composable_cohorts
+            .contains_key(&transition.leaf_state_key)
+    {
+        counter!(OUTPUT_TRANSITIONS_UNMAPPED, "reason" => "no_emitting_cohort").increment(1);
     }
     let team_id = transition.team_id.0;
     let status = MembershipStatus::from(transition.kind);

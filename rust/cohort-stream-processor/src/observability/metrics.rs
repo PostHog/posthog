@@ -164,8 +164,9 @@ pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_
 /// Membership changes produced to `cohort_membership_changed_shadow`, labelled by `status`
 /// (counter). Counted only after a fully-acked flush.
 pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
-/// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter). A single
-/// leaf flip only determines a single-leaf cohort's membership.
+/// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter). Single-leaf
+/// cohorts emit here via `map_transition` and composable cohorts emit via Stage 2, so a transition is
+/// unmapped only when its leaf is owned solely by `Excluded` cohorts.
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
 /// Produce failures to `cohort_membership_changed_shadow` (counter). The worker holds the offset
 /// back so Kafka replays; re-produce is idempotent for the parity diff.
