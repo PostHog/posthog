@@ -346,6 +346,17 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
             0,
             "remove within",
         ),
+        # expired exactly grace days ago → last day of grace, warn without "within 0 days"
+        (
+            [
+                raw_entry(
+                    added=(core.today_utc() - timedelta(days=27)).isoformat(),
+                    expires=(core.today_utc() - timedelta(days=7)).isoformat(),
+                )
+            ],
+            0,
+            "remove today — grace period ends",
+        ),
         # forward compat: unknown runner and unknown field warn but pass
         ([raw_entry(runner="jest", future_field="x")], 0, "no enforcement adapter"),
         # known-product selector passes; unknown product fails

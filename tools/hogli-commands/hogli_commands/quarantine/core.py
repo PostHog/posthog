@@ -293,7 +293,9 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
         if expired_for > grace_days:
             violations.append(f"{label}: expired {expired_for} days ago (grace is {grace_days}) — remove or re-triage")
         elif expired_for > 0:
-            warnings.append(f"{label}: expired {expired_for} days ago — remove within {grace_days - expired_for} days")
+            days_left = grace_days - expired_for
+            deadline = f"within {days_left} days" if days_left else "today — grace period ends"
+            warnings.append(f"{label}: expired {expired_for} days ago — remove {deadline}")
 
         if entry.runner != DEFAULT_RUNNER:
             warnings.append(f"{label}: runner '{entry.runner}' has no enforcement adapter yet")
