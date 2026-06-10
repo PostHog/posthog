@@ -184,6 +184,10 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return logic.count_issues_created_since(team_id=team_id, since=since)
 
 
+def list_issue_ids_created_since(team_id: int, since: datetime) -> list[UUID]:
+    return logic.list_issue_ids_created_since(team_id=team_id, since=since)
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return logic.get_issue_counts_by_team()
 

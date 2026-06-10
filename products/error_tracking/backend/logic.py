@@ -163,6 +163,10 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
 
 
+def list_issue_ids_created_since(team_id: int, since: datetime) -> list[UUID]:
+    return list(ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).values_list("id", flat=True))
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return list(
         ErrorTrackingIssue.objects.values("team_id")

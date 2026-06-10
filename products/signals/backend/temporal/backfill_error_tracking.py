@@ -34,12 +34,17 @@ class EmitBackfillSignalInput:
 @close_db_connections
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
     """Fetch the 100 most recent error tracking issues ordered by first seen."""
+    from django.utils import timezone
+
     from posthog.schema import DateRange, ErrorTrackingQuery
 
     from posthog.models import Team
     from posthog.sync import database_sync_to_async
 
+    from products.error_tracking.backend.facade import api as error_tracking_api
     from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+
+    backfill_window_days = 30
 
     team = await Team.objects.aget(id=input.team_id)
 
@@ -49,7 +54,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 # withFirstEvent reads each issue's event blobs, so keep the scanned window bounded.
-                dateRange=DateRange(date_from="-30d"),
+                dateRange=DateRange(date_from=f"-{backfill_window_days}d"),
                 orderBy="first_seen",
                 orderDirection="DESC",
                 volumeResolution=1,
@@ -59,12 +64,21 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
                 withAggregations=False,
             ),
         )
-        return runner.calculate()
+        response = runner.calculate()
+        # The events window alone also surfaces old issues with recent occurrences; only
+        # issues actually created in the window should emit issue_created signals.
+        recent_issue_ids = {
+            str(issue_id)
+            for issue_id in error_tracking_api.list_issue_ids_created_since(
+                team_id=input.team_id, since=timezone.now() - timedelta(days=backfill_window_days)
+            )
+        }
+        return [result for result in response.results if str(result.id) in recent_issue_ids]
 
-    response = await database_sync_to_async(_run_query)()
+    results = await database_sync_to_async(_run_query)()
 
     issues: list[ErrorTrackingIssueData] = []
-    for result in response.results:
+    for result in results:
         fingerprint = ""
         if result.first_event and result.first_event.properties:
             try:
