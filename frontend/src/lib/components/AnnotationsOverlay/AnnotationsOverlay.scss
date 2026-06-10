@@ -25,6 +25,16 @@
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }
+
+    // An emoji is illegible at the small count-badge size on the saturated data fill,
+    // so give it a larger disc and a plain surface background to read against.
+    > .LemonBadge.AnnotationsBadge__emoji {
+        --lemon-badge-size: 1.5rem;
+        --lemon-badge-font-size: 1rem;
+
+        color: inherit;
+        background: var(--color-bg-surface-primary);
+    }
 }
 
 .AnnotationsPopover {

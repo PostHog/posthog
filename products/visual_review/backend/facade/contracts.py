@@ -220,6 +220,19 @@ class Snapshot:
 
 
 @dataclass(frozen=True)
+class RunSnapshots:
+    """A run's snapshots plus the count of its currently-quarantined identifiers.
+
+    `quarantined_count` always reflects the full run regardless of whether
+    quarantined snapshots were filtered out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch.
+    """
+
+    snapshots: list[Snapshot]
+    quarantined_count: int
+
+
+@dataclass(frozen=True)
 class RunSummary:
     """Summary stats for a run."""
 

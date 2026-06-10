@@ -494,10 +494,6 @@ async def materialize_model(
     """
     await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
-    query_columns = saved_query.columns
-    if not query_columns:
-        query_columns = await database_sync_to_async(saved_query.get_columns)()
-
     if not isinstance(saved_query.query, dict):
         raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
 

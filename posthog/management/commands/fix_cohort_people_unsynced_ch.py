@@ -4,9 +4,10 @@ from django.db import connections
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.person import Person
 from posthog.person_db_router import PERSONS_DB_FOR_READ
+
+from products.cohorts.backend.models.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
 

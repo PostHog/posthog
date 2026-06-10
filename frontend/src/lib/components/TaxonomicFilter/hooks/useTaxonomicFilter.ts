@@ -30,8 +30,10 @@ import {
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
+    SelectingKeyOnly,
     SimpleOption,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -88,6 +90,8 @@ export interface UseTaxonomicFilterOptions {
     enableKeywordShortcuts?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    selectingKeyOnly?: SelectingKeyOnly
+    excludedOperators?: ExcludedOperators
 }
 
 export interface TaxonomicFilterApi {
@@ -129,6 +133,8 @@ export interface TaxonomicFilterApi {
 
     // value passthroughs
     value?: TaxonomicFilterValue
+    selectingKeyOnly?: SelectingKeyOnly
+    excludedOperators?: ExcludedOperators
 
     // headless-component prop bags
     rootProps: { onKeyDown: (e: React.KeyboardEvent<any>) => void }
@@ -161,8 +167,7 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
- *    3. Auto-injecting `RecentFilters` and `PinnedFilters` after the meta
- *       group block (Suggested → Recent → Pinned)
+ *    3. Auto-injecting Recent/Pinned meta tabs when available.
  *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
  *       the meta block.
@@ -197,7 +202,7 @@ function resolveTaxonomicGroupTypes(
     }
     const filtered = requested.filter((t) => !excluded.has(t) && available.has(t))
 
-    // 2. Auto-inject Recent / Pinned (Suggested stays opt-in)
+    // 2. Auto-inject Recent/Pinned meta tabs when available and not already present.
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
             filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)
@@ -254,6 +259,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         enableKeywordShortcuts,
         selectFirstItem,
         autoSelectItem,
+        selectingKeyOnly,
+        excludedOperators,
     } = opts
 
     const ctx = useTaxonomicGroupsContext({
@@ -274,12 +281,17 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const allGroups = useMemo(() => buildTaxonomicGroups(ctx), [ctx])
     const allGroupTypes = useMemo(() => new Set(allGroups.map((g) => g.type)), [allGroups])
-    const getLocalOverride = useTaxonomicLocalOverrides()
 
     const groupTypes = useMemo(
         () => resolveTaxonomicGroupTypes(taxonomicGroupTypes, allGroupTypes, eventNames ?? []),
         [taxonomicGroupTypes, allGroupTypes, eventNames]
     )
+
+    const getLocalOverride = useTaxonomicLocalOverrides({
+        taxonomicGroupTypes: groupTypes,
+        excludedOperators,
+        selectingKeyOnly,
+    })
 
     const groups = useMemo(() => {
         const byType = new Map(allGroups.map((g) => [g.type, g]))
@@ -519,6 +531,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         registerActiveList,
         getGroupListInput,
         value,
+        selectingKeyOnly,
+        excludedOperators,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

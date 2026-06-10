@@ -104,6 +104,12 @@ one sandbox session → zero or more emitted signals.
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path
   as any other source.
+- Scouts do not set a per-signal `weight`. The harness pins every emitted finding to
+  `SCOUT_SIGNAL_WEIGHT = 1.0` (`tools/emit.py`), so a fresh report's `total_weight`
+  meets `WEIGHT_THRESHOLD` (default 1.0) on the first signal and promotes immediately.
+  `weight` is the pipeline's promotion knob, not a scout judgment — promotion is
+  governed by the `confidence` emit-gate (≥ ~0.65), dedupe, and the safety filter.
+  The scout-facing schema and skills carry no `weight` field.
 - Scratchpad entries and run history are read at prompt assembly time. The agent can
   also write scratchpad entries mid-run via `remember` / `forget` — that's how a
   specialist with no anomalies to chase records "no LLM activity here, close out
@@ -113,7 +119,7 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default daily) is due, most-overdue
+  per-scout schedule (`run_interval_minutes`, default hourly) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,

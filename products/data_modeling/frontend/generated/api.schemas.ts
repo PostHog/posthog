@@ -91,9 +91,9 @@ export interface PatchedEdgeApi {
 
 /**
  * * `table` - Table
- * `view` - View
- * `matview` - Mat View
- * `endpoint` - Endpoint
+ * * `view` - View
+ * * `matview` - Mat View
+ * * `endpoint` - Endpoint
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
