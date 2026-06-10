@@ -10,7 +10,6 @@ export function EditableCodeBlock({
     setBlockRef,
     updateNode,
     deleteSelectedNotebookBlocks,
-    deleteNodeAndFocusAdjacent,
     handleSelectionChange,
     startTextSelectionPointer,
 }: {
@@ -19,7 +18,6 @@ export function EditableCodeBlock({
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     deleteSelectedNotebookBlocks: () => boolean
-    deleteNodeAndFocusAdjacent: () => void
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
 }): JSX.Element {
@@ -72,13 +70,6 @@ export function EditableCodeBlock({
         if ((event.key === 'Backspace' || event.key === 'Delete') && deleteSelectedNotebookBlocks()) {
             event.preventDefault()
             event.stopPropagation()
-            return
-        }
-
-        if ((event.key === 'Backspace' || event.key === 'Delete') && !node.text.length) {
-            event.preventDefault()
-            deleteNodeAndFocusAdjacent()
-            return
         }
     }
 

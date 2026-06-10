@@ -3077,6 +3077,60 @@ aXbc
 \`\`\``)
     })
 
+    it('deletes an empty code block with backspace and keeps the model in sync', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n```\n```'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        placeCaretInElement(codeBlock)
+
+        expect(fireEvent.keyDown(codeBlock, { key: 'Backspace' })).toEqual(false)
+
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`)
+    })
+
+    it('deletes an empty code block when backspace targets the editing host', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n```\n```'),
+                onChange,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        placeCaretInElement(codeBlock)
+
+        expect(fireEvent.keyDown(canvas, { key: 'Backspace' })).toEqual(false)
+
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`)
+    })
+
+    it('keeps non-empty code blocks when pressing backspace inside them', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```\nabc\n```'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 2, 2)
+        fireEvent.keyDown(codeBlock, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeInstanceOf(HTMLElement)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('keeps newly inserted components active for keyboard row actions', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
@@ -6162,6 +6216,43 @@ Keep after`),
 2. Child
 3. Sibling`)
     })
+
+    it.each([
+        ['a trailing placeholder <br>', 'welcomea<br>', '- welcomea'],
+        ['a non-breaking space', 'welcome&nbsp;a', '- welcome\u00a0a'],
+        ['a double quote', 'welcome "a"', '- welcome "a"'],
+    ])(
+        'keeps the caret while typing in a list item whose DOM contains %s',
+        (_, browserInnerHtml, expectedListMarkdown) => {
+            // Real browsers dispatch input events at the root editing host and keep their own DOM
+            // representation (placeholder <br>, &nbsp;). Re-syncing innerHTML for content that is
+            // already up to date would reset the caret to the line start on every keystroke.
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle('- welcome'),
+                    onChange,
+                })
+            )
+            const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+            const listItem = getEditableListItems(container)[0]
+
+            act(() => {
+                listItem.innerHTML = browserInnerHtml
+            })
+            const textNode = getFirstTextNode(listItem)
+            const caretOffset = textNode.textContent?.length ?? 0
+            selectTextInElement(listItem, caretOffset, caretOffset)
+            fireEvent.input(canvas)
+
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${expectedListMarkdown}`)
+            // The DOM the browser produced must be left alone — same element, same content, live caret.
+            expect(getEditableListItems(container)[0]).toBe(listItem)
+            expect(listItem.innerHTML).toEqual(browserInnerHtml)
+            expect(window.getSelection()?.anchorNode?.isConnected).toBe(true)
+            expect(window.getSelection()?.focusOffset).toEqual(caretOffset)
+        }
+    )
 
     it('merges a paragraph into the last list item with backspace at the start', () => {
         const onChange = jest.fn()

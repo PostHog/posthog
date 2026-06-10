@@ -181,7 +181,6 @@ export function renderNode({
                 setBlockRef={setBlockRef}
                 updateNode={updateNode}
                 deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
-                deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
             />

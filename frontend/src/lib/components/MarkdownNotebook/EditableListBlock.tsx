@@ -270,6 +270,18 @@ export function EditableListItemContent({
             return
         }
 
+        // While the caret is inside the item, the DOM is the source of the latest model state:
+        // rewriting innerHTML would destroy the caret mid-typing, so only sync when the live DOM
+        // does not already represent the same content.
+        const selection = window.getSelection()
+        if (
+            selection?.anchorNode &&
+            element.contains(selection.anchorNode) &&
+            inlineNodesToHtml(htmlElementToInlineNodes(element)) === renderedHtml
+        ) {
+            return
+        }
+
         element.innerHTML = renderedHtml
     })
 

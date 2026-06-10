@@ -2919,6 +2919,28 @@ export function MarkdownNotebook({
         [requestFocusForNode]
     )
 
+    const deleteEmptyCodeBlockAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'code' || node.text.length) {
+            return false
+        }
+
+        requestFocusAfterRemovingNode(nodeId)
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.filter((currentNode) => currentNode.id !== nodeId),
+        })
+        return true
+    }, [commitDocument, requestFocusAfterRemovingNode])
+
     const deleteNodeAndFocusPrevious = useCallback(
         (nodeId: string): boolean => {
             const currentDocument = documentRef.current
@@ -3792,7 +3814,8 @@ export function MarkdownNotebook({
             !event.altKey &&
             !event.metaKey &&
             !event.ctrlKey &&
-            deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward')
+            (deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
+                deleteEmptyCodeBlockAtCurrentSelection())
         ) {
             event.preventDefault()
             event.stopPropagation()

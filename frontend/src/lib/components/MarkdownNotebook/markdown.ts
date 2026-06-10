@@ -132,7 +132,9 @@ export function serializeNode(node: NotebookBlockNode): string {
                 } else {
                     orderedCounters[depth] = undefined
                 }
-                return `${linePrefix}${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
+                return `${linePrefix}${'  '.repeat(depth)}${marker} ${serializeInlineNodes(
+                    trimTrailingHardBreaks(item.children)
+                )}`
             })
             .join('\n')
     }
@@ -563,7 +565,7 @@ function serializeRawTableRow(cells: string[]): string {
 }
 
 function serializeTableCell(cell: NotebookTableCell): string {
-    return serializeInlineNodes(cell.children).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    return serializeInlineNodes(trimTrailingHardBreaks(cell.children)).replace(/\|/g, '\\|').replace(/\n/g, ' ')
 }
 
 function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefined): string {
@@ -904,6 +906,16 @@ function serializeImageNode(node: NotebookComponentBlockNode): string {
     return `![${escapeMarkdownImageAlt(alt)}](${escapeMarkdownImageSrc(src)})`
 }
 
+// Browsers keep a trailing placeholder <br> in edited lines; it is presentational, so it must not
+// become a line break in single-line markdown contexts.
+function trimTrailingHardBreaks(nodes: NotebookInlineNode[]): NotebookInlineNode[] {
+    let end = nodes.length
+    while (end > 0 && nodes[end - 1].type === 'hardBreak') {
+        end -= 1
+    }
+    return end === nodes.length ? nodes : nodes.slice(0, end)
+}
+
 function serializeInlineNode(node: NotebookInlineNode): string {
     if (node.type === 'hardBreak') {
         return '\n'
@@ -1015,7 +1027,7 @@ function isBlockBreakElement(node: ChildNode): node is HTMLElement {
 
 function inlineNodeToHtml(node: NotebookInlineNode): string {
     if (node.type === 'hardBreak') {
-        return '<br />'
+        return '<br>'
     }
 
     return normalizeInlineMarks(node.marks ?? []).reduce(
@@ -1061,12 +1073,22 @@ function unescapeMarkdownImageValue(text: string): string {
     return text.replace(/\\([\\\])])/g, '$1')
 }
 
+// Both escapes mirror the browser's HTML fragment serialization exactly: the editor compares
+// generated HTML against live `innerHTML` to decide whether the DOM needs syncing, and any byte
+// difference forces a rewrite that destroys the caret mid-typing.
 function escapeHtml(text: string): string {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/\u00a0/g, '&nbsp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
 }
 
 function escapeAttribute(text: string): string {
-    return escapeHtml(text).replace(/'/g, '&#39;')
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/\u00a0/g, '&nbsp;')
+        .replace(/"/g, '&quot;')
 }
 
 function decodeHtmlEntities(text: string): string {
