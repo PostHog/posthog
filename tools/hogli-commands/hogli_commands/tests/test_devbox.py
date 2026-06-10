@@ -2233,11 +2233,11 @@ class TestStartExistingWorkspace:
 
     @pytest.mark.parametrize(
         "start_app, expected",
-        [(True, "true"), (False, "false")],
-        ids=["enable", "disable"],
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
     )
     def test_pushes_start_app_param_before_starting(
-        self, monkeypatch: pytest.MonkeyPatch, start_app: bool, expected: str
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
     ) -> None:
         captured: dict[str, object] = {}
 
@@ -2258,7 +2258,10 @@ class TestStartExistingWorkspace:
             verbose=False,
         )
 
-        assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in captured
+        else:
+            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
 
     def test_start_app_flag_never_updates_running_workspace(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

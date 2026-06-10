@@ -1347,7 +1347,7 @@ def devbox_start(
         region=effective_region,
         template=template,
         preset=preset,
-        start_app=bool(start_app),
+        start_app=start_app is True,
         verbose=verbose,
     )
     click.echo("Created.")
