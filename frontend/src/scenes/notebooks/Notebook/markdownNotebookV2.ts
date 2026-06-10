@@ -10,7 +10,8 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'
 
@@ -192,13 +193,20 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
 
 function getNotebookArtifactVisualizationQuery(block: VisualizationBlock): NotebookPropValue | null {
     const source = block.query as QuerySchemaRoot
+    const display = getNotebookArtifactVisualizationDisplay(block)
     const query: QuerySchemaRoot | DataVisualizationNode | InsightVizNode = isHogQLQuery(source)
-        ? { kind: NodeKind.DataVisualizationNode, source }
-        : isInsightQueryNode(source)
-          ? { kind: NodeKind.InsightVizNode, source, showHeader: true }
-          : source
+        ? { kind: NodeKind.DataVisualizationNode, source, ...(display ? { display } : {}) }
+        : isDataVisualizationNode(source) && !source.display && display
+          ? { ...source, display }
+          : isInsightQueryNode(source)
+            ? { kind: NodeKind.InsightVizNode, source, showHeader: true }
+            : source
 
     return toNotebookPropValue(query)
+}
+
+function getNotebookArtifactVisualizationDisplay(block: VisualizationBlock): ChartDisplayType | null {
+    return /\bpie\b/i.test(block.title ?? '') ? ChartDisplayType.ActionsPie : null
 }
 
 function getOptionalTitleProp(title: string | null | undefined): Partial<Pick<NotebookComponentProps, 'title'>> {

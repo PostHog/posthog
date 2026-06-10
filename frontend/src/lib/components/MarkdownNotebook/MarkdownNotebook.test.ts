@@ -6880,6 +6880,35 @@ After component`,
         expect(onChange).not.toHaveBeenCalled()
     })
 
+    it('lets rendered components remove their own node', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Chat',
+                label: 'AI chat',
+                category: 'AI',
+                hideModeActions: true,
+                ViewComponent: ({ deleteNode }) =>
+                    createElement('button', { type: 'button', onClick: deleteNode }, 'Dismiss'),
+            },
+        ])
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: 'Intro\n\n<Chat id="chat-id" />\n\nOutro',
+                registry,
+                onChange,
+            })
+        )
+
+        const dismissButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Dismiss'
+        ) as HTMLButtonElement
+
+        fireEvent.click(dismissButton)
+
+        expect(onChange).toHaveBeenLastCalledWith('# Intro\n\nOutro')
+    })
+
     it('does not show empty single-mode component toolbar titles', () => {
         const registry = createMarkdownNotebookRegistry([
             {

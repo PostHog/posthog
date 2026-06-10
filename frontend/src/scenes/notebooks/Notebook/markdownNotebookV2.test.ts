@@ -122,6 +122,26 @@ Users activated faster.
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
 
+    it('preserves SQL pie chart display intent from notebook artifacts', () => {
+        const content: NotebookArtifactContent = {
+            content_type: ArtifactContentType.Notebook,
+            blocks: [
+                {
+                    type: 'visualization',
+                    title: 'Events pie chart',
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select event, count() from events group by event',
+                    },
+                },
+            ],
+        }
+
+        expect(notebookArtifactContentToMarkdown(content)).toEqual(
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+        )
+    })
+
     it('does not duplicate an artifact markdown title', () => {
         const content: NotebookArtifactContent = {
             content_type: ArtifactContentType.Notebook,

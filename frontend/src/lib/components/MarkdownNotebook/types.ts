@@ -113,6 +113,7 @@ export type NotebookComponentRenderProps = {
     node: NotebookComponentBlockNode
     mode: NotebookMode
     updateProps: (props: Partial<NotebookComponentProps>) => void
+    deleteNode: () => void
 }
 
 export type NotebookComponentInsertCommand = {

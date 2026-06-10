@@ -229,6 +229,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_PIE = "ActionsPie"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
@@ -10460,9 +10461,10 @@ class AssistantDataVisualizationNode(BaseModel):
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
+            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
+            " `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"

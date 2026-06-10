@@ -751,7 +751,7 @@ function summarizeTitle(value: string | null | undefined): string | null {
     return oneLineValue.length > 120 ? `${oneLineValue.slice(0, 117)}...` : oneLineValue
 }
 
-function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+function NotebookAIChat({ node, updateProps, deleteNode }: NotebookComponentRenderProps): JSX.Element {
     const cachedLastAnswer = getNotebookStringProp(node.props.lastAnswer) ?? getNotebookStringProp(node.props.answer)
     const hasLegacyAnswer = node.props.answer !== undefined
     const chatId = getNotebookStringProp(node.props.id)
@@ -793,6 +793,7 @@ function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JS
                     setQueuedReply(reply)
                     setIsThreadActive(true)
                 }}
+                onDismiss={deleteNode}
             />
         )
     }
@@ -815,6 +816,7 @@ function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JS
             }}
             onQueuedReplyConsumed={() => setQueuedReply(null)}
             updateProps={updateProps}
+            onDismiss={deleteNode}
         />
     )
 }
@@ -831,6 +833,7 @@ function NotebookAIChatById({
     onCollapseOlderMessages,
     onQueuedReplyConsumed,
     updateProps,
+    onDismiss,
 }: {
     chatId: string
     cachedTitle: string | null
@@ -843,6 +846,7 @@ function NotebookAIChatById({
     onCollapseOlderMessages: () => void
     onQueuedReplyConsumed: () => void
     updateProps: (props: Partial<NotebookComponentProps>) => void
+    onDismiss: () => void
 }): JSX.Element {
     const panelId = getInlineNotebookAIPanelId(chatId, loadOlderMessages ? 'full' : 'inline')
     const maxLogicProps = useMemo<maxLogicType['props']>(
@@ -895,6 +899,7 @@ function NotebookAIChatById({
             onCollapseOlderMessages={onCollapseOlderMessages}
             onQueuedReplyConsumed={onQueuedReplyConsumed}
             updateProps={updateProps}
+            onDismiss={onDismiss}
         />
     )
 }
@@ -912,6 +917,7 @@ function NotebookAIChatThread({
     onCollapseOlderMessages,
     onQueuedReplyConsumed,
     updateProps,
+    onDismiss,
 }: {
     chatId: string
     threadLogicProps: MaxThreadLogicProps
@@ -925,6 +931,7 @@ function NotebookAIChatThread({
     onCollapseOlderMessages: () => void
     onQueuedReplyConsumed: () => void
     updateProps: (props: Partial<NotebookComponentProps>) => void
+    onDismiss: () => void
 }): JSX.Element {
     const threadLogicInstance = maxThreadLogic(threadLogicProps)
     useMountedLogic(threadLogicInstance)
@@ -990,6 +997,7 @@ function NotebookAIChatThread({
             onShowOlderMessages={onShowOlderMessages}
             onCollapseOlderMessages={onCollapseOlderMessages}
             onReply={(reply) => askMax(reply, true, replyUiContext)}
+            onDismiss={onDismiss}
         />
     )
 }
@@ -1041,6 +1049,7 @@ function NotebookAIChatConversation({
     onShowOlderMessages,
     onCollapseOlderMessages,
     onReply,
+    onDismiss,
 }: {
     messages: NotebookAIChatMessage[]
     canReply: boolean
@@ -1049,6 +1058,7 @@ function NotebookAIChatConversation({
     onShowOlderMessages?: () => void
     onCollapseOlderMessages?: () => void
     onReply?: (reply: string) => void
+    onDismiss?: () => void
 }): JSX.Element {
     const [isReplying, setIsReplying] = useState(false)
     const [reply, setReply] = useState('')
@@ -1098,6 +1108,11 @@ function NotebookAIChatConversation({
                             onClick={() => setIsReplying(true)}
                         >
                             Reply
+                        </LemonButton>
+                    ) : null}
+                    {canReply && !isReplying && onDismiss ? (
+                        <LemonButton size="xsmall" type="secondary" onClick={onDismiss}>
+                            Dismiss
                         </LemonButton>
                     ) : null}
                     {showOlderMessages && onShowOlderMessages ? (
@@ -1186,6 +1201,9 @@ function getNotebookAIChatThreadMessages(
             return [{ role: 'error', id, content: content || 'PostHog AI could not finish this request.' }]
         }
         if (message.type === AssistantMessageType.Notebook && message.status === 'completed') {
+            return [{ role: 'assistant', id, content: 'Updated the notebook.' }]
+        }
+        if (isCompletedNotebookArtifactMessage(message)) {
             return [{ role: 'assistant', id, content: 'Updated the notebook.' }]
         }
         if (message.type === AssistantMessageType.Assistant) {
