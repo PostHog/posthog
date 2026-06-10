@@ -13,6 +13,7 @@ import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
+import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
@@ -26,21 +27,23 @@ import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
-    'slack-posthog-code': IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
+    'google-search-console': IconGoogleSearchConsole,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
+    stripe: IconStripe,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
@@ -66,14 +69,14 @@ export const ICONS: Record<IntegrationKind, any> = {
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
-        case 'slack-posthog-code':
-            return 'PostHog Code (Slack)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-search-console':
+            return 'Google Search Console'
         case 'google-cloud-service-account':
             return 'Google Cloud service account'
         case 'linkedin-ads':

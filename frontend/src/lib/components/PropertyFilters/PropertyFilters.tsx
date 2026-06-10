@@ -4,9 +4,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
@@ -51,7 +54,8 @@ export interface PropertyFiltersProps {
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
@@ -88,7 +92,8 @@ export function PropertyFilters({
     excludedProperties,
     allowRelativeDateOptions,
     disabledReason = undefined,
-    exactMatchFeatureFlagCohortOperators = false,
+    excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
@@ -100,7 +105,7 @@ export function PropertyFilters({
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        setFilters(propertyFilters ? parseProperties(propertyFilters) : [])
     }, [propertyFilters, setFilters])
 
     const displayedFilters = allowNew && editable ? filtersWithNew : filters
@@ -159,7 +164,8 @@ export function PropertyFilters({
                                             excludedProperties={excludedProperties}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
-                                            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            excludedOperators={excludedOperators}
+                                            selectingKeyOnly={selectingKeyOnly}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}

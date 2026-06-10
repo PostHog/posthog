@@ -1,5 +1,7 @@
 import json
+import uuid
 import asyncio
+import hashlib
 
 from django.conf import settings
 
@@ -13,14 +15,14 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import _AsyncKafkaProducer, get_async_warpstream_kafka_producer
+from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
-from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 class CDPProducer:
@@ -67,18 +69,28 @@ class CDPProducer:
             except FileNotFoundError:
                 return []
 
-    def _serialize_json(self, record: object) -> bytes:
+    def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
         try:
-            return orjson.dumps(record)
+            return orjson.dumps(record, option=orjson.OPT_SORT_KEYS if sort_keys else None)
         except TypeError:
             try:
-                return json.dumps(record).encode("utf-8")
+                return json.dumps(record, sort_keys=sort_keys).encode("utf-8")
             except Exception as e:
                 if isinstance(record, dict):
                     record = {str(k): str(v) for k, v in record.items()}
-                    return json.dumps(record).encode("utf-8")
+                    return json.dumps(record, sort_keys=sort_keys).encode("utf-8")
 
                 raise ValueError("Could not serialize record to JSON") from e
+
+    def _build_event_id(self, row: object) -> str:
+        """Build a deterministic event id that is unique per row per job.
+
+        The row is hashed (sorted keys so re-runs of the same job produce the same hash)
+        and combined with the job id, so the id is stable for the same row + job but
+        changes whenever the row's data changes.
+        """
+        row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
+        return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{self.job_id}:{row_hash}"))
 
     async def should_produce_table(self) -> bool:
         if self._should_produce_cache is not None:
@@ -131,12 +143,6 @@ class CDPProducer:
             use_dictionary=True,
         )
 
-    def _get_kafka_producer(self) -> _AsyncKafkaProducer:
-        return get_async_warpstream_kafka_producer(
-            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
-            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
-        )
-
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
 
@@ -146,9 +152,7 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        kafka_producer = self._get_kafka_producer()
-
-        try:
+        async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
             for file_path in files_to_produce:
                 await self.logger.adebug(f"Producing file {file_path} to Kafka")
 
@@ -160,7 +164,11 @@ class CDPProducer:
 
                         for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
-                                row_as_props = {"team_id": self.team_id, "properties": row}
+                                row_as_props = {
+                                    "team_id": self.team_id,
+                                    "event_id": self._build_event_id(row),
+                                    "properties": row,
+                                }
                                 await kafka_producer.produce(
                                     topic=KAFKA_DWH_CDP_RAW_TABLE,
                                     data=row_as_props,
@@ -180,5 +188,3 @@ class CDPProducer:
                     await asyncio.to_thread(fs.delete_file, file_path)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
-        finally:
-            await kafka_producer.close()

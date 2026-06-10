@@ -39,6 +39,8 @@ services:
                         path /e
                         path /e/*
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch*
                         path /capture
@@ -58,6 +60,21 @@ services:
                     @flags {
                         path /flags
                         path /flags*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
+                    }
+
+                    @surveys {
+                        path /surveys
+                        path /surveys/
+                        path /api/surveys
+                        path /api/surveys/
+                    }
+
+                    @remote-config {
+                        path /array/*
                     }
 
                     @webhooks {
@@ -91,6 +108,14 @@ services:
                         reverse_proxy app:3001
                     }
 
+                    handle @surveys {
+                        reverse_proxy app:3002
+                    }
+
+                    handle @remote-config {
+                        reverse_proxy app:3002
+                    }
+
                     handle @webhooks {
                         reverse_proxy app:6738
                     }
@@ -103,9 +128,16 @@ services:
             - app
 
     app:
+        # Base build. When the user has tools.yaml entries, bin/sandbox
+        # generates a Dockerfile.user that layers tool installs on top and
+        # writes an override (docker-compose.tool-auth.yml) that swaps
+        # build.dockerfile to point at it.
         build:
             context: .
             dockerfile: Dockerfile.sandbox
+            args:
+                SANDBOX_UID: '${SANDBOX_UID:-1000}'
+                SANDBOX_GID: '${SANDBOX_GID:-1000}'
         restart: on-failure
         init: true
         # mprocs (used by bin/start) requires a TTY
@@ -140,14 +172,23 @@ services:
             - python-env:/cache/python
             # JetBrains IDE backend for Gateway (populated by bin/sandbox)
             - jetbrains:/opt/idea
-        # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
-        # the same env file used by docker-compose.base.yml.
-        env_file: dev-services.env
+        # Sandbox uses the shared service-connection defaults but NOT .env.development —
+        # the latter has host-side URLs (SESSION_RECORDING_V2_S3_ENDPOINT=localhost:8333,
+        # OBJECT_STORAGE_PUBLIC_ENDPOINT=localhost:19000) that don't resolve inside the
+        # container. Dev runtime knobs (DEBUG, etc.) are set inline below. The user's
+        # sandbox.env (resolved to a real path or /dev/null by bin/sandbox) injects
+        # their secrets straight into the sandbox environment.
+        env_file:
+            - .env.services
+            - ${SANDBOX_ENV_FILE:-/dev/null}
         environment:
             # --- Sandbox identity ---
             SANDBOX_UID: '${SANDBOX_UID:-1000}'
             SANDBOX_GID: '${SANDBOX_GID:-1000}'
             POSTHOG_SANDBOX: '1'
+            # 1 during a cache-backed `create`: the setup window waits for the
+            # background ClickHouse restore to land before migrating.
+            SANDBOX_USE_CACHE: '${SANDBOX_USE_CACHE:-0}'
             SANDBOX_INTENTS: '${SANDBOX_INTENTS:-product_analytics}'
             DEBUG: '1'
             HOST_BIND: '0.0.0.0'

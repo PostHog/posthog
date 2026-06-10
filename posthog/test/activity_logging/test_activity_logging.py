@@ -108,6 +108,59 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.client)
 
+    def test_ip_address_is_populated_from_activity_storage(self) -> None:
+        activity_storage.set_ip_address("203.0.113.42")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=10,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_ip_address()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.ip_address, "203.0.113.42")
+
+    def test_explicit_ip_address_overrides_storage(self) -> None:
+        activity_storage.set_ip_address("10.0.0.1")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=11,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+                ip_address="198.51.100.7",
+            )
+        finally:
+            activity_storage.clear_ip_address()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.ip_address, "198.51.100.7")
+
+    def test_ip_address_defaults_to_none_when_unset(self) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=12,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(),
+        )
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertIsNone(log.ip_address)
+
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
             organization_id=self.organization.id,
@@ -180,6 +233,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created", "User", "created", False, True),
             # User activities not in the restricted list are not restricted
             ("user_changed_password", "User", "changed_password", False, False),
+            # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
+            ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -207,6 +262,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("normal_login_staff_bypass", "User", "logged_in", False, False),
             ("user_updated_staff_bypass", "User", "updated", False, False),
             ("user_created_staff_bypass", "User", "created", False, False),
+            # Staff can also see InstanceSetting updates (allow_staff=True)
+            ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]

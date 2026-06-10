@@ -6,6 +6,7 @@ to third-party developers in the future.
 Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 """
 
+import uuid
 import hashlib
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -89,7 +90,8 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     sla_business_hours = serializers.JSONField(required=False, allow_null=True)
     snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
-    tags = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
+    tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -130,6 +132,19 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
         return attrs
 
 
+def _validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
+    """Return an error Response if ticket_id is not a valid UUID, else None."""
+    # Django's <uuid:ticket_id> converter passes uuid.UUID; uuid.UUID(uuid_obj)
+    # wrongly treats it as ``hex`` and raises AttributeError.
+    if isinstance(ticket_id, uuid.UUID):
+        return None
+    try:
+        uuid.UUID(str(ticket_id))
+    except (ValueError, AttributeError, TypeError):
+        return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 class ExternalTicketView(APIView):
     """
     GET /api/conversations/external/ticket/<ticket_id>  — Fetch ticket data
@@ -148,6 +163,9 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        if error := _validate_ticket_id(ticket_id):
+            return error
 
         try:
             ticket = Ticket.objects.select_related(
@@ -210,6 +228,9 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        if error := _validate_ticket_id(ticket_id):
+            return error
 
         serializer = ExternalTicketUpdateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -378,13 +399,22 @@ class ExternalTicketView(APIView):
 
         if "tags" in serializer.validated_data:
             try:
-                new_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
-                for tag_name in new_tags:
-                    tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                    ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                for tagged_item in ticket.tagged_items.exclude(tag__name__in=new_tags):
-                    tagged_item.delete()
-                Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                tags_mode = serializer.validated_data.get("tags_mode", "add")
+                normalized_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
+
+                if tags_mode == "remove":
+                    ticket.tagged_items.filter(tag__name__in=normalized_tags).delete()
+                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                elif tags_mode == "set":
+                    for tag_name in normalized_tags:
+                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                    ticket.tagged_items.exclude(tag__name__in=normalized_tags).delete()
+                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                else:
+                    for tag_name in normalized_tags:
+                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)

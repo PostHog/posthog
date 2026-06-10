@@ -80,11 +80,7 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         },
         loadTableSuccess: async ({ table }) => {
             if (props.id) {
-                sourceSceneLogic
-                    .findMounted({
-                        id: `self-managed-${props.id}`,
-                    })
-                    ?.actions.setBreadcrumbName(table.name)
+                sourceSceneLogic.findMounted({ id: `self-managed-${props.id}` })?.actions.setBreadcrumbName(table.name)
             }
         },
     })),

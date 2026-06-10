@@ -2,7 +2,12 @@ use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    net::IpAddr,
+    sync::{Arc, OnceLock},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -32,6 +37,16 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// Side channel for body logging: when at least one team is opted into
+    /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
+    /// keeps a clone. The decode step in `parse_and_authenticate` fills it
+    /// with the decoded body (post gzip + post base64). After the handler
+    /// completes, the endpoint reads from its clone and hands the bytes to
+    /// `BodyLogger::log_response`. This avoids decoding the body twice and
+    /// also ensures base64-wrapped bodies are logged as the JSON they
+    /// actually parsed as, not as the base64 string.
+    pub decoded_body_for_logging: Option<Arc<OnceLock<Bytes>>>,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -75,6 +90,10 @@ pub struct FeatureFlagEvaluationContext {
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    pub detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    pub only_use_override_person_properties: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

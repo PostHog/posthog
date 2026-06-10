@@ -13,27 +13,98 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
+from posthog.models.scoping import with_team_scope
+
+from ..logic import HashIntegrityError
+
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name="products.visual_review.backend.tasks.process_run_diffs", ignore_result=True)
-def process_run_diffs(run_id: str) -> None:
+@shared_task(
+    name="products.visual_review.backend.tasks.process_run_diffs",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def process_run_diffs(self, team_id: int, run_id: str) -> None:
     """
-    Process diffs for all snapshots in a run.
+    Verify uploads, create artifacts, and process diffs for a run.
 
     Called after CI signals that all artifacts have been uploaded.
+    Verifies hash integrity of new uploads before creating Artifact
+    records and computing diffs.
     """
+    from posthog.models.integration import GitHubRateLimitError
+
     from .. import logic
     from ..diffing import process_diffs
 
     run_uuid = UUID(run_id)
 
     try:
-        logger.info("visual_review.diff_processing_started", run_id=run_id)
+        logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
+        logic.verify_uploads_and_create_artifacts(run_uuid)
         process_diffs(run_uuid)
-        logic.mark_run_completed(run_uuid)
-        logger.info("visual_review.diff_processing_completed", run_id=run_id)
+        logic.finish_processing(run_uuid)
+        logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
+    except HashIntegrityError as e:
+        logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
+        logic.finish_processing(run_uuid, error_message=str(e))
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.diff_processing_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        try:
+            countdown = e.retry_after or 60
+            self.retry(countdown=min(countdown, 600), exc=e)
+        except self.MaxRetriesExceededError:
+            logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
     except Exception as e:
-        logger.exception("visual_review.diff_processing_failed", run_id=run_id, error=str(e))
-        logic.mark_run_completed(run_uuid, error_message=str(e))
+        logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
+        logic.finish_processing(run_uuid, error_message=str(e))
         raise
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.post_approval_comment",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def post_approval_comment(self, team_id: int, run_id: str) -> None:
+    """Update the PR comment in place with the approved-changes summary.
+
+    Best-effort: failures don't block the approval flow. Retries on GitHub
+    rate-limit errors only.
+    """
+    from posthog.models.integration import GitHubRateLimitError
+
+    from .. import logic
+
+    run_uuid = UUID(run_id)
+
+    try:
+        logic.post_approval_comment_for_run(run_uuid, team_id=team_id)
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.approval_comment_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        try:
+            countdown = e.retry_after or 60
+            self.retry(countdown=min(countdown, 600), exc=e)
+        except self.MaxRetriesExceededError:
+            logger.warning("visual_review.approval_comment_giving_up", run_id=run_id)
+    except Exception:
+        logger.exception("visual_review.approval_comment_task_failed", run_id=run_id, team_id=team_id)

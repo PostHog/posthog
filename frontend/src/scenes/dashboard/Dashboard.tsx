@@ -2,9 +2,6 @@ import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -27,6 +24,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -39,6 +37,8 @@ interface DashboardProps {
     backTo?: { url: string; name: string }
 }
 
+const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
 function DashboardSceneWrapper(): JSX.Element {
@@ -48,10 +48,7 @@ function DashboardSceneWrapper(): JSX.Element {
 export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardSceneWrapper,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }) => ({
-        id: parseInt(id as string),
-        placement,
-    }),
+    paramsToProps: ({ params: { id, placement } }) => ({ id: parseDashboardId(id), placement }),
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
@@ -59,7 +56,7 @@ export function Dashboard({ id, dashboard, placement, themes, backTo }: Dashboar
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
             <DashboardScene backTo={backTo} />
         </BindLogic>
     )
@@ -75,13 +72,10 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        refreshAnalysisResult,
-        analysisRating,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useFileSystemLogView({
@@ -109,6 +103,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -121,37 +116,6 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                     })}
                 >
                     <DashboardOverridesBanner />
-
-                    {refreshAnalysisResult && (
-                        <LemonBanner
-                            type="info"
-                            onClose={() => setRefreshAnalysisResult(null)}
-                            className="mb-4 [&>.flex]:items-start"
-                            hideIcon
-                        >
-                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
-                            <div className="flex items-center gap-0.5 mt-2">
-                                {analysisRating ? (
-                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsUp />}
-                                            tooltip="Helpful"
-                                            onClick={() => setAnalysisRating('up')}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsDown />}
-                                            tooltip="Not helpful"
-                                            onClick={() => setAnalysisRating('down')}
-                                        />
-                                    </>
-                                )}
-                            </div>
-                        </LemonBanner>
-                    )}
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

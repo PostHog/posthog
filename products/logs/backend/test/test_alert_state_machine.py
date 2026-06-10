@@ -103,8 +103,10 @@ class TestFiringTransitions(TestCase):
             ("still_breaching_1_of_1", 1, 1, (), True, FIRING, NotificationAction.NONE),
             ("still_breaching_2_of_3", 2, 3, (True, True), True, FIRING, NotificationAction.NONE),
             ("clears_1_of_1", 1, 1, (), False, NOT_FIRING, NotificationAction.RESOLVE),
-            # N-of-M only governs firing — resolution is always immediate on first OK check
-            ("clears_immediately_2_of_3", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
+            # (F, T, T) → 2 breaches ≥ N=2 → stays firing
+            ("stays_firing_count_still_meets_n", 2, 3, (True, True), False, FIRING, NotificationAction.NONE),
+            # (F, F, T) → 1 breach < N=2 → resolves
+            ("resolves_when_count_drops_below_n", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
         ]
     )
     def test_firing_transitions(
@@ -131,12 +133,12 @@ class TestFiringTransitions(TestCase):
 class TestPendingResolveTransitions(TestCase):
     @parameterized.expand(
         [
-            # Any non-breaching check from PENDING_RESOLVE resolves immediately
+            # (F, F, T) → 1 breach < N=2 → resolves
             ("clears_fully", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
-            # Re-breach goes back to FIRING
+            # (T, F, T) → 2 breaches ≥ N=2 → re-fires
             ("re_breaches", 2, 3, (False, True), True, FIRING, NotificationAction.NONE),
-            # Non-breaching resolves immediately regardless of recent history
-            ("mixed_resolves_immediately", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
+            # (F, T, T) → 2 breaches ≥ N=2 → stays firing
+            ("stays_firing_when_recent_still_breaches", 2, 3, (True, True), False, FIRING, NotificationAction.NONE),
         ]
     )
     def test_pending_resolve_transitions(
@@ -217,7 +219,7 @@ class TestErrorHandling(TestCase):
         snapshot = _snapshot(state=NOT_FIRING)
         outcome = evaluate_alert_check(snapshot, _check(error="ClickHouse timeout"), NOW)
         assert outcome.new_state == ERRORED
-        assert outcome.notification == NotificationAction.NONE
+        assert outcome.notification == NotificationAction.ERROR
         assert outcome.error_message == "ClickHouse timeout"
 
     def test_error_increments_consecutive_failures(self) -> None:
@@ -246,6 +248,44 @@ class TestErrorHandling(TestCase):
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.new_state == NOT_FIRING
         assert outcome.notification == NotificationAction.NONE
+
+
+class TestTransientErrors(TestCase):
+    def test_transient_error_does_not_increment_consecutive_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 2
+
+    def test_transient_error_still_transitions_to_errored(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cluster busy", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.notification == NotificationAction.ERROR
+
+    def test_transient_error_does_not_push_counter_past_threshold(self) -> None:
+        # MAX_CONSECUTIVE_FAILURES - 1 non-transient errors → ERRORED, counter at 4.
+        # A transient error must NOT push it to 5 (BROKEN).
+        snapshot = _snapshot(state=ERRORED, consecutive_failures=4)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="cancelled", is_transient_error=True
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == ERRORED
+        assert outcome.consecutive_failures == 4
+
+    def test_non_transient_error_still_increments_failures(self) -> None:
+        snapshot = _snapshot(state=NOT_FIRING, consecutive_failures=2)
+        check = CheckResult(
+            result_count=None, threshold_breached=False, error_message="invalid query", is_transient_error=False
+        )
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.consecutive_failures == 3
 
 
 class TestBrokenTransition(TestCase):

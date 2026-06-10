@@ -311,3 +311,35 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 | D: Write to sharded tables               | Inherent                    | None            | None                | High (architectural change)                           |
 | E: `in_order` load balancing             | Practical (not formal)      | None            | None                | Low (per-query settings)                              |
 | E + quorum: `in_order` + `insert_quorum` | Practical (covers failover) | +20-100ms       | None                | Low (per-query settings, no serialization)            |
+
+## Concurrent first-readers: redundant INSERTs (by design)
+
+The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer raises `IntegrityError`. This is intentional: a stale READY job past its TTL should be replaceable.
+
+Combined with the executor's `for range in ttl_ranges` loop, this produces a wasted-INSERT pattern under concurrent first-readers on the **shortest-TTL** ranges (today / yesterday in `LAZY_TTL_SECONDS`):
+
+```text
+T=0.000  N threads enter executor. All call find_existing_jobs → []. All compute
+         the same stale ttl_ranges = [today, yesterday, 7-day].
+
+T=0.005  3 threads each WIN a different range (one PENDING per range via the
+         partial unique index). The other (N-3) threads hit IntegrityError on
+         all 3 ranges and loop back to wait on pubsub.
+
+T~0.5    The 3 winners each finish their CH INSERT (~470ms) and mark READY
+         within a few ms of each other.
+
+T~0.5+   Each winner *continues its for-loop* to iter 2 and iter 3. Because
+         the other winners just transitioned their rows out of the partial
+         unique index (`status='pending'` → `status='ready'`), the CREATE for
+         the other ranges no longer collides. Each winner runs a *second*
+         INSERT for a range already covered by a fresh READY job.
+```
+
+Observed in a 10-concurrent-first-readers stress test of the `web_overview_query` lazy path: **6 jobs in PG for 3 unique ranges** (2-3 duplicate READY rows on the short-TTL today/yesterday ranges). The 7-day range, with its longer INSERT span and only one race participant per iter slot, produced exactly 1 job.
+
+**Why this isn't a correctness bug:** the read path calls `filter_overlapping_jobs()` ([executor:383](lazy_computation_executor.py)) which deterministically keeps only the most-recently-created READY job per range. All concurrent callers therefore receive byte-identical results. The duplicate rows expire on their normal TTL or get compacted away by the ReplacingMergeTree.
+
+**Cost:** ~2× redundant INSERTs on the shortest-TTL ranges under cold-cache load. At low concurrency this is invisible. At high concurrency (e.g. dashboard-load fan-out across multiple browser tabs) it doubles CH write load for those ranges only. Mitigated naturally once the cache is primed — a second wave against the same range produces zero new INSERTs.
+
+**Possible fix (not applied):** `break` out of the for-loop after a successful CREATE+INSERT, returning control to the while-loop so `find_existing_jobs` re-runs and `ttl_ranges` gets recomputed against current state. Trade-off: each thread does at most one INSERT per round-trip (slower wall time when one thread legitimately owns multiple ranges), but eliminates the race. See `test_for_loop_creates_duplicate_after_peer_completes_mid_loop` in `tests/test_lazy_computation_executor.py` for the deterministic reproduction.

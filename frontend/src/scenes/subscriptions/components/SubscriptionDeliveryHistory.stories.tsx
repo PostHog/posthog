@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionsDeliveriesListStatus,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './SubscriptionDeliveryHistory'
 import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
@@ -50,6 +50,20 @@ export const WithDeliveries: Story = {
                 onTestDelivery={noopTestDelivery}
             />
         )
+    },
+}
+
+// Covers both expand states for one PR-specific feature: the expand affordance on a collapsed row with a summary,
+// and the rendered summary content inside an expanded row.
+const EXPANDED_SUMMARY_STORY_IDS: ReadonlySet<string> = new Set(['del-1'])
+
+export const WithExpandedSummary: Story = {
+    args: {
+        deliveriesPage: pageWithRows,
+        deliveriesPageLoading: false,
+        loadDeliveriesPage: noopLoadPage,
+        onTestDelivery: noopTestDelivery,
+        __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
     },
 }
 

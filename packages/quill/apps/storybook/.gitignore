@@ -1,0 +1,5 @@
+# Visual regression snapshots — regenerated locally via scripts/capture-screenshots.mjs
+__screenshots__/baseline/light/*.png
+__screenshots__/baseline/dark/*.png
+__screenshots__/candidate/
+__screenshots__/diff-report.json

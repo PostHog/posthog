@@ -327,6 +327,6 @@ export const TEAMS_AND_COMPANIES = {
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub', 'IconGitLab', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
-    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement', 'IconScatter'],
+    AIObservability: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement', 'IconScatter'],
     PostHogAI: ['IconBrain'],
 } as const

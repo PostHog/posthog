@@ -1,5 +1,6 @@
 from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
+from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
@@ -24,6 +25,11 @@ from .provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .refresh_sandbox_credentials import (
+    RefreshSandboxCredentialsInput,
+    RefreshSandboxCredentialsOutput,
+    refresh_sandbox_credentials,
+)
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
@@ -34,6 +40,7 @@ __all__ = [
     "CleanupSandboxInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
+    "EmitProgressInput",
     "ExecuteTaskInput",
     "ExecuteTaskOutput",
     "GetSandboxForRepositoryInput",
@@ -47,6 +54,8 @@ __all__ = [
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
+    "RefreshSandboxCredentialsInput",
+    "RefreshSandboxCredentialsOutput",
     "StartAgentServerInput",
     "StartAgentServerOutput",
     "TaskProcessingContext",
@@ -57,6 +66,7 @@ __all__ = [
     "cleanup_sandbox",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
+    "emit_progress_activity",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",
@@ -67,6 +77,7 @@ __all__ = [
     "post_slack_update",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
+    "refresh_sandbox_credentials",
     "start_agent_server",
     "track_workflow_event",
     "update_task_run_status",

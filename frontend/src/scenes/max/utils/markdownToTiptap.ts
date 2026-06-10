@@ -1,11 +1,12 @@
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
 
-// Create a singleton MarkdownManager with the same extensions used in notebooks
 const markdownManager = new MarkdownManager({
-    extensions: [StarterKit],
+    extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
 })
 
 /**
@@ -16,7 +17,7 @@ export function markdownToTiptap(markdown: string): JSONContent[] {
         return []
     }
 
-    const doc = markdownManager.parse(markdown)
+    const doc = markdownManager.parse(expandFlattenedMarkdownTables(markdown))
 
     // The parser returns a doc node with content array, we want just the content
     return (doc.content as JSONContent[]) || []

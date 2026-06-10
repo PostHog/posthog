@@ -58,6 +58,14 @@
                     </label>
                 </div>
             {% endfor %}
+        {% elif is_person_removal %}
+            <p style="color: #555; margin: 4px 0;">
+                Person removal requests always execute immediately &mdash; deferred mode is only supported for event removal.
+            </p>
+            <select disabled style="opacity: 0.6;">
+                <option selected>Immediate</option>
+            </select>
+            <input type="hidden" name="execution_mode" value="immediate" />
         {% else %}
             <p style="color: #555; margin: 4px 0;">
                 Property removal requests always execute immediately &mdash; deferred mode is only supported for event removal.

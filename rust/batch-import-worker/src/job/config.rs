@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
@@ -79,6 +79,8 @@ pub struct S3SourceConfig {
     region: String,
     #[serde(default)]
     endpoint_url: Option<String>,
+    #[serde(default)]
+    allow_internal_ips: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -300,7 +302,39 @@ impl UrlListConfig {
 }
 
 impl S3SourceConfig {
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+    /// Reject endpoint URLs that point to private/internal IPs.
+    /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
+    fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
+        if allow_internal_ips {
+            return Ok(());
+        }
+
+        let parsed = url::Url::parse(url)
+            .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
+
+        let host = parsed
+            .host()
+            .ok_or_else(|| Error::msg(format!("Endpoint URL '{}' has no host", url)))?;
+
+        let ip = match host {
+            url::Host::Ipv4(v4) => Some(IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(IpAddr::V6(v6)),
+            url::Host::Domain(_) => None,
+        };
+
+        if let Some(ip) = ip {
+            if !common_dns::is_global_ip(&ip) {
+                return Err(Error::msg(format!(
+                    "Endpoint URL '{}' resolves to non-public IP address",
+                    url
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn build_s3_config(&self, secrets: &JobSecrets) -> Result<aws_sdk_s3::config::Builder, Error> {
         let access_key_id = secrets
             .secrets
             .get(&self.access_key_id_key)
@@ -345,9 +379,26 @@ impl S3SourceConfig {
                     .build(),
             )
             .retry_config(RetryConfig::standard());
+
         if let Some(ref url) = self.endpoint_url {
+            Self::validate_endpoint_url(url, self.allow_internal_ips)?;
             builder = builder.endpoint_url(url).force_path_style(true);
+
+            if !self.allow_internal_ips {
+                let http_client = aws_smithy_http_client::Builder::new()
+                    .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
+                        aws_smithy_http_client::tls::rustls_provider::CryptoMode::AwsLc,
+                    ))
+                    .build_with_resolver(common_dns::PublicIPv4SmithyResolver);
+                builder = builder.http_client(http_client);
+            }
         }
+
+        Ok(builder)
+    }
+
+    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+        let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(S3Source::new(
@@ -358,53 +409,7 @@ impl S3SourceConfig {
     }
 
     pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
-        let access_key_id = secrets
-            .secrets
-            .get(&self.access_key_id_key)
-            .ok_or(Error::msg(format!(
-                "Missing access key id as key {}",
-                self.access_key_id_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Access key id as key {} is not a string",
-                self.access_key_id_key
-            )))?;
-
-        let secret_access_key = secrets
-            .secrets
-            .get(&self.secret_access_key_key)
-            .ok_or(Error::msg(format!(
-                "Missing secret access key as key {}",
-                self.secret_access_key_key
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Secret access key as key {} is not a string",
-                self.secret_access_key_key
-            )))?;
-
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
-            access_key_id,
-            secret_access_key,
-            None,
-            None,
-            "job_config",
-        );
-
-        let mut builder = aws_sdk_s3::config::Builder::new()
-            .region(Region::new(self.region.clone()))
-            .credentials_provider(aws_credentials)
-            .behavior_version(BehaviorVersion::latest())
-            .timeout_config(
-                TimeoutConfig::builder()
-                    .operation_timeout(Duration::from_secs(30))
-                    .build(),
-            )
-            .retry_config(RetryConfig::standard());
-        if let Some(ref url) = self.endpoint_url {
-            builder = builder.endpoint_url(url).force_path_style(true);
-        }
+        let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(GzipS3Source::new(
@@ -793,6 +798,82 @@ mod tests {
     }
 
     #[test]
+    fn test_s3_source_config_allow_internal_ips_defaults_false() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_s3_source_config_allow_internal_ips_explicit_true() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "allow_internal_ips": true
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert!(config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_metadata_service() {
+        let result = S3SourceConfig::validate_endpoint_url("http://169.254.169.254", false);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("non-public IP address"));
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_private_ip() {
+        let result = S3SourceConfig::validate_endpoint_url("http://10.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://127.0.0.1:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_ipv6_loopback() {
+        let result = S3SourceConfig::validate_endpoint_url("http://[::1]:9000", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_public_hostname() {
+        let result = S3SourceConfig::validate_endpoint_url(
+            "https://acct123.r2.cloudflarestorage.com",
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_accepts_internal_when_allowed() {
+        let result = S3SourceConfig::validate_endpoint_url("http://localhost:9000", true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_rejects_invalid_url() {
+        let result = S3SourceConfig::validate_endpoint_url("not-a-url", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_sink_config_serialization() {
         // Test SinkConfig serialization with different variants
         let test_cases = vec![
@@ -835,5 +916,99 @@ mod tests {
                 _ => panic!("SinkConfig variants don't match"),
             }
         }
+    }
+
+    // ---- ENCRYPTION_KEYS multi-key / two-step rotation ----
+    // The batch-import-worker shares the key material that Django/Node expose as ENCRYPTION_SALT_KEYS
+    // (here it's the ENCRYPTION_KEYS env var). It only decrypts BatchImport.secrets. These tests mirror
+    // the Python/Node coverage so all three implementations are verified against the same contract:
+    // the first key encrypts, every key is tried for decryption.
+
+    fn old_key() -> String {
+        "o".repeat(32)
+    }
+
+    fn new_key() -> String {
+        "n".repeat(32)
+    }
+
+    fn sample_secrets() -> JobSecrets {
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            "api_key".to_string(),
+            Value::String("super-secret-value".to_string()),
+        );
+        JobSecrets { secrets }
+    }
+
+    // Simulate a writer app (Django/Node) running with the given key list: the first key encrypts, and
+    // each raw 32-byte key is base64-urlsafe-encoded before Fernet — matching JobSecrets::decrypt.
+    fn encrypt_with(key_list: &[String], secrets: &JobSecrets) -> String {
+        let fernets: Vec<_> = key_list
+            .iter()
+            .map(|k| BASE64_URL_SAFE.encode(k.as_bytes()))
+            .filter_map(|k| fernet::Fernet::new(&k))
+            .collect();
+        let serialized = serde_json::to_vec(&secrets.secrets).unwrap();
+        MultiFernet::new(fernets).encrypt(&serialized)
+    }
+
+    #[test]
+    fn test_decrypt_tries_every_key_in_the_list() {
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key()], &secrets);
+
+        for reader in [vec![new_key(), old_key()], vec![old_key(), new_key()]] {
+            let decrypted = JobSecrets::decrypt(&token, &reader).unwrap();
+            assert_eq!(decrypted.secrets, secrets.secrets);
+        }
+    }
+
+    #[test]
+    fn test_two_step_rotation_coexisting_apps_decrypt_each_others_writes() {
+        // step 1: [old] -> [old, new]      new added for decryption; old still encrypts
+        // step 2: [old, new] -> [new, old] new now encrypts; old kept for decryption
+        let secrets = sample_secrets();
+        let steps = [
+            ("step 1", vec![vec![old_key()], vec![old_key(), new_key()]]),
+            (
+                "step 2",
+                vec![vec![old_key(), new_key()], vec![new_key(), old_key()]],
+            ),
+        ];
+
+        for (name, coexisting) in steps {
+            for writer in &coexisting {
+                let token = encrypt_with(writer, &secrets);
+                for reader in &coexisting {
+                    let decrypted = JobSecrets::decrypt(&token, reader).unwrap_or_else(|e| {
+                        panic!("{name}: reader {reader:?} could not decrypt writer {writer:?}: {e}")
+                    });
+                    assert_eq!(decrypted.secrets, secrets.secrets);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_step_1_apps_always_encrypt_with_the_old_key() {
+        // While [old] and [old, new] apps coexist, old is always first, so no app emits new-encrypted
+        // data that an un-upgraded [old]-only app could not read.
+        let secrets = sample_secrets();
+
+        for writer in [vec![old_key()], vec![old_key(), new_key()]] {
+            let token = encrypt_with(&writer, &secrets);
+            assert!(JobSecrets::decrypt(&token, &[old_key()]).is_ok());
+            assert!(JobSecrets::decrypt(&token, &[new_key()]).is_err());
+        }
+    }
+
+    #[test]
+    fn test_skipping_step_1_breaks_un_upgraded_worker() {
+        // A writer that jumped straight to [new, old] encrypts with new; a worker still on [old] cannot read it.
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key(), old_key()], &secrets);
+
+        assert!(JobSecrets::decrypt(&token, &[old_key()]).is_err());
     }
 }

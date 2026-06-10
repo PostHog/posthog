@@ -1,12 +1,12 @@
 import re
 import hmac
-import time
 import uuid
 import hashlib
 
 from django.conf import settings
 from django.http.request import RawPostDataException
 
+import stripe
 import structlog
 import posthoganalytics
 from rest_framework.request import Request
@@ -28,7 +28,7 @@ def verify_api_version(request: Request) -> Response | None:
 
     Returns None if valid, or an error Response if not.
     """
-    api_version = request.META.get("HTTP_API_VERSION", "")
+    api_version = request.headers.get("api-version", "")
     if api_version not in SUPPORTED_VERSIONS:
         endpoint = request.path
         _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
@@ -44,11 +44,17 @@ def verify_api_version(request: Request) -> Response | None:
     return None
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
+def verify_provisioning_signature(request: Request) -> Response | None:
     """Verify the Stripe-Signature HMAC.
 
     Returns None if verification passes, or an error Response if it fails.
     Called at the top of every view (Vercel-style, not middleware).
+
+    Delegates to the Stripe SDK, which checks the timestamp and every ``v1``
+    signature in the header. During a ``STRIPE_SIGNING_SECRET`` rotation the
+    sender dual-signs each request, so the header carries the old and new
+    signatures at once; matching against any of them keeps verification working
+    across the switch-over instead of breaking the moment the secret changes.
     """
     endpoint = request.path
 
@@ -56,28 +62,6 @@ def verify_stripe_signature(request: Request) -> Response | None:
     if not secret:
         _log_and_capture_event("server_error", 500, endpoint)
         return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
-
-    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
-    parsed = _parse_signature_header(sig_header)
-    if parsed is None:
-        _log_and_capture_event("invalid_signature", 401, endpoint, reason="missing_or_malformed_header")
-        return Response(
-            {"error": {"code": "invalid_signature", "message": "Missing or malformed Stripe-Signature header"}},
-            status=401,
-        )
-
-    timestamp_str, signature_hex = parsed
-
-    now = int(time.time())
-    timestamp = int(timestamp_str)
-    if abs(now - timestamp) > MAX_TIMESTAMP_DRIFT_SECONDS:
-        _log_and_capture_event(
-            "invalid_signature", 401, endpoint, reason="timestamp_drift", drift_seconds=abs(now - timestamp)
-        )
-        return Response(
-            {"error": {"code": "invalid_signature", "message": "Timestamp too old or too far in the future"}},
-            status=401,
-        )
 
     body = _get_raw_body(request)
     if body is None:
@@ -92,10 +76,20 @@ def verify_stripe_signature(request: Request) -> Response | None:
             status=400,
         )
 
-    expected_hex = _compute_hmac(secret, timestamp_str, body)
+    try:
+        decoded_body = body.decode("utf-8")
+    except UnicodeDecodeError as e:
+        _log_and_capture_event("body_not_decodable", 400, endpoint, reason=str(e))
+        return Response(
+            {"error": {"code": "body_not_decodable", "message": "Request body must be UTF-8 encoded"}},
+            status=400,
+        )
 
-    if not hmac.compare_digest(expected_hex.lower(), signature_hex.lower()):
-        _log_and_capture_event("invalid_signature", 401, endpoint, reason="hmac_mismatch")
+    sig_header = request.headers.get("stripe-signature", "")
+    try:
+        stripe.WebhookSignature.verify_header(decoded_body, sig_header, secret, tolerance=MAX_TIMESTAMP_DRIFT_SECONDS)
+    except stripe.SignatureVerificationError as e:
+        _log_and_capture_event("invalid_signature", 401, endpoint, reason=str(e))
         return Response(
             {"error": {"code": "invalid_signature", "message": "Signature verification failed"}}, status=401
         )

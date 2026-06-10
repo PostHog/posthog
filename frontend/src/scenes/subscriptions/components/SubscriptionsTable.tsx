@@ -1,12 +1,14 @@
-import { LemonTable, LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconAI, IconDashboard, IconGraph } from '@posthog/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import type { InsightShortId } from '~/types'
+import { SubscriptionResourceTypes } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
@@ -20,12 +22,19 @@ export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
 }
 
+export function isSubscriptionEnabled(sub: { enabled?: boolean | null }): boolean {
+    return sub.enabled !== false
+}
+
 export function subscriptionEditHref(sub: SubscriptionApi): string | null {
     if (sub.insight && sub.insight_short_id) {
         return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
     }
     if (sub.dashboard) {
         return urls.dashboardSubscription(sub.dashboard, String(sub.id))
+    }
+    if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
+        return urls.subscriptionEdit(sub.id)
     }
     return null
 }
@@ -94,7 +103,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className="font-medium block truncate"
+                                className={`font-medium block truncate ${isSubscriptionEnabled(sub) ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -108,9 +117,24 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             title: 'Type',
             key: 'type',
             width: '7rem',
-            render: (_value: unknown, sub: SubscriptionApi) => (
-                <span className="whitespace-nowrap">{sub.insight ? 'Insight' : sub.dashboard ? 'Dashboard' : '—'}</span>
-            ),
+            render: (_value: unknown, sub: SubscriptionApi) => {
+                let typeTag: { icon: JSX.Element; label: string } | null = null
+                if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
+                    typeTag = { icon: <IconAI />, label: 'Prompt' }
+                } else if (sub.insight) {
+                    typeTag = { icon: <IconGraph />, label: 'Insight' }
+                } else if (sub.dashboard) {
+                    typeTag = { icon: <IconDashboard />, label: 'Dashboard' }
+                }
+                if (!typeTag) {
+                    return <span className="text-secondary">—</span>
+                }
+                return (
+                    <LemonTag type="default" size="small" icon={typeTag.icon}>
+                        {typeTag.label}
+                    </LemonTag>
+                )
+            },
         },
         {
             title: 'Resource',
@@ -120,6 +144,23 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 maxWidth: 0,
             }),
             render: (_value: unknown, sub: SubscriptionApi) => {
+                // AI subs have no insight/dashboard FK — surface the prompt instead so the row
+                // reads as intentional ("this is what the AI was asked to do") rather than empty.
+                if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
+                    const prompt = sub.prompt?.trim()
+                    if (!prompt) {
+                        return <span className="text-secondary">—</span>
+                    }
+                    return (
+                        <Tooltip title={prompt}>
+                            <div className="min-w-0 w-full overflow-hidden">
+                                <span className="text-muted italic block truncate" data-attr="subscription-ai-prompt">
+                                    {prompt}
+                                </span>
+                            </div>
+                        </Tooltip>
+                    )
+                }
                 const href = subscriptionResourceViewUrl(sub)
                 if (!href) {
                     return <span className="text-secondary">—</span>
@@ -184,6 +225,17 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 keyof SubscriptionApi | undefined
             >),
             sorter: true,
+        },
+        {
+            title: 'Status',
+            key: 'enabled',
+            dataIndex: 'enabled',
+            render: (_value: unknown, sub: SubscriptionApi) =>
+                isSubscriptionEnabled(sub) ? (
+                    <LemonTag type="success">Enabled</LemonTag>
+                ) : (
+                    <LemonTag type="danger">Disabled</LemonTag>
+                ),
         },
         {
             width: 56,

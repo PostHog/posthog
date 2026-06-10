@@ -105,25 +105,6 @@ export const AllColors: Story = {
                         usages={['Background of cards and other surfaces like, modals, charts, etc.']}
                     />
                     <ColorSwatch
-                        name="Popover"
-                        items={[
-                            {
-                                className: 'bg-popover',
-                                name: 'popover',
-                                tailwindClass: 'bg-popover',
-                                value: semanticColors.popover[0],
-                            },
-                            {
-                                className: 'text-popover-foreground',
-                                name: 'popover-foreground',
-                                tailwindClass: 'text-popover-foreground',
-                                value: semanticColors['popover-foreground'][0],
-                            },
-                        ]}
-                        usages={['Background of popovers and other surfaces like, tooltips, dropdowns, etc.']}
-                    />
-
-                    <ColorSwatch
                         name="Primary"
                         items={[
                             {
@@ -143,25 +124,6 @@ export const AllColors: Story = {
                     />
 
                     <ColorSwatch
-                        name="Secondary"
-                        items={[
-                            {
-                                className: 'bg-secondary',
-                                name: 'secondary',
-                                tailwindClass: 'bg-secondary',
-                                value: semanticColors.secondary[0],
-                            },
-                            {
-                                className: 'text-secondary-foreground',
-                                name: 'secondary-foreground',
-                                tailwindClass: 'text-secondary-foreground',
-                                value: semanticColors['secondary-foreground'][0],
-                            },
-                        ]}
-                        usages={['Main button of the app']}
-                    />
-
-                    <ColorSwatch
                         name="Muted"
                         items={[
                             {
@@ -178,25 +140,6 @@ export const AllColors: Story = {
                             },
                         ]}
                         usages={['Muted background of the app']}
-                    />
-
-                    <ColorSwatch
-                        name="Accent"
-                        items={[
-                            {
-                                className: 'bg-accent',
-                                name: 'accent',
-                                tailwindClass: 'bg-accent',
-                                value: semanticColors.accent[0],
-                            },
-                            {
-                                className: 'text-accent-foreground',
-                                name: 'accent-foreground',
-                                tailwindClass: 'text-accent-foreground',
-                                value: semanticColors['accent-foreground'][0],
-                            },
-                        ]}
-                        usages={['Accent (used for hover states, etc.)`']}
                     />
 
                     <ColorSwatch

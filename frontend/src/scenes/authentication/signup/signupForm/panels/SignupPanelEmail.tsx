@@ -7,20 +7,33 @@ import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import RegionSelect from 'scenes/authentication/RegionSelect'
+import RegionSelect from 'scenes/authentication/shared/RegionSelect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanelEmail(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanelEmailSubmitting, loginUrl, emailCaseNotice, passkeyError, error } = useValues(signupLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        loginUrl,
+        emailCaseNotice,
+        passkeyError,
+        error,
+        pendingInvite,
+        signupPanelEmail,
+    } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
         emailInputRef?.current?.focus()
     }, [])
+
+    if (pendingInvite) {
+        return <PendingInviteBanner invite={pendingInvite} email={signupPanelEmail.email} />
+    }
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__email">

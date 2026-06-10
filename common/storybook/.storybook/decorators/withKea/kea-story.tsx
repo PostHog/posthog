@@ -5,6 +5,12 @@ import { useEffect, useState } from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { App } from 'scenes/App'
+// Eagerly bring AuthenticatedShell into the storybook bundle. App.tsx code-splits
+// it via React.lazy in production, but storybook tests render scenes outside the
+// App tree where the lazy chunk would never load - and several scene stories rely
+// on module-level side effects from imports inside the shell (kea connect chains,
+// CSS, decorators) being present at evaluation time.
+import 'scenes/AuthenticatedShell'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

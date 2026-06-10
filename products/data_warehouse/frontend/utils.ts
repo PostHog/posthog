@@ -8,6 +8,7 @@ import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
 } from '~/types'
@@ -166,12 +167,52 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     cdc: 'CDC',
 }
 
-export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
+export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
+    '1min': '1 min',
+    '5min': '5 mins',
+    '15min': '15 mins',
+    '30min': '30 mins',
+    '1hour': '1 hour',
+    '6hour': '6 hours',
+    '12hour': '12 hours',
+    '24hour': 'Daily',
+    '7day': 'Weekly',
+    '30day': 'Monthly',
+}
+
+// Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
+export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
+
+// Sub-5-minute cadence is CDC-only; every other sync type floors at 5 minutes. This is the one
+// place that rule lives — the schedule picker, bulk edits, and the clamp all derive from it.
+export const CDC_ONLY_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
+
+// Frequencies a given sync type is allowed to use. (The backend enforces the same rule in
+// ExternalDataSchemaSerializer — keep them in sync if this changes.)
+export function allowedSyncFrequencies(syncType: string | null | undefined): DataWarehouseSyncInterval[] {
+    if (syncType === 'cdc') {
+        return SYNC_FREQUENCY_ORDER
+    }
+    return SYNC_FREQUENCY_ORDER.filter((frequency) => !CDC_ONLY_SYNC_FREQUENCIES.includes(frequency))
+}
+
+// Raise a requested frequency to the fastest one the sync type permits (e.g. 1min → 5min for non-CDC).
+export function clampSyncFrequency(
+    requested: DataWarehouseSyncInterval,
+    syncType: string | null | undefined
+): DataWarehouseSyncInterval {
+    const allowed = allowedSyncFrequencies(syncType)
+    return allowed.includes(requested) ? requested : allowed[0]
+}
+
+export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',
     [ExternalDataJobStatus.Completed]: 'success',
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
     [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
+    [ExternalDataSchemaStatus.Paused]: 'warning',
+    [ExternalDataSchemaStatus.Cancelled]: 'warning',
 }
 
 /**

@@ -1,13 +1,10 @@
 import uuid
-import asyncio
 import builtins
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
-from django.conf import settings
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -16,12 +13,12 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     extend_schema,
     extend_schema_field,
+    extend_schema_serializer,
     extend_schema_view,
 )
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
-from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -30,42 +27,40 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from temporalio import common
 
 from posthog.schema import ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import PersonPropertiesSerializer
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
+from posthog.api.utils import action, format_paginated_url, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, Filter, Person, Team, User
+from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.person.bulk_delete import (
+    delete_persons_profile,
+    queue_person_event_deletion,
+    queue_person_recording_deletion,
+    resolve_persons_for_deletion,
+)
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import (
-    delete_person,
-    delete_persons_from_postgres,
-    get_person_by_pk_or_uuid,
-    get_persons_by_distinct_ids,
-    get_persons_by_uuids,
-)
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids, get_persons_by_uuids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -77,11 +72,12 @@ from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
+from products.product_analytics.backend.api.insight import capture_legacy_api_call
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -234,6 +230,42 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+class PersonSplitRequestSerializer(serializers.Serializer):
+    main_distinct_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The distinct_id to **keep** on this person; every *other* distinct_id is moved "
+            "to its own new single-id person. If omitted, the first distinct_id on the person "
+            "is used and the person's properties are wiped. "
+            "To surgically *remove* one or more distinct_ids while leaving the merge intact, "
+            "use `distinct_ids_to_split` instead — these parameters are inverses of each other "
+            "and cannot be combined."
+        ),
+    )
+    distinct_ids_to_split = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "List of distinct_ids to **move off** this person onto new single-id persons. "
+            "The original person keeps every other distinct_id and its properties. New persons "
+            "are created with deterministic UUIDs derived from `(team_id, distinct_id)`. "
+            "Cannot be combined with `main_distinct_id`."
+        ),
+    )
+
+
+class PersonSplitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text=(
+            "Always `true` when the split task was enqueued. The split itself runs "
+            "asynchronously — a 201 response means the task was accepted, not that the "
+            "merge state has already been updated."
+        )
+    )
+
+
 class AsyncDeletionStatusSerializer(serializers.Serializer):
     person_uuid = serializers.CharField(
         source="key", help_text="The UUID of the person whose events are queued for deletion."
@@ -261,6 +293,7 @@ class DeletionStatusPagination(LimitOffsetPagination):
     default_limit = 100
 
 
+@extend_schema_serializer(component_name="PersonRecord")
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField(
         help_text="Display name derived from person properties (email, name, or username)."
@@ -294,6 +327,11 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if isinstance(instance, Person):
             representation = super().to_representation(instance)
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            restricted = self.context.get("restricted_person_properties")
+            if restricted and representation.get("properties"):
+                representation["properties"] = {
+                    k: v for k, v in representation["properties"].items() if k not in restricted
+                }
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -309,6 +347,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
 # person distinct ids can grow to be a very large list
 # in the UI we don't need all of them, so we can limit the number of distinct ids we return
+@extend_schema_serializer(component_name="MinimalPerson")
 class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 
@@ -329,18 +368,6 @@ class PersonPropertiesAtTimeMetadataSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="All distinct_ids that were queried for this person"
     )
     distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
-
-
-class PersonPropertiesAtTimeDebugSerializer(serializers.Serializer):
-    """Serializer for the debug information (only available to staff users)."""
-
-    query = serializers.CharField(help_text="The ClickHouse query that was executed")
-    params = serializers.DictField(help_text="The parameters passed to the query")
-    events_found = serializers.IntegerField(help_text="Number of events found")
-    events = serializers.ListField(
-        child=serializers.DictField(), help_text="Raw events that were used to build the properties"
-    )
-    error = serializers.CharField(required=False, help_text="Error message if debug query failed")
 
 
 class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
@@ -364,24 +391,12 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
         help_text="Metadata about the point-in-time query"
     )
-    debug = PersonPropertiesAtTimeDebugSerializer(
-        required=False, help_text="Debug information (only available when debug=true and DEBUG=True)"
-    )
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
-    if filter.correlation_person_entity and EE_AVAILABLE:
-        if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-
-            funnel_actor_class = FunnelCorrelationActors
-        else:
-            raise ValueError(
-                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
-            )
-    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":
@@ -404,7 +419,7 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
-@extend_schema(tags=[ProductKey.PERSONS])
+@extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
     update=_id_schema,
@@ -422,7 +437,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
     parser_classes = [JSONParser]
-    queryset = Person.objects.all()
+    queryset = Person.objects.all()  # nosemgrep: no-direct-persons-db-orm
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     lifecycle_class = Lifecycle
@@ -442,11 +457,30 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PersonsWebSustainedThrottle(),
         ]
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        user = self.request.user if self.request.user.is_authenticated else None
+        context["restricted_person_properties"] = get_restricted_property_names(
+            team_id=self.team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.PERSON,
+        )
+        return context
+
     def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.filter(
+                    team_id=self.team_id
+                ).order_by(  # nosemgrep: no-direct-persons-db-orm
+                    "id"
+                ),  # nosemgrep: no-direct-persons-db-orm
                 to_attr="distinct_ids_cache",
             )
         )
@@ -457,12 +491,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = self.kwargs[self.lookup_field]
 
         try:
-            queryset = get_pk_or_uuid(queryset, person_id)
+            uuid.UUID(str(person_id))
         except ValueError:
-            raise ValidationError(
-                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
-            )
-        return get_object_or_404(queryset)
+            try:
+                int(person_id)
+            except (ValueError, TypeError):
+                raise ValidationError(
+                    f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+                )
+
+        return get_person_by_pk_or_uuid(self.team_id, str(person_id))
 
     @extend_schema(
         parameters=[
@@ -486,6 +524,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -510,6 +549,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         actor_ids = [row[0] for row in raw_paginated_result]
         serialized_actors = get_serialized_people(team, actor_ids)
+
+        restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+        if restricted_person_properties:
+            for person_dict in serialized_actors:
+                properties = person_dict.get("properties")
+                if isinstance(properties, dict):
+                    person_dict["properties"] = {
+                        k: v for k, v in properties.items() if k not in restricted_person_properties
+                    }
+
         _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
@@ -613,62 +662,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> dict[str, Any]:
-        """
-        This method is meant to be the canonical way to delete anything via the Persons API.
-        """
-
-        if distinct_ids:
-            if len(distinct_ids) > 1000:
-                raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
-            person_ids = PersonDistinctId.objects.filter(
-                team_id=self.team_id, distinct_id__in=distinct_ids
-            ).values_list("person_id", flat=True)
-            persons_queryset = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
-        elif ids:
-            if len(ids) > 1000:
-                raise ValidationError("You can only pass 1000 ids in one call")
-            persons_queryset = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
-        else:
+        if distinct_ids and ids:
+            raise ValidationError("You must provide either distinct_ids or ids, not both")
+        if distinct_ids and len(distinct_ids) > 1000:
+            raise ValidationError("You can only pass 1000 distinct_ids in one call")
+        if ids and len(ids) > 1000:
+            raise ValidationError("You can only pass 1000 ids in one call")
+        if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
-        # Materialize queryset once before any deletions to avoid re-evaluating
-        # after records are deleted (which would return empty results)
-        persons = list(persons_queryset)
+        persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
-        deleted_persons: builtins.list[Person] = []
         if not keep_person:
-            # Send ClickHouse deletion events and log activity per person
-            for person in persons:
-                try:
-                    delete_person(person=person)
-                    persons_deleted += 1
-                    deleted_persons.append(person)
-                except Exception:
-                    logger.exception("Failed to delete person", person_uuid=str(person.uuid))
-                    errors.append({"person_uuid": str(person.uuid)})
-                    continue
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team_id,
-                    user=cast(User, request.user),
-                    was_impersonated=is_impersonated_session(request),
-                    item_id=person.pk,
-                    scope="Person",
-                    activity="deleted",
-                    detail=Detail(name=str(person.uuid)),
-                )
-            # Postgres deletes happen after CH deletes. If the Postgres batch fails,
-            # persons may remain in Postgres that are already marked deleted in ClickHouse.
-            delete_persons_from_postgres(self.team_id, deleted_persons)
+            result = delete_persons_profile(
+                self.team_id,
+                persons,
+                actor=cast(User, request.user),
+                request=request,
+                organization_id=self.organization.id,
+            )
+            persons_deleted = result.deleted_count
+            errors = [{"person_uuid": str(u)} for u in result.errors]
 
         if delete_events:
-            self._queue_event_deletion(persons)
-
+            queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
-            self._queue_delete_recordings(persons)
+            queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
 
         return {
             "persons_found": len(persons),
@@ -751,6 +772,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
             tracer.start_as_current_span("person_api_property_values") as span,
@@ -763,6 +785,24 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             span.set_attribute("has_value_filter", value is not None)
 
             if not key or key.startswith("$virt"):
+                span.set_attribute("result_count", 0)
+                resp = response.Response({"results": [], "refreshing": False})
+                resp["Cache-Control"] = "max-age=10"
+                return resp
+
+            tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+            # Check field-level access control: return empty results for restricted properties
+            from posthog.models import PropertyDefinition
+
+            from products.access_control.backend.property_access_control import get_restricted_property_names
+
+            user = request.user if request.user.is_authenticated else None
+            restricted = get_restricted_property_names(
+                team_id=self.team.pk,
+                user=user,
+                property_type=PropertyDefinition.Type.PERSON,
+            )
+            if key in restricted:
                 span.set_attribute("result_count", 0)
                 resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
@@ -794,12 +834,59 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             resp["Cache-Control"] = "max-age=10"
             return resp
 
+    @extend_schema(
+        description=(
+            "Split distinct_ids off a merged person. Two mutually exclusive modes:\n\n"
+            "- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the "
+            "listed distinct_ids off this person onto new single-id persons. The original "
+            "person keeps every other distinct_id and its properties.\n"
+            "- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id "
+            "on this person; moves every *other* distinct_id off onto its own new person. If "
+            "omitted, the person's properties are wiped and the first distinct_id is treated "
+            "as the one to keep.\n\n"
+            "The split runs asynchronously: a 201 response means the task was enqueued. "
+            "Newly-created split-off persons get a deterministic UUID derived from "
+            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
+            "If you need to delete a split-off person after this call, prefer looking it up by "
+            "that deterministic UUID rather than by distinct_id, since the latter still "
+            "resolves to the original merged person until the async task completes."
+        ),
+        request=PersonSplitRequestSerializer,
+        responses={201: PersonSplitResponseSerializer},
+        parameters=[_PERSON_ID_PARAMETER],
+    )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, person.team_id, request.data.get("main_distinct_id", None), None)
+        main_distinct_id = request.data.get("main_distinct_id")
+        distinct_ids_to_split = request.data.get("distinct_ids_to_split")
+
+        if distinct_ids_to_split is not None:
+            if not isinstance(distinct_ids_to_split, list) or not all(
+                isinstance(did, str) for did in distinct_ids_to_split
+            ):
+                raise ValidationError({"distinct_ids_to_split": "must be a list of strings"})
+            if not distinct_ids_to_split:
+                raise ValidationError({"distinct_ids_to_split": "must not be empty"})
+            if main_distinct_id is not None:
+                raise ValidationError("main_distinct_id cannot be combined with distinct_ids_to_split")
+            unknown = set(distinct_ids_to_split) - set(distinct_ids)
+            if unknown:
+                raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+
+        split_person.delay(
+            person.id,
+            person.team_id,
+            main_distinct_id,
+            None,
+            distinct_ids_to_split=distinct_ids_to_split,
+        )
+
+        activity_after: dict = {"distinct_ids": distinct_ids}
+        if distinct_ids_to_split is not None:
+            activity_after["distinct_ids_to_split"] = list(distinct_ids_to_split)
 
         log_activity(
             organization_id=self.organization.id,
@@ -815,7 +902,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     Change(
                         type="Person",
                         action="split",
-                        after={"distinct_ids": distinct_ids},
+                        after=activity_after,
                     )
                 ],
             ),
@@ -846,7 +933,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
-        self._set_properties({request.data["key"]: request.data["value"]}, request.user)
+        key = request.data["key"]
+        non_writable = self._get_non_writable_person_properties(request)
+        if key in non_writable:
+            raise ValidationError(f'You do not have write access to the property "{key}".')
+        self._set_properties({key: request.data["value"]}, request.user)
         return Response(status=202)
 
     @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
@@ -856,6 +947,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if person is None:
             raise Person.DoesNotExist
 
+        key = request.data.get("$unset")
+        if key:
+            non_writable = self._get_non_writable_person_properties(request)
+            if key in non_writable:
+                raise ValidationError(f'You do not have write access to the property "{key}".')
+
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
@@ -864,7 +961,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            resp = capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -873,26 +970,24 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 properties=properties,
                 process_person_profile=True,
             )
-            resp.raise_for_status()
+            result.raise_for_status()
 
-        # HTTP error - if applicable, thrown after retires are exhausted
-        except HTTPError as he:
+        except CaptureRoutedError as cre:
             logger.warning(
                 "delete_person_property.capture_http_error",
                 team_id=self.team_id,
                 person_uuid=str(person.uuid),
                 property_key=request.data.get("$unset"),
-                status_code=he.response.status_code,
+                status_code=cre.status_code,
             )
             return response.Response(
                 {
                     "success": False,
                     "detail": "Unable to delete property",
                 },
-                status=he.response.status_code,
+                status=cre.status_code or 502,
             )
 
-        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
         except Exception:
             logger.exception(
                 "delete_person_property.capture_error",
@@ -945,14 +1040,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"])
+        if person is None:
+            raise NotFound()
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
 
+    @extend_schema(operation_id="persons_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -995,6 +1093,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
+        non_writable = self._get_non_writable_person_properties(request)
+        if non_writable:
+            blocked_keys = set(request.data["properties"].keys()) & non_writable
+            if blocked_keys:
+                raise ValidationError(
+                    f"You do not have write access to the following properties: {', '.join(sorted(blocked_keys))}."
+                )
         self._set_properties(request.data["properties"], request.user)
         return Response(status=202)
 
@@ -1003,6 +1108,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         raise MethodNotAllowed(
             method="POST",
             detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/product-analytics/identify for details.",
+        )
+
+    def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
+
+        user = request.user if request.user.is_authenticated else None
+        return get_non_writable_property_names(
+            team_id=self.team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.PERSON,
         )
 
     def _set_properties(self, properties, user):
@@ -1015,7 +1132,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            resp = capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -1024,7 +1141,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 properties=properties,
                 process_person_profile=True,
             )
-            resp.raise_for_status()
+            result.raise_for_status()
 
         # Failures in this codepath (old and new) are ignored here
         except Exception:
@@ -1188,7 +1305,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            self._queue_delete_recordings([person])
+            queue_person_recording_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -1205,7 +1322,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            self._queue_event_deletion([person])
+            queue_person_event_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -1261,59 +1378,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team, uuids)
+        persons = get_persons_by_uuids(self.team_id, uuids)
 
         results: dict[str, Any] = {}
         for person in persons:
             results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
         return response.Response({"results": results})
-
-    def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
-        """Helper to queue deletion of all events for a person."""
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Person,
-                    team_id=self.team_id,
-                    key=str(person.uuid),
-                    created_by=cast(User, self.request.user),
-                )
-                for person in persons
-            ],
-            ignore_conflicts=True,
-        )
-
-    def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
-        if not persons:
-            return
-
-        temporal = sync_connect()
-
-        async def start_all_workflows():
-            tasks = []
-            for person in persons:
-                workflow_input = RecordingsWithPersonInput(
-                    distinct_ids=person.distinct_ids,
-                    team_id=self.team_id,
-                    config=DeletionConfig(deleted_by=cast(User, self.request.user).email, reason="person deletion"),
-                )
-                workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
-                tasks.append(
-                    temporal.start_workflow(
-                        "delete-recordings-with-person",
-                        workflow_input,
-                        id=workflow_id,
-                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                        retry_policy=common.RetryPolicy(
-                            maximum_attempts=2,
-                            initial_interval=timedelta(minutes=1),
-                        ),
-                    )
-                )
-            await asyncio.gather(*tasks)
-
-        asyncio.run(start_all_workflows())
 
     @extend_schema(
         parameters=[
@@ -1345,13 +1416,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="Whether to handle $set_once operations (default: false)",
                 required=False,
             ),
-            OpenApiParameter(
-                name="debug",
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                description="Whether to include debug information with raw events (only works when DEBUG=True, default: false)",
-                required=False,
-            ),
         ],
         responses={
             200: PersonPropertiesAtTimeResponseSerializer,
@@ -1373,7 +1437,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - distinct_id: The distinct_id of the person
         - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
         - include_set_once: Whether to handle $set_once operations (default: false)
-        - debug: Whether to include debug information with raw events (default: false)
         """
         from posthog.models.person.point_in_time_properties import (
             build_person_properties_at_time,
@@ -1384,7 +1447,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = request.GET.get("person_id")
         timestamp_str = request.GET.get("timestamp")
         include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
-        debug = request.GET.get("debug", "false").lower() == "true"
 
         # Validate parameters
         if distinct_id and person_id:
@@ -1440,33 +1502,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Build point-in-time properties using the pre-fetched distinct_ids
-            # If debug mode is enabled, get raw events to avoid duplicate query
-            debug_rows: list[Any] = []
-            debug_query: str = ""
-            debug_params: dict[str, Any] = {}
-            point_in_time_properties: dict[str, Any]
-            if debug and settings.DEBUG:
-                result = build_person_properties_at_time(
-                    team_id=self.team_id,
-                    timestamp=timestamp,
-                    distinct_ids=distinct_ids_queried,
-                    include_set_once=include_set_once,
-                    return_debug_info=True,
-                )
-                # Type cast to help mypy understand the tuple unpacking
-                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
-                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
-                )
-            else:
-                point_in_time_properties = cast(
-                    dict[str, Any],
-                    build_person_properties_at_time(
-                        team_id=self.team_id,
-                        timestamp=timestamp,
-                        distinct_ids=distinct_ids_queried,
-                        include_set_once=include_set_once,
-                    ),
-                )
+            tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY, team_id=self.team_id)
+            point_in_time_properties = build_person_properties_at_time(
+                team_id=self.team_id,
+                timestamp=timestamp,
+                distinct_ids=distinct_ids_queried,
+                include_set_once=include_set_once,
+            )
 
             # Serialize the person object
             person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
@@ -1484,18 +1526,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "distinct_ids_queried": distinct_ids_queried,
                 "distinct_ids_count": len(distinct_ids_queried),
             }
-
-            # Add debug information if requested and in debug mode
-            if debug and settings.DEBUG:
-                # Use the raw events, query, and params that were already fetched to avoid duplicate query
-                person_data["debug"] = {
-                    "query": debug_query,
-                    "params": debug_params,
-                    "events_found": len(debug_rows),
-                    "events": [
-                        {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
-                    ],
-                }
 
             return response.Response(person_data)
 

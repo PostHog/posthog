@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
@@ -159,6 +159,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
                 ],
                 orderBy: ['timestamp ASC'],
                 limit: 1,
+                tags: { productKey: ProductKey.ERROR_TRACKING },
             }
             const response = await api.query(query)
             if (response.results.length > 0) {
@@ -202,15 +203,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
 }
 
 function StackTraceDisplay(): JSX.Element {
-    const [showAllFrames, setShowAllFrames] = useState(false)
     const [expandedFrameRawIds, setExpandedFrameRawIds] = useState<Set<string>>(new Set())
-    const { hasInAppFrames } = useValues(errorPropertiesLogic)
-
-    useEffect(() => {
-        if (!hasInAppFrames) {
-            setShowAllFrames(true)
-        }
-    }, [hasInAppFrames])
 
     const handleFrameExpandedChange = useCallback((rawId: string, expanded: boolean) => {
         setExpandedFrameRawIds((prev) => {
@@ -226,8 +219,6 @@ function StackTraceDisplay(): JSX.Element {
 
     return (
         <CollapsibleExceptionList
-            showAllFrames={showAllFrames}
-            setShowAllFrames={setShowAllFrames}
             expandedFrameRawIds={expandedFrameRawIds}
             onFrameExpandedChange={handleFrameExpandedChange}
             className="p-2"

@@ -3,7 +3,7 @@
         "target": "es2021",
         "lib": ["es2021"],
         "module": "es2022",
-        "moduleResolution": "Bundler",
+        "moduleResolution": "bundler",
         "resolveJsonModule": true,
         "allowJs": true,
         "checkJs": false,
@@ -17,9 +17,8 @@
         "noUncheckedIndexedAccess": true,
         "skipLibCheck": true,
         "types": ["@cloudflare/workers-types"],
-        "baseUrl": ".",
         "paths": {
-            "@/*": ["src/*"]
+            "@/*": ["./src/*"]
         }
     },
     "include": ["src/**/*.ts", "tests/**/*.ts"],

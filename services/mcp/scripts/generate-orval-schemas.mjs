@@ -74,31 +74,6 @@ function parseToolDefinition(filePath) {
 // ------------------------------------------------------------------
 
 /**
- * Strip 'default: null' from nullable properties in OpenAPI schemas.
- *
- * Orval generates invalid Zod like `.string().default(null)` when it sees
- * `nullable: true` with `default: null`. Removing the null default causes
- * Orval to correctly generate `.nullable()` instead.
- */
-function stripNullDefaults(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return obj
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(stripNullDefaults)
-    }
-    const result = {}
-    for (const [key, value] of Object.entries(obj)) {
-        // Skip 'default' key if value is null and sibling 'nullable' is true
-        if (key === 'default' && value === null && obj.nullable === true) {
-            continue
-        }
-        result[key] = stripNullDefaults(value)
-    }
-    return result
-}
-
-/**
  * Strip `default` values from Patched* (PATCH request body) schemas.
  *
  * drf-spectacular copies serializer defaults into both the create and
@@ -222,7 +197,14 @@ function postprocessOrvalOutput(outputFile) {
     // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
     // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
-    const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    const withoutRedundantEnumDescriptions = generated.replace(
+        /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
+        ''
+    )
+    const annotated = withoutRedundantEnumDescriptions.replace(
+        /^(export const \w+ =) (zod\.)/gm,
+        '$1 /* @__PURE__ */ $2'
+    )
     fs.writeFileSync(outputFile, annotated)
 }
 
@@ -251,12 +233,11 @@ for (const def of definitions) {
     }
     totalEnabledOps += operationIds.size
 
-    let filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
+    const filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
 
     // Annotate title for easier debugging
     filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
-    filtered = stripNullDefaults(filtered)
     stripDefaultsFromPatchedSchemas(filtered)
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)

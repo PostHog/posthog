@@ -1,17 +1,18 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
+    DataWarehouseSyncInterval,
     ExternalDataJob,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
@@ -19,24 +20,49 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
 export interface SourceSettingsLogicProps {
     id: string
-    tabId?: string
     availableSources?: Record<string, SourceConfig>
+}
+
+export interface CdcStatus {
+    enabled: boolean
+    management_mode?: 'posthog' | 'self_managed'
+    slot_name?: string
+    publication_name?: string
+    lag_warning_threshold_mb?: number
+    lag_critical_threshold_mb?: number
+    slot_exists?: boolean
+    publication_exists?: boolean
+    lag_bytes?: number | null
 }
 
 const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
+const JOBS_POLL_MAX_BACKOFF_MS = 60000
+const JOBS_POLL_TRANSIENT_STATUSES = new Set([408, 502, 503, 504])
+
+function isTransientGatewayError(error: unknown): boolean {
+    const status = (error as { status?: number } | null | undefined)?.status
+    return typeof status === 'number' && JOBS_POLL_TRANSIENT_STATUSES.has(status)
+}
+
+function nextJobsPollDelay(softFailureCount: number): number {
+    if (softFailureCount <= 0) {
+        return REFRESH_INTERVAL
+    }
+    const exponential = Math.min(REFRESH_INTERVAL * 2 ** softFailureCount, JOBS_POLL_MAX_BACKOFF_MS)
+    // Equal-jitter: spread retries over [0.5x, 1.0x] to avoid synchronized polling after a gateway blip
+    return exponential * (0.5 + Math.random() * 0.5)
+}
 
 interface PendingSchemaUpdate {
     revision: number
@@ -106,6 +132,7 @@ function buildSchemaUpdatePayload(
     | 'sync_frequency'
     | 'sync_time_of_day'
     | 'cdc_table_mode'
+    | 'enabled_columns'
 > {
     return {
         id: schema.id,
@@ -116,6 +143,7 @@ function buildSchemaUpdatePayload(
         sync_frequency: schema.sync_frequency,
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
+        enabled_columns: schema.enabled_columns ?? null,
     }
 }
 
@@ -150,11 +178,11 @@ function hasOptimisticSchemaChanges(
     })
 }
 
-const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return field.type === 'password' || field.name === 'private_key'
+export const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
+    return ('secret' in field && !!field.secret) || field.type === 'password'
 }
 
-const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
+export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
     for (const field of fields) {
         if (field.type === 'switch-group') {
             const groupValue = valueObj[field.name]
@@ -192,10 +220,48 @@ const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Recor
     }
 }
 
+// Run a per-schema API action across many schemas; returns how many failed.
+export async function runBulkSchemaAction(
+    schemas: ExternalDataSourceSchema[],
+    action: (schemaId: string) => Promise<unknown>
+): Promise<number> {
+    const results = await Promise.allSettled(schemas.map((schema) => action(schema.id)))
+    return results.filter((result) => result.status === 'rejected').length
+}
+
+// Only schemas that are enabled with a configured sync method can be synced on demand.
+export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): ExternalDataSourceSchema[] {
+    return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
+}
+
+export function clampFrequencyForSchema(
+    requested: DataWarehouseSyncInterval,
+    schema: ExternalDataSourceSchema
+): DataWarehouseSyncInterval {
+    return clampSyncFrequency(requested, schema.sync_type)
+}
+
+function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
+    const succeeded = total - failed
+    const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
+    if (failed > 0) {
+        parts.push(`${failed} failed`)
+    }
+    if (skipped > 0) {
+        parts.push(`skipped ${skipped}${skipReason ? ` ${skipReason}` : ''}`)
+    }
+    const message = parts.join(', ')
+    if (failed > 0) {
+        lemonToast.error(message)
+    } else {
+        lemonToast.success(message)
+    }
+}
+
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
+    key(({ id }) => id),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -206,11 +272,22 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
+            schemas,
+            frequency,
+        }),
+        bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkDeleteData: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
+        setStatusFilter: (status: string | null) => ({ status }),
+        setSyncMethodFilter: (syncMethod: string | null) => ({ syncMethod }),
+        setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => ({ frequency }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -221,13 +298,25 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             payload,
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
+        pausePolling: true,
+        resumePolling: true,
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         source: [
             null as ExternalDataSource | null,
             {
                 loadSource: async () => {
-                    return await api.externalDataSources.get(values.sourceId)
+                    try {
+                        return await api.externalDataSources.get(values.sourceId)
+                    } catch (error: any) {
+                        // Source soft-deleted. Bounce to the list and swallow
+                        // the failure so kea-loaders doesn't toast "Not found".
+                        if (error?.status === 404) {
+                            router.actions.replace(urls.sources())
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -237,25 +326,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 loadJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
-                    if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                    try {
+                        let result: ExternalDataJob[]
+                        if (values.jobs.length === 0) {
+                            result = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                        } else {
+                            // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                            // The API returns up to 50 jobs sorted by created_at desc, so this
+                            // will refresh the status of recent jobs (e.g. Running -> Completed).
+                            const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+
+                            // Merge fresh jobs with existing jobs, preferring the fresh data
+                            const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                            for (const job of freshJobs) {
+                                jobsById.set(job.id, job)
+                            }
+
+                            // Sort by created_at descending (newest first)
+                            result = Array.from(jobsById.values()).sort(
+                                (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                            )
+                        }
+                        cache.jobsPollSoftFailureCount = 0
+                        return result
+                    } catch (error) {
+                        // Gateway timeouts / transient upstream errors are expected when the jobs
+                        // query is slow. Swallow them here so the 5s poll doesn't become a source
+                        // of error-tracking noise; loadJobsSuccess reschedules with backoff.
+                        if (isTransientGatewayError(error)) {
+                            cache.jobsPollSoftFailureCount = (cache.jobsPollSoftFailureCount ?? 0) + 1
+                            return values.jobs
+                        }
+                        throw error
                     }
-
-                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
-                    // The API returns up to 50 jobs sorted by created_at desc, so this
-                    // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-
-                    // Merge fresh jobs with existing jobs, preferring the fresh data
-                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
-                    for (const job of freshJobs) {
-                        jobsById.set(job.id, job)
-                    }
-
-                    // Sort by created_at descending (newest first)
-                    return Array.from(jobsById.values()).sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
                 },
                 loadMoreJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
@@ -278,6 +381,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
 
                     return values.jobs
+                },
+            },
+        ],
+        cdcStatus: [
+            null as CdcStatus | null,
+            {
+                // Opens a connection to the customer DB, so it's on-demand (never polled).
+                loadCdcStatus: async () => {
+                    return await api.externalDataSources.cdc_status(values.sourceId)
                 },
             },
         ],
@@ -321,6 +433,26 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
             },
         ],
+        // null = no filter applied (show all). For sync method, the sentinel 'none' matches
+        // schemas with no sync method set up yet.
+        statusFilter: [
+            null as string | null,
+            {
+                setStatusFilter: (_, { status }) => status,
+            },
+        ],
+        syncMethodFilter: [
+            null as string | null,
+            {
+                setSyncMethodFilter: (_, { syncMethod }) => syncMethod,
+            },
+        ],
+        frequencyFilter: [
+            null as DataWarehouseSyncInterval | null,
+            {
+                setFrequencyFilter: (_, { frequency }) => frequency,
+            },
+        ],
         syncingNow: [
             false as boolean,
             {
@@ -335,12 +467,27 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 refreshSchemas: () => true,
             },
         ],
+        pollPauseCount: [
+            0 as number,
+            {
+                pausePolling: (state) => state + 1,
+                resumePolling: (state) => Math.max(0, state - 1),
+            },
+        ],
         sourceConfigLoading: [
             false as boolean,
             {
                 submitSourceConfigRequest: () => true,
                 submitSourceConfigSuccess: () => false,
                 submitSourceConfigFailure: () => false,
+            },
+        ],
+        cdcStatusError: [
+            null as string | null,
+            {
+                loadCdcStatus: () => null,
+                loadCdcStatusSuccess: () => null,
+                loadCdcStatusFailure: (_, { error }) => error || 'Could not read CDC status from your database.',
             },
         ],
     })),
@@ -355,9 +502,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 return availableSources[source.source_type]
             },
         ],
+        // Live row counts for in-progress syncs, keyed by schema id. Lets the Schemas tab show
+        // progress during the first sync — before the warehouse table (and its row_count) exists,
+        // the table column has nothing to render, so we fall back to the running job's rows_synced.
+        inProgressRowsBySchema: [
+            (s) => [s.jobs],
+            (jobs): Record<string, number> => {
+                const map: Record<string, number> = {}
+                // jobs arrive newest-first; keep the first (latest) running job per schema.
+                for (const job of jobs) {
+                    if (job.status === ExternalDataJobStatus.Running && !(job.schema.id in map)) {
+                        map[job.schema.id] = job.rows_synced
+                    }
+                }
+                return map
+            },
+        ],
         filteredSchemas: [
-            (s) => [s.source, s.showEnabledSchemasOnly, s.schemaNameFilter],
-            (source, showEnabledSchemasOnly, schemaNameFilter): ExternalDataSourceSchema[] => {
+            (s) => [
+                s.source,
+                s.showEnabledSchemasOnly,
+                s.schemaNameFilter,
+                s.statusFilter,
+                s.syncMethodFilter,
+                s.frequencyFilter,
+            ],
+            (
+                source,
+                showEnabledSchemasOnly,
+                schemaNameFilter,
+                statusFilter,
+                syncMethodFilter,
+                frequencyFilter
+            ): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
                 }
@@ -369,13 +546,59 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const filter = schemaNameFilter.toLowerCase()
                     schemas = schemas.filter((schema) => (schema.label ?? schema.name).toLowerCase().includes(filter))
                 }
+                if (statusFilter) {
+                    schemas = schemas.filter((schema) => schema.status === statusFilter)
+                }
+                if (syncMethodFilter) {
+                    schemas = schemas.filter((schema) =>
+                        syncMethodFilter === 'none' ? !schema.sync_type : schema.sync_type === syncMethodFilter
+                    )
+                }
+                if (frequencyFilter) {
+                    schemas = schemas.filter((schema) => schema.sync_frequency === frequencyFilter)
+                }
                 return schemas
             },
         ],
+        // Distinct values present across the source's schemas, for populating the filter dropdowns.
+        schemaFilterOptions: [
+            (s) => [s.source],
+            (
+                source
+            ): {
+                statuses: string[]
+                syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
+                frequencies: DataWarehouseSyncInterval[]
+            } => {
+                const schemas = source?.schemas ?? []
+                const statuses = new Set<string>()
+                const syncMethods = new Set<Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none'>()
+                const frequencies = new Set<DataWarehouseSyncInterval>()
+                for (const schema of schemas) {
+                    if (schema.status) {
+                        statuses.add(schema.status)
+                    }
+                    syncMethods.add(schema.sync_type ?? 'none')
+                    if (schema.sync_frequency) {
+                        frequencies.add(schema.sync_frequency)
+                    }
+                }
+                return {
+                    statuses: Array.from(statuses),
+                    syncMethods: Array.from(syncMethods),
+                    // Order shortest→longest for a readable dropdown rather than schema-encounter order.
+                    frequencies: SYNC_FREQUENCY_ORDER.filter((frequency) => frequencies.has(frequency)),
+                }
+            },
+        ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources ?? {}),
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
@@ -476,7 +699,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             const latestPendingUpdate = schemaUpdateCache.pendingSchemaUpdates[updatedSchema.id]
                             const inFlightUpdate = pendingSchemaUpdates[updatedSchema.id]
 
-                            return !latestPendingUpdate || latestPendingUpdate.revision <= inFlightUpdate.revision
+                            return (
+                                !latestPendingUpdate ||
+                                !inFlightUpdate ||
+                                latestPendingUpdate.revision <= inFlightUpdate.revision
+                            )
                         })
 
                         if (schemasToApply.length > 0) {
@@ -539,54 +766,88 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                const isDirectQueryEnabled =
-                    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+                // Fetch CDC status once per source — here (not a React effect) so team context is set.
+                const ji = (values.source?.job_inputs ?? {}) as Record<string, any>
+                const cdcEnabled = ji.cdc_enabled === true || ji.cdc_enabled === 'True' || ji.cdc_enabled === 'true'
+                if (cdcEnabled && cache.cdcStatusFetchedForSourceId !== values.source?.id) {
+                    cache.cdcStatusFetchedForSourceId = values.source?.id
+                    actions.loadCdcStatus()
+                }
+
                 const breadcrumbName =
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
 
-                const mountedSceneLogic =
-                    sourceSceneLogic.findMounted({ id: props.id, tabId: props.tabId }) ??
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId: props.tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id }) ??
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` })
+                const sceneLogicInstance =
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                    sourceSceneLogic.findMounted({ id: props.id })
 
-                mountedSceneLogic?.actions.setBreadcrumbName(breadcrumbName)
+                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
             loadSourceFailure: () => {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
+            },
+            resumePolling: () => {
+                // After the reducer runs we may have dropped to 0 — but no fresh load has been
+                // scheduled (the prior loadSourceSuccess fired while paused and skipped its
+                // reschedule). Kick a load now so the source page resumes auto-refreshing status.
+                if (values.pollPauseCount === 0) {
+                    actions.loadSource()
+                }
             },
             refreshSchemas: async () => {
                 try {
-                    const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                    const {
+                        added = 0,
+                        deleted = 0,
+                        total_tables_seen = 0,
+                    } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
                         sourceType: values.source?.source_type,
                         added,
                         deleted,
+                        total_tables_seen,
                     })
-                    const parts = ['Schemas refreshed']
-                    if (added > 0 || deleted > 0) {
-                        parts.push(
-                            [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
-                                .filter(Boolean)
-                                .join(' / ')
+                    // Connected and got an empty table list — almost always a permissions
+                    // or configuration issue on the source. Warn rather than silently succeed.
+                    // If we also just removed previously-tracked schemas, call that out
+                    // explicitly so the user knows their tracking list changed.
+                    if (total_tables_seen === 0) {
+                        const deletedSuffix =
+                            deleted > 0
+                                ? ` ${deleted} previously tracked table(s) were removed from the tracking list.`
+                                : ''
+                        lemonToast.warning(
+                            `No tables found. Check the source credentials, permissions, and configuration.${deletedSuffix}`
                         )
+                        return
                     }
-                    lemonToast.success(parts.join(', '))
+                    if (added === 0 && deleted === 0) {
+                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                        return
+                    }
+                    const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                        .filter(Boolean)
+                        .join(' / ')
+                    lemonToast.success(`Schemas refreshed: ${counts}`)
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)
@@ -605,10 +866,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
+                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadJobs()
-                    }, REFRESH_INTERVAL)
+                    }, delay)
                     return () => clearTimeout(timerId)
                 }, 'jobsRefreshTimeout')
             },
@@ -715,6 +977,67 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.error("Can't delete data at this time")
                     }
                 }
+            },
+            bulkDisable: ({ schemas }) => {
+                // Reuse the debounced single-schema update — these coalesce into one bulk PATCH.
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, should_sync: false }))
+                lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
+            },
+            bulkSetFrequency: ({ schemas, frequency }) => {
+                // Non-CDC schemas can't sync faster than every 5 minutes — clamp so a bulk edit
+                // never pushes them below their allowed floor.
+                let clamped = 0
+                schemas.forEach((schema) => {
+                    const effective = clampFrequencyForSchema(frequency, schema)
+                    if (effective !== frequency) {
+                        clamped++
+                    }
+                    actions.updateSchema({ ...schema, sync_frequency: effective })
+                })
+                const base = `Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`
+                lemonToast.success(clamped > 0 ? `${base} (${clamped} kept at their 5 min minimum)` : base)
+            },
+            bulkSyncNow: async ({ schemas }) => {
+                // Only schemas that are enabled with a sync method can sync.
+                const eligible = schemasEligibleForSync(schemas)
+                const skipped = schemas.length - eligible.length
+                if (eligible.length === 0) {
+                    lemonToast.warning('None of the selected schemas are enabled with a sync method')
+                    return
+                }
+                const failed = await runBulkSchemaAction(eligible, (id) => api.externalDataSchemas.reload(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk synced', {
+                    sourceType: values.source?.source_type,
+                    count: eligible.length,
+                })
+                reportBulkResult(
+                    'Started sync for',
+                    eligible.length,
+                    failed,
+                    skipped,
+                    'disabled or missing sync method'
+                )
+            },
+            bulkResync: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.resync(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk resynced', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Resyncing', schemas.length, failed, 0)
+            },
+            bulkDeleteData: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.delete_data(id))
+                actions.loadSource()
+                posthog.capture('schemas bulk data deleted', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Deleted data for', schemas.length, failed, 0)
             },
         }
     }),

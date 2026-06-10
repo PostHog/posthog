@@ -81,6 +81,12 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
 
     let buttonHeight = 'button-primitive--height-base'
     switch (size) {
+        case 'xxs':
+            buttonHeight = 'button-primitive--height-xxs'
+            break
+        case 'xs':
+            buttonHeight = 'button-primitive--height-xs'
+            break
         case 'sm':
             buttonHeight = 'button-primitive--height-sm'
             break
@@ -285,6 +291,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const effectiveSize = context?.sizeContext || size
     const effectiveVariant = forceVariant ? variant : context?.variantContext || variant
     let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
+    const externalAriaDisabled = rest['aria-disabled']
     let buttonComponent: JSX.Element = React.createElement(
         'button',
         {
@@ -307,7 +314,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
             ref,
             disabled: effectiveDisabled,
             ...rest,
-            'aria-disabled': effectiveDisabled,
+            'aria-disabled': effectiveDisabled ?? externalAriaDisabled,
             'data-active': active,
             style: {
                 '--button-height': `var(--button-icon-size-${effectiveSize})`,

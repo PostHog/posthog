@@ -15,11 +15,13 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_goals import NoActionsError, WebGoalsQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
+from posthog.models.user import User
 from posthog.tasks.email_utils import compute_week_over_week_change
+
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError, WebGoalsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 logger = structlog.get_logger(__name__)
 
@@ -116,13 +118,14 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes}m {secs}s"
 
 
-def get_top_pages(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
+def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.PAGE,
             dateRange=DateRange(date_from=f"-{days}d"),
+            compareFilter=CompareFilter(compare=compare),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -148,13 +151,14 @@ def get_top_pages(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
         return []
 
 
-def get_top_sources(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
+def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
             dateRange=DateRange(date_from=f"-{days}d"),
+            compareFilter=CompareFilter(compare=compare),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -216,8 +220,8 @@ def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool 
 
 def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
     overview = get_overview_for_team(team, days=days, compare=compare)
-    top_pages = get_top_pages(team, days=days)
-    top_sources = get_top_sources(team, days=days)
+    top_pages = get_top_pages(team, days=days, compare=compare)
+    top_sources = get_top_sources(team, days=days, compare=compare)
     goals = get_goals_for_team(team, days=days, compare=compare)
 
     return {
@@ -230,7 +234,7 @@ def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
     }
 
 
-def auto_select_project_for_user(user, team_traffic_data: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user: User, team_traffic_data: dict[int, dict]) -> bool:
     """For first-time users who have no WA digest project settings, auto-select the project with the most visitors.
 
     Returns True if settings were updated (caller should refresh_from_db).

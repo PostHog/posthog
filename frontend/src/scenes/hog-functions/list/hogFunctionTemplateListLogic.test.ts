@@ -15,7 +15,7 @@ describe('hogFunctionTemplateListLogic - configuration structure', () => {
 
     it('should wrap filters in configuration object, not spread at top level', () => {
         const alertId = 'test-alert-id-123'
-        const getConfigurationOverrides = (): CyclotronJobFiltersType => ({
+        const filters: CyclotronJobFiltersType = {
             properties: [
                 {
                     key: 'alert_id',
@@ -25,7 +25,8 @@ describe('hogFunctionTemplateListLogic - configuration structure', () => {
                 },
             ],
             events: [{ id: '$insight_alert_firing', type: 'events' as const }],
-        })
+        }
+        const getConfigurationOverrides = (): { filters: CyclotronJobFiltersType } => ({ filters })
 
         const logic = hogFunctionTemplateListLogic.build({
             type: 'destination',

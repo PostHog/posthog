@@ -318,7 +318,7 @@ class SourceConfigGenerator:
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
 
-        self.imports.add("from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig")
+        self.imports.add("from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig")
 
         python_field_name, should_alias = self._make_python_identifier(field.name)
 

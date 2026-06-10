@@ -9,8 +9,9 @@ from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
 
+from products.replay.backend.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +24,7 @@ class StateActivitiesEnum(Enum):
     SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
     SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
+    SEGMENT_LLM_CONTEXT = "segment_llm_context"  # written by a3_slice, read by a4_analyze; key includes segment index
 
 
 def generate_state_id_from_session_ids(session_ids: list[str]) -> str:

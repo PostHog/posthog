@@ -191,8 +191,11 @@ fn setup_ai_test_router() -> Router {
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
+        None,                             // v1_sink_router
     )
 }
 
@@ -1650,8 +1653,11 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
+        None,                             // v1_sink_router
     );
 
     (router, sink_clone)
@@ -2561,8 +2567,11 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
+        None,                             // v1_sink_router
     );
 
     (router, sink_clone)
@@ -2767,8 +2776,11 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
+        None,                             // v1_sink_router
     );
 
     (router, sink_clone)
@@ -2918,8 +2930,11 @@ fn setup_ai_test_router_with_overflow_limiter(
         Some(10),
         None,
         256,
+        10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,       // capture_v1_max_decompressed_body_bytes
         Some(overflow_limiter), // overflow_limiter
         None,                   // replay_overflow_limiter
+        None,                   // v1_sink_router
     );
 
     (router, sink_clone)

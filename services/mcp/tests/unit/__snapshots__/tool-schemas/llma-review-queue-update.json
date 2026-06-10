@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this review queue.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable queue name.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

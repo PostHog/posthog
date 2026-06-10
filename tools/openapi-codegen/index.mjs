@@ -5,8 +5,10 @@ export {
     INT32_MAX,
     INT32_MIN,
     preprocessSchema,
+    schemaAllowsNull,
     SCHEMAS_TO_INLINE,
     stripCollidingInlineEnums,
+    stripNullDefaults,
 } from './src/preprocess.mjs'
 export { formatJs, formatYaml } from './src/format.mjs'
 export { runOrvalParallel } from './src/orval.mjs'

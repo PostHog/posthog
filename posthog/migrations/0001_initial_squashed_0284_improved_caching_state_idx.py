@@ -18,10 +18,11 @@ import posthog.utils
 import posthog.models.user
 import posthog.models.utils
 import posthog.models.team.team
-import posthog.models.exported_asset
 import posthog.models.organization_domain
 import posthog.models.sharing_configuration
 import posthog.models.activity_logging.activity_log
+
+import products.exports.backend.models.exported_asset
 
 
 class Migration(migrations.Migration):
@@ -964,7 +965,7 @@ class Migration(migrations.Migration):
                     "access_token",
                     models.CharField(
                         blank=True,
-                        default=posthog.models.exported_asset.get_default_access_token,
+                        default=products.exports.backend.models.exported_asset.get_default_access_token,
                         max_length=400,
                         null=True,
                     ),
@@ -3554,7 +3555,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         ("dashboard__isnull", False),
                         ("insight__isnull", True),
@@ -3654,7 +3655,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
+                condition=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
                 name="property_type_is_valid",
             ),
         ),
@@ -3757,7 +3758,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
-                check=models.Q(("group_type_index__lte", 5)),
+                condition=models.Q(("group_type_index__lte", 5)),
                 name="group_type_index is less than or equal 5",
             ),
         ),
@@ -3851,7 +3852,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(("insight__isnull", False), ("text__isnull", True)),
                     models.Q(("insight__isnull", True), ("text__isnull", False)),
                     _connector="OR",
@@ -3892,7 +3893,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="activitylog",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("team_id__isnull", False),
                     ("organization_id__isnull", False),
                     _connector="OR",

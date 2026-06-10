@@ -12,6 +12,8 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -814,6 +816,7 @@ class SessionRecordingPlaylistViewSet(
         )
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
+    @extend_schema(parameters=[OpenApiParameter("session_recording_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(
         methods=["POST", "DELETE"],
         detail=True,

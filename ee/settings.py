@@ -116,6 +116,11 @@ SQS_QUEUES = {
         "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
         "type": "usage_reports",
     },
+    "usage_reports_v2": {
+        "url": get_from_env("SQS_USAGE_REPORT_V2_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_USAGE_REPORT_V2_REGION", "us-east-1", optional=True),
+        "type": "usage_reports_v2",
+    },
     "billing": {
         "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
         "region": get_from_env("SQS_BILLING_REGION", "us-east-1", optional=True),
@@ -140,6 +145,7 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
 
 # SCIM Configuration
 # django-scim2 requires these settings

@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use crate::{
     config::FRAME_CONTEXT_LINES,
     error::{AppleError, FrameError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::utils::{add_raw_to_junk, get_context_lines},
     langs::CommonFrameMetadata,
     symbol_store::{
@@ -135,7 +135,10 @@ impl RawAppleFrame {
                 ))])
             }
             Err(ResolveError::ResolutionError(e)) => {
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                Ok(vec![self.handle_resolution_error(AppleError::ParseError(
+                    e.to_string(),
+                ))])
             }
             Err(ResolveError::UnhandledError(e)) => {
                 tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
@@ -340,6 +343,8 @@ impl RawAppleFrame {
     }
 
     fn handle_resolution_error(&self, err: AppleError) -> Frame {
+        record_frame_resolution_failure("apple", err.metric_reason(), &err);
+
         // Demangle the raw function name if present
         let mangled = self.function.clone().unwrap_or_default();
         let resolved_name = if !mangled.is_empty() {
@@ -391,7 +396,7 @@ impl RawAppleFrame {
             resolved_name,
             lang: lang_from_filename(self.filename.as_deref()).to_string(),
             resolved: false,
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure: Some(err.to_string()),
             junk_drawer: None,
             release: None,
             synthetic: self.meta.synthetic,
@@ -405,11 +410,23 @@ impl RawAppleFrame {
         frame
     }
 
-    pub fn frame_id(&self) -> String {
+    pub fn frame_id(&self, debug_images: &[AppleDebugImage]) -> String {
         let mut hasher = Sha512::new();
 
-        if let Some(instruction_addr) = &self.instruction_addr {
-            hasher.update(instruction_addr.as_bytes());
+        // Absolute instruction addresses are ASLR-slid per process launch, so hashing
+        // them directly gives the same logical frame a different id every launch and
+        // the frame record cache never hits. Hash the launch-invariant
+        // (debug image, relative offset) identity instead whenever we can compute it.
+        match self.launch_invariant_addr(debug_images) {
+            Some((debug_id, relative_addr)) => {
+                hasher.update(debug_id.as_bytes());
+                hasher.update(format!("rel:0x{relative_addr:x}").as_bytes());
+            }
+            None => {
+                if let Some(instruction_addr) = &self.instruction_addr {
+                    hasher.update(instruction_addr.as_bytes());
+                }
+            }
         }
 
         if let Some(module) = &self.module {
@@ -425,6 +442,15 @@ impl RawAppleFrame {
         }
 
         format!("{:x}", hasher.finalize())
+    }
+
+    fn launch_invariant_addr(&self, debug_images: &[AppleDebugImage]) -> Option<(String, u64)> {
+        let instruction_addr = parse_hex_address(self.instruction_addr.as_ref()?).ok()?;
+        let debug_image = self.find_debug_image(instruction_addr, debug_images).ok()?;
+        let relative_addr = self
+            .calculate_relative_addr(instruction_addr, debug_image)
+            .ok()?;
+        Some((debug_image.debug_id.clone(), relative_addr))
     }
 }
 
@@ -707,7 +733,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_dsym_bytes()))));
 
         let client = Arc::new(client);
 
@@ -868,7 +894,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_inline_dsym_bytes()))));
         let client = Arc::new(client);
 
         let catalog = Catalog::new(
@@ -977,5 +1003,74 @@ mod test {
             all_lines.iter().any(|l| l.contains("volatile int x = 99")),
             "expected 'volatile int x = 99' in inlined_leaf context, got: {all_lines:?}"
         );
+    }
+
+    fn frame_at(instruction_addr: u64, image_addr: u64) -> RawAppleFrame {
+        RawAppleFrame {
+            instruction_addr: Some(format!("0x{instruction_addr:x}")),
+            symbol_addr: None,
+            image_addr: Some(format!("0x{image_addr:x}")),
+            image_uuid: None,
+            module: Some("MyApp".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        }
+    }
+
+    fn image_at(debug_id: &str, image_addr: u64) -> AppleDebugImage {
+        AppleDebugImage {
+            debug_id: debug_id.to_string(),
+            image_addr: format!("0x{image_addr:x}"),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }
+    }
+
+    #[test]
+    fn test_frame_id_stable_across_aslr_slides() {
+        // Same logical frame (same image, same relative offset) from two launches
+        // with different ASLR slides must produce the same frame id.
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x104f04000, 0x104f00000);
+
+        let id_a = launch_a.frame_id(&[image_at("uuid-build-1", 0x100000000)]);
+        let id_b = launch_b.frame_id(&[image_at("uuid-build-1", 0x104f00000)]);
+
+        assert_eq!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_distinguishes_builds() {
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x100004000, 0x100000000);
+
+        let id_a = launch_a.frame_id(&[image_at("uuid-build-1", 0x100000000)]);
+        let id_b = launch_b.frame_id(&[image_at("uuid-build-2", 0x100000000)]);
+
+        assert_ne!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_distinguishes_call_sites_within_image() {
+        let images = [image_at("uuid-build-1", 0x100000000)];
+
+        let id_a = frame_at(0x100004000, 0x100000000).frame_id(&images);
+        let id_b = frame_at(0x100004004, 0x100000000).frame_id(&images);
+
+        assert_ne!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_falls_back_to_absolute_addr_without_debug_image() {
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x104f04000, 0x104f00000);
+
+        assert_ne!(launch_a.frame_id(&[]), launch_b.frame_id(&[]));
     }
 }

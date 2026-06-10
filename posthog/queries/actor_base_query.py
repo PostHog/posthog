@@ -19,15 +19,9 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.personhog_client.client import get_personhog_client
+from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.metrics import (
-    PERSONHOG_ROUTING_ERRORS_TOTAL,
-    PERSONHOG_ROUTING_TOTAL,
-    PERSONHOG_TEAM_MISMATCH_TOTAL,
-    get_client_name,
-)
-from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -105,7 +99,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
@@ -118,7 +112,6 @@ class ActorBaseQuery:
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
-            settings={"enable_analyzer": 0},
         )
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
@@ -223,10 +216,10 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
-        actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]
+        actors: Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]]
         serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
@@ -258,43 +251,27 @@ def get_groups(
     group_type_index: int,
     group_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
-) -> tuple[QuerySet[Group], list[SerializedGroup]]:
+) -> tuple[list[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
-    groups: QuerySet[Group] = Group.objects.filter(
-        team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
-    )
+    from posthog.models.group.util import get_groups_by_identifiers
+
+    groups = get_groups_by_identifiers(team_id, group_type_index, [str(gid) for gid in group_ids])
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
 def _fetch_people_via_personhog(
     team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
 ) -> list[Person]:
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
     uuids = [str(pid) for pid in people_ids]
-    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
-
-    present_persons = [p for p in resp.persons if p.id]
-    valid_persons = [p for p in present_persons if p.team_id == team_id]
-
-    mismatched = len(present_persons) - len(valid_persons)
-    if mismatched:
-        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_people", client_name=get_client_name()).inc(mismatched)
-        logger.warning("personhog_team_mismatch", operation="get_people", team_id=team_id, dropped=mismatched)
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_people")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
-    if distinct_id_limit is not None:
-        request.limit_per_person = distinct_id_limit
-    distinct_ids_resp = client.get_distinct_ids_for_persons(request)
-    distinct_ids_by_person: dict[int, list[str]] = {}
-    for pd in distinct_ids_resp.person_distinct_ids:
-        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+        team_id, person_ids, limit_per_person=distinct_id_limit
+    )
 
     persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
     persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))
@@ -324,18 +301,23 @@ def get_people(
             logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
 
     distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons_qs: QuerySet[Person] = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
                 to_attr="distinct_ids_cache",
-                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.db_manager(
+                    READ_DB_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
+                    id__in=distinct_id_subquery
+                ),  # nosemgrep: no-direct-persons-db-orm
             )
         )
         .order_by("-created_at", "uuid")
@@ -404,7 +386,9 @@ def serialize_people(
     ]
 
 
-def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[dict[str, float]]) -> list[SerializedGroup]:
+def serialize_groups(
+    data: QuerySet[Group] | list[Group], value_per_actor_id: Optional[dict[str, float]]
+) -> list[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,

@@ -29,12 +29,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.rate_limit import (
-    LLMAnalyticsSummarizationBurstThrottle,
-    LLMAnalyticsSummarizationDailyThrottle,
-    LLMAnalyticsSummarizationSustainedThrottle,
+    AIObservabilitySummarizationBurstThrottle,
+    AIObservabilitySummarizationDailyThrottle,
+    AIObservabilitySummarizationSustainedThrottle,
 )
 
 logger = structlog.get_logger(__name__)
@@ -266,9 +267,9 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of explain endpoint."""
         return [
-            LLMAnalyticsSummarizationBurstThrottle(),
-            LLMAnalyticsSummarizationSustainedThrottle(),
-            LLMAnalyticsSummarizationDailyThrottle(),
+            AIObservabilitySummarizationBurstThrottle(),
+            AIObservabilitySummarizationSustainedThrottle(),
+            AIObservabilitySummarizationDailyThrottle(),
         ]
 
     def _validate_feature_access(self, request: Request) -> None:
@@ -291,6 +292,7 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         POST /api/environments/:id/logs/explainLogWithAI/
         """
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         self._validate_feature_access(request)
 
         serializer = ExplainRequestSerializer(data=request.data)

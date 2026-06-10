@@ -4,10 +4,11 @@ from textwrap import dedent
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.models import Action
 from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
@@ -89,9 +90,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
         )
+        invalidate_group_types_cache(self.team.project_id)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
+        toolkit = DummyToolkit(self.team)
         result = toolkit.retrieve_entity_properties("group")
         self.assertIn("The data format is as follows:", result)
         self.assertIn("<Numeric>", result)
@@ -154,13 +157,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             toolkit.retrieve_entity_property_values("person", "id"),
         )
 
-        toolkit = DummyToolkit(self.team)
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
+        invalidate_group_types_cache(self.team.project_id)
+        toolkit = DummyToolkit(self.team)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
@@ -198,6 +202,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
+        invalidate_group_types_cache(self.team.project_id)
         toolkit = DummyToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 

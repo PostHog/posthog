@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
     from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 
-    from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 @asynccontextmanager
@@ -190,7 +192,7 @@ async def reset_rows_synced_if_needed(
         and not should_resume
     ):
         job.rows_synced = 0
-        await database_sync_to_async_pool(job.save)()
+        await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
 
 def validate_incremental_sync(
@@ -230,7 +232,7 @@ async def handle_reset_or_full_refresh(
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> None:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     if reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")

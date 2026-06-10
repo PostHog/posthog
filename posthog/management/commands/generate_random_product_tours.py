@@ -13,10 +13,11 @@ from nanoid import generate
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.person import Person, PersonDistinctId
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 
 # Sample step content for generating realistic tours
@@ -146,13 +147,15 @@ class Command(BaseCommand):
         persons_data: list[PersonData] = []
 
         persons = (
-            Person.objects.filter(team_id=team.id)
+            Person.objects.filter(team_id=team.id)  # nosemgrep: no-direct-persons-db-orm
             .prefetch_related("persondistinctid_set")
             .order_by("-created_at")[:limit]
         )
 
         for person in persons:
-            distinct_ids = PersonDistinctId.objects.filter(person=person, team_id=team.id).values_list(
+            distinct_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                person=person, team_id=team.id
+            ).values_list(  # nosemgrep: no-direct-persons-db-orm
                 "distinct_id", flat=True
             )
 

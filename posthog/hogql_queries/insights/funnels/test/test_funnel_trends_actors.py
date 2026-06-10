@@ -87,6 +87,57 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id(self):
+        # Converting step is captured server-side (no $session_id) while earlier client-side
+        # steps in the same funnel run produced a recording. We expect the recording from the
+        # latest funnel-step event with a $session_id at-or-before the converting event.
+        persons = journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$session_id": "s1a"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 2),
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 3),
+                    },
+                ]
+            },
+            self.team,
+        )
+        timestamp = datetime(2021, 5, 1)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1a",
+            distinct_id="user_one",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+        assert funnels_query.funnelsFilter
+        results = get_actors(
+            funnels_query.model_copy(
+                update={"funnelsFilter": funnels_query.funnelsFilter.model_copy(update={"funnelToStep": 1})}
+            ),
+            self.team,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            include_recordings=True,
+        )
+
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
+        self.assertEqual(
+            [next(iter(results[0][2]))["session_id"]],
+            ["s1a"],
+        )
+
+    @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_no_to_step(self):
         persons = journeys_for(
             {

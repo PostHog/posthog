@@ -6,11 +6,13 @@
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
+!common/mosaic
 !common/replay-headless
 !common/replay-shared
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
+!packages/quill
 !dags
 !docs/onboarding
 !ee
@@ -38,6 +40,15 @@
 !nodejs/assets
 !nodejs/tsconfig.eslint.json
 !nodejs/tsconfig.json
+!services/mcp
+!services/mcp/package.json
+!services/mcp/tsconfig.json
+!services/mcp/scripts
+!services/mcp/src
+!services/mcp/shared
+!services/mcp/types.d.ts
+!services/mcp/worker-configuration.d.ts
+!services/mcp/public
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !pyproject.toml
@@ -53,14 +64,22 @@
 !tailwind.config.js
 !test-runner-jest-environment.js
 !test-runner-jest.config.js
+!tools/hogli
+!tools/openapi-codegen
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
+packages/quill/**/node_modules
+packages/quill/**/dist
 products/**/node_modules
 nodejs/node_modules
+services/mcp/node_modules
+services/mcp/dist
+services/mcp/.wrangler
+services/mcp/tests
 ee/**/node_modules
 docs/**/node_modules
 **/__pycache__
@@ -75,3 +94,15 @@ rust/target
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker
+
+# Test / story / spec sources are never needed to build or run any image. Excluding them keeps them
+# out of the COPYed layers and stops test-only edits from busting the collectstatic + frontend-build
+# cache. Shared by all Dockerfiles — no image build (main, node, llm-analytics, etc.) needs them.
+products/**/test_*.py
+products/**/*_test.py
+products/**/*.test.*
+products/**/*.spec.*
+products/**/*.stories.*
+frontend/src/**/*.test.*
+frontend/src/**/*.spec.*
+frontend/src/**/*.stories.*

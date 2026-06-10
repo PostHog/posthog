@@ -7,6 +7,7 @@ import React from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { identifierToHuman } from 'lib/utils'
@@ -85,7 +86,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
-                    router.actions.replace(urls.earlyAccessFeature(result.id))
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,
@@ -131,7 +131,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     })),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
             errors: ({ name, payload }) =>
@@ -154,6 +154,53 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 const parsedPayload = {
                     ...payload,
                     payload: payload.payload && typeof payload.payload === 'string' ? JSON.parse(payload.payload) : {},
+                }
+
+                // If promoting to General Availability, show confirmation dialog
+                const isPromotingToGA =
+                    parsedPayload.stage === EarlyAccessFeatureStage.GeneralAvailability &&
+                    values.originalEarlyAccessFeatureStage !== EarlyAccessFeatureStage.GeneralAvailability
+
+                if (isPromotingToGA) {
+                    const rolloutToAll = await new Promise<boolean | null>((resolve) => {
+                        let rollout = false
+                        LemonDialog.open({
+                            title: 'Promote to General Availability?',
+                            description:
+                                'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                            content: React.createElement(GAPromotionDialogContent, {
+                                onChange: (checked: boolean) => {
+                                    rollout = checked
+                                },
+                            }),
+                            primaryButton: {
+                                children: 'Promote to GA',
+                                type: 'primary',
+                                onClick: () => resolve(rollout),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                                type: 'tertiary',
+                                onClick: () => resolve(null),
+                            },
+                        })
+                    })
+
+                    if (rolloutToAll === null) {
+                        // Throw to trigger submitFailure so kea-forms doesn't
+                        // set hasSubmitted=true when the user just cancelled.
+                        throw new Error('Cancelled')
+                    }
+
+                    const savePayload = {
+                        ...parsedPayload,
+                        ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                        ...(props.id && props.id !== 'new'
+                            ? {}
+                            : { _create_in_folder: 'Unfiled/Early Access Features' }),
+                    }
+                    actions.saveEarlyAccessFeature(savePayload)
+                    return
                 }
 
                 if (props.id && props.id !== 'new') {
@@ -274,6 +321,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
 
                 // Mark feature creation task as completed
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
+                tryShowMCPHint('early_access_features.create')
             }
         },
         showGAPromotionConfirmation: ({ onConfirm }) => {

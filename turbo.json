@@ -1,11 +1,14 @@
 {
     "$schema": "https://turbo.build/schema.json",
-    "extends": ["//"],
+    "futureFlags": {
+        "affectedUsingTaskInputs": true
+    },
     "tasks": {
         "backend:test": {
             "inputs": [
-                "backend/**/*.py",
-                "!backend/**/__pycache__/**",
+                "**/*.py",
+                "!**/__pycache__/**",
+                "!frontend/**",
                 "../../pyproject.toml",
                 "../../uv.lock",
                 "../../common/**/*.py"

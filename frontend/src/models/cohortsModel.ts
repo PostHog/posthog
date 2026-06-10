@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { invalidateTaxonomicResourcesWhere } from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
@@ -12,6 +14,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
@@ -111,6 +114,20 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     return processedCriteria
 }
 
+/**
+ * Predicate for `invalidateTaxonomicResourcesWhere` — matches the cache
+ * entries belonging to the `Cohorts` / `CohortsWithAllUsers` taxonomic
+ * groups. The key shape is set in `useGroupList`:
+ *   ['taxonomic-list', groupType, endpoint, scopedEndpoint, isExpanded,
+ *    searchQuery, limit, showNumericalPropsOnly, hideBehavioralCohorts]
+ */
+function isCohortTaxonomicListKey(key: unknown[]): boolean {
+    if (key[0] !== 'taxonomic-list') {
+        return false
+    }
+    return key[1] === TaxonomicFilterGroupType.Cohorts || key[1] === TaxonomicFilterGroupType.CohortsWithAllUsers
+}
+
 export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect(() => ({
@@ -121,6 +138,7 @@ export const cohortsModel = kea<cohortsModelType>([
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
+        hydrateAllCohortsFromExport: (cohorts: Pick<CohortType, 'id' | 'name'>[]) => ({ cohorts }),
     })),
     loaders(() => ({
         cohorts: {
@@ -219,6 +237,19 @@ export const cohortsModel = kea<cohortsModelType>([
                     results: state.results.filter((c) => c.id !== cohort.id),
                 }
             },
+            hydrateAllCohortsFromExport: (_, { cohorts }: { cohorts: Pick<CohortType, 'id' | 'name'>[] }) => {
+                // Sparse CohortType — id+name is all cohortsById consumers need for name lookup.
+                const results = cohorts.map(
+                    ({ id, name }) =>
+                        ({
+                            id,
+                            name,
+                            groups: [],
+                            filters: { properties: { type: FilterLogicalOperator.And, values: [] } },
+                        }) as unknown as CohortType
+                )
+                return { count: results.length, results }
+            },
         },
     }),
     selectors({
@@ -230,6 +261,17 @@ export const cohortsModel = kea<cohortsModelType>([
         count: [(selectors) => [selectors.cohorts], (cohorts) => cohorts.count],
     }),
     listeners(({ actions }) => ({
+        // Flush the TaxonomicFilter cohort cache whenever cohorts mutate
+        // so the next open of the cohort picker re-fetches the first page.
+        // The picker pins its request to `?search=&limit=100` and runs
+        // fuse client-side — invalidation here is what keeps that snappy
+        // local cache honest after create / update / delete.
+        cohortCreated: () => {
+            invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
+        },
+        updateCohort: () => {
+            invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
+        },
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
@@ -245,6 +287,7 @@ export const cohortsModel = kea<cohortsModelType>([
             actions.setPollTimeout(window.setTimeout(actions.loadAllCohorts, POLL_TIMEOUT))
         },
         deleteCohort: async ({ cohort }) => {
+            invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
@@ -267,8 +310,13 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     afterMount(({ actions, values }) => {
         if (isAuthenticatedTeam(values.currentTeam)) {
-            // Don't load on shared insights/dashboards
             actions.loadAllCohorts()
+        } else {
+            // Shared views can't hit /api/cohorts — seed from the inlined export payload.
+            const exportedCohorts = getCurrentExporterData()?.cohorts
+            if (exportedCohorts?.length) {
+                actions.hydrateAllCohortsFromExport(exportedCohorts)
+            }
         }
         actions.loadCohorts()
     }),

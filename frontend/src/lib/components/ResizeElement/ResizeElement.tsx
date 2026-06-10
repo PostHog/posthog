@@ -151,25 +151,39 @@ export function ResizableElement({
         }
     }, [applyWidth, defaultWidth, onResizeEnd, snapToDefault])
 
-    // Use effect for adding/removing global event listeners
+    // Keep latest handler implementations in refs so the document listeners
+    // below can be registered exactly once per mount, regardless of how
+    // often caller props change and rebuild the useCallbacks.
+    const handleMouseMoveRef = useRef(handleMouseMove)
+    const handleTouchMoveRef = useRef(handleTouchMove)
+    const handleEndRef = useRef(handleEnd)
     useEffect(() => {
-        document.addEventListener('mousemove', handleMouseMove)
-        document.addEventListener('mouseup', handleEnd)
-        document.addEventListener('touchmove', handleTouchMove, { passive: true })
-        document.addEventListener('touchend', handleEnd)
+        handleMouseMoveRef.current = handleMouseMove
+        handleTouchMoveRef.current = handleTouchMove
+        handleEndRef.current = handleEnd
+    }, [handleMouseMove, handleTouchMove, handleEnd])
+
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent): void => handleMouseMoveRef.current(e)
+        const onTouchMove = (e: TouchEvent): void => handleTouchMoveRef.current(e)
+        const onEnd = (): void => handleEndRef.current()
+
+        document.addEventListener('mousemove', onMouseMove)
+        document.addEventListener('mouseup', onEnd)
+        document.addEventListener('touchmove', onTouchMove, { passive: true })
+        document.addEventListener('touchend', onEnd)
 
         return () => {
-            document.removeEventListener('mousemove', handleMouseMove)
-            document.removeEventListener('mouseup', handleEnd)
-            document.removeEventListener('touchmove', handleTouchMove)
-            document.removeEventListener('touchend', handleEnd)
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onEnd)
+            document.removeEventListener('touchmove', onTouchMove)
+            document.removeEventListener('touchend', onEnd)
 
-            // Clean up any pending animation frame
             if (rafRef.current !== null) {
                 cancelAnimationFrame(rafRef.current)
             }
         }
-    }, [handleEnd, handleMouseMove, handleTouchMove])
+    }, [])
 
     return (
         <div

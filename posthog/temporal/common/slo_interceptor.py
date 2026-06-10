@@ -12,7 +12,13 @@ from temporalio.worker import (
 
 from posthog.slo.events import emit_slo_completed, emit_slo_started
 from posthog.slo.types import SloCompletedProperties, SloConfig, SloOutcome, SloStartedProperties
-from posthog.temporal.common.errors import resolve_error_trace, resolve_exception_class, unwrap_temporal_cause
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    resolve_error_trace,
+    resolve_exception_class,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 
 
 class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -56,7 +62,10 @@ class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
             outcome = slo.outcome if slo.outcome is not None else SloOutcome.FAILURE
             # setdefault lets workflows pre-populate completion_properties to override any of these.
             slo.completion_properties.setdefault("error_type", resolve_exception_class(exc))
-            slo.completion_properties.setdefault("error_message", str(unwrap_temporal_cause(exc) or exc))
+            slo.completion_properties.setdefault(
+                "error_message",
+                truncate_for_temporal_payload(str(unwrap_temporal_cause(exc) or exc), MAX_ERROR_MESSAGE_CHARS),
+            )
             slo.completion_properties.setdefault("error_trace", resolve_error_trace(exc))
             raise
         finally:

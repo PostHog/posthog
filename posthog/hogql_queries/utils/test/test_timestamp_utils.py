@@ -11,8 +11,9 @@ from posthog.schema import ActionsNode, DateRange, EventsNode, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
-from posthog.models.action.action import Action
 from posthog.models.team import WeekStartDay
+
+from products.actions.backend.models.action import Action
 
 
 @override_settings(IN_UNIT_TESTING=True)

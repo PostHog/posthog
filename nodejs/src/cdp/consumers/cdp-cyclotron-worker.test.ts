@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
@@ -8,6 +9,7 @@ import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '../../utils/event-loop-yield'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createExampleInvocation,
@@ -37,7 +39,7 @@ describe('CdpCyclotronWorker', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
 
         fn = await insertHogFunction(
             hub.postgres,
@@ -409,17 +411,22 @@ describe('CdpCyclotronWorker', () => {
         describe('thread relief', () => {
             jest.setTimeout(10000)
             let interval: NodeJS.Timeout
+            const blockTime = 200
+            let originalThresholdMs: number
+
             beforeEach(() => {
                 jest.spyOn(Date, 'now').mockRestore()
                 jest.useRealTimers()
+                originalThresholdMs = getEventLoopYieldThresholdMs()
+                configureEventLoopYield(blockTime)
             })
 
             afterEach(() => {
                 clearInterval(interval)
+                configureEventLoopYield(originalThresholdMs)
             })
 
             it('should process batches in a way that does not block the main thread', async () => {
-                const blockTime = 200
                 let lastCheck = Date.now()
                 let longestDelay = 0
 

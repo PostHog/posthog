@@ -59,6 +59,9 @@ interface RawJobRow {
     last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
+    distinct_id: string | null
+    person_id: string | null
+    action_id: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -191,6 +194,65 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(0)
         })
 
+        // [columnName, initKey, sampleValueFactory]
+        const lookupColumns: Array<[keyof RawJobRow, keyof CyclotronV2JobInit, () => string]> = [
+            ['distinct_id', 'distinctId', () => 'user-42'],
+            ['person_id', 'personId', () => uuidv7()],
+            ['action_id', 'actionId', () => 'action-7'],
+        ]
+
+        it.each(lookupColumns)('createJob persists %s when provided', async (column, initKey, factory) => {
+            const value = factory()
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: value })
+            const row = await queryJob(id)
+            expect(row[column]).toBe(value)
+        })
+
+        it.each(lookupColumns)('createJob defaults %s to null when omitted', async (column) => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const row = await queryJob(id)
+            expect(row[column]).toBeNull()
+        })
+
+        it.each(lookupColumns)('bulkCreateJobs persists %s per row', async (column, initKey, factory) => {
+            const a = factory()
+            const b = factory()
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, [initKey]: a },
+                { teamId: 1, queueName: QUEUE, [initKey]: b },
+                { teamId: 1, queueName: QUEUE },
+            ])
+            expect(ids).toHaveLength(3)
+            const rows = await assertPool.query<RawJobRow>(
+                `SELECT id, ${column} FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id`,
+                [ids]
+            )
+            const byId = new Map(rows.rows.map((r) => [r.id, r[column]]))
+            expect(byId.get(ids[0])).toBe(a)
+            expect(byId.get(ids[1])).toBe(b)
+            expect(byId.get(ids[2])).toBeNull()
+        })
+
+        // Only distinct_id and person_id are indexed; action_id intentionally is not.
+        const indexedLookupColumns = lookupColumns.filter(([col]) => col !== 'action_id')
+
+        it.each(indexedLookupColumns)(
+            'partial index supports lookup by (team_id, %s)',
+            async (column, initKey, factory) => {
+                const shared = factory()
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 2, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                const res = await assertPool.query<{ count: string }>(
+                    `SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND ${column} = $2`,
+                    [1, shared]
+                )
+                expect(Number(res.rows[0].count)).toBe(2)
+            }
+        )
+
         it('backpressure throws when queue depth exceeds limit', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
@@ -201,6 +263,180 @@ describe('Cyclotron V2', () => {
             } finally {
                 await smallManager.disconnect()
             }
+        })
+
+        it('createJob accepts a non-UUID personId (column is TEXT)', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' })
+            const row = await queryJob(id)
+            expect(row.person_id).toBe('group-key-not-a-uuid')
+        })
+
+        it('bulkCreateJobs accepts mixed UUID and non-UUID personIds', async () => {
+            const validPersonId = uuidv7()
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, personId: validPersonId },
+                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' },
+            ])
+            expect(ids).toHaveLength(2)
+            const rows = await Promise.all(ids.map(queryJob))
+            expect(rows[0].person_id).toBe(validPersonId)
+            expect(rows[1].person_id).toBe('group-key-not-a-uuid')
+        })
+
+        describe('overwriteExisting (rerun re-enqueue)', () => {
+            it('createJob with overwriteExisting=true refuses to clobber an in-flight (running) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                // Dequeue → row is now 'running'.
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                expect(jobs).toHaveLength(1)
+                expect((await queryJob(id)).status).toBe('running')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        overwriteExisting: true,
+                    })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // Existing row's status untouched.
+                expect((await queryJob(id)).status).toBe('running')
+            })
+
+            it('createJob with overwriteExisting=true refuses to clobber an available (queued, not yet dequeued) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                expect((await queryJob(id)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+            })
+
+            it('createJob with overwriteExisting=true resets an existing terminal row to available', async () => {
+                const id = uuidv7()
+                // First insert + drive to terminal state via the worker.
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                expect((await queryJob(id)).status).toBe('completed')
+
+                // Re-create with the same id and overwriteExisting=true — this
+                // is the rerun path. The row should flip back to 'available'
+                // with the new state.
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('v2'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('v2'))
+                expect(row.lock_id).toBeNull()
+                expect(row.last_heartbeat).toBeNull()
+                // transition_count bumps so the janitor's poison-pill guard
+                // still has signal across reruns.
+                expect(row.transition_count).toBeGreaterThan(0)
+            })
+
+            it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
+                const id = uuidv7()
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('fresh'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('fresh'))
+            })
+
+            it('bulkCreateJobs with overwriteExisting reports skipped ids via CyclotronJobConflictError when some are still active', async () => {
+                const terminalId = uuidv7()
+                const activeId = uuidv7()
+                // Drive terminalId to completed, leave activeId in 'available'.
+                await manager.bulkCreateJobs([
+                    { id: terminalId, teamId: 1, queueName: QUEUE },
+                    { id: activeId, teamId: 1, queueName: QUEUE },
+                ])
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                const completedJob = dequeued.find((j) => j.id === terminalId)!
+                await completedJob.ack()
+                // The other one will still be 'running' at this point — reschedule it
+                // back to 'available' so the test mirrors a more common case.
+                const activeJob = dequeued.find((j) => j.id === activeId)!
+                await activeJob.reschedule()
+                expect((await queryJob(activeId)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.bulkCreateJobs([
+                        {
+                            id: terminalId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('reset'),
+                        },
+                        {
+                            id: activeId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('would-clobber'),
+                        },
+                    ])
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // The terminal one was still upserted; the active one was not.
+                expect((await queryJob(terminalId)).state).toEqual(Buffer.from('reset'))
+                expect((await queryJob(activeId)).state).toBeNull()
+            })
+
+            it('bulkCreateJobs with overwriteExisting flag upserts every row in the batch', async () => {
+                const ids = [uuidv7(), uuidv7()]
+                // Seed both as completed.
+                await manager.bulkCreateJobs(ids.map((id) => ({ id, teamId: 1, queueName: QUEUE })))
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                await Promise.all(dequeued.map((j) => j.ack()))
+
+                // Re-create both via bulk upsert.
+                const resultIds = await manager.bulkCreateJobs(
+                    ids.map((id) => ({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('rerun'),
+                        overwriteExisting: true,
+                    }))
+                )
+                expect(resultIds).toEqual(ids)
+                for (const id of ids) {
+                    const row = await queryJob(id)
+                    expect(row.status).toBe('available')
+                    expect(row.state).toEqual(Buffer.from('rerun'))
+                }
+            })
+
+            it('without overwriteExisting, re-creating with the same id throws on the PK conflict', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                await expect(manager.createJob({ id, teamId: 1, queueName: QUEUE })).rejects.toThrow(
+                    /duplicate key value/i
+                )
+            })
         })
     })
 
@@ -305,6 +541,94 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.state).toBeNull()
+        })
+
+        it('reschedule({ actionId }) updates action_id column', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: 'step-b' })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-b')
+        })
+
+        it('reschedule({ actionId: null }) clears action_id', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: null })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBeNull()
+        })
+
+        it('reschedule() without actionId leaves action_id unchanged', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-a')
+        })
+
+        it('dequeued job exposes distinctId, personId, and actionId', async () => {
+            const personId = uuidv7()
+            const { job } = await seedAndDequeue({
+                distinctId: 'd-on-job',
+                personId,
+                actionId: 'a-on-job',
+            })
+            expect(job.distinctId).toBe('d-on-job')
+            expect(job.personId).toBe(personId)
+            expect(job.actionId).toBe('a-on-job')
+        })
+
+        it('reschedule accepts a non-UUID personId', async () => {
+            const { id, job } = await seedAndDequeue({ personId: uuidv7() })
+            await job.reschedule({ personId: 'group-key-not-a-uuid' })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBe('group-key-not-a-uuid')
+        })
+
+        it('reschedule({ distinctId }) updates distinct_id column', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: 'd-new' })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-new')
+        })
+
+        it('reschedule({ distinctId: null }) clears distinct_id', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: null })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBeNull()
+        })
+
+        it('reschedule({ personId }) updates person_id column', async () => {
+            const original = uuidv7()
+            const next = uuidv7()
+            const { id, job } = await seedAndDequeue({ personId: original })
+            await job.reschedule({ personId: next })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBe(next)
+        })
+
+        it('reschedule({ personId: null }) clears person_id', async () => {
+            const { id, job } = await seedAndDequeue({ personId: uuidv7() })
+            await job.reschedule({ personId: null })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBeNull()
+        })
+
+        it('reschedule() without identifiers leaves them unchanged', async () => {
+            const original = uuidv7()
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-keep', personId: original })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-keep')
+            expect(row.person_id).toBe(original)
         })
 
         it('heartbeat() extends last_heartbeat', async () => {

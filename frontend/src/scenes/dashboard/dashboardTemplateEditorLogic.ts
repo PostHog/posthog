@@ -14,12 +14,17 @@ import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditor
 
 /**
  * Refresh every mounted `dashboardTemplatesLogic` slice we use in-product:
- * - templates tab: `default-all-templatesTab` (via callback)
+ * - templates tab: `default-all-templatesTab`
  * - new dashboard chooser: `default-all` / `feature_flag-all`
  * - dashboards page featured row: `default-featured`
+ *
+ * All four go through `findMounted` so we never dispatch into an unmounted instance.
+ * `connect.actions` did not reliably keep the templates-tab logic mounted across the
+ * editor/modal lifecycle, which surfaced as `[KEA] Can not find path … in the store.`
+ * when the post-save loader read its own reducers.
  */
-function refreshDashboardTemplateListsAfterMutation(templatesTabListGetAll: () => void): void {
-    templatesTabListGetAll()
+function refreshDashboardTemplateListsAfterMutation(): void {
+    dashboardTemplatesLogic.findMounted({ scope: 'default', templatesTabList: true })?.actions.getAllTemplates()
     dashboardTemplatesLogic.findMounted({ scope: 'default' })?.actions.getAllTemplates()
     dashboardTemplatesLogic.findMounted({ scope: 'feature_flag' })?.actions.getAllTemplates()
     dashboardTemplatesLogic
@@ -42,7 +47,6 @@ function parseDashboardTemplateEditorPayload(raw: string | undefined): Dashboard
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
     connect(() => ({
-        actions: [dashboardTemplatesLogic({ scope: 'default', templatesTabList: true }), ['getAllTemplates']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -102,7 +106,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         dashboardTemplate: [
             undefined as DashboardTemplateEditorType | undefined | null,
             {
@@ -193,7 +197,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                                 action: async () => {
                                     try {
                                         await api.dashboardTemplates.update(id, { deleted: false })
-                                        refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
+                                        refreshDashboardTemplateListsAfterMutation()
                                         lemonToast.success(
                                             trimmedName
                                                 ? createElement(
@@ -231,14 +235,14 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
+            refreshDashboardTemplateListsAfterMutation()
         },
         updateDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
+            refreshDashboardTemplateListsAfterMutation()
         },
         deleteDashboardTemplateSuccess: async () => {
-            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
+            refreshDashboardTemplateListsAfterMutation()
         },
         closeDashboardTemplateEditor: () => {
             actions.clear()

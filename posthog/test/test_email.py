@@ -1,5 +1,11 @@
+import hashlib
+import datetime
+import dataclasses
 from decimal import Decimal
+from typing import Any
+from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -7,12 +13,13 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
 
 
 class TestEmail(BaseTest):
@@ -203,10 +210,11 @@ class TestEmail(BaseTest):
         self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
         self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
 
-        # Check that nested dictionaries are sanitized
+        # Check that nested dictionaries are sanitized — `javascript:` is defanged so
+        # mail clients don't auto-link / treat it as a clickable scheme.
         self.assertEqual(
             sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
         )
 
         # Check that numbers and booleans are preserved
@@ -222,6 +230,114 @@ class TestEmail(BaseTest):
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_preserves_trusted_url_keys(self) -> None:
+        # Clean PostHog-built URLs survive sanitization unchanged: html.escape is a
+        # no-op on URL-shape characters (`:` `/` `.`), and trusted URL keys skip the
+        # defang step so the link stays clickable.
+        section: dict[str, str] = {"team_url": "https://app.posthog.com/project/3", "team_name": "Acme.com"}
+        properties: dict[str, Any] = {
+            "href": "http://localhost:8010/replay/test#panel=discussion",
+            "url": "https://app.posthog.com/project/1/insights",
+            "site_url": "https://app.posthog.com",
+            "link": "/reset/uuid/token",
+            "next_url": "https://app.posthog.com/dashboard",
+            "dashboard_url": "https://app.posthog.com/dashboard/2",
+            "error_tracking_url": "https://app.posthog.com/error_tracking",
+            "verify_link": "/verify/abc",
+            "section": section,
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        for key in [
+            "href",
+            "url",
+            "site_url",
+            "link",
+            "next_url",
+            "dashboard_url",
+            "error_tracking_url",
+            "verify_link",
+        ]:
+            self.assertEqual(sanitized[key], properties[key], f"trusted URL key {key} should pass through")
+        self.assertEqual(sanitized["section"]["team_url"], section["team_url"])
+        # ...but a user-controlled name nested under a non-URL key still gets defanged.
+        self.assertEqual(sanitized["section"]["team_name"], "Acme.​com")
+
+    def test_sanitize_email_properties_html_escapes_trusted_url_keys(self) -> None:
+        # When a user-controlled fragment leaks into a trusted URL key (e.g. the
+        # comment `slug` appended to settings.SITE_URL in build_comment_item_url),
+        # attribute-injection characters are still escaped — the link works, but
+        # the attacker can't break out of `<a href="...">`. URL-shape chars
+        # (`:` `/` `.`) survive because we don't defang trusted keys.
+        properties = {
+            "href": 'https://app.posthog.com/x"><script>alert(1)</script>',
+            "verify_link": "https://app.posthog.com/x?a=1&b=2",
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(
+            sanitized["href"],
+            "https://app.posthog.com/x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+        # `&` becomes `&amp;` — correct HTML attribute encoding for query strings.
+        self.assertEqual(sanitized["verify_link"], "https://app.posthog.com/x?a=1&amp;b=2")
+
+    def test_sanitize_email_properties_defangs_urls_embedded_in_user_content(self) -> None:
+        # Realistic phishing-by-display-name: attacker sets first_name to a URL.
+        # Mail clients should not auto-link this.
+        properties = {
+            "commenter": {"first_name": "Visit https://evil.com NOW"},
+            "team": {"name": "evil.com"},
+            "organization_name": "ｈｔｔｐ：／／phish.io",  # fullwidth bypass attempt
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https:​//evil.​com NOW")
+        self.assertEqual(sanitized["team"]["name"], "evil.​com")
+        self.assertEqual(sanitized["organization_name"], "http:​//phish.​io")
+
+    def test_sanitize_email_properties_handles_dataclasses(self) -> None:
+        # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
+        # silently killing tasks like send_error_tracking_issue_assigned via autoretry.
+        # Mirror the real ErrorTrackingIssueAssignmentNotification shape — in particular
+        # include a datetime field, since dataclasses.asdict() does not recurse into
+        # datetime and the naive fix missed that.
+        @dataclasses.dataclass(frozen=True)
+        class Inner:
+            id: UUID
+            name: str | None
+            description: str | None
+
+        @dataclasses.dataclass(frozen=True)
+        class Outer:
+            id: UUID
+            created_at: datetime.datetime
+            issue: Inner
+
+        outer = Outer(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            created_at=datetime.datetime(2024, 1, 1, 12, 0, 0),
+            issue=Inner(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                name='<script>alert("xss")</script>',
+                description=None,
+            ),
+        )
+
+        sanitized = sanitize_email_properties({"assignment": outer})
+
+        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(sanitized["assignment"]["created_at"], "2024-01-01T12:00:00")
+        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(
+            sanitized["assignment"]["issue"]["name"],
+            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+        )
+        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
 
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types
@@ -280,3 +396,186 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+
+    def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
+        # Every EmailMessage(use_http=True, template_name="X", ...) call in
+        # production code under posthog/ needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
+        # The Customer.io HTTP sender raises "Unknown template name" if it
+        # isn't, and the Celery task wrapper swallows the exception via
+        # capture_exception. Without this test, a new transactional email
+        # added with a forgotten map entry sends zero emails and surfaces
+        # nothing user-visible.
+        import ast
+        from pathlib import Path
+
+        import posthog as posthog_pkg
+
+        posthog_root = Path(posthog_pkg.__file__).parent
+        sources = sorted(
+            p
+            for p in posthog_root.rglob("*.py")
+            if "/test/" not in str(p) and "/tests/" not in str(p) and not p.name.startswith("test_")
+        )
+
+        missing: dict[str, str] = {}  # template_name -> first source path that uses it
+        for source_path in sources:
+            try:
+                tree = ast.parse(source_path.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
+                    continue
+                kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+                use_http = kwargs.get("use_http")
+                if not (isinstance(use_http, ast.Constant) and use_http.value is True):
+                    continue
+                template_name = kwargs.get("template_name")
+                if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
+                    if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                        missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
+
+        self.assertEqual(
+            missing,
+            {},
+            "These template_name values use use_http=True in production code but are missing "
+            "from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
+            "the Customer.io transactional message ID, otherwise the sender will raise "
+            "'Unknown template name' at runtime and capture_exception will swallow it.",
+        )
+
+
+class TestMessagingHashSalt(BaseTest):
+    def test_get_email_hash_defaults_preserve_legacy_secret_key_hashes(self) -> None:
+        # MESSAGING_HASH_SALT defaults to SECRET_KEY, so hashes written before the salt
+        # was decoupled (SHA-256(SECRET_KEY + email)) stay valid. If this breaks, an
+        # upgrade would orphan every existing email_hash and re-send live campaigns.
+        with self.settings(MESSAGING_HASH_SALT=settings.SECRET_KEY, MESSAGING_HASH_SALT_FALLBACKS=[]):
+            legacy = hashlib.sha256(f"{settings.SECRET_KEY}_a@b.com".encode()).hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), legacy)
+            self.assertEqual(get_email_hashes("a@b.com"), [legacy])
+
+    def test_get_email_hashes_includes_primary_and_fallbacks_deduped(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt", "new_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), primary)
+            # both salts present and the duplicate "new_salt" collapsed; order is irrelevant
+            # since the result only feeds an `email_hash__in=` lookup
+            self.assertEqual(set(get_email_hashes("a@b.com")), {primary, fallback})
+
+    def test_unset_fallbacks_is_empty_list_not_blank_string(self) -> None:
+        # An unset env var yields [] (not [""]) — get_list("") returns [], and the
+        # settings parsing additionally strips any blanks. This is the invariant that
+        # keeps an empty salt from ever reaching the hash.
+        self.assertEqual(settings.MESSAGING_HASH_SALT_FALLBACKS, [])
+        self.assertNotIn("", settings.MESSAGING_HASH_SALT_FALLBACKS)
+
+    def test_get_email_hash_refuses_empty_primary_salt(self) -> None:
+        # Empty primary salt is a misconfiguration (would write a brute-forceable hash):
+        # the write path fails loud rather than silently degrade.
+        with self.settings(MESSAGING_HASH_SALT=""):
+            with self.assertRaises(ValueError):
+                get_email_hash("a@b.com")
+
+    def test_get_email_hashes_never_hashes_an_empty_salt(self) -> None:
+        # Even if a blank slips into the fallback list (e.g. a stray comma in the env
+        # var), it is skipped — the empty-salt hash is never produced.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["", "old_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            empty_salt_hash = hashlib.sha256(b"_a@b.com").hexdigest()
+            hashes = get_email_hashes("a@b.com")
+            self.assertEqual(set(hashes), {primary, fallback})
+            self.assertNotIn(empty_salt_hash, hashes)
+
+    def test_dedup_matches_record_written_under_fallback_salt(self) -> None:
+        # Record written before rotation, under the old salt.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        # After rotation, with the old salt listed as a fallback, the existing record is
+        # found and reused — no duplicate row, no re-send.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            record, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertFalse(created)
+            self.assertIsNotNone(record.sent_at)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 1)
+
+    def test_dedup_misses_after_rotation_without_fallback(self) -> None:
+        # Control for the test above: without the old salt as a fallback, the pre-rotation
+        # record is unreachable and a fresh row is created — proving the fallback is what
+        # bridges the rotation.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            _, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertTrue(created)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 2)
+
+    def test_filter_by_raw_email_matches_across_salts(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            self.assertTrue(
+                # django-stubs' mypy plugin resolves filter() kwargs against model fields
+                # and can't follow the manager's raw_email→email_hash__in remap.
+                MessagingRecord.objects.filter(  # type: ignore[misc]
+                    raw_email="rotate@posthog.com", campaign_key="c", sent_at__isnull=False
+                ).exists()
+            )
+
+
+# Async tests live as standalone functions — the async ORM (afirst/aget_or_create) can't
+# run inside BaseTest's wrapping transaction, so they need django_db(transaction=True).
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_reuses_record_written_under_fallback_salt() -> None:
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        original, created = await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+        assert created
+
+    # After rotation the old salt is a fallback, so the read finds the existing record:
+    # no duplicate row, no re-send.
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+        found, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert not created
+        assert found.pk == original.pk
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_writes_under_primary_salt_not_a_fallback() -> None:
+    with override_settings(MESSAGING_HASH_SALT="primary_salt", MESSAGING_HASH_SALT_FALLBACKS=["other_salt"]):
+        record, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert record.email_hash == hashlib.sha256(b"primary_salt_async@posthog.com").hexdigest()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_without_fallback_creates_duplicate_after_rotation() -> None:
+    # Control: without the old salt as a fallback, the pre-rotation record is unreachable
+    # and a fresh row is created — proving the fallback is what bridges the rotation.
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        _, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 2

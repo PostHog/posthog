@@ -36,7 +36,9 @@ import {
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
+    splitChoicesOnPaste,
     validateCSSProperty,
+    validateSurveyAppearance,
 } from './utils'
 
 jest.mock('lib/utils/getAppContext', () => ({
@@ -158,6 +160,28 @@ describe('survey utils', () => {
         })
     })
 
+    describe('validateSurveyAppearance', () => {
+        const invalidAppearance: SurveyAppearance = {
+            backgroundColor: 'not-a-color',
+            borderColor: 'also-not-a-color',
+            maxWidth: 'definitely-not-a-width',
+        }
+
+        it('skips all appearance validation for API surveys', () => {
+            // API surveys are rendered by the customer, so PostHog's appearance CSS is not applied
+            // and the Customization section is hidden in the editor — flagging errors here would
+            // route submitSurveyFailure to a non-existent section and silently block saves.
+            expect(validateSurveyAppearance(invalidAppearance, false, SurveyType.API)).toEqual({})
+        })
+
+        it('validates appearance CSS for Popover surveys', () => {
+            const result = validateSurveyAppearance(invalidAppearance, false, SurveyType.Popover)
+            expect(result.backgroundColor).toBe('not-a-color is not a valid property for background-color.')
+            expect(result.borderColor).toBe('also-not-a-color is not a valid property for border-color.')
+            expect(result.maxWidth).toBe('definitely-not-a-width is not a valid property for width.')
+        })
+    })
+
     describe('getSurveyNotificationFilters', () => {
         it('builds survey-specific notification filters', () => {
             expect(getSurveyNotificationFilters('survey-123')).toEqual({
@@ -180,21 +204,20 @@ describe('survey utils', () => {
                             },
                         ],
                     },
-                ],
-            })
-        })
-
-        it('can include partial responses when requested', () => {
-            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
-                events: [
                     {
-                        id: SurveyEventName.SENT,
+                        id: SurveyEventName.DISMISSED,
                         type: 'events',
                         properties: [
                             {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
                                 operator: PropertyOperator.Exact,
                             },
                         ],
@@ -1378,5 +1401,46 @@ describe('timezone handling in survey date queries', () => {
         const result = getSurveyEndDateForQuery(survey)
 
         expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
+    })
+})
+
+describe('splitChoicesOnPaste', () => {
+    it('returns null when only one segment is pasted', () => {
+        expect(splitChoicesOnPaste('single value', [''], 0, false)).toBeNull()
+        expect(splitChoicesOnPaste('Yes, sometimes', [''], 0, false)).toBeNull()
+    })
+
+    it('splits newline-separated values into the choices array', () => {
+        expect(splitChoicesOnPaste('one\ntwo\nthree', [''], 0, false)).toEqual(['one', 'two', 'three'])
+    })
+
+    it('splits tab-separated values (spreadsheet rows)', () => {
+        expect(splitChoicesOnPaste('one\ttwo\tthree', [''], 0, false)).toEqual(['one', 'two', 'three'])
+    })
+
+    it('trims and drops empty segments', () => {
+        expect(splitChoicesOnPaste('  one  \n\n  two  \n', [''], 0, false)).toEqual(['one', 'two'])
+    })
+
+    it('inserts segments in place of the target choice and keeps surrounding choices', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', 'placeholder', 'four'], 1, false)).toEqual([
+            'one',
+            'two',
+            'three',
+            'four',
+        ])
+    })
+
+    it('preserves the open-ended "Other" entry when pasting into a regular slot', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', '', 'Other'], 1, true)).toEqual([
+            'one',
+            'two',
+            'three',
+            'Other',
+        ])
+    })
+
+    it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
     })
 })

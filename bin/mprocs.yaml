@@ -35,7 +35,8 @@ procs:
             capability: pinned
 
     backend:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
+        sandbox: true
+        shell: 'bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         groups:
             layer: Application
@@ -43,7 +44,8 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
+        sandbox: true
+        shell: 'bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
         groups:
@@ -51,7 +53,8 @@ procs:
             tech: Python
 
     celery-beat:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
+        sandbox: true
+        shell: 'bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
         groups:
@@ -59,6 +62,7 @@ procs:
             tech: Python
 
     nodejs:
+        sandbox: true
         shell: 'bin/wait-for-docker && ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
@@ -67,10 +71,11 @@ procs:
             tech: Node
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, metrics, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
@@ -79,6 +84,7 @@ procs:
             tech: Node
 
     ingestion-logs:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-logs HTTP_SERVER_PORT=6743 ./bin/posthog-node'
         capability: nodejs_logs
         ready_pattern: 'All systems go'
@@ -86,8 +92,15 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
+    ingestion-metrics:
+        sandbox: true
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        capability: nodejs_metrics
+        ready_pattern: 'All systems go'
+
     ingestion-traces:
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        sandbox: true
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6745 ./bin/posthog-node'
         capability: nodejs_traces
         ready_pattern: 'All systems go'
         groups:
@@ -95,6 +108,7 @@ procs:
             tech: Node
 
     ingestion:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
@@ -103,6 +117,7 @@ procs:
             tech: Node
 
     ingestion-sessionreplay:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
@@ -111,6 +126,7 @@ procs:
             tech: Node
 
     recording-api:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
@@ -119,6 +135,7 @@ procs:
             tech: Node
 
     frontend:
+        sandbox: true
         shell: './bin/start-frontend'
         autorestart: true
         ready_pattern: 'VITE.*ready in'
@@ -128,6 +145,7 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     typegen:
+        sandbox: true
         shell: 'cd frontend && pnpm run typegen:watch'
         autostart: false
         ask_skip: true # wizard asks if user wants to skip this
@@ -137,6 +155,7 @@ procs:
             tech: Frontend
 
     temporal-worker:
+        sandbox: true
         shell: |-
             bin/wait-for-docker temporal && \
             bin/check_ducklake_up && \
@@ -151,7 +170,19 @@ procs:
             layer: Processing
             tech: Python
 
+    webhook-s3-sink:
+        sandbox: true
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
+        capability: warehouse_webhook_sink
+        ready_pattern: 'webhook_s3_sink_starting'
+        groups:
+            layer: Processing
+            tech: Python
+
     stripe-mock:
+        sandbox: true
         shell: 'bin/start-stripe-mock'
         capability: stripe_mock
         ready_pattern: 'Application startup complete'
@@ -176,6 +207,7 @@ procs:
             SECRET_KEY: '<randomly generated secret key>'
 
     dagster:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             bin/check_ducklake_up && \
@@ -214,6 +246,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-resolution:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-resolution
+        capability: error_symbolication
+        ready_pattern: 'gRPC server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \
@@ -229,6 +271,17 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service feature-flags
         capability: flag_evaluation
+        ready_pattern: 'listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    flags-consumer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-consumer
+        # POC skeleton — opt-in until the CDC consumer logic lands
+        autostart: false
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -264,6 +317,16 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    property-vals-rs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service property-vals-rs
+        capability: property_values
+        ready_pattern: 'Subscribed to topic: *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
     capture:
         shell: |-
             bin/wait-for-docker && \
@@ -294,6 +357,12 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    capture-logs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service capture-logs
+        capability: logs_ingestion
+
     batch-import-worker:
         shell: |-
             bin/wait-for-docker && \
@@ -323,6 +392,22 @@ procs:
             layer: Product services
             tech: Rust
 
+    personhog-etcd-init:
+        shell: |-
+            bin/wait-for-docker && \
+            docker exec posthog-etcd-1 etcdctl put /personhog/config/total_partitions 4 && \
+            echo 'etcd init complete'
+        capability: personhog
+        ready_pattern: 'etcd init complete'
+        autostart: true
+
+    personhog-router-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-router-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     personhog-leader:
         shell: |-
             bin/wait-for-docker && \
@@ -333,7 +418,15 @@ procs:
             layer: Product services
             tech: Rust
 
+    personhog-writer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-writer
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     llm-gateway:
+        sandbox: true
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
         ready_pattern: 'Application startup complete'
@@ -347,14 +440,16 @@ procs:
             LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
 
     mcp:
+        sandbox: true
         shell: 'bin/start-mcp-server'
         capability: mcp_server
-        ready_pattern: 'Ready on *'
+        ready_pattern: 'Server started on'
         groups:
             layer: Product services
-            tech: Python
+            tech: Node
 
     mcp-ui-apps:
+        sandbox: true
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
         ready_pattern: 'Initial build complete'
@@ -363,6 +458,7 @@ procs:
             tech: Frontend
 
     mcp-inspector:
+        sandbox: true
         shell: 'cd services/mcp && pnpm run inspector'
         capability: mcp_server
         autostart: false
@@ -372,6 +468,7 @@ procs:
             tech: Frontend
 
     stripe-app:
+        sandbox: true
         shell: 'bin/start-stripe-app'
         capability: stripe_app
         groups:
@@ -379,7 +476,7 @@ procs:
             tech: Python
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
@@ -387,7 +484,12 @@ procs:
             tech: Migrations
 
     migrate-clickhouse:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=clickhouse'
+        # Wait on posthog_instancesetting because Django queries that table at
+        # import time -- it's created by migrate-postgres. Without the guard,
+        # migrate-clickhouse races migrate-postgres on a fresh DB and crashes
+        # with ProgrammingError. phrocs has no depends_on field, so the
+        # dependency lives here in the shell command.
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_instancesetting && bin/migrate --scope=clickhouse'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
@@ -418,7 +520,17 @@ procs:
             tech: Migrations
         # no capability - optional migration
 
+    migrate-flags-read-store:
+        shell: 'bin/wait-for-docker && bin/migrate --scope=flags-read-store'
+        autostart: false
+        ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
+        # no capability - optional migration
+
     generate-demo-data:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py generate_demo_data
@@ -430,6 +542,7 @@ procs:
         # no capability - manual start
 
     sync-feature-flags:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py sync_feature_flags
@@ -441,6 +554,7 @@ procs:
         # no capability - manual start
 
     sync-hog-function-templates:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py sync_hog_function_templates
@@ -452,6 +566,7 @@ procs:
         # no capability - manual start
 
     storybook:
+        sandbox: true
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
@@ -461,6 +576,7 @@ procs:
         # no capability - manual start
 
     hedgebox-dummy:
+        sandbox: true
         shell: 'bin/wait-for-docker && cd tools/hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
         ready_pattern: 'Ready in *'
@@ -470,11 +586,12 @@ procs:
         # no capability - manual start
 
     warehouse-sources-load:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
+            python manage.py run_warehouse_sources_load
         autostart: false
-        ready_pattern: 'health_server_started'
+        ready_pattern: 'batch_consumer_started'
         groups:
             layer: Tools
             tech: Python

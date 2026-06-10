@@ -235,6 +235,9 @@ class TableNode(BaseModel):
     name: Literal["root"] | str = "root"  # Default to root for ease of use
     table: FieldOrTable | None = None
     children: dict[str, "TableNode"] = {}
+    # When True, the table is reachable by the resolver (so other tables can reference it
+    # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
+    hidden: bool = False
 
     def get(self) -> FieldOrTable:
         """
@@ -321,6 +324,31 @@ class TableNode(BaseModel):
             child_names = child.resolve_all_table_names()
 
             # The root node should NOT include itself in the names
+            if self.name == "root":
+                names.extend(child_names)
+            else:
+                names.extend([f"{self.name}.{x}" for x in child_names])
+
+        return names
+
+    def resolve_visible_table_names(self) -> list[str]:
+        """Same as `resolve_all_table_names` but skips nodes marked `hidden=True`.
+
+        Use this for surfaces aimed at users (SQL editor schema sidebar, autocomplete,
+        access-control allowlists). The resolver itself should keep using
+        `resolve_all_table_names` so that hidden tables remain reachable via
+        subqueries — they're just kept out of the catalog.
+        """
+        names: list[str] = []
+
+        if self.table is not None and not self.hidden:
+            names.append(self.name)
+
+        for child in self.children.values():
+            if child.hidden:
+                continue
+            child_names = child.resolve_visible_table_names()
+
             if self.name == "root":
                 names.extend(child_names)
             else:
@@ -435,13 +463,13 @@ class SavedQuery(Table):
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from products.data_warehouse.backend.models import validate_saved_query_name
+        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from products.data_warehouse.backend.models import validate_saved_query_name
+        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name

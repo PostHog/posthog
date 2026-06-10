@@ -168,12 +168,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 isTrends,
                 isSingleSeriesDefinition
             ): string | null => {
-                // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
-                if (
-                    isMultipleBreakdownsEnabled &&
-                    !hasDataWarehouseSeries &&
-                    (!breakdown_type || isMultipleBreakdownType(breakdown_type))
-                ) {
+                if (isMultipleBreakdownsEnabled && (!breakdown_type || isMultipleBreakdownType(breakdown_type))) {
                     if (!!breakdowns && breakdowns.length >= MAX_TRENDS_BREAKDOWNS) {
                         return `You can break down trends by up to ${MAX_TRENDS_BREAKDOWNS} properties. Remove one to add another.`
                     }
@@ -234,6 +229,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownLimit: [
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
+        ],
+        // Cohort breakdowns are over a user-picked set, so there's nothing to truncate
+        // and no long-tail to bucket as "Other". The global options panel is empty in that case.
+        hasGlobalBreakdownOptions: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter) => breakdownFilter?.breakdown_type !== 'cohort',
         ],
         normalizeBreakdownUrl: [
             (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],

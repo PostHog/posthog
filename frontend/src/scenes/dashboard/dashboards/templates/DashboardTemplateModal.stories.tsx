@@ -3,8 +3,6 @@ import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { urls } from 'scenes/urls'
@@ -125,10 +123,6 @@ function DashboardTemplateModalStory({
     variant: ModalStoryVariant
 }): JSX.Element {
     useEffect(() => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING], {
-            [FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]: viewerMode === 'nonStaff',
-        })
         userLogic.mount()
         userLogic.actions.loadUser()
         dashboardTemplateModalLogic.mount()
@@ -164,10 +158,6 @@ export const Edit: ModalStory = {
 
 function DashboardTemplateEditorStory({ viewerMode }: { viewerMode: ViewerMode }): JSX.Element {
     useEffect(() => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING], {
-            [FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]: viewerMode === 'nonStaff',
-        })
         userLogic.mount()
         userLogic.actions.loadUser()
         dashboardTemplateEditorLogic.mount()

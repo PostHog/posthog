@@ -16,7 +16,7 @@ from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingGroupingRule, ErrorTrackingIssueFingerprintV2
 
-from .utils import RuleReorderingMixin, generate_byte_code
+from .utils import RuleReorderingMixin, generate_byte_code, has_filter_values
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +32,8 @@ class ErrorTrackingGroupingRuleFiltersField(serializers.JSONField):
         except PydanticValidationError as err:
             logger.warning("Invalid grouping rule filters payload", exc_info=err)
             raise serializers.ValidationError("Invalid filters payload.") from err
+        if not has_filter_values(value):
+            raise serializers.ValidationError("Filters must contain at least one filter value.")
         return value
 
 
@@ -86,6 +88,14 @@ class ErrorTrackingGroupingRuleCreateRequestSerializer(serializers.Serializer):
         allow_blank=True,
         allow_null=True,
         help_text="Optional human-readable description of what this grouping rule is for.",
+    )
+
+
+class ErrorTrackingGroupingRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingGroupingRuleFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.",
     )
 
 
@@ -174,23 +184,14 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         serializer = self.get_serializer(queryset, many=True, context=context)
         return Response({"results": serializer.data})
 
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         grouping_rule = self.get_object()
-        assignee = request.data.get("assignee")
-        json_filters = request.data.get("filters")
-        description = request.data.get("description")
+        json_filters = request.validated_data.get("filters")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             grouping_rule.filters = json_filters
             grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-
-        if assignee:
-            grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
-            grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
-
-        if description:
-            grouping_rule.description = description
 
         grouping_rule.disabled_data = None
         grouping_rule.save()
@@ -202,8 +203,19 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @validated_request(
+        request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

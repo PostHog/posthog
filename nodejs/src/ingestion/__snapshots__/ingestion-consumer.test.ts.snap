@@ -137,7 +137,7 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
       "distinct_id": "overflow-distinct-id",
       "event": "$pageview",
       "now": "2025-01-01T00:00:00.000Z",
-      "redirect-step": "rateLimitToOverflowStep",
+      "redirect-step": "skipCookielessRateLimitToOverflowStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
@@ -427,23 +427,6 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
       "person_id": "<REPLACED-UUID-0>",
       "team_id": 2,
       "version": 0,
-    },
-  },
-]
-`;
-
-exports[`IngestionConsumer typical event processing client ingestion warning 1`] = `
-[
-  {
-    "headers": undefined,
-    "key": null,
-    "topic": "clickhouse_ingestion_warnings_test",
-    "value": {
-      "details": "{"eventUuid":"<REPLACED-UUID-0>","event":"$$client_ingestion_warning","distinctId":"user-1","message":"test"}",
-      "source": "plugin-server",
-      "team_id": 2,
-      "timestamp": "2025-01-01 00:00:00.000",
-      "type": "client_ingestion_warning",
     },
   },
 ]

@@ -74,7 +74,7 @@ async fn main() {
         janitor_id, bind
     );
 
-    let janitor = Janitor::new(janitor_config, &liveness)
+    let janitor = Janitor::new(janitor_config)
         .await
         .expect("failed to create janitor");
 

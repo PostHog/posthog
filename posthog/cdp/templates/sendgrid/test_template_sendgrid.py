@@ -5,7 +5,8 @@ from posthog.cdp.templates.sendgrid.template_sendgrid import (
     TemplateSendGridMigrator,
     template as template_sendgrid,
 )
-from posthog.models import PluginConfig
+
+from products.cdp.backend.models.plugin import PluginConfig
 
 
 class TestTemplateSendgrid(BaseHogFunctionTemplateTest):

@@ -57,7 +57,7 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str) ->
 
     Returns True if endpoint's current version is ready for materialized execution.
     """
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
     from products.endpoints.backend.models import Endpoint
 
     try:

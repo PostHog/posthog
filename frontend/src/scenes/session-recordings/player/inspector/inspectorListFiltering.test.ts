@@ -1,15 +1,21 @@
+import { dayjs } from 'lib/dayjs'
 import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
-import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
-import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    filterInspectorListItems,
+    itemToMiniFilter,
+} from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
+import { MiniFilters, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListBrowserVisibility,
     InspectorListItemComment,
     InspectorListItemDoctor,
     InspectorListItemEvent,
+    InspectorListItemLog,
     InspectorListItemNotebookComment,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
+import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
@@ -170,6 +176,30 @@ describe('filtering inspector list items', () => {
                 hasEventsToDisplay: true,
             })
         ).toHaveLength(expectedLength)
+    })
+
+    it.each([
+        ['trace' as LogSeverityLevel, 'logs-info'],
+        ['debug' as LogSeverityLevel, 'logs-info'],
+        ['info' as LogSeverityLevel, 'logs-info'],
+        ['warn' as LogSeverityLevel, 'logs-warn'],
+        ['error' as LogSeverityLevel, 'logs-error'],
+        ['fatal' as LogSeverityLevel, 'logs-error'],
+    ])('maps log severity %s to minifilter %s', (level, expectedKey) => {
+        const miniFiltersByKey = Object.fromEntries(MiniFilters.map((f) => [f.key, f])) as Record<
+            string,
+            SharedListMiniFilter
+        >
+        const item: InspectorListItemLog = {
+            type: 'logs',
+            timestamp: dayjs('2024-01-01T00:00:00Z'),
+            timeInRecording: 0,
+            search: 'test',
+            key: `log-test`,
+            data: { level } as InspectorListItemLog['data'],
+        }
+        const result = itemToMiniFilter(item, miniFiltersByKey)
+        expect(result?.key).toBe(expectedKey)
     })
 
     it('only shows matching events when show matching events is true', () => {

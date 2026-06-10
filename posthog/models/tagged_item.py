@@ -13,6 +13,8 @@ RELATED_OBJECTS = (
     "feature_flag",
     "experiment_saved_metric",
     "ticket",
+    "account",
+    "endpoint",
 )
 
 
@@ -43,7 +45,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     insight = models.ForeignKey(
-        "Insight",
+        "product_analytics.Insight",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -64,14 +66,14 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     action = models.ForeignKey(
-        "Action",
+        "actions.Action",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
     feature_flag = models.ForeignKey(
-        "FeatureFlag",
+        "feature_flags.FeatureFlag",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -91,6 +93,20 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         blank=True,
         related_name="tagged_items",
     )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    endpoint = models.ForeignKey(
+        "endpoints.Endpoint",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
 
     class Meta:
         unique_together = ("tag", *RELATED_OBJECTS)
@@ -103,7 +119,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
+                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
             ),
         ]
 

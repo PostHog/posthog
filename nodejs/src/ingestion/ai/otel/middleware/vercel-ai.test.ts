@@ -82,7 +82,6 @@ describe('vercel-ai middleware', () => {
                 'ai.response.timestamp': '2024-01-01T00:00:00Z',
                 'ai.response.providerMetadata': '{}',
                 'ai.request.headers.user-agent': 'ai/6.0.0',
-                'ai.telemetry.metadata.posthog_distinct_id': 'user-1',
                 'ai.telemetry.metadata.provider': 'vercel-ai',
                 'operation.name': 'ai.generateText.doGenerate my-func',
                 'resource.name': 'my-func',
@@ -94,7 +93,19 @@ describe('vercel-ai middleware', () => {
                 expect(key).not.toBe('operation.name')
                 expect(key).not.toBe('resource.name')
             }
+            expect(event.properties!['functionId']).toBe('my-func')
             expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
+        it('ignores empty functionId telemetry', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.functionId': '',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['functionId']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.functionId']).toBeUndefined()
         })
 
         it('maps gen_ai.response.finish_reasons array to $ai_stop_reason', () => {
@@ -115,6 +126,71 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
+        })
+
+        it.each([
+            ['posthog_distinct_id', 'user-1'],
+            ['$ai_session_id', 'session-123'],
+            ['$ai_prompt_name', 'my-prompt'],
+            ['$ai_prompt_version', 'v2'],
+            ['$ai_prompt_version', 2],
+        ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                [`ai.telemetry.metadata.${key}`]: value,
+                'ai.telemetry.metadata.org_id': 'org-456',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties![key]).toBe(value)
+            expect(event.properties!['org_id']).toBeUndefined()
+            expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
+        })
+
+        it('uses posthog_distinct_id as the event distinct_id', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.posthog_distinct_id': 'user-1',
+            })
+            convertOtelEvent(event)
+
+            expect(event.distinct_id).toBe('user-1')
+        })
+
+        it('ignores empty posthog_distinct_id metadata', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.posthog_distinct_id': '',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['posthog_distinct_id']).toBeUndefined()
+            expect(event.distinct_id).toBe('user-123')
+        })
+
+        it.each(['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version'])(
+            'ignores empty ai.telemetry.metadata.%s',
+            (key) => {
+                const event = createEvent('$ai_generation', {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    [`ai.telemetry.metadata.${key}`]: '',
+                })
+                convertOtelEvent(event)
+
+                expect(event.properties![key]).toBeUndefined()
+                expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
+            }
+        )
+
+        it.each([0, -1, 1.5])('ignores invalid numeric ai.telemetry.metadata.$ai_prompt_version=%s', (value) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_prompt_version': value,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_prompt_version']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
         })
     })
 

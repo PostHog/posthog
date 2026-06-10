@@ -60,7 +60,7 @@ for (let key, value in inputs.customData) {
     }
 }
 
-let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
+let res := fetch(f'https://graph.facebook.com/v25.0/{inputs.pixelId}/events', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',

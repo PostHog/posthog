@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from django.db.models.indexes import Index
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.utils import generate_short_id
@@ -26,7 +27,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
     pinned = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(default=dict)
-    type = models.CharField(max_length=50, choices=PlaylistType.choices, null=True, blank=True)
+    type = models.CharField(max_length=50, choices=PlaylistType, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
@@ -58,9 +59,13 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
         ]
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["SessionRecordingPlaylist"]:
+    def get_file_system_unfiled(
+        cls, team: "Team", surface: str = DEFAULT_SURFACE
+    ) -> QuerySet["SessionRecordingPlaylist"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="session_recording_playlist", ref_field="short_id")
+        return cls._filter_unfiled_queryset(
+            base_qs, team, type="session_recording_playlist", ref_field="short_id", surface=surface
+        )
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         href = (

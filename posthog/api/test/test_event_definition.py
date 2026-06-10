@@ -16,7 +16,9 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Action, ActivityLog, EventDefinition, Organization, Team
+from posthog.models import ActivityLog, EventDefinition, Organization, Team
+
+from products.actions.backend.models.action import Action
 
 
 @freeze_time("2020-01-02")
@@ -379,6 +381,82 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "installed_app"
 
+    @parameterized.expand(
+        [
+            (
+                "filters_to_configured_entries_when_names_given",
+                [("order_placed", "order_id"), ("event_without_primary", None)],
+                "?names=order_placed&names=event_without_primary&names=missing_event",
+                {"order_placed": "order_id"},
+            ),
+            (
+                "returns_all_configured_entries_when_no_names_given",
+                [("evt_a", "prop_a"), ("evt_b", "prop_b")],
+                "",
+                {"evt_a": "prop_a", "evt_b": "prop_b"},
+            ),
+            (
+                "omits_entries_with_empty_string_primary_property",
+                [("evt_blank", ""), ("evt_real", "real_prop")],
+                "",
+                {"evt_real": "real_prop"},
+            ),
+        ]
+    )
+    def test_primary_properties_endpoint_demo_team_scope(self, _name, seed_rows, query_string, expected_body):
+        for name, primary_property in seed_rows:
+            EventDefinition.objects.create(team=self.demo_team, name=name, primary_property=primary_property)
+
+        response = self.client.get(f"/api/projects/@current/event_definitions/primary_properties/{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"primary_properties": expected_body}
+
+    def test_primary_properties_endpoint_is_team_scoped(self):
+        other_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_team, name="other_team_event", primary_property="leak")
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/primary_properties/?names=other_team_event"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"primary_properties": {}}
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_update_event_definition_primary_property(self, *mocks):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="checkout_started")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"primary_property": "checkout_id"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["primary_property"] == "checkout_id"
+
+        event_definition.refresh_from_db()
+        assert event_definition.primary_property == "checkout_id"
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_clear_event_definition_primary_property(self, *mocks):
+        event_definition = EventDefinition.objects.create(
+            team=self.demo_team, name="checkout_started", primary_property="checkout_id"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"primary_property": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["primary_property"] is None
+
+        event_definition.refresh_from_db()
+        assert event_definition.primary_property is None
+
     def test_by_name_not_found(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -404,6 +482,43 @@ class TestEventDefinitionAPI(APIBaseTest):
         other_team = create_team(organization=self.organization)
         other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
         assert not other_team_event_exists
+
+
+class TestEventDefinitionExcludeStale(APIBaseTest):
+    """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
+    in `exclude_stale` matches the fixture last_seen_at values. The other test class is
+    wrapped in freeze_time which Postgres NOW() does not respect."""
+
+    @parameterized.expand(
+        [
+            (
+                "default keeps stale events",
+                "",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "explicit false keeps stale events",
+                "?exclude_stale=false",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "true hides stale events but keeps never-seen",
+                "?exclude_stale=true",
+                {"fresh_event", "never_seen_event"},
+            ),
+        ]
+    )
+    def test_exclude_stale_filter(self, _description: str, query_string: str, expected_names: set[str]) -> None:
+        now = timezone.now()
+        EventDefinition.objects.create(team=self.team, name="fresh_event", last_seen_at=now - timedelta(days=1))
+        EventDefinition.objects.create(team=self.team, name="stale_event", last_seen_at=now - timedelta(days=45))
+        EventDefinition.objects.create(team=self.team, name="ancient_event", last_seen_at=now - timedelta(days=365))
+        EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/{query_string}")
+        assert response.status_code == status.HTTP_200_OK
+        names = {row["name"] for row in response.json()["results"]}
+        assert names == expected_names
 
 
 @dataclasses.dataclass

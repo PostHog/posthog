@@ -180,6 +180,95 @@ export function ActionFilterRow({
         [updateFilterProperty, index]
     )
 
+    /**
+     * Shared selection handler for both the legacy `TaxonomicPopover` and the
+     * new `TaxonomicFilterMenu` / `TaxonomicAutocomplete`. The pseudo-event
+     * groups (Pageview / Screen / Autocapture events) and quick filters don't
+     * map to a plain `EntityType` — they expand into a base event plus a
+     * property filter. Keeping one handler guarantees the new picker behaves
+     * identically to the legacy one.
+     */
+    const applyTaxonomicSelection = useCallback(
+        (
+            taxonomicGroupType: TaxonomicFilterGroupType,
+            changedValue: string | number | null | undefined,
+            item: any
+        ): void => {
+            if (isQuickFilterItem(item)) {
+                if (item.eventName) {
+                    updateFilter({ type: EntityTypes.EVENTS, id: item.eventName, name: item.eventName, index })
+                }
+                updateFilterProperty({ index, properties: quickFilterToPropertyFilters(item) })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$pageview', name: '$pageview', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.IContains,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$screen', name: '$screen', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$screen_name',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$autocapture', name: '$autocapture', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+            if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                const extraValues = Object.fromEntries(dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]]))
+                updateFilter({
+                    type: groupType,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    table_name: item?.name,
+                    index,
+                    ...extraValues,
+                })
+            } else {
+                updateFilter({
+                    type: groupType || undefined,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    index,
+                })
+            }
+        },
+        [updateFilter, updateFilterProperty, index, dataWarehousePopoverFields]
+    )
+
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
         let mathProperties
         if (selectedMath) {
@@ -267,104 +356,11 @@ export function ActionFilterRow({
             value={getValue(value, filter)}
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
-            onChange={(changedValue, taxonomicGroupType, item) => {
-                if (isQuickFilterItem(item)) {
-                    if (item.eventName) {
-                        updateFilter({
-                            type: EntityTypes.EVENTS,
-                            id: item.eventName,
-                            name: item.eventName,
-                            index,
-                        })
-                    }
-                    updateFilterProperty({
-                        index,
-                        properties: quickFilterToPropertyFilters(item),
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$pageview',
-                        name: '$pageview',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$current_url',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.IContains,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$screen',
-                        name: '$screen',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$screen_name',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$autocapture',
-                        name: '$autocapture',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$el_text',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
-                if (groupType === EntityTypes.DATA_WAREHOUSE) {
-                    const extraValues = Object.fromEntries(
-                        dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]])
-                    )
-                    updateFilter({
-                        type: groupType,
-                        id: changedValue ? String(changedValue) : null,
-                        name: item?.name ?? '',
-                        table_name: item?.name,
-                        index,
-                        ...extraValues,
-                    })
-                } else {
-                    updateFilter({
-                        type: groupType || undefined,
-                        id: changedValue ? String(changedValue) : null,
-                        name: item?.name ?? '',
-                        index,
-                    })
-                }
-            }}
+            enableKeywordShortcuts
+            selectingKeyOnly
+            onChange={(changedValue, taxonomicGroupType, item) =>
+                applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
+            }
             renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
