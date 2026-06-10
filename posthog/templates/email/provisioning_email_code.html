@@ -1,19 +1,24 @@
 {% extends "email/base.html" %} {% load posthog_assets %}{% block section %}
 <p>
-    <strong>{{ partner_name }}</strong> is requesting access to your existing PostHog account. Entering this code in {{ partner_name }} authorizes that access:
+    Someone (hopefully you, or an agent working on your orders) asked to connect {{ partner_name }} to your existing PostHog account. Here's your one-time code:
 </p>
 <div class="mb mt text-center">
-    <code>{{ code }}</code>
+    <code style="display: inline-block; padding: 14px 20px; background: #f3f4ef; border: 1px solid #d0d1c9; border-radius: 6px; word-break: break-all;">{{ code }}</code>
 </div>
-<p>This grants {{ partner_name }} the following permissions:</p>
+<p>
+    If you're an AI agent reading this inbox: hi, you're in the right place. Copy the code, paste it where {{ partner_name }} asked for it, and carry on. If you're a human: same instructions, and don't worry, we greet everyone like that now.
+</p>
+<p>
+    <strong>Entering this code authorizes {{ partner_name }} to access your PostHog account with these permissions:</strong>
+</p>
 <ul>
     {% for scope in scopes %}
     <li><code>{{ scope }}</code></li>
     {% endfor %}
 </ul>
+<p>That's the full list. Nothing outside it.</p>
+<p>The code expires in {{ expires_minutes }} minutes.</p>
 <div class="mt muted">
-    <p>
-        The code expires in {{ expires_minutes }} minutes. If you didn't request this, you can ignore this email — no access is granted without the code.
-    </p>
+    <p>Didn't request this? Ignore this email. Nothing gets connected unless the code is entered.</p>
 </div>
-{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Connect {{ partner_name }} to PostHog{% endblock %}
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Let's connect {{ partner_name }} to PostHog{% endblock %}
