@@ -20,8 +20,8 @@ export function CIMDVerificationTokens(): JSX.Element {
         <div className="space-y-4">
             <p className="text-secondary">
                 Verification tokens link a CIMD partner application to this organization. Add the token to your CIMD
-                metadata document under <code>posthog_verification_token</code>. Verified partners get a higher default
-                rate limit for account provisioning and a clear identity trail. See the{' '}
+                metadata document under <code>com.posthog.verification_token</code>. Verified partners get a higher
+                default rate limit for account provisioning and a clear identity trail. See the{' '}
                 <Link
                     to="https://posthog.com/docs/integrate/provisioning#host-a-cimd-metadata-document"
                     target="_blank"
@@ -165,7 +165,8 @@ export function CIMDVerificationTokens(): JSX.Element {
                             revoke and create a new one.
                         </LemonBanner>
                         <p className="text-secondary">
-                            Add it to your CIMD metadata document as the <code>posthog_verification_token</code> field.
+                            Add it to your CIMD metadata document under the <code>com.posthog</code> namespace as{' '}
+                            <code>verification_token</code>.
                         </p>
                         <CodeSnippet language={Language.Text}>{justCreatedToken.value}</CodeSnippet>
                     </div>
