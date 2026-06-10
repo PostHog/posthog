@@ -1114,6 +1114,11 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(inputs.team_id, self.team.id)
         self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+        # On-demand applies carry the scanner id so they count toward the sweep's in-flight cap.
+        scanner_attrs = kwargs["search_attributes"]
+        self.assertTrue(
+            any(p.key.name == "PostHogScannerId" and p.value == str(self.scanner.id) for p in scanner_attrs)
+        )
 
     def test_observe_dedup_uses_deterministic_workflow_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

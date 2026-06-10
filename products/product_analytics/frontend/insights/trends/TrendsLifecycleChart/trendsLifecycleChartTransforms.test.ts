@@ -1,4 +1,4 @@
-import type { TimeInterval } from '@posthog/quill-charts'
+import type { TimeInterval, ValueLabelContext } from '@posthog/quill-charts'
 
 import type { CurrencyCode, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
@@ -6,6 +6,7 @@ import type { IntervalType } from '~/types'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
     buildLifecycleChartModel,
+    buildLifecycleValueLabelFormatter,
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
     filterToggledLifecycleResults,
@@ -240,6 +241,36 @@ describe('buildTrendsLifecycleConfig', () => {
     ])('forwards valueLabels=$input to the config', ({ input, expected }) => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, valueLabels: input })
         expect(cfg.valueLabels).toEqual(expected)
+    })
+})
+
+describe('buildLifecycleValueLabelFormatter', () => {
+    const formatValue = (v: number): string => `${v}`
+    // Diverging band: positive new + negative dormant. abs total = 30, so 20 → 67%, -10 → 33%.
+    const band: ValueLabelContext = { rawValue: 20, bandValues: [20, -10], isPercent: false }
+
+    it.each([
+        { name: 'values only', showValues: true, showPercentages: false, expected: '20' },
+        { name: 'values + percentages', showValues: true, showPercentages: true, expected: '20 (67%)' },
+        { name: 'percentages only', showValues: false, showPercentages: true, expected: '67%' },
+    ])('renders $name as "$expected"', ({ showValues, showPercentages, expected }) => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues, showPercentages })
+        expect(formatter(20, 0, 0, band)).toBe(expected)
+    })
+
+    it('uses absolute values so the negative dormant segment gets a sensible share', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(-10, 1, 0, { rawValue: -10, bandValues: [20, -10], isPercent: false })).toBe('33%')
+    })
+
+    it('returns an empty string (skip) for percentages-only when the band has no total', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(0, 0, 0, { rawValue: 0, bandValues: [0, 0], isPercent: false })).toBe('')
+    })
+
+    it('does not append percentages in percent layout (labels already express fractions)', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
+        expect(formatter(0.2, 0, 0, { rawValue: 20, bandValues: [20, 80], isPercent: true })).toBe('0.2')
     })
 })
 

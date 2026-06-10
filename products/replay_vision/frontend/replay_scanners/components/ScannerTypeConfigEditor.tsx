@@ -95,7 +95,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                 <ScannerPromptField
                     scannerId={scannerId}
                     label="Additional context"
-                    caption="We maintain the core summary prompt. Use this to give context about your product or steer summaries in a direction — for example, the ideal user flow."
+                    caption="The core summarizer prompt is built in. Use this field to add product context or steer summaries — for example, what the ideal user flow looks like."
                     placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">

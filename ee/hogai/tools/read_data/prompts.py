@@ -29,6 +29,21 @@ Some activity logs are organization-level — they are not tied to a specific pr
 These logs are always captured, but they are only included in query results when the project has the "Include organization-level activity" setting enabled. If the user asks about such changes and no results are found, let them know this setting may need to be turned on in Project settings > Activity log.
 """.strip()
 
+READ_DATA_BK_PROMPT = """
+# Business knowledge document
+
+Read a wider context window from a business knowledge document.
+
+## Use this when:
+- You found a relevant result via business knowledge search and need more surrounding context.
+- You want to see the full section or adjacent chunks around a specific ordinal.
+
+## Parameters:
+- document_id: The document ID from the search result handle `[bk-doc=<id> #<ordinal>]`.
+- around_ordinal: The chunk ordinal to center the read window on.
+- radius: How many chunks before/after to include (0-15, default 5).
+""".strip()
+
 READ_DATA_ACCOUNT_PROMPT = """
 # Account
 
@@ -120,6 +135,8 @@ Retrieves an experiment by its numeric ID or by its feature flag's key.
 {{{activity_log_prompt}}}
 
 {{{billing_prompt}}}
+
+{{{business_knowledge_prompt}}}
 """.strip()
 
 BILLING_INSUFFICIENT_ACCESS_PROMPT = """

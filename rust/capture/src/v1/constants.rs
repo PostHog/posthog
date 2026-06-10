@@ -7,6 +7,11 @@
 /// Header carrying SDK name/version metadata.
 pub const POSTHOG_SDK_INFO: &str = "PostHog-Sdk-Info";
 
+/// Max accepted `PostHog-Sdk-Info` length (real values are ~20 bytes). Longer
+/// values skip `$lib` injection so an oversized header can't be amplified
+/// into every event of a batch.
+pub(super) const MAX_SDK_INFO_LEN: usize = 200;
+
 /// Header indicating the SDK retry attempt number.
 pub const POSTHOG_ATTEMPT: &str = "PostHog-Attempt";
 
@@ -39,6 +44,10 @@ pub(super) const REQUIRED_HEADERS: &[&str] = &[
 
 /// Counter name for v1 analytics errors (labels: error, level, path, status_code).
 pub(super) const CAPTURE_V1_ERROR_METRIC: &str = "capture_v1_analytics_error";
+
+/// Counter for non-fatal conditions on otherwise-successful v1 requests
+/// (labels: reason, path). Shared key to avoid single-use metrics in Grafana.
+pub(super) const CAPTURE_V1_WARNING_METRIC: &str = "capture_v1_analytics_warning";
 
 /// Counter name for body-read timeouts during payload extraction.
 pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";

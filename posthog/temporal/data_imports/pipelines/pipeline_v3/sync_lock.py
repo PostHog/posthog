@@ -30,7 +30,7 @@ def _lock_key(team_id: int, schema_id: str) -> str:
 
 
 @contextmanager
-def _get_redis_client() -> Generator[redis.Redis | None, None, None]:
+def _get_redis_client() -> Generator[redis.Redis | None]:
     redis_client = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:

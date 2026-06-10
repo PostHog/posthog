@@ -187,6 +187,9 @@ export interface ChartConfig {
 
     /** Show horizontal grid lines at y-axis tick positions. */
     showGrid?: boolean
+    /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
+     *  when `showGrid` is true, since the grid already frames the plot. */
+    showAxisLines?: boolean
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -244,8 +247,10 @@ export interface BarsConfig {
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
-     *  semantics don't apply when bars share a band). Defaults to `false`. */
-    track?: boolean
+     *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
+     *  highlights the track region on hover; pass `{ hover: false }` to draw the track
+     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
+    track?: boolean | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal

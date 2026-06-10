@@ -7,14 +7,12 @@ description: >
   third-party domains that may indicate a compromised script. Emits aggregated
   findings only when a cluster clears the confidence bar; otherwise writes durable
   memory and closes out empty. Self-contained peer in the signals-scout-* fleet — no
-  dependencies on other skills. Picked uniformly at random by the coordinator
-  alongside `signals-scout-general` and other specialists.
+  dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  standard analytics tools (execute-sql, read-data-schema, activity-log-list,
-  inbox-reports-list).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the analytics tools listed in the body's MCP
+  tools section.
 metadata:
   owner_team: signals
   scope: csp_violations
@@ -83,8 +81,8 @@ Three cheap reads cold-start a run:
 ### Explore
 
 Patterns to watch — starting points, not a checklist. Group violations along four
-dimensions and look for clusters worth a finding. The team's existing push-based
-emission (PR #58596) already deduplicates _individual_ violations at
+dimensions and look for clusters worth a finding. PostHog's push-based CSP
+emission already deduplicates _individual_ violations at
 `sha1(violated_directive | blocked_url | document_url | source_file)` granularity with a
 24h Redis TTL; your job is to _aggregate_ across that grain into higher-confidence
 findings the inbox wouldn't surface on its own.
@@ -115,8 +113,7 @@ ORDER BY occurrences DESC
 LIMIT 20
 ```
 
-Three lenses for triage — copy these directly from PR #58596's `_build_description`,
-they're the prompt the team needs:
+Three lenses for triage — every blocked-URL finding should name which one fits:
 
 1. **Legitimate — CSP policy needs widening.** New CDN, new analytics provider, new
    marketing tag the team rolled out and forgot to add to the allowlist.
@@ -276,7 +273,7 @@ Harness-level:
 
 "Looked but found nothing meaningful" is a real outcome.
 
-## How this relates to the push-based source (PR #58596)
+## How this relates to the push-based CSP source
 
 The companion push path (`posthog/tasks/csp_signal.py`, behind per-team
 `SignalSourceConfig` opt-in) emits **one raw signal per unique violation fingerprint**

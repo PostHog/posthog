@@ -114,7 +114,7 @@ def mssql_config() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connection, None, None]:
+def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connection]:
     with pymssql.connect(
         server=mssql_config["host"],
         port=mssql_config["port"],
@@ -136,9 +136,7 @@ def _insert_test_data(cursor: pymssql.Cursor, table_name: str, data: list[tuple[
 
 
 @pytest.fixture
-def mssql_source_table(
-    mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]
-) -> Generator[pymssql.Cursor, None, None]:
+def mssql_source_table(mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]) -> Generator[pymssql.Cursor]:
     """Create a MS SQL Server table with test data and clean it up after the test."""
     with mssql_connection.cursor() as cursor:
         full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
@@ -503,7 +501,7 @@ class TestGetTableAverageRowSize:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create a MS SQL Server table with deterministic row size and clean it up after the test."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
@@ -577,7 +575,7 @@ class TestGetTableStats:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create a small test table with known size and row count."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[test_small]"
@@ -628,7 +626,7 @@ class TestGetTableStats:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create an empty test table."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[test_empty]"
