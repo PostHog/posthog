@@ -721,7 +721,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         return query
 
     def get_funnel_actors_cte(self, additional_properties: list[Any] | None = None) -> ast.SelectQuery:
-        extra_fields = ["steps", "final_timestamp", "first_timestamp"]
+        extra_fields = ["steps"]
 
         for prop in self.properties_to_include:
             extra_fields.append(prop)
