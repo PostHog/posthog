@@ -976,7 +976,7 @@ const destinationDefinitions: DestinationConfig[] = [
     // SIEM
     {
         name: 'Datadog SIEM',
-        id: 'coming-soon-datadog',
+        id: 'coming-soon-datadog-siem',
         icon_url: '/static/coming-soon-destinations/Datadog.svg',
         category: ['SIEM'],
     },
