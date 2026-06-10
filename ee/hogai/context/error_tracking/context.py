@@ -57,15 +57,21 @@ class ErrorTrackingIssueContext:
     def _get_first_event_sync(self, first_seen: datetime | None = None) -> dict | None:
         """Synchronous implementation of get_first_event."""
         # withFirstEvent reads every matching event's properties blob, so scan a narrow
-        # window around first_seen instead of the issue's entire history.
-        date_range = (
-            DateRange(
-                date_from=(first_seen - timedelta(hours=1)).isoformat(),
-                date_to=(first_seen + timedelta(hours=1)).isoformat(),
+        # window around first_seen first. first_seen tracks ingestion time, which can be
+        # far from the event timestamps the query filters on (imports, backdated events),
+        # so fall back to the full history when the window comes up empty.
+        if first_seen is not None:
+            event = self._query_first_event(
+                DateRange(
+                    date_from=(first_seen - timedelta(hours=1)).isoformat(),
+                    date_to=(first_seen + timedelta(hours=1)).isoformat(),
+                )
             )
-            if first_seen is not None
-            else DateRange(date_from="all")
-        )
+            if event is not None:
+                return event
+        return self._query_first_event(DateRange(date_from="all"))
+
+    def _query_first_event(self, date_range: DateRange) -> dict | None:
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=self._issue_id,

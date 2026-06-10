@@ -135,6 +135,14 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         assert event is not None
         self.assertIn("$exception_list", event["properties"])
 
+    async def test_aget_first_event_falls_back_when_window_misses(self):
+        context = self._create_context(self.issue_id_one)
+
+        event = await context.aget_first_event(now() + relativedelta(days=30))
+
+        assert event is not None
+        self.assertIn("$exception_list", event["properties"])
+
     async def test_format_stacktrace_correctly(self):
         context = self._create_context(self.issue_id_one)
 
