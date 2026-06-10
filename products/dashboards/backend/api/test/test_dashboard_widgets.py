@@ -16,6 +16,7 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -569,7 +570,7 @@ class TestDashboardWidgets(APIBaseTest):
         results = response.json()["results"]
         assert any(entry["widget_type"] == "error_tracking_list" for entry in results)
         error_tracking_list = next(entry for entry in results if entry["widget_type"] == "error_tracking_list")
-        assert error_tracking_list["config_schema_hints"]["limit"]["max"] == 25
+        assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
     @override_settings(IN_UNIT_TESTING=True)
