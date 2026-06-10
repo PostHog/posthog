@@ -1,31 +1,17 @@
 import { billingByteReductionForDrops } from './logs-ingestion-consumer'
 
 describe('billingByteReductionForDrops', () => {
-    it('credits the dropped content fraction of the header', () => {
-        // 60% of content dropped → credit 60% of the 1000-byte header.
-        expect(billingByteReductionForDrops(1000, 600, 1000)).toBe(600)
-    })
-
-    it('credits nothing when no rows were dropped', () => {
-        expect(billingByteReductionForDrops(1000, 0, 1000)).toBe(0)
-    })
-
-    it('credits the full header when every row is dropped', () => {
-        expect(billingByteReductionForDrops(1000, 1000, 1000)).toBe(1000)
-    })
-
-    it('credits nothing when we cannot measure (no per-row bytes / no header)', () => {
-        expect(billingByteReductionForDrops(1000, 50, 0)).toBe(0)
-        expect(billingByteReductionForDrops(0, 50, 100)).toBe(0)
-    })
-
-    it('caps the dropped fraction at 1 (defensive)', () => {
-        expect(billingByteReductionForDrops(1000, 1500, 1000)).toBe(1000)
-    })
-
-    it('rounds to whole bytes', () => {
-        // 1000 × 1/3 = 333.33 → 333
-        expect(billingByteReductionForDrops(1000, 1, 3)).toBe(333)
+    it.each<[string, number, number, number, number]>([
+        // label, headerBytes, bytesDropped, bytesTotal, expected
+        ['credits the dropped content fraction of the header', 1000, 600, 1000, 600],
+        ['credits nothing when no rows were dropped', 1000, 0, 1000, 0],
+        ['credits the full header when every row is dropped', 1000, 1000, 1000, 1000],
+        ['credits nothing when bytesTotal is zero (unmeasurable)', 1000, 50, 0, 0],
+        ['credits nothing when headerBytes is zero (unmeasurable)', 0, 50, 100, 0],
+        ['caps the dropped fraction at 1 (defensive)', 1000, 1500, 1000, 1000],
+        ['rounds to whole bytes (1000 × 1/3 = 333.33 → 333)', 1000, 1, 3, 333],
+    ])('%s', (_label, headerBytes, bytesDropped, bytesTotal, expected) => {
+        expect(billingByteReductionForDrops(headerBytes, bytesDropped, bytesTotal)).toBe(expected)
     })
 
     it('content- and record-weighted credits diverge on size-skewed drops (Tier 2 confidence signal)', () => {

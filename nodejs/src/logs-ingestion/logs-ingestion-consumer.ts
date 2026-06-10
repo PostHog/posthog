@@ -99,7 +99,7 @@ export const logsBytesReceivedCounter = new Counter({
 
 export const logsBytesAllowedCounter = new Counter({
     name: 'logs_ingestion_bytes_allowed_total',
-    help: 'Total uncompressed bytes allowed through quota and rate limiting',
+    help: 'Total uncompressed bytes allowed through quota and rate limiting. Gross of the drop-rule billing credit: billed bytes_ingested = this − logs_ingestion_billing_bytes_credited_total.',
 })
 
 export const logsBytesAllowedRecordsCounter = new Counter({
@@ -126,7 +126,7 @@ export const logsRecordsReceivedCounter = new Counter({
 
 export const logsRecordsAllowedCounter = new Counter({
     name: 'logs_ingestion_records_allowed_total',
-    help: 'Total log records allowed through quota and rate limiting',
+    help: 'Total log records allowed through quota and rate limiting. Gross of the drop-rule billing credit: billed records_ingested = this − logs_ingestion_billing_records_credited_total.',
 })
 
 export const logsRecordsDroppedCounter = new Counter({
@@ -443,6 +443,7 @@ export class LogsIngestionConsumer {
         }
 
         logsBytesAllowedRecordsCounter.inc(totalBytesAllowedRecords)
+        // Gross, before the drop-rule billing credit applied in processAndProduceLogMessages (see counter help).
         logsBytesAllowedCounter.inc(totalBytesAllowed)
         logsRecordsAllowedCounter.inc(totalRecordsAllowed)
 
