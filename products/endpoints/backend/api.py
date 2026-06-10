@@ -50,6 +50,7 @@ from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.api.documentation import extend_schema
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -87,6 +88,7 @@ from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,
 )
+from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.materialization import (
     ENDPOINT_BREAKDOWN_LIMIT,
     SUPPORTED_BUCKET_FUNCTIONS,
@@ -395,10 +397,13 @@ class EndpointViewSet(
     AccessControlViewSetMixin,
     PydanticModelMixin,
     TaggedItemViewSetMixin,
+    LogEntryMixin,
     viewsets.ModelViewSet,
 ):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
+    # Read endpoint execution logs from the `log_entries` table keyed by this source.
+    log_source = ENDPOINTS_LOG_SOURCE
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = [
         "retrieve",
@@ -409,6 +414,7 @@ class EndpointViewSet(
         "materialization_preview",
         "materialization_status",
         "get_endpoints_last_execution_times",
+        "logs",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -2310,7 +2316,12 @@ class EndpointViewSet(
         execution_type = "materialized" if use_materialized else "inline"
         query_kind_metric = query_kind_label(version_obj.query if version_obj else None)
         execution_status: str | None = None
+        execution_id = str(uuid.uuid4())
+        cache_outcome: str | None = None
+        result_row_count: int | None = None
+        error_label: str | None = None
         _start_time = time.monotonic()
+        _duration = 0.0
 
         try:
             if use_materialized:
@@ -2362,6 +2373,7 @@ class EndpointViewSet(
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             execution_status = "error"
+            error_label = getattr(e, "code_name", None) or type(e).__name__
             logger.exception(
                 "Endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -2370,6 +2382,7 @@ class EndpointViewSet(
             raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
         except HogVMException:
             execution_status = "error"
+            error_label = "HogVMException"
             logger.exception(
                 "Endpoint execution failed (HogVM)",
                 endpoint_name=endpoint.name,
@@ -2377,6 +2390,7 @@ class EndpointViewSet(
             raise ValidationError("Query execution failed: HogQL virtual machine error")
         except ResolutionError:
             execution_status = "error"
+            error_label = "ResolutionError"
             logger.exception(
                 "Endpoint resolution failed",
                 endpoint_name=endpoint.name,
@@ -2385,8 +2399,9 @@ class EndpointViewSet(
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
-        except Exception:
+        except Exception as e:
             execution_status = "error"
+            error_label = type(e).__name__
             raise
         finally:
             if execution_status is not None:
@@ -2397,6 +2412,19 @@ class EndpointViewSet(
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
+            if execution_status == "error":
+                log_endpoint_execution(
+                    team_id=self.team_id,
+                    endpoint_id=str(endpoint.id),
+                    instance_id=execution_id,
+                    level="ERROR",
+                    message=build_execution_message(
+                        succeeded=False,
+                        execution_type=execution_type,
+                        version=version_obj.version if version_obj else None,
+                        error=error_label,
+                    ),
+                )
 
         try:
             if isinstance(result.data, dict):
@@ -2407,12 +2435,28 @@ class EndpointViewSet(
                         execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
                     ).inc()
 
-                if query_kind_metric == "hogql":
-                    results_value = result.data.get("results")
-                    if isinstance(results_value, list):
-                        ENDPOINT_HOGQL_RESULT_ROWS.labels(execution_type=execution_type).observe(len(results_value))
+                results_value = result.data.get("results")
+                if isinstance(results_value, list):
+                    result_row_count = len(results_value)
+                    if query_kind_metric == "hogql":
+                        ENDPOINT_HOGQL_RESULT_ROWS.labels(execution_type=execution_type).observe(result_row_count)
         except Exception:
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
+
+        log_endpoint_execution(
+            team_id=self.team_id,
+            endpoint_id=str(endpoint.id),
+            instance_id=execution_id,
+            level="INFO",
+            message=build_execution_message(
+                succeeded=True,
+                execution_type=execution_type,
+                cache_outcome=cache_outcome,
+                duration_ms=round(_duration * 1000),
+                rows=result_row_count,
+                version=version_obj.version if version_obj else None,
+            ),
+        )
 
         if get_query_tag_value("access_method") == "personal_api_key":
             now = timezone.now()

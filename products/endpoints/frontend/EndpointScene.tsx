@@ -46,6 +46,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
@@ -112,6 +113,15 @@ export function EndpointScene(): JSX.Element {
                 : undefined,
         },
         {
+            key: EndpointTab.LOGS,
+            label: 'Logs',
+            'data-attr': 'endpoint-logs-tab',
+            content: <EndpointLogs />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LOGS }).url
+                : undefined,
+        },
+        {
             key: EndpointTab.HISTORY,
             label: 'History',
             'data-attr': 'endpoint-history-tab',
@@ -174,6 +184,8 @@ export function EndpointScene(): JSX.Element {
                 return <EndpointVersions />
             case EndpointTab.PLAYGROUND:
                 return <EndpointPlayground />
+            case EndpointTab.LOGS:
+                return <EndpointLogs />
             case EndpointTab.HISTORY:
                 return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
             case EndpointTab.QUERY:
