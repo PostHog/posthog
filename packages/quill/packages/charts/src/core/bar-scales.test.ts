@@ -211,11 +211,36 @@ describe('hog-charts bar scales', () => {
         })
     })
 
+    describe('createBarScales — fitToHeight value domain', () => {
+        // minBandSize == plotHeight forces maxBands = 1, so only the leading row survives.
+        const dropToFirst = {
+            axisOrientation: 'horizontal' as const,
+            fitToHeight: true,
+            minBandSize: dimensions.plotHeight,
+        }
+
+        it('scales the value axis to only the rows fitToHeight keeps', () => {
+            const series = [makeSeries({ key: 's1', data: [5, 10, 999] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, dropToFirst)
+            // 999 sits in a dropped row, so it must not stretch the domain past the kept value.
+            expect(value.domain()[1]).toBeLessThan(999)
+        })
+
+        it('keeps a large value in the domain when its row survives', () => {
+            const series = [makeSeries({ key: 's1', data: [999, 5, 10] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, dropToFirst)
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(999)
+        })
+
+        it('leaves the domain spanning every row when no rows are dropped', () => {
+            const series = [makeSeries({ key: 's1', data: [5, 10, 999] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(999)
+        })
+    })
+
     describe('groupedBandSlot', () => {
-        const series = [
-            makeSeries({ key: 's1', data: [1, 2] }),
-            makeSeries({ key: 's2', data: [3, 4] }),
-        ]
+        const series = [makeSeries({ key: 's1', data: [1, 2] }), makeSeries({ key: 's2', data: [3, 4] })]
         const grouped = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'grouped' })
 
         it("returns the series' band-axis slot within the band", () => {

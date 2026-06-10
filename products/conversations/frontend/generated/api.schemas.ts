@@ -145,6 +145,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * * `llm_analytics` - llm_analytics
  * * `sandbox` - sandbox
  * * `user_interview` - user_interview
+ * * `customer_analytics` - customer_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -161,6 +162,7 @@ export const AgentModeEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
     UserInterview: 'user_interview',
+    CustomerAnalytics: 'customer_analytics',
 } as const
 
 /**
@@ -732,9 +734,17 @@ export type ConversationsTicketsListParams = {
      */
     status?: string
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     * JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.
      */
     tags?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.
+     */
+    tags_all?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
+     */
+    tags_exclude?: string
 }
 
 export type ConversationsTicketsListChannelDetail =

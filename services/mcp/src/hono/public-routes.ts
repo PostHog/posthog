@@ -2,9 +2,10 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import type { Hono } from 'hono'
 
 import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import type { Lifecycle } from './app'
-import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED } from './constants'
+import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL } from './constants'
 import { register } from './metrics'
 import type { HonoCtx, RedisWithPing } from './types'
 
@@ -56,7 +57,7 @@ const wellKnownHandler = (c: HonoCtx): Response => {
         {
             resource: resourceUrl.toString().replace(/\/$/, ''),
             authorization_servers: [getAuthorizationServerUrl()],
-            scopes_supported: OAUTH_SCOPES_SUPPORTED,
+            scopes_supported: getAdvertisedOAuthScopes(),
             bearer_methods_supported: ['header'],
         },
         200,
