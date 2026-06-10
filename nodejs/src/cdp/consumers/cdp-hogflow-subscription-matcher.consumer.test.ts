@@ -626,6 +626,67 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update).toBeUndefined()
         })
 
+        it('does not wake on an empty property condition (always-true bytecode)', async () => {
+            // A condition with no properties compiles to always-true bytecode and would otherwise
+            // wake the job on any incoming event, bypassing the events the wait is configured for.
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                events: [
+                                    {
+                                        filters: {
+                                            bytecode: eventBytecode('wuc_subscribed'),
+                                            events: [
+                                                {
+                                                    id: 'wuc_subscribed',
+                                                    name: 'wuc_subscribed',
+                                                    type: 'events',
+                                                    order: 0,
+                                                },
+                                            ],
+                                        },
+                                    },
+                                ],
+                                // Empty property condition: bytecode is TRUE (op 29), no properties.
+                                condition: { filters: { bytecode: ['_H', 1, 29], properties: [] } },
+                                max_wait_duration: '5m',
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
         it('skips candidates whose hogflow is not in cache', async () => {
             matcher.findRows = [
                 {

@@ -240,7 +240,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 return true
             }
         }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
+        // An empty property condition compiles to always-true bytecode, which would wake the job
+        // on the next event of any kind. Only evaluate the condition when it has real properties;
+        // otherwise the wait relies on its `events` / the step timeout.
+        const conditionFilters = action.config.condition?.filters
+        if (!conditionFilters?.properties?.length) {
+            return false
+        }
+        return runBytecode(conditionFilters.bytecode, filterGlobals, context)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {

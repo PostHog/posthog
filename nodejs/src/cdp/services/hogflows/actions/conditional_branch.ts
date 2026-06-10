@@ -10,6 +10,10 @@ import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
+function waitConditionHasProperties(condition?: { filters?: { properties?: unknown[] } }): boolean {
+    return (condition?.filters?.properties?.length ?? 0) > 0
+}
+
 export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
@@ -38,7 +42,12 @@ export class ConditionalBranchHandler implements ActionHandler {
                       ...action,
                       type: 'conditional_branch',
                       config: {
-                          conditions: [action.config.condition],
+                          // An empty property condition compiles to always-true bytecode, which would
+                          // match on entry and fire the wait immediately. Only honor a condition that
+                          // has real properties; otherwise the wait relies on its events / the timeout.
+                          conditions: waitConditionHasProperties(action.config.condition)
+                              ? [action.config.condition]
+                              : [],
                           delay_duration: action.config.max_wait_duration,
                       },
                   }
