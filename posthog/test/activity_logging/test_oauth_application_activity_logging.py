@@ -1,23 +1,13 @@
 from posthog.test.base import BaseTest
 
-from django.conf import settings
-from django.test import override_settings
-
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestOAuthApplicationActivityLogging(BaseTest):
     def setUp(self):
         super().setUp()
