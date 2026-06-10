@@ -28,9 +28,7 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        canonical_issue_id = validate_uuid_param(self.query.issueId, "issueId")
-        if canonical_issue_id is not None:
-            self.query.issueId = canonical_issue_id
+        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from if self.query.dateRange else None)
         self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to if self.query.dateRange else None)
 

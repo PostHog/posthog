@@ -1,6 +1,6 @@
 import re
 import datetime
-from typing import Literal
+from typing import Literal, overload
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -10,6 +10,14 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
+
+
+@overload
+def validate_uuid_param(value: str, name: str) -> str: ...
+
+
+@overload
+def validate_uuid_param(value: None, name: str) -> None: ...
 
 
 def validate_uuid_param(value: str | None, name: str) -> str | None:
