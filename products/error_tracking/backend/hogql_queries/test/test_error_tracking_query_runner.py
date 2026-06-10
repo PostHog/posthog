@@ -14,9 +14,11 @@ from posthog.test.base import (
 )
 from unittest import TestCase
 
+from django.core.exceptions import ValidationError
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
@@ -741,6 +743,11 @@ class ErrorTrackingQueryRunnerTestsMixin:
 class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
     __test__ = True
     use_v2 = False
+
+    @parameterized.expand(["issueId", "personId"])
+    def test_rejects_malformed_uuid_params(self, field):
+        with self.assertRaises(ValidationError):
+            self._calculate(**{field: "test-distinct-id"})
 
     @freeze_time("2022-01-10T12:11:00")
     def test_event_filter_group_operator(self):
