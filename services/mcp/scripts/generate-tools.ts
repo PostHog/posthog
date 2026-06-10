@@ -1036,7 +1036,6 @@ function generateToolCode(
             schemaDecl,
             originalHandlerBody: handlerBody,
             resultType,
-            paramsUsed,
         })
         return {
             code: wrapped.code,
@@ -1092,7 +1091,6 @@ function buildConfirmedActionFactories(args: {
     schemaDecl: string
     originalHandlerBody: string
     resultType: string
-    paramsUsed: boolean
 }): { code: string } {
     const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
     const baseFactory = toCamelCase(toolName)
@@ -1105,6 +1103,11 @@ function buildConfirmedActionFactories(args: {
     const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
 
     // Execute schema = base schema extended with the two framework fields.
+    // `confirmation` is z.string() not z.literal('confirm') on purpose: the
+    // runtime checks the value and refuses with a structured tool-call
+    // result + metric counter. A literal would raise a generic zod parse
+    // error before our guard runs, losing the metric and the
+    // user-targetted refusal text.
     const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
     confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),

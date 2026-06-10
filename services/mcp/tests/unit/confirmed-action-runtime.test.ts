@@ -80,6 +80,18 @@ describe('prepareConfirmedAction', () => {
         })
         expect(result.message).toBe('Delete {missing}')
     })
+
+    it('leaves non-scalar placeholders literal (no "[object Object]" in user prompts)', async () => {
+        const codec = makeCodec()
+        const result = await prepareConfirmedAction(makeContext(), {
+            args: { filters: { team: 1 }, tags: ['a', 'b'] },
+            purpose: 'p',
+            actionLabel: 'a',
+            messageTemplate: 'Apply {filters} for {tags}',
+            codec,
+        })
+        expect(result.message).toBe('Apply {filters} for {tags}')
+    })
 })
 
 describe('executeConfirmedAction', () => {

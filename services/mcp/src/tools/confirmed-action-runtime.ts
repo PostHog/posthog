@@ -210,12 +210,19 @@ function refuse(purpose: string, reason: string, message: string): { ok: false; 
  * Replace `{paramName}` placeholders in `template` with `args[paramName]`.
  * Missing keys stay as the literal `{name}` so authors notice during smoke
  * tests rather than silently shipping `"Delete organization ?"` to a user.
+ * Non-scalar values (objects, arrays) are left as the literal `{name}` too
+ * — these are user-facing confirmation prompts; rendering "[object Object]"
+ * silently is worse than the author seeing the placeholder leak through.
  */
 function interpolate(template: string, args: Record<string, unknown>): string {
     return template.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (full, key: string) => {
-        if (key in args) {
-            const value = args[key]
-            return value === null || value === undefined ? full : String(value)
+        if (!(key in args)) {
+            return full
+        }
+        const value = args[key]
+        const t = typeof value
+        if (t === 'string' || t === 'number' || t === 'boolean') {
+            return String(value)
         }
         return full
     })
