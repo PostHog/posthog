@@ -10,10 +10,11 @@ import {
     ValueLabels,
 } from '@posthog/quill-charts'
 
+import { formatPercentage } from 'lib/utils'
+
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
-import { formatPercent } from './formatters'
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -66,7 +67,7 @@ export function ToolErrorRateChart({
                 <ChartTooltip
                     title={row.tool}
                     rows={[
-                        ['Error rate', formatPercent(row.error_rate_pct)],
+                        ['Error rate', formatPercentage(row.error_rate_pct, { compact: true })],
                         ['Errors', String(row.errors)],
                         ['Calls', String(row.total_calls)],
                     ]}
@@ -92,7 +93,10 @@ export function ToolErrorRateChart({
             >
                 <div className="flex flex-col">
                     <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
-                        <ValueLabels valueFormatter={(value) => formatPercent(value)} offset={6} />
+                        <ValueLabels
+                            valueFormatter={(value) => formatPercentage(value, { compact: true })}
+                            offset={6}
+                        />
                     </BarChart>
                 </div>
             </CardState>

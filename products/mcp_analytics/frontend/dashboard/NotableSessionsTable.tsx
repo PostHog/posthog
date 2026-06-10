@@ -1,11 +1,12 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { Badge, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
+import { formatPercentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { CARD_SURFACE } from './Card'
-import { formatDuration, formatPercent, truncateSessionId } from './formatters'
+import { formatDuration, truncateSessionId } from './formatters'
 
 const DESTRUCTIVE_ERROR_PCT = 5
 const WARNING_ERROR_PCT = 1
@@ -24,7 +25,9 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     if (errorRatePct === 0) {
         return <Badge variant="success">Healthy</Badge>
     }
-    return <Badge variant={statusVariant(errorRatePct)}>{formatPercent(errorRatePct)} errors</Badge>
+    return (
+        <Badge variant={statusVariant(errorRatePct)}>{formatPercentage(errorRatePct, { compact: true })} errors</Badge>
+    )
 }
 
 function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {

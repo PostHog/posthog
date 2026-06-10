@@ -2,11 +2,12 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
 import { cn } from '@posthog/quill-primitives'
 
+import { formatPercentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
 import { CARD_SURFACE } from './Card'
-import { formatMs, formatNumber, formatPercent } from './formatters'
+import { formatMs, formatNumber } from './formatters'
 
 interface TileSpec {
     label: string
@@ -87,7 +88,7 @@ export function KpiTiles({
             label: 'Error rate',
             metric: kpis.errorRatePct,
             href: urls.mcpAnalyticsSessions(),
-            format: formatPercent,
+            format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
         },

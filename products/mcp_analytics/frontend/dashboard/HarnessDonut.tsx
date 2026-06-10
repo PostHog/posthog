@@ -10,10 +10,12 @@ import {
     useRadialLayout,
 } from '@posthog/quill-charts'
 
+import { formatPercentage } from 'lib/utils'
+
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import { Card } from './Card'
 import { ChartTooltip } from './ChartTooltip'
-import { formatNumber, formatPercent } from './formatters'
+import { formatNumber } from './formatters'
 import { HARNESS_LOGOS, HarnessPill, harnessSliceColor } from './harness'
 
 const HARNESS_DONUT_CONFIG: PieChartConfig = {
@@ -97,9 +99,9 @@ export function HarnessDonut({
                 title={row.category}
                 rows={[
                     ['Calls', String(row.total_calls)],
-                    ['Share', formatPercent(share)],
+                    ['Share', formatPercentage(share, { compact: true })],
                     ['Sessions', String(row.sessions)],
-                    ['Error rate', formatPercent(row.error_rate_pct)],
+                    ['Error rate', formatPercentage(row.error_rate_pct, { compact: true })],
                 ]}
             />
         )
