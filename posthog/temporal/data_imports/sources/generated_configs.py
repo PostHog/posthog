@@ -321,7 +321,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class CircleCISourceConfig(config.Config):
-    pass
+    api_token: str
+    org_slug: str
 
 
 @config.config
