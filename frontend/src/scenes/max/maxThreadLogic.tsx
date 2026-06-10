@@ -811,13 +811,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         const conversationId = values.conversation?.id
                         let recoveredAnswer = false
                         if (conversationId) {
+                            let reloadSucceeded = false
                             try {
                                 await maxGlobalLogic.asyncActions.loadConversation(conversationId)
+                                reloadSucceeded = true
                             } catch {
                                 // Reload itself failed (still offline / proxy still dropping the
-                                // connection) — fall back to the failure bubble below.
+                                // connection) — fall back to the failure bubble below. Don't reconcile
+                                // against the cached conversation: it may be a stale snapshot from an
+                                // earlier turn, which would clobber the user's latest question.
                             }
-                            if ((logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
+                            if (reloadSucceeded && (logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
                                 const reloaded = maxGlobalLogic.values.conversationHistory.find(
                                     (c) => c.id === conversationId
                                 )

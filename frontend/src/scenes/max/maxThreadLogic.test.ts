@@ -1071,13 +1071,27 @@ describe('maxThreadLogic', () => {
             )
         })
 
-        it('keeps the failure bubble when the server has no answer for the latest turn', async () => {
-            const unfinishedConversation: ConversationDetail = {
-                ...MOCK_CONVERSATION,
-                status: ConversationStatus.Idle,
-                messages: [{ type: AssistantMessageType.Human, content: 'hello', id: 'human-1' }],
-            } as ConversationDetail
-            jest.spyOn(api.conversations, 'get').mockResolvedValue(unfinishedConversation)
+        it.each([
+            [
+                'the server has no answer for the latest turn',
+                {
+                    ...MOCK_CONVERSATION,
+                    status: ConversationStatus.Idle,
+                    messages: [{ type: AssistantMessageType.Human, content: 'hello', id: 'human-1' }],
+                } as ConversationDetail,
+            ],
+            [
+                'the conversation is still in progress server-side',
+                {
+                    ...MOCK_IN_PROGRESS_CONVERSATION,
+                    messages: [
+                        { type: AssistantMessageType.Human, content: 'hello', id: 'human-1' },
+                        { type: AssistantMessageType.Assistant, content: 'partial', id: 'assistant-1' },
+                    ],
+                } as ConversationDetail,
+            ],
+        ])('keeps the failure bubble when %s', async (_description, serverConversation) => {
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(serverConversation)
             jest.spyOn(api.conversations, 'stream').mockRejectedValue(new Error('stream interrupted'))
 
             logic.actions.setConversation(MOCK_CONVERSATION)
@@ -1089,15 +1103,19 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(true)
         })
 
-        it('keeps the failure bubble when the conversation is still in progress server-side', async () => {
-            const inProgressConversation: ConversationDetail = {
-                ...MOCK_IN_PROGRESS_CONVERSATION,
+        it('keeps the failure bubble when the conversation reload itself fails', async () => {
+            // A stale cached conversation that does contain a completed turn — reconciling against it
+            // would wrongly recover and clobber the user's latest question. The failed reload must
+            // prevent that.
+            maxGlobalLogic().actions.prependOrReplaceConversation({
+                ...MOCK_CONVERSATION,
+                status: ConversationStatus.Idle,
                 messages: [
-                    { type: AssistantMessageType.Human, content: 'hello', id: 'human-1' },
-                    { type: AssistantMessageType.Assistant, content: 'partial', id: 'assistant-1' },
+                    { type: AssistantMessageType.Human, content: 'old question', id: 'human-old' },
+                    { type: AssistantMessageType.Assistant, content: 'old answer', id: 'assistant-old' },
                 ],
-            } as ConversationDetail
-            jest.spyOn(api.conversations, 'get').mockResolvedValue(inProgressConversation)
+            } as ConversationDetail)
+            jest.spyOn(api.conversations, 'get').mockRejectedValue(new Error('still offline'))
             jest.spyOn(api.conversations, 'stream').mockRejectedValue(new Error('stream interrupted'))
 
             logic.actions.setConversation(MOCK_CONVERSATION)
