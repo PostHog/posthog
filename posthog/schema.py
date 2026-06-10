@@ -51,6 +51,7 @@ class AgentMode(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
     USER_INTERVIEW = "user_interview"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -800,6 +801,7 @@ class AssistantTool(StrEnum):
     ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    ASSESS_HEATMAP = "assess_heatmap"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -809,6 +811,9 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    UPSERT_ACCOUNT = "upsert_account"
+    UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
+    OPEN_ACCOUNT = "open_account"
 
 
 class AssistantToolCall(BaseModel):

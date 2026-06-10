@@ -112,9 +112,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <div className="min-w-[18rem] max-w-xl">
-                    <ObservationResultSummary observation={obs} />
-                </div>
+                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                    <div className="min-w-[18rem] max-w-xl">
+                        <ObservationResultSummary observation={obs} />
+                    </div>
+                </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },

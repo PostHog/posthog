@@ -264,13 +264,13 @@ export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
+ * If quorum is reached, automatically applies the change immediately.
  */
 export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
  * Cancel a change request.
-Only the requester can cancel their own pending change request.
+ * Only the requester can cancel their own pending change request.
  */
 export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
 
