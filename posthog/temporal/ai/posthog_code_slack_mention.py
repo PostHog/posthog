@@ -168,6 +168,13 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # resolve activity below. Remove the fallback (and this field's optionality)
     # once the workflow history retention window has elapsed.
     user_id: int | None = None
+    # True when the workflow was started for an untagged thread reply (event type
+    # ``message``) rather than an explicit ``app_mention``. The routing layer
+    # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
+    # if the mapping is gone by the time the followup activity runs (race with
+    # cleanup), we must NOT fall through to the new-task path — the user never
+    # tagged us, so kicking off a brand-new agent run would be wrong.
+    untagged_followup: bool = False
 
 
 def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
@@ -282,6 +289,13 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 event.get("ts"),
             )
             if followup_handled:
+                return
+
+            # Untagged thread replies must not fall through to the new-task path.
+            # The user never @mentioned us — they only typed in a thread that
+            # used to have an active task. If the mapping is gone by the time we
+            # got here, the right behaviour is to do nothing.
+            if inputs.untagged_followup:
                 return
 
             # New starts carry ``user_id`` from routing-time resolution and skip
