@@ -140,13 +140,13 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         )) as CountedPaginatedResponse<SharedMetric>
                         breakpoint()
                     }
-                    let results = [...(response.results ?? [])]
+                    const results = [...(response.results ?? [])]
                     let next = response.next
                     while (next) {
                         const page: CountedPaginatedResponse<SharedMetric> = await api.get(next)
                         // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this load.
                         breakpoint()
-                        results = [...results, ...page.results]
+                        results.push(...page.results)
                         next = page.next
                         response = page
                     }

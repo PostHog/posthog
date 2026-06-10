@@ -36,14 +36,22 @@ describe('sharedMetricModalLogic', () => {
                                 count: 3,
                                 next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}&search=${search}`,
                                 previous: null,
-                                results: [metric(1, NodeKind.ExperimentMetric, ['main']), metric(2, NodeKind.ExperimentTrendsQuery)],
+                                results: [
+                                    metric(1, NodeKind.ExperimentMetric, ['main']),
+                                    metric(2, NodeKind.ExperimentTrendsQuery),
+                                ],
                             },
                         ]
                     }
                     // metric 3 lives on the second page and carries a tag absent from page 1
                     return [
                         200,
-                        { count: 3, next: null, previous: null, results: [metric(3, NodeKind.ExperimentMetric, ['secondary'])] },
+                        {
+                            count: 3,
+                            next: null,
+                            previous: null,
+                            results: [metric(3, NodeKind.ExperimentMetric, ['secondary'])],
+                        },
                     ]
                 },
             },
