@@ -1496,7 +1496,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.product_analytics.backend.api.insight.report_user_action")
     def test_non_web_retrieve_fires_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
-        insight_id, _ = self.dashboard_api.create_insight(
+        insight_id, insight_json = self.dashboard_api.create_insight(
             {"query": DataVisualizationNode(source=HogQLQuery(query="select 1")).model_dump()}
         )
         mock_report_user_action.reset_mock()
@@ -1506,7 +1506,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_report_user_action.assert_any_call(
             self.user,
             "insight read",
-            {"insight_id": insight_id, "insight_type": "hogql"},
+            {"insight_id": insight_json["short_id"], "insight_type": "hogql"},
             team=ANY,
             request=ANY,
         )

@@ -1818,7 +1818,9 @@ When set, the specified dashboard's filters and date range override will be appl
             report_user_action(
                 request.user,
                 "insight read",
-                {"insight_id": instance.id, "insight_type": instance.get_analytics_type()},
+                # Sibling `insight created/updated/deleted` events store the short_id under `insight_id`;
+                # match that so reads correlate with the rest of the insight lifecycle.
+                {"insight_id": instance.short_id, "insight_type": instance.get_analytics_type()},
                 team=self.team,
                 request=request,
             )
