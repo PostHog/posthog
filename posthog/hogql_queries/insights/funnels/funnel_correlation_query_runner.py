@@ -556,7 +556,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
         funnel_persons_query = self.get_funnel_actors_cte()
-        event_left_join_query = self._get_events_left_join_query("AND event_table.event IN {event_names}")
+        filtered_events_cte = self._get_filtered_events_cte("AND event IN {event_names}")
+        event_right_join_query = self._get_events_right_join_query()
         target_step = self.context.max_steps
         funnel_step_names = self._get_funnel_step_names()
         date_from = self._date_range().date_from_as_hogql()
@@ -573,9 +574,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 allow_denormalized_props=False,
                 table_alias="event_table",
             )
+            # With join_use_nulls=0, unmatched join rows yield '' for event_table.event
+            # rather than NULL, so guard with empty() instead of isNull().
             event_property_array_query = f"""
                 if(
-                    isNull(event_table.event),
+                    empty(event_table.event),
                     [],
                     [tuple(event_table.event, 'elements_chain', concat({event_type_expression}, '{self.ELEMENTS_DIVIDER}', event_table.elements_chain))]
                 )
@@ -583,7 +586,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         else:
             event_property_array_query = """
                 if(
-                    isNull(event_table.event),
+                    empty(event_table.event),
                     [],
                     arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))
                 )
@@ -600,10 +603,10 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                {{date_from}} AS date_from,
-                {{date_to}} AS date_to,
-                {target_step} AS target_step,
-                {funnel_step_names} AS funnel_step_names
+                filtered_events AS (
+                    {filtered_events_cte}
+                ),
+                {target_step} AS target_step
 
             SELECT
                    if(prop.1 = {{total_identifier}}, {{total_identifier}}, concat(prop.1, '::', prop.2, '::', prop.3)) as name,
@@ -617,8 +620,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                         [tuple({{total_identifier}}, '', '')],
                         {event_property_array_query}
                     )) as prop
-                FROM funnel_actors
-                    {event_left_join_query}
+                FROM filtered_events AS event_table
+                    {event_right_join_query}
             )
             GROUP BY name, prop
             -- Discard high cardinality / low hits properties
@@ -783,7 +786,26 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 AND event.event NOT IN funnel_step_names
         """
 
-    def _get_events_left_join_query(self, extra_event_conditions: str = "") -> str:
+    def _get_filtered_events_cte(self, extra_event_conditions: str = "") -> str:
+        return f"""
+            SELECT *
+            FROM events
+            WHERE
+                team_id = {self.context.team.pk}
+                AND toTimeZone(toDateTime(timestamp), 'UTC') >= {{date_from}}
+                AND toTimeZone(toDateTime(timestamp), 'UTC') < {{date_to}}
+                AND event NOT IN {{funnel_step_names}}
+                {extra_event_conditions}
+        """
+
+    def _get_events_right_join_query(self) -> str:
+        """Join filtered events onto funnel_actors, preserving actors without events.
+
+        Written as `FROM filtered_events RIGHT JOIN funnel_actors` rather than
+        `FROM funnel_actors LEFT JOIN filtered_events`: the semantics are identical,
+        but the right table is ClickHouse's hash-build side, and that must be the
+        small funnel_actors set.
+        """
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
@@ -797,18 +819,13 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             join_condition = "event_table.person_id = funnel_actors.actor_id"
 
         return f"""
-            LEFT JOIN events AS event_table
+            RIGHT JOIN funnel_actors
                 ON {join_condition}
-                AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') >= {{date_from}}
-                AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') < {{date_to}}
-                AND event_table.team_id = {self.context.team.pk}
                 AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') > funnel_actors.first_timestamp
                 AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') < coalesce(
                     funnel_actors.final_timestamp,
                     toTimeZone(funnel_actors.first_timestamp, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit},
                     {{date_to}})
-                AND event_table.event NOT IN {{funnel_step_names}}
-                {extra_event_conditions}
         """
 
     def _get_aggregation_target_join_query(self) -> str:
