@@ -186,7 +186,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             }
         })
 
-        it('defaults $feature_flag_called events to personless when no $process_person_profile property is set', async () => {
+        it('leaves $feature_flag_called events personful when no $process_person_profile property is set', async () => {
             const input: PerDistinctIdPipelineInput = {
                 ...baseInput,
                 event: {
@@ -204,10 +204,10 @@ describe('normalizeProcessPersonFlagStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.processPerson).toBe(false)
+                expect(result.value.processPerson).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
-                expect(result.value.event.properties?.$process_person_profile).toBe(false)
-                expect(result.value.event.properties?.$set).toBeUndefined()
+                expect(result.value.event.properties?.$process_person_profile).toBeUndefined()
+                expect(result.value.event.properties?.$set).toEqual({ email: 'user@example.com' })
             }
         })
 

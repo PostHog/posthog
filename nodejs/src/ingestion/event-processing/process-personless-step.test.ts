@@ -138,6 +138,53 @@ describe('createProcessPersonlessStep', () => {
         }
     })
 
+    it('keeps $feature_flag_called personful when a person already exists', async () => {
+        const personUuid = new UUIDT().toString()
+
+        await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+            distinctId: pluginEvent.distinct_id,
+        })
+
+        const step = createProcessPersonlessStep(personsStore)
+        const result = await step(
+            createInput({
+                processPerson: true,
+                normalizedEvent: {
+                    ...pluginEvent,
+                    event: '$feature_flag_called',
+                    properties: { $feature_flag: 'new-homepage', $feature_flag_response: 'test' },
+                },
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.processPerson).toBe(true)
+            expect(result.value.personlessPerson).toBeUndefined()
+        }
+    })
+
+    it('defaults $feature_flag_called to personless when no person exists', async () => {
+        const step = createProcessPersonlessStep(personsStore)
+        const result = await step(
+            createInput({
+                processPerson: true,
+                normalizedEvent: {
+                    ...pluginEvent,
+                    event: '$feature_flag_called',
+                    properties: { $feature_flag: 'new-homepage', $feature_flag_response: 'test' },
+                },
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.processPerson).toBe(false)
+            expect(result.value.personlessPerson).toBeDefined()
+            expect(result.value.personlessPerson!.properties).toEqual({})
+        }
+    })
+
     describe('basic personless functionality', () => {
         it('returns fake person when no existing person found', async () => {
             const step = createProcessPersonlessStep()
