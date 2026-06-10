@@ -203,7 +203,13 @@ def simulate_detector_on_insight(
     interval_value = trends_query.interval.value if trends_query.interval else None
 
     if not result.series:
-        raise ValueError("No results found for insight.")
+        # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that
+        # exist but are all too short to score (per breakdown / single-series).
+        if result.empty_query_result:
+            raise ValueError("No results found for insight.")
+        if result.is_breakdown:
+            raise ValueError("No breakdown values had enough data points for simulation.")
+        raise ValueError("No data points found for the selected series.")
 
     if result.is_breakdown:
         breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str) for s in result.series]
@@ -235,7 +241,9 @@ def _sim_from_series(
     sim: dict[str, Any] = {
         "label": series.label,
         "data": [p.value for p in series.points],
-        "dates": [p.date for p in series.points],
+        # Non-time-series points carry no date; emit [] (not [None]) to match the legacy shape and
+        # satisfy the dates=ListField(child=CharField()) serializer.
+        "dates": [p.date for p in series.points if p.date is not None],
         "scores": scores,
         "triggered_indices": triggered,
         "triggered_dates": _triggered_dates(series, triggered),
