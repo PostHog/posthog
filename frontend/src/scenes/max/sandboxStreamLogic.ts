@@ -26,7 +26,7 @@ interface ResolvedToolKey {
 /**
  * Resolves the registry key for a tool call. The single-exec `posthog` MCP server exposes one
  * outer `exec` tool; the inner tool name is parsed out of `rawInput.command`. Non-exec MCP tools
- * and Claude built-ins look up by their wire name directly. See 03_RICH_UI.md § 2.2.
+ * and Claude built-ins look up by their wire name directly.
  */
 export function resolveToolKey(serverName: string, toolName: string, input: Record<string, unknown>): ResolvedToolKey {
     const fullName = `mcp__${serverName}__${toolName}`
@@ -101,9 +101,9 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
  * produces thread-shaped state the renderer consumes. Coexistence sibling to `maxThreadLogic`'s
  * SSE loop — the sandbox path never enters the LangGraph EventSource loop.
  *
- * I1 skeleton: open/close, `data.type === 'notification'` → `ingestAcpFrame`, the § 6.3 dispatch
- * table, terminal status, and stream-error surfacing. Reconnect/backoff and content dedup land in
- * I2.6 (02_CORE.md §§ 4.3, 4.4, 6). See 02_CORE.md § 6.
+ * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
+ * and stream-error capture. Reconnect/backoff and content dedup are intentionally not implemented
+ * here yet.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     path(['scenes', 'max', 'sandboxStreamLogic']),
@@ -275,7 +275,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             actions.sseConnecting()
 
-            // Replace any prior connection — I2.6 layers reconnect/backoff on top of this.
+            // Replace any prior connection — reconnect/backoff layers on top of this later.
             cache.disposables.dispose('event-source')
             // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
             // setup on show would replay the stream from the top and duplicate thread state.
@@ -309,7 +309,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                                 break
                         }
                     }
-                    // Named `event: error` frames (02_CORE.md § 4.1).
+                    // Named `event: error` frames sent by the stream endpoint.
                     eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
                         if (typeof event.data === 'string' && event.data.length > 0) {
                             try {
@@ -345,7 +345,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             const method = notification.method
             const params = (notification.params ?? {}) as Record<string, any>
 
-            // Custom `_posthog/*` namespace — § 6.3.
+            // Custom `_posthog/*` notification namespace emitted by the agent-server.
             if (method === '_posthog/run_started') {
                 actions.markRunStarted()
                 return

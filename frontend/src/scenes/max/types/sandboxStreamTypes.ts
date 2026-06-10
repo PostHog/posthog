@@ -4,8 +4,7 @@
  * The sandbox path consumes the products/tasks SSE endpoint directly (the same endpoint
  * PostHog Code uses). `sandboxStreamLogic` parses the raw ACP frames carried inside
  * `StoredLogEntry` envelopes into the `ToolInvocation` / `ThreadItem` state the renderer
- * consumes. See docs/internal/posthog-ai-migration/02_CORE.md §§ 4.1, 6.2 and
- * 03_RICH_UI.md §§ 2.1, 2.2.
+ * consumes.
  */
 
 /** ACP notification body — the JSON-RPC payload carried inside a `StoredLogEntry`. */
@@ -18,7 +17,7 @@ export interface AcpNotification {
 
 /**
  * Wire envelope around a single ACP notification. The products/tasks stream emits these as
- * the bulk of `data.type === 'notification'` traffic. See 02_CORE.md glossary.
+ * the bulk of `data.type === 'notification'` traffic.
  */
 export interface StoredLogEntry {
     type: 'notification'
@@ -41,7 +40,10 @@ export interface ToolInvocation {
     rawToolName: string
     /** Parsed inner tool name when `rawToolName === 'exec'` — e.g. 'insight-create'. */
     innerToolName?: string
-    /** Registry lookup key — see 03_RICH_UI.md § 2.2 resolution table. */
+    /**
+     * Registry lookup key — the inner tool name for single-exec `call` commands, a
+     * `__posthog_exec_*__` sentinel for discovery verbs, or the wire tool name otherwise.
+     */
     resolvedKey: string
     /** rawInput at `tool_call` time (for `exec`, includes the wrapper `{ command }`). */
     input: Record<string, unknown>
@@ -89,8 +91,8 @@ export interface PermissionOption {
 }
 
 /**
- * A pending ACP `permission_request` surfaced by the products/tasks stream. Ingested in I3
- * (`02_CORE.md` § 5.5) and bound to `DangerousOperationApprovalCard`.
+ * A pending ACP `permission_request` surfaced by the products/tasks stream, to be bound to
+ * `DangerousOperationApprovalCard` by the approval flow.
  */
 export interface PermissionRequestRecord {
     requestId: string

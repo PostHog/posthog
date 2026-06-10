@@ -73,7 +73,6 @@ function labelForItem(item: AttachedContext): string {
  * items down to `AttachedContext` at consumption time — zero scene-side edits.
  *
  * Coexistence sibling to `maxContextLogic.ts`; used only when `agent_runtime === 'sandbox'`.
- * See docs/internal/posthog-ai-migration/01_CONTEXT.md § 3.
  */
 export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
     path(['scenes', 'max', 'posthogAiContextLogic']),

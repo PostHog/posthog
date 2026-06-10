@@ -15,7 +15,7 @@ export interface McpToolRegistryEntry {
      * Registry key. For single-exec PostHog tools, this is the **inner** tool name parsed from
      * `rawInput.command` (e.g. "execute-sql", "insight-create"); for `exec`'s discovery verbs,
      * the sentinel "__posthog_exec_tools__" etc.; for non-exec MCP tools and Claude built-ins,
-     * the wire `toolName` directly (e.g. "TodoWrite", "WebSearch"). See 03_RICH_UI.md § 2.2.
+     * the wire `toolName` directly (e.g. "TodoWrite", "WebSearch").
      */
     key: string
     /** Display name / icon for fallback rendering and for the tool-call header line. */
@@ -43,10 +43,9 @@ class MapBackedRegistry implements McpToolRegistry {
 
 /**
  * Single module-level registry of MCP tool-name → renderer. All entries are registered at module
- * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters land per-tool
- * (behind `phai-sandbox-tool-{slug}`) in follow-up PRs (UI-A / UI-B / UI-C); until then every tool
- * falls through to `FallbackMcpToolRenderer`. See docs/internal/posthog-ai-migration/03_RICH_UI.md
- * §§ 3.1–3.2.
+ * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered
+ * per tool (behind `phai-sandbox-tool-{slug}` flags); any tool without one falls through to
+ * `FallbackMcpToolRenderer`.
  */
 export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 

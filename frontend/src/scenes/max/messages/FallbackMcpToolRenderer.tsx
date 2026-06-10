@@ -31,7 +31,7 @@ function statusBadge(status: McpToolRendererProps['message']['status']): JSX.Ele
 /**
  * Catch-all renderer for any MCP tool call not yet wired through a custom adapter — user-installed
  * MCPs, unknown inner tools, malformed `exec` commands. Renders a generic, greppable tool card so
- * the registry can ship incrementally. See docs/internal/posthog-ai-migration/03_RICH_UI.md § 3.4.
+ * the registry can ship incrementally.
  */
 export function FallbackMcpToolRenderer({ message }: McpToolRendererProps): JSX.Element {
     const headerLabel = message.title || message.innerToolName || message.rawToolName || 'Tool call'

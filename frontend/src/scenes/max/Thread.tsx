@@ -145,8 +145,7 @@ function toolInvocationToMessage(
  * Sandbox-runtime thread renderer. Reads `sandboxStreamLogic.values.threadItems` (assistant text,
  * tool-invocation references, run separators, inline errors) and dispatches tool cards through
  * `mcpToolRegistry`. Coexistence sibling to the LangGraph thread render path; selected by
- * `conversation.agent_runtime === 'sandbox'`. See docs/internal/posthog-ai-migration/02_CORE.md
- * § 7.3 and 03_RICH_UI.md § 2.3.
+ * `conversation.agent_runtime === 'sandbox'`.
  */
 function SandboxThread(): JSX.Element {
     const { threadItems, toolInvocations } = useValues(sandboxStreamLogic)

@@ -334,7 +334,7 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
 /**
  * Sandbox-runtime chips, rendered from the flat `posthogAiContextLogic.chipsForDisplay`. The X on
  * each chip dispatches `detach(key)` — one removal path, no source distinction. Coexistence
- * sibling to `ContextTags` (LangGraph). See docs/internal/posthog-ai-migration/01_CONTEXT.md § 3.3.
+ * sibling to `ContextTags` (LangGraph).
  */
 export function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
     const { chipsForDisplay } = useValues(posthogAiContextLogic)

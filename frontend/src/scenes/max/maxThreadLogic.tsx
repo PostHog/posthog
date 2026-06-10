@@ -644,7 +644,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
-            // entered for sandbox conversations. See 02_CORE.md §§ 4, 7.1.
+            // entered for sandbox conversations.
             //
             // An *existing* sandbox conversation (`agent_runtime === 'sandbox'`) uses the dedicated
             // `/sandbox/` routing endpoint. A *brand-new* conversation has no row yet — it's created
