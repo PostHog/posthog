@@ -667,6 +667,9 @@ importers:
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
+      '@posthog/products-growth':
+        specifier: workspace:*
+        version: link:../products/growth
       '@posthog/products-legal-documents':
         specifier: workspace:*
         version: link:../products/legal_documents

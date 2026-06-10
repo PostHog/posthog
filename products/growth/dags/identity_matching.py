@@ -893,7 +893,7 @@ def score_rule_based(
 
 def _deterministic_test_split(key: str, modulo: int = 5) -> bool:
     """Stable orphan-level holdout assignment so an orphan's pairs never straddle train/test."""
-    return int.from_bytes(hashlib.sha1(key.encode()).digest()[:8], "big") % modulo == 0
+    return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") % modulo == 0
 
 
 @dagster.op
