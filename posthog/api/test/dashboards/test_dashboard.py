@@ -94,6 +94,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             dashboard_names,
         )
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard read",
+            {"dashboard_id": dashboard_id, "creation_mode": "default"},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_web_retrieve_does_not_fire_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+
+        read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("dashboard read",)]
+        self.assertEqual(read_calls, [])
+
     def test_retrieve_dashboard_list_includes_other_environments(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
         _, team_in_other_project = Project.objects.create_with_team(
