@@ -4,6 +4,8 @@ import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import { WizardProgressFab } from '.'
@@ -129,12 +131,24 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
         // FAB is flag-gated; storybook's useFeatureFlag treats any truthy value as "on".
         featureFlags: [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC],
-        // Freeze time. The tracker ticks `now` at 1Hz; without a frozen clock that
-        // tick re-renders the FAB during the snapshot window, which re-fires the
-        // global `withTheme` decorator and clobbers the test-runner's per-pass body
-        // theme — making the light/dark snapshot pick up the wrong theme at random.
+        // The tracker ticks `now` at 1Hz; freezing the clock keeps the relative-time
+        // sub-line stable across snapshot passes.
         mockDate: '2024-05-01 12:00:00',
     },
+    decorators: [
+        // The active-session detector polls `sessions/latest/` after a randomized
+        // (0–30s) jitter on mount. With no handler that fetch hangs, so the
+        // test-runner's `networkidle` wait never settles whenever the jittered poll
+        // lands inside the snapshot window — it times out at 60s, retries, and lands
+        // a wrong-theme screenshot. A 204 (no run) resolves the poll instantly so the
+        // page reaches networkidle every pass; the visible FAB state is still driven
+        // imperatively by each story via `markActive()` + `sessionUpdated()`.
+        mswDecorator({
+            get: {
+                '/api/projects/:projectId/wizard/sessions/latest/': () => [204, ''],
+            },
+        }),
+    ],
     args: { skillId: DEFAULT_SKILL_ID },
     argTypes: {
         skillId: {
