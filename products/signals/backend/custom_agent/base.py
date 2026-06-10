@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
@@ -464,43 +464,22 @@ Rules:
             agent_identifier=type(self).identifier(),
         )
         self._persisted_reports.append(persisted)
-        await self._maybe_autostart(persisted, final)
+        await self._maybe_autostart(persisted)
         return persisted
 
-    async def _maybe_autostart(
-        self,
-        persisted: PersistedCustomAgentReport,
-        final: CustomAgentFinalReport,
-    ) -> None:
-        """Best-effort autostart hand-off; swallows failures so they don't fail the report."""
-        repository = self.repository
-        if repository is None:
-            return
-        reviewers_content: list[ReviewerContent] = [
-            ReviewerContent(
-                github_login=a.github_login,
-                github_name=a.github_name,
-                relevant_commits=[c.model_dump(mode="json") for c in a.relevant_commits],
-            )
-            for a in final.assignees
-        ]
+    async def _maybe_autostart(self, persisted: PersistedCustomAgentReport) -> None:
+        """Best-effort autostart hand-off; swallows failures so they don't fail the report.
+
+        The report and its artefacts are already persisted, so this reconstructs the auto-start
+        inputs from them — the same shared entry point the in-app reviewer edit uses.
+        """
         try:
-            await maybe_autostart_implementation_task(
-                team_id=self.team_id,
-                report_id=persisted.report_id,
-                repository=repository,
-                title=final.title,
-                summary=final.description,
-                actionability=final.actionability,
-                reviewers_content=reviewers_content,
-                priority=final.priority,
-            )
+            await maybe_autostart_from_report_artefacts(team_id=self.team_id, report_id=persisted.report_id)
         except Exception as error:
             posthoganalytics.capture_exception(error)
             logger.exception(
                 "custom signal agent auto-start task failed",
                 report_id=persisted.report_id,
-                repository=repository,
                 error=str(error),
             )
 
