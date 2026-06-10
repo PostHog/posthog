@@ -657,7 +657,9 @@
                                         "type": "object"
                                     },
                                     "config": {
-                                        "default": {},
+                                        "default": {
+                                            "allow_restart": false
+                                        },
                                         "properties": {
                                             "allow_restart": {
                                                 "default": false,
@@ -761,7 +763,9 @@
                                         "type": "object"
                                     },
                                     "config": {
-                                        "default": {},
+                                        "default": {
+                                            "allow_restart": false
+                                        },
                                         "properties": {
                                             "allow_restart": {
                                                 "default": false,
