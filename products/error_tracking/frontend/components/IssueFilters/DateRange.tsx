@@ -12,17 +12,20 @@ export const DateRangeFilter = ({
     className,
     fullWidth = false,
     size = 'small',
+    type,
 }: {
     className?: string
     fullWidth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
+    type?: 'primary' | 'secondary' | 'tertiary'
 }): JSX.Element => {
     const { dateRange } = useValues(issueFiltersLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
     return (
-        <span className={cn('rounded bg-surface-primary', className)}>
+        <span className={cn(type === 'tertiary' ? undefined : 'rounded bg-surface-primary', className)}>
             <DateFilter
                 size={size}
+                type={type}
                 dateFrom={dateRange.date_from}
                 dateTo={dateRange.date_to}
                 fullWidth={fullWidth}

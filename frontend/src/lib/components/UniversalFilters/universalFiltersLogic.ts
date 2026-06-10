@@ -73,10 +73,14 @@ const QUICK_FILTER_PROPERTY_GROUP_TYPES = [
     TaxonomicFilterGroupType.EmailAddresses,
 ]
 
+// Editable property group types that don't map to a PropertyFilterType via taxonomicFilterTypeToPropertyFilterType
+const ADDITIONAL_EDITABLE_PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.ErrorTrackingProperties]
+
 function isPropertyEditableTaxonomicGroupType(groupType: TaxonomicFilterGroupType): boolean {
     return (
         taxonomicFilterTypeToPropertyFilterType(groupType) !== undefined ||
-        QUICK_FILTER_PROPERTY_GROUP_TYPES.includes(groupType)
+        QUICK_FILTER_PROPERTY_GROUP_TYPES.includes(groupType) ||
+        ADDITIONAL_EDITABLE_PROPERTY_GROUP_TYPES.includes(groupType)
     )
 }
 

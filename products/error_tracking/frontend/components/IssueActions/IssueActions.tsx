@@ -75,73 +75,71 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     let options: IssueStatus[] = ['active', 'resolved', 'suppressed']
 
     return (
-        <div className="flex gap-x-2 justify-between">
+        <div className="flex gap-x-2 items-center">
             <HogfettiComponent />
-            <div className="flex gap-x-2">
-                <LemonButton type="secondary" size="small" onClick={openInNewTabs}>
-                    Open all
-                </LemonButton>
-                <LemonButton
-                    disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
-                    type="secondary"
-                    size="small"
-                    onClick={() =>
-                        LemonDialog.open({
-                            title: 'Merge Issues',
-                            content: `Are you sure you want to merge these ${selectedIds.length} issues?`,
-                            primaryButton: {
-                                children: 'Merge',
-                                status: 'danger',
-                                onClick: () => {
-                                    mergeIssues(selectedIds)
-                                },
+            <LemonButton type="secondary" size="small" onClick={openInNewTabs}>
+                Open all
+            </LemonButton>
+            <LemonButton
+                disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
+                type="secondary"
+                size="small"
+                onClick={() =>
+                    LemonDialog.open({
+                        title: 'Merge Issues',
+                        content: `Are you sure you want to merge these ${selectedIds.length} issues?`,
+                        primaryButton: {
+                            children: 'Merge',
+                            status: 'danger',
+                            onClick: () => {
+                                mergeIssues(selectedIds)
                             },
-                        })
+                        },
+                    })
+                }
+            >
+                Merge
+            </LemonButton>
+            <LemonSelect
+                onChange={(value) => {
+                    if (value == currentStatus) {
+                        return
                     }
-                >
-                    Merge
-                </LemonButton>
-                <LemonSelect
-                    onChange={(value) => {
-                        if (value == currentStatus) {
-                            return
-                        }
-                        switch (value) {
-                            case 'resolved':
-                                resolveIssues(selectedIds)
-                                ;[0, 400, 800].forEach((delay) => setTimeout(triggerHogfetti, delay))
-                                break
-                            case 'suppressed':
-                                suppressIssues(selectedIds)
-                                break
-                            case 'active':
-                                activateIssues(selectedIds)
-                                break
-                            default:
-                                break
-                        }
-                    }}
-                    value={currentStatus == 'mixed' ? null : currentStatus}
-                    placeholder="Mark as"
-                    options={options.map((key) => ({
-                        value: key,
-                        label: <StatusIndicator status={key} size="small" className="w-full" withTooltip="right" />,
-                    }))}
-                    size="small"
-                />
-                <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIds, assignee)}>
-                    {(displayAssignee) => (
-                        <LemonButton type="secondary" size="small">
-                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
-                        </LemonButton>
-                    )}
-                </AssigneeSelect>
-                {issues.some((issue) => selectedIds.includes(issue.id) && issue.assignee != null) && (
-                    <LemonButton type="secondary" size="small" onClick={() => assignIssues(selectedIds, null)}>
-                        Unassign
+                    switch (value) {
+                        case 'resolved':
+                            resolveIssues(selectedIds)
+                            ;[0, 400, 800].forEach((delay) => setTimeout(triggerHogfetti, delay))
+                            break
+                        case 'suppressed':
+                            suppressIssues(selectedIds)
+                            break
+                        case 'active':
+                            activateIssues(selectedIds)
+                            break
+                        default:
+                            break
+                    }
+                }}
+                value={currentStatus == 'mixed' ? null : currentStatus}
+                placeholder="Mark as"
+                options={options.map((key) => ({
+                    value: key,
+                    label: <StatusIndicator status={key} size="small" className="w-full" withTooltip="right" />,
+                }))}
+                size="small"
+            />
+            <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIds, assignee)}>
+                {(displayAssignee) => (
+                    <LemonButton type="secondary" size="small">
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
                     </LemonButton>
                 )}
-            </div>
+            </AssigneeSelect>
+            {issues.some((issue) => selectedIds.includes(issue.id) && issue.assignee != null) && (
+                <LemonButton type="secondary" size="small" onClick={() => assignIssues(selectedIds, null)}>
+                    Unassign
+                </LemonButton>
+            )}
             <LemonButton type="secondary" size="small" onClick={excludeSelectedIssues}>
                 Hide from search
             </LemonButton>

@@ -13,7 +13,9 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { CyclotronJobFiltersType } from '~/types'
 
 import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
@@ -23,6 +25,7 @@ import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issue
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
@@ -31,7 +34,7 @@ import {
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
-import { IssuesList } from './tabs/issues/IssuesList'
+import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
@@ -49,7 +52,7 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { activeTab } = useValues(errorTrackingSceneLogic)
+    const { activeTab, query } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
     const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
@@ -76,13 +79,18 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Issues',
             content: (
                 <ErrorTrackingSetupPrompt>
-                    <ErrorTrackingIssueFilteringTool />
-                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                    <div className="border rounded bg-surface-primary p-2">
-                        <IssuesFilters />
-                    </div>
-                    <IssuesList />
+                    <BindLogic
+                        logic={issuesDataNodeLogic}
+                        props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
+                    >
+                        <ErrorTrackingIssueFilteringTool />
+                        {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                        {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
+                        <SceneStickyBar showBorderBottom={false} className="mb-4">
+                            <IssuesFilters reload={<ListReloadButton />} />
+                        </SceneStickyBar>
+                        <IssuesList />
+                    </BindLogic>
                 </ErrorTrackingSetupPrompt>
             ),
         },

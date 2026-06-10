@@ -72,7 +72,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     connect(() => ({
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             errorTrackingIssueSceneConfigurationLogic,
             ['category'],
         ],
@@ -107,6 +107,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateDescription: (description: string) => ({ description }),
         setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
         setListDateRange: (dateRange: DateRange) => ({ dateRange }),
+        reloadEvents: true,
     }),
 
     defaults({
@@ -125,6 +126,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     reducers(({ values }) => ({
+        reloadTrigger: [0, { reloadEvents: (state: number) => state + 1 }],
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
@@ -249,7 +251,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         issueId: props.id,
                         dateRange: values.dateRange,
                         filterTestAccounts: values.filterTestAccounts,
-                        filterGroup: values.filterGroup,
+                        filterGroup: values.mergedFilterGroup,
                         searchQuery: values.searchQuery,
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                         withAggregations: true,
@@ -368,12 +370,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
 
         eventsQuery: [
-            (s) => [s.issueFingerprints, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
-            (issueFingerprints, filterTestAccounts, searchQuery, filterGroup, dateRange) =>
+            (s) => [s.issueFingerprints, s.filterTestAccounts, s.searchQuery, s.mergedFilterGroup, s.dateRange],
+            (issueFingerprints, filterTestAccounts, searchQuery, mergedFilterGroup, dateRange) =>
                 errorTrackingIssueEventsQuery({
                     fingerprints: issueFingerprints.map((f: ErrorTrackingFingerprint) => f.fingerprint),
                     filterTestAccounts,
-                    filterGroup,
+                    filterGroup: mergedFilterGroup,
                     searchQuery,
                     dateRange,
                     columns: ['*', 'timestamp', 'person'],
@@ -381,7 +383,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         eventsQueryKey: [
-            (s) => [s.eventsQuery],
+            (s) => [s.eventsQuery, s.reloadTrigger],
             () => {
                 return uuid()
             },
@@ -409,6 +411,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 actions.loadInitialEvent(value)
             }
         },
+        mergedFilterGroup: (value: UniversalFiltersGroup, oldValue: UniversalFiltersGroup) => {
+            if (oldValue && value !== oldValue) {
+                actions.loadSummary()
+            }
+        },
     })),
 
     listeners(({ props, values, actions }) => {
@@ -417,7 +424,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 actions.loadSummary()
                 actions.loadSpikeEvents()
             },
-            setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
             loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {

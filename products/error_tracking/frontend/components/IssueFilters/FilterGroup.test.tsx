@@ -14,6 +14,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { FilterGroup } from './FilterGroup'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
@@ -59,10 +60,15 @@ describe('FilterGroup', () => {
             values: [{ type: FilterLogicalOperator.Or, values: [firefoxFilter, chromeFilter] }],
         })
 
+        const optionsLogic = issueQueryOptionsLogic({ logicKey: LOGIC_KEY })
+        optionsLogic.mount()
+
         render(
             <Provider>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
-                    <FilterGroup />
+                    <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: LOGIC_KEY }}>
+                        <FilterGroup />
+                    </BindLogic>
                 </BindLogic>
             </Provider>
         )

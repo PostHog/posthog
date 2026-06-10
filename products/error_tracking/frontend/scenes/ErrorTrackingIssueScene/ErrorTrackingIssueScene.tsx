@@ -5,13 +5,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -29,6 +30,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
@@ -60,6 +62,14 @@ import {
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
 import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
+
+const ISSUE_SCENE_TAXONOMIC_GROUP_TYPES = [
+    TaxonomicFilterGroupType.ErrorTrackingProperties,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -374,21 +384,49 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
+    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading, summaryLoading } =
         useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+    const { selectEvent, reloadEvents, loadSummary } = useActions(errorTrackingIssueSceneLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <div className="px-2 py-3 shrink-0">
-                <ErrorFilters.Root>
-                    <div className="flex gap-2 justify-between flex-wrap">
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.InternalAccounts />
+            <ErrorFilters.Root className="shrink-0 space-y-0">
+                <ErrorFilters.SearchBar variant="embedded">
+                    <div className="flex items-stretch overflow-hidden">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={() => {
+                                reloadEvents()
+                                loadSummary()
+                            }}
+                            icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
+                            tooltip={summaryLoading ? 'Loading...' : 'Reload'}
+                        />
                     </div>
-                    <ErrorFilters.FilterGroup />
-                </ErrorFilters.Root>
-            </div>
+                    <ErrorFilters.SearchBarDivider />
+                    <div className="flex items-stretch overflow-hidden">
+                        <ErrorFilters.DateRange type="tertiary" />
+                    </div>
+                    <ErrorFilters.SearchBarDivider />
+                    <div className="flex items-stretch overflow-hidden">
+                        <ErrorFilters.SettingsMenu
+                            showIssueFilters={false}
+                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                            logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
+                        />
+                    </div>
+                    <ErrorFilters.SearchBarDivider />
+                    <div className="flex-1 overflow-hidden">
+                        <ErrorFilters.FilterGroup
+                            showIssueFilters={false}
+                            taxonomicGroupTypes={ISSUE_SCENE_TAXONOMIC_GROUP_TYPES}
+                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                            logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
+                        />
+                    </div>
+                </ErrorFilters.SearchBar>
+            </ErrorFilters.Root>
             <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (

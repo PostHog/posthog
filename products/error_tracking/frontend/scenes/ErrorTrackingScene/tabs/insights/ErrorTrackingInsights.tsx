@@ -1,4 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
 import { ChartCard } from './ChartCard'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
@@ -6,13 +13,25 @@ import { InsightsFilters } from './InsightsFilters'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
+    const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery, summaryStatsLoading } =
+        useValues(errorTrackingInsightsLogic)
+    const { loadSummaryStats } = useActions(errorTrackingInsightsLogic)
 
     return (
         <div className="space-y-4">
-            <div className="border rounded bg-surface-primary p-2 space-y-2">
-                <InsightsFilters />
-            </div>
+            <SceneStickyBar showBorderBottom={false}>
+                <InsightsFilters
+                    reload={
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={() => loadSummaryStats(null)}
+                            icon={summaryStatsLoading ? <Spinner textColored /> : <IconRefresh />}
+                            tooltip={summaryStatsLoading ? 'Loading...' : 'Reload'}
+                        />
+                    }
+                />
+            </SceneStickyBar>
             <SummaryStats />
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">

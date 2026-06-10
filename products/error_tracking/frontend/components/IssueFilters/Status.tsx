@@ -9,9 +9,9 @@ import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLo
 
 export type ErrorTrackingStatusSelectValue = ErrorTrackingIssue['status'] | 'all'
 
-const STATUS_OPTIONS: ErrorTrackingStatusSelectValue[] = ['all', 'active', 'resolved', 'suppressed']
+export const STATUS_OPTIONS: ErrorTrackingStatusSelectValue[] = ['all', 'active', 'resolved', 'suppressed']
 
-function statusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Element {
+export function statusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Element {
     if (key === 'all') {
         return <LabelIndicator intent="muted" label="All" size="small" />
     }
