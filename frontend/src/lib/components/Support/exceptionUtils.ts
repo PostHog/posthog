@@ -1,6 +1,7 @@
 // Utility functions for parsing PostHog exception events
+// Only used to properly forward an exception information via the support form
 
-export interface ExceptionMetadata {
+interface ExceptionMetadata {
     uuid: string
     commitSha: string
     feature: string
@@ -8,13 +9,13 @@ export interface ExceptionMetadata {
     exceptionValue: string
 }
 
-export interface StackTraceInfo {
+interface StackTraceInfo {
     filename: string
     functionName: string
     lineNumber: string
 }
 
-export type ParsedExceptionData = string
+type ParsedExceptionData = string
 
 /**
  * Extracts basic metadata from a PostHog exception event
