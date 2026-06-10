@@ -87,9 +87,8 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         # command stream still matches. Drop this fallback (and make ``user_id``
         # required on inputs) once the workflow history retention window has
         # elapsed.
-        if inputs.user_id is not None:
-            user_id = inputs.user_id
-        else:
+        user_id = inputs.user_id
+        if user_id is None:
             user_id = await workflow.execute_activity(
                 resolve_posthog_code_slack_command_user_activity,
                 args=[inputs],
