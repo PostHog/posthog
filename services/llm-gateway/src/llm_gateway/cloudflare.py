@@ -14,12 +14,21 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 from llm_gateway.config import Settings
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 
+# CF has no native litellm provider; we route through its OpenAI-compatible endpoint.
+_CF_LITELLM_PREFIX = "openai/"
+
+
+def cloudflare_litellm_model(model: str) -> str:
+    """The litellm model id CF requests route under (its OpenAI-compatible prefix)."""
+    return f"{_CF_LITELLM_PREFIX}{model}"
+
+
 # Restrict `@cf/...` routing to models we've priced in COST_ALIASES. Unpriced models fall through
 # to `default_fallback_cost_usd`, so the gateway would eat the real CF bill while charging the user
 # a flat fallback. Derived from COST_ALIASES so the two can't drift — registering an alias auto-allows
 # it, and you can't route a model without pricing it first.
 CLOUDFLARE_ALLOWED_MODELS: frozenset[str] = frozenset(
-    alias.removeprefix("openai/") for alias in COST_ALIASES if alias.startswith("openai/@cf/")
+    alias.removeprefix(_CF_LITELLM_PREFIX) for alias in COST_ALIASES if alias.startswith(f"{_CF_LITELLM_PREFIX}@cf/")
 )
 
 
@@ -54,7 +63,7 @@ def ensure_cloudflare_model_allowed(model: str) -> None:
 def _inject_cloudflare_params(kwargs: dict[str, Any], api_base: str, api_key: str) -> None:
     kwargs["api_base"] = api_base
     kwargs["api_key"] = api_key
-    kwargs["model"] = f"openai/{kwargs['model']}"
+    kwargs["model"] = cloudflare_litellm_model(kwargs["model"])
 
 
 def make_cloudflare_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:

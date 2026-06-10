@@ -21,6 +21,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
+    cloudflare_litellm_model,
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     make_cloudflare_anthropic_call,
@@ -305,9 +306,9 @@ async def _handle_count_tokens(
         # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
         # serialised payload — callers use this for context-window budgeting, where over-counting
         # just trims and only under-counting would overflow.
-        aliased_model = f"openai/{body.model}"
+        aliased_model = cloudflare_litellm_model(body.model)
         try:
-            count = litellm.token_counter(model=aliased_model, text=json.dumps(data))
+            count = await asyncio.to_thread(litellm.token_counter, model=aliased_model, text=json.dumps(data))
         except Exception as exc:
             logger.exception("cloudflare_count_tokens_failed", model=body.model)
             raise HTTPException(
