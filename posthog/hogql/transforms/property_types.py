@@ -22,6 +22,7 @@ from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
+    DMAT_STRING_COLUMN_NAME_PREFIX,
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -78,7 +79,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            prop_info["dmat"] = f"dmat_string_{slot.slot_index}"
+            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
 

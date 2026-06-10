@@ -11,7 +11,11 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
+from posthog.hogql.errors import (
+    NotImplementedError as HogQLNotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -91,8 +95,11 @@ class PropertyComparisonPlan:
     physical_compatibility: ComparisonCompatibility
     literal_conversion: PropertyLiteralConversion
     source_matches_semantics: bool
-    can_use_minmax_index: bool
     minmax_blocker: PropertyMinmaxBlocker | None
+
+    @property
+    def can_use_minmax_index(self) -> bool:
+        return self.minmax_blocker is None
 
     @property
     def can_compare_physical_source_directly(self) -> bool:
@@ -205,7 +212,6 @@ def _build_property_comparison_plan(
         physical_compatibility=physical_compatibility,
         literal_conversion=literal_conversion,
         source_matches_semantics=source_matches_semantics,
-        can_use_minmax_index=minmax_blocker is None,
         minmax_blocker=minmax_blocker,
     )
 
@@ -262,24 +268,24 @@ def _extract_property_access(expr: ast.Expr, context: HogQLContext) -> tuple[ast
 
     normalized_name = expr.name.lower()
     if len(expr.args) == 1:
-        if normalized_name == "tofloat":
+        semantic_type_class = _PROPERTY_CONVERSION_SEMANTIC_TYPES.get(normalized_name)
+        if semantic_type_class is not None:
             inner = _extract_property_access(expr.args[0], context)
             if inner is not None:
-                return inner[0], ast.FloatType(nullable=True)
-        if normalized_name == "todatetime":
-            inner = _extract_property_access(expr.args[0], context)
-            if inner is not None:
-                return inner[0], ast.DateTimeType(nullable=True)
-        if normalized_name == "tostring":
-            inner = _extract_property_access(expr.args[0], context)
-            if inner is not None:
-                return inner[0], ast.StringType(nullable=True)
+                return inner[0], semantic_type_class(nullable=True)
         if normalized_name == "tobool":
             inner = _extract_property_access_from_boolean_conversion(expr.args[0], context)
             if inner is not None:
                 return inner[0], ast.BooleanType(nullable=True)
 
     return None
+
+
+_PROPERTY_CONVERSION_SEMANTIC_TYPES: dict[str, type[ast.FloatType] | type[ast.DateTimeType] | type[ast.StringType]] = {
+    "tofloat": ast.FloatType,
+    "todatetime": ast.DateTimeType,
+    "tostring": ast.StringType,
+}
 
 
 def _extract_property_access_from_boolean_conversion(
@@ -302,19 +308,12 @@ def _plan_property_source(
 ) -> PropertySourcePlan:
     table_info = _materialized_table_info(property_type.field_type, context)
     if table_info is None:
-        return _json_source_plan(property_type=property_type, property_name=property_name, context=context)
+        return _json_source_plan()
 
     table_name, field_name = table_info
     restricted = is_property_type_restricted(property_type, context)
     if restricted or context.modifiers.materializationMode == "disabled":
-        return _json_source_plan(
-            property_type=property_type,
-            property_name=property_name,
-            context=context,
-            table_name=table_name,
-            field_name=field_name,
-            restricted=restricted,
-        )
+        return _json_source_plan(table_name=table_name, field_name=field_name, restricted=restricted)
 
     materialized_column = get_materialized_column_for_property(
         cast(TablesWithMaterializedColumns, table_name),
@@ -335,7 +334,7 @@ def _plan_property_source(
             has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
         )
 
-    if dmat_column := _dmat_column(context, table_name, field_name, property_name):
+    if dmat_column := get_dmat_column(context, table_name, field_name, property_name):
         return PropertySourcePlan(
             kind=PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN,
             table_name=table_name,
@@ -357,28 +356,14 @@ def _plan_property_source(
                 has_bloom_filter_index=True,
             )
 
-    return _json_source_plan(
-        property_type=property_type,
-        property_name=property_name,
-        context=context,
-        table_name=table_name,
-        field_name=field_name,
-    )
+    return _json_source_plan(table_name=table_name, field_name=field_name)
 
 
 def _json_source_plan(
-    property_type: ast.PropertyType,
-    property_name: str,
-    context: HogQLContext,
     table_name: str | None = None,
     field_name: str | None = None,
     restricted: bool = False,
 ) -> PropertySourcePlan:
-    if table_name is None or field_name is None:
-        table_info = _materialized_table_info(property_type.field_type, context)
-        if table_info is not None:
-            table_name, field_name = table_info
-
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
         table_name=table_name,
@@ -390,10 +375,14 @@ def _json_source_plan(
     )
 
 
+def _unwrap_table_type(table_type: ast.Type) -> ast.Type:
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        table_type = table_type.table_type
+    return table_type
+
+
 def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, str] | None:
-    table = field_type.table_type
-    while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-        table = table.table_type
+    table = _unwrap_table_type(field_type.table_type)
 
     if not isinstance(table, ast.TableType):
         return None
@@ -411,18 +400,17 @@ def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -
 
 
 def _materialized_column_physical_type(materialized_column: MaterializedColumn) -> ast.ConstantType:
-    type_name = getattr(materialized_column, "type", None)
-    if isinstance(type_name, str):
-        runtime_type = parse_sql_runtime_type(type_name)
-        if runtime_type.family != "unknown":
-            return constant_type_from_runtime_type(
-                runtime_type.with_nullable(runtime_type.nullable or materialized_column.is_nullable)
-            )
+    runtime_type = parse_sql_runtime_type(materialized_column.type)
+    if runtime_type.family != "unknown":
+        return constant_type_from_runtime_type(
+            runtime_type.with_nullable(runtime_type.nullable or materialized_column.is_nullable)
+        )
 
     return ast.StringType(nullable=materialized_column.is_nullable)
 
 
-def _dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:
+def get_dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:
+    """Dynamically materialized (dmat) column name for a property, if a slot is assigned."""
     if context.property_swapper is None:
         return None
     if table_name != "events" or field_name != "properties":
@@ -433,14 +421,19 @@ def _dmat_column(context: HogQLContext, table_name: str, field_name: str, proper
     return prop_info.get("dmat")
 
 
-def _semantic_type_for_property_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.ConstantType:
+def metadata_constant_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.ConstantType | None:
+    """Semantic constant type from property-definition metadata, or None when no metadata applies."""
     property_info = _property_info_for_property_type(property_type, context)
     if property_info is None:
-        return ast.StringType(nullable=True)
+        return None
     return _semantic_type_from_property_definition_type(property_info.get("type"))
 
 
-def _semantic_type_from_property_definition_type(property_type: str | None) -> ast.ConstantType:
+def _semantic_type_for_property_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.ConstantType:
+    return metadata_constant_type(property_type, context) or ast.StringType(nullable=True)
+
+
+def _semantic_type_from_property_definition_type(property_type: str | None) -> ast.ConstantType | None:
     if property_type in (PropertyType.Numeric, PropertyType.Duration):
         return ast.FloatType(nullable=True)
     if property_type == PropertyType.Datetime:
@@ -449,7 +442,7 @@ def _semantic_type_from_property_definition_type(property_type: str | None) -> a
         return ast.BooleanType(nullable=True)
     if property_type == PropertyType.String:
         return ast.StringType(nullable=True)
-    return ast.StringType(nullable=True)
+    return None
 
 
 def _property_info_for_property_type(
@@ -481,12 +474,13 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
     if isinstance(table_type, ast.VirtualTableType) and table_type.field == "poe" and field_type.name == "properties":
         return PropertyScope.PERSON
 
+    table_type = _unwrap_table_type(table_type)
     if not isinstance(table_type, ast.BaseTableType):
         return PropertyScope.UNKNOWN
 
     try:
         resolved_table = table_type.resolve_database_table(context)
-    except HogQLNotImplementedError:
+    except (HogQLNotImplementedError, QueryError, ResolutionError):
         return PropertyScope.UNKNOWN
 
     if isinstance(resolved_table, EventsTable):
@@ -499,7 +493,7 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
 
 
 def _group_property_name(property_type: ast.PropertyType, context: HogQLContext, property_name: str) -> str | None:
-    table_type = property_type.field_type.table_type
+    table_type = _unwrap_table_type(property_type.field_type.table_type)
     if isinstance(table_type, ast.LazyJoinType) and table_type.field.startswith("group_"):
         group_id = int(table_type.field.split("_")[1])
         return f"{group_id}_{property_name}"

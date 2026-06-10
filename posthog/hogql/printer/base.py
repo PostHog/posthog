@@ -35,6 +35,7 @@ from posthog.hogql.printer.types import (
     PrintableMaterializedColumn,
     PrintableMaterializedPropertyGroupItem,
 )
+from posthog.hogql.property_planner import get_dmat_column
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
@@ -1313,7 +1314,7 @@ class BasePrinter(Visitor[str]):
                     table_prefix,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
-                    type=getattr(materialized_column, "type", None),
+                    type=materialized_column.type,
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -1347,7 +1348,7 @@ class BasePrinter(Visitor[str]):
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
-                    type=getattr(materialized_column, "type", None),
+                    type=materialized_column.type,
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -1589,24 +1590,7 @@ class BasePrinter(Visitor[str]):
         )
 
     def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
+        return get_dmat_column(self.context, table_name, field_name, property_name)
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:

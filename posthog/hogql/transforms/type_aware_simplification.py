@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import dataclasses
 from datetime import date, datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -149,15 +148,17 @@ def _constant_type(node: ast.Expr, context: HogQLContext) -> ast.ConstantType | 
     return node.type.resolve_constant_type(context)
 
 
+_CONVERSION_CALL_TARGET_FAMILIES = {
+    "tostring": "string",
+    "todate": "date",
+    "todatetime": "datetime",
+    "tobool": "boolean",
+}
+
+
 def _conversion_call_target_type(normalized_name: str, source_type: RuntimeType) -> RuntimeType | None:
-    if normalized_name == "tostring" and source_type.family == "string":
-        return dataclasses.replace(source_type, family="string")
-    if normalized_name == "todate" and source_type.family == "date":
-        return dataclasses.replace(source_type, family="date")
-    if normalized_name == "todatetime" and source_type.family == "datetime":
-        return dataclasses.replace(source_type, family="datetime")
-    if normalized_name == "tobool" and source_type.family == "boolean":
-        return dataclasses.replace(source_type, family="boolean")
+    if _CONVERSION_CALL_TARGET_FAMILIES.get(normalized_name) == source_type.family:
+        return source_type
     return None
 
 

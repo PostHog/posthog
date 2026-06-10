@@ -5,6 +5,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import lru_cache
 from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.hogql import ast
@@ -472,54 +473,10 @@ def constant_type_from_runtime_type(runtime_type: RuntimeType) -> ast.ConstantTy
 
 
 def runtime_type_from_database_field(database_field: DatabaseField) -> RuntimeType:
-    from posthog.hogql.database.models import (  # noqa: PLC0415 - avoids importing database models during type-system startup
-        BooleanDatabaseField,
-        DateDatabaseField,
-        DateTimeDatabaseField,
-        DecimalDatabaseField,
-        FloatArrayDatabaseField,
-        FloatDatabaseField,
-        IntegerDatabaseField,
-        StringArrayDatabaseField,
-        StringDatabaseField,
-        StringJSONDatabaseField,
-        StructDatabaseField,
-        UUIDDatabaseField,
-    )
-
-    nullable = database_field.is_nullable()
-    if isinstance(database_field, IntegerDatabaseField):
-        return INTEGER_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, FloatDatabaseField):
-        return FLOAT_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, DecimalDatabaseField):
-        return RuntimeType(family="decimal", nullable=nullable)
-    if isinstance(database_field, StringJSONDatabaseField):
-        return RuntimeType(family="json", nullable=nullable)
-    if isinstance(database_field, StringArrayDatabaseField):
-        return RuntimeType(family="array", nullable=nullable, item_type=STRING_RUNTIME_TYPE)
-    if isinstance(database_field, FloatArrayDatabaseField):
-        return RuntimeType(family="array", nullable=nullable, item_type=FLOAT_RUNTIME_TYPE)
-    if isinstance(database_field, StringDatabaseField):
-        return STRING_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, DateDatabaseField):
-        return DATE_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, DateTimeDatabaseField):
-        return DATETIME_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, BooleanDatabaseField):
-        return BOOLEAN_RUNTIME_TYPE.with_nullable(nullable)
-    if isinstance(database_field, UUIDDatabaseField):
-        return RuntimeType(family="uuid", nullable=nullable)
-    if isinstance(database_field, StructDatabaseField):
-        return RuntimeType(
-            family="tuple",
-            nullable=nullable,
-            item_types=tuple(runtime_type_from_database_field(field) for field in database_field.fields.values()),
-            field_names=tuple(database_field.fields.keys()),
-        )
     return runtime_type_from_constant_type(database_field.get_constant_type())
 
 
+@lru_cache(maxsize=1024)
 def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse") -> RuntimeType:
     if dialect == "clickhouse":
         return parse_clickhouse_type(type_name)
@@ -545,6 +502,7 @@ def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse")
     return RuntimeType(family="unknown", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect), source=type_name)
 
 
+@lru_cache(maxsize=1024)
 def parse_clickhouse_type(type_name: str) -> RuntimeType:
     stripped = type_name.strip()
     if not stripped:
@@ -691,8 +649,6 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
         timezone = _strip_quotes(parts[0]) if parts else None
         return RuntimeType(family="datetime", nullable=False, dialect="clickhouse", timezone=timezone, source=stripped)
 
-    if normalized in {"string"}:
-        return RuntimeType(family="string", nullable=False, dialect="clickhouse", source=stripped)
     if normalized.startswith("fixedstring"):
         parts = _split_type_args(_parse_parenthesized(stripped) or "")
         bits = int(parts[0]) if parts and parts[0].isdigit() else None
@@ -710,10 +666,37 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
     return RuntimeType(family="unknown", nullable=True, dialect="clickhouse", source=stripped)
 
 
+# Scalar constant types whose runtime type is fully determined by (class, nullable) — used to
+# dedupe before unification so large homogeneous literal arrays don't allocate per element.
+# Only families where unifying N identical types equals unifying one belong here; UUIDType and
+# IntervalType don't (a lone uuid keeps its family, but several unify to string via the subset rule).
+_SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
+    {
+        ast.BooleanType,
+        ast.IntegerType,
+        ast.FloatType,
+        ast.DecimalType,
+        ast.StringType,
+        ast.StringJSONType,
+        ast.StringArrayType,
+        ast.DateType,
+        ast.DateTimeType,
+    }
+)
+
+
 def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDialect = "clickhouse") -> ast.ConstantType:
     if not types:
         return ast.UnknownType()
-    runtime_types = [runtime_type_from_constant_type(type_) for type_ in types]
+    runtime_types: list[RuntimeType] = []
+    seen_simple: set[tuple[type, bool]] = set()
+    for type_ in types:
+        if type(type_) in _SIMPLE_CONSTANT_TYPE_CLASSES:
+            key = (type(type_), type_.nullable)
+            if key in seen_simple:
+                continue
+            seen_simple.add(key)
+        runtime_types.append(runtime_type_from_constant_type(type_))
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
 
 
@@ -733,7 +716,7 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
     if families == {"boolean"}:
         return BOOLEAN_RUNTIME_TYPE.with_nullable(nullable)
     if families <= {"integer", "boolean"}:
-        bits = max((type_.bits or 64) for type_ in known_types if type_.family == "integer") if known_types else 64
+        bits = max((type_.bits or 64) for type_ in known_types if type_.family == "integer")
         signed = any(type_.signed is not False for type_ in known_types if type_.family == "integer")
         return RuntimeType(
             family="integer", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect), signed=signed, bits=bits
@@ -750,7 +733,7 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
             if "datetime" in families
             else DATE_RUNTIME_TYPE.with_nullable(nullable)
         )
-    if families == {"string"} or families <= {"string", "fixed_string", "enum", "uuid"}:
+    if families <= {"string", "fixed_string", "enum", "uuid"}:
         return STRING_RUNTIME_TYPE.with_nullable(nullable)
     if families == {"json"}:
         return RuntimeType(family="json", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
@@ -843,8 +826,12 @@ def infer_function_return_type(
         )
 
     if meta is not None and meta.signatures is not None:
+        from posthog.hogql.functions.core import (
+            compare_types,  # noqa: PLC0415 — keeps the functions package (and its Django imports) off the type-system import path
+        )
+
         for sig_arg_types, sig_return_type in meta.signatures:
-            if sig_arg_types is None or _compare_legacy_types(arg_types, sig_arg_types, args=args):
+            if sig_arg_types is None or compare_types(arg_types, sig_arg_types, args=args):
                 # A signature that declares an unknown return can't determine the type, so it poisons
                 # unification rather than being absorbed as a vacuous unknown.
                 return_type: ast.ConstantType = (
@@ -1275,33 +1262,6 @@ def _infer_generic_function_type(
     return None
 
 
-def _compare_legacy_types(
-    arg_types: list[ast.ConstantType],
-    sig_arg_types: tuple[ast.ConstantType, ...],
-    args: Optional[list[ast.Expr]] = None,
-) -> bool:
-    if len(arg_types) != len(sig_arg_types):
-        return False
-
-    for index, (arg_type, sig_arg_type) in enumerate(zip(arg_types, sig_arg_types)):
-        if isinstance(sig_arg_type, ast.UnknownType):
-            continue
-        if isinstance(sig_arg_type, ast.StringLiteralType):
-            if not isinstance(arg_type, ast.StringType):
-                return False
-            if args is None or index >= len(args):
-                return False
-            arg_node = args[index]
-            if not isinstance(arg_node, ast.Constant) or not isinstance(arg_node.value, str):
-                return False
-            if arg_node.value.lower() not in sig_arg_type.values:
-                return False
-            continue
-        if not isinstance(arg_type, sig_arg_type.__class__):
-            return False
-    return True
-
-
 def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]) -> bool:
     if normalized_name.endswith("orzero") or normalized_name.endswith("ordefault"):
         return False
@@ -1612,7 +1572,7 @@ def _infer_map_apply_type(arg_types: list[ast.ConstantType], args: Optional[list
 def _infer_higher_order_array_type(
     arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect, use_lambda_return: bool
 ) -> ast.ConstantType:
-    array_arg_types = arg_types[1:] if args and args and isinstance(args[0], ast.Lambda) else arg_types
+    array_arg_types = _higher_order_array_arg_types(arg_types, args)
     if not array_arg_types:
         return ast.UnknownType()
     first_array_type = array_arg_types[0]

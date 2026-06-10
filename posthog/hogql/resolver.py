@@ -1636,22 +1636,7 @@ class Resolver(CloningVisitor):
             resolved_array_args,
             lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
         )
-
-        return ast.Call(
-            start=None if self.clear_locations else node.start,
-            end=None if self.clear_locations else node.end,
-            type=None if self.clear_types else node.type,
-            name=node.name,
-            args=[
-                self._visit_lambda_with_argument_types(cast(ast.Lambda, node.args[0]), lambda_arg_types),
-                *resolved_array_args,
-            ],
-            params=[self.visit(param) for param in node.params] if node.params is not None else None,
-            distinct=node.distinct,
-            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
-            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
-            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
-        )
+        return self._rebuild_higher_order_call(node, resolved_array_args, lambda_arg_types)
 
     @staticmethod
     def _is_higher_order_map_call(node: ast.Call) -> bool:
@@ -1667,7 +1652,11 @@ class Resolver(CloningVisitor):
             resolved_map_args[0],
             lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
         )
+        return self._rebuild_higher_order_call(node, resolved_map_args, lambda_arg_types)
 
+    def _rebuild_higher_order_call(
+        self, node: ast.Call, resolved_args: list[ast.Expr], lambda_arg_types: list[ast.ConstantType]
+    ) -> ast.Call:
         return ast.Call(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
@@ -1675,7 +1664,7 @@ class Resolver(CloningVisitor):
             name=node.name,
             args=[
                 self._visit_lambda_with_argument_types(cast(ast.Lambda, node.args[0]), lambda_arg_types),
-                *resolved_map_args,
+                *resolved_args,
             ],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,

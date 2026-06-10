@@ -4,17 +4,15 @@ import dataclasses
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TypeVar, cast
+from typing import cast
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.type_system import RuntimeType, parse_sql_runtime_type, runtime_type_from_constant_type
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
-
-T_AST = TypeVar("T_AST", bound=AST)
 
 OPTIMIZER_BLOCKER_SOURCES = frozenset(
     {
@@ -131,7 +129,7 @@ class FunctionCatalogInventory:
 
 
 def resolve_with_type_diagnostics(
-    node: T_AST,
+    node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect = "clickhouse",
 ) -> ResolvedTypeDiagnostics:

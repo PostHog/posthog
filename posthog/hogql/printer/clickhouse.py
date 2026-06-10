@@ -27,10 +27,11 @@ from posthog.hogql.property_planner import (
     is_property_type_restricted,
     plan_property_comparison,
 )
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES, MATERIALIZED_COLUMN_NAME_PREFIXES
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -72,8 +73,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 
 
 def _is_physical_materialized_column_name(name: str) -> bool:
-    name = name.strip("`\"'")
-    return name.startswith(("mat_", "pmat_", "dmat_string_"))
+    return name.strip("`\"'").startswith(MATERIALIZED_COLUMN_NAME_PREFIXES)
 
 
 class ClickHousePrinter(BasePrinter):
@@ -762,8 +762,7 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(materialized_source, PrintableMaterializedColumn):
             return None
 
-        materialized_column_type = materialized_source.type or ""
-        return materialized_source, "String" in materialized_column_type
+        return materialized_source, parse_sql_runtime_type(materialized_source.type or "").family == "string"
 
     def _get_physical_materialized_column_source(
         self, expr: ast.Expr
