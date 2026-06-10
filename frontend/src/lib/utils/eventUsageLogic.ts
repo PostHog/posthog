@@ -275,12 +275,14 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
  * Mirrors the backend `Insight.get_analytics_type()` so web and server events agree on a single field,
  * and resolves to the same value whether the query is wrapped (InsightVizNode/DataVisualizationNode) or not.
  */
-function normalizedInsightType(query: Node | null | undefined): string | undefined {
+export function normalizedInsightType(query: Node | null | undefined): string | undefined {
     if (!query) {
         return undefined
     }
     const kind = isNodeWithSource(query) ? query.source.kind : query.kind
-    return kind ? kind.replace(/Query/g, '').toLowerCase() : undefined
+    // Mirror the backend's "json" fallback for a present-but-unresolvable kind so the field stays
+    // groupable across web and server events. A fully absent query stays undefined (type truly unknown).
+    return kind ? kind.replace(/Query/g, '').toLowerCase() : 'json'
 }
 
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
