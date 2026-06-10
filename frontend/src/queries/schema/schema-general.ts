@@ -1933,6 +1933,9 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
+     *  `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
@@ -3053,6 +3056,9 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/** Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`). */
+export type TraceOrderColumn = 'timestamp' | 'duration'
+
 /**
  * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
  * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
@@ -3192,7 +3198,10 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: LogsOrderBy
+    /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+    orderBy?: TraceOrderColumn
+    /** Order direction. Defaults to DESC. */
+    orderDirection?: 'ASC' | 'DESC'
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
@@ -6060,6 +6069,85 @@ export const externalDataSources = [
     'Resend',
     'PgAnalyze',
     'WorkOS',
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'Databricks',
+    'Dynamics365',
+    'SalesforceMarketingCloud',
+    'Db2',
+    'Heap',
+    'AdobeAnalytics',
+    'Matomo',
+    'Optimizely',
+    'Adyen',
+    'GoCardless',
+    'Mollie',
+    'CheckoutCom',
+    'Branch',
+    'Criteo',
+    'Outbrain',
+    'Taboola',
+    'AdRoll',
+    'DisplayVideo360',
+    'GoogleAdManager',
+    'CampaignManager360',
+    'SearchAds360',
+    'AdobeCommerce',
+    'AmazonSellingPartner',
+    'Ebay',
+    'Commercetools',
+    'LightspeedRetail',
+    'ShipStation',
+    'ConstantContact',
+    'Mailgun',
+    'Eloqua',
+    'Sailthru',
+    'Ortto',
+    'Attentive',
+    'Kustomer',
+    'Dixa',
+    'Gladly',
+    'Qualtrics',
+    'Delighted',
+    'AzureDevOps',
+    'Rollbar',
+    'Opsgenie',
+    'IncidentIo',
+    'Pingdom',
+    'Cloudflare',
+    'CosmosDB',
+    'PlanetScale',
+    'SapHana',
+    'Rippling',
+    'HiBob',
+    'Personio',
+    'Deel',
+    'AdpWorkforceNow',
+    'Paylocity',
+    'Gusto',
+    'CultureAmp',
+    'Lattice',
+    'SageIntacct',
+    'FreshBooks',
+    'Expensify',
+    'Ramp',
+    'Brex',
+    'Coupa',
+    'SapConcur',
+    'Apollo',
+    'Crunchbase',
+    'ZoomInfo',
+    'Clari',
+    'Chorus',
+    'Coda',
+    'Guru',
+    'Dropbox',
+    'Docusign',
+    'PandaDoc',
+    'SapErp',
+    'SapSuccessFactors',
+    'OracleEbs',
+    'OracleFusion',
     'Custom',
 ] as const
 

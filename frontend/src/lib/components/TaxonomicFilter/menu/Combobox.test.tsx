@@ -312,6 +312,25 @@ describe('MenuFilterCombobox', () => {
         expect(pageviewRows).toHaveLength(1)
     })
 
+    it('shows a complete recent as both a full value row and a separate bare key row', async () => {
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.EventProperties],
+            recentEntries: [
+                {
+                    ...makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+                    recentPropertyFilter: { key: '$browser', operator: 'exact', value: 'Chrome' },
+                    recentLabel: 'Browser = Chrome',
+                },
+                makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+            ],
+        })
+
+        await waitFor(() => expect(rowTexts().length).toBeGreaterThan(0))
+        const texts = rowTexts()
+        expect(texts.some((t) => t.includes('Browser = Chrome'))).toBe(true)
+        expect(texts.some((t) => t.includes('$browser') && !t.includes('Chrome'))).toBe(true)
+    })
+
     it.each([
         ['email', '$email'],
         ['url', '$current_url'],

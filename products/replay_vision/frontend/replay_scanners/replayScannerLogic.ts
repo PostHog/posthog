@@ -3,6 +3,7 @@ import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, re
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,6 +62,57 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
+}
+
+const UNIT_BY_LETTER: Record<string, dayjs.ManipulateType> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    y: 'year',
+}
+
+const START_OF_BY_PREFIX: Record<string, dayjs.ManipulateType> = {
+    dStart: 'day',
+    wStart: 'week',
+    mStart: 'month',
+    yStart: 'year',
+}
+
+function chartRangeToDayjs(expr: string): dayjs.Dayjs | null {
+    const relative = expr.match(/^-(\d+)([hdwmy])(Start|End)?$/)
+    if (relative) {
+        const [, n, letter, suffix] = relative
+        const unit = UNIT_BY_LETTER[letter]
+        const date = dayjs().subtract(parseInt(n, 10), unit)
+        if (suffix === 'Start') {
+            return date.startOf(unit)
+        }
+        if (suffix === 'End') {
+            return date.endOf(unit)
+        }
+        return date
+    }
+    if (expr in START_OF_BY_PREFIX) {
+        return dayjs().startOf(START_OF_BY_PREFIX[expr])
+    }
+    if (expr === 'all') {
+        return dayjs().subtract(1, 'year')
+    }
+    const parsed = dayjs(expr)
+    return parsed.isValid() ? parsed : null
+}
+
+function daysFromChartRange(dateFrom: string | null, dateTo: string | null): number {
+    if (!dateFrom) {
+        return 14
+    }
+    const from = chartRangeToDayjs(dateFrom)
+    if (!from) {
+        return 14
+    }
+    const to = dateTo ? chartRangeToDayjs(dateTo) || dayjs() : dayjs()
+    return Math.max(1, to.diff(from, 'day'))
 }
 
 interface ObservationListParams {
@@ -156,6 +208,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
         loadObservationStatsFailure: true,
         deleteScanner: true,
+        toggleEnabled: true,
+        toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
+        toggleEnabledFailure: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
@@ -235,6 +290,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         lemonToast.success('Scanner saved')
+                        router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
@@ -250,6 +306,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 submitScannerSuccess: (_, { scanner }: { scanner: ReplayScanner }) => scanner,
+                toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
+            },
+        ],
+        togglingEnabled: [
+            false,
+            {
+                toggleEnabled: () => true,
+                toggleEnabledSuccess: () => false,
+                toggleEnabledFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -626,6 +691,30 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            toggleEnabled: async () => {
+                const scanner = values.scanner
+                if (props.id === 'new' || !scanner) {
+                    actions.toggleEnabledFailure()
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.toggleEnabledFailure()
+                    return
+                }
+                const next = !scanner.enabled
+                actions.setScannerValue('enabled', next)
+                try {
+                    await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
+                    actions.toggleEnabledSuccess(next)
+                } catch (error: any) {
+                    actions.setScannerValue('enabled', !next)
+                    const verb = next ? 'enable' : 'disable'
+                    lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.toggleEnabledFailure()
+                }
+            },
+
             loadObservations: async () => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
@@ -655,6 +744,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTagFilter: () => reloadObservationsAndStats(),
             clearObservationFilters: () => reloadObservationsAndStats(),
 
+            setChartDateRange: () => {
+                actions.loadObservationStats()
+            },
+
             loadObservationStats: async () => {
                 if (props.id === 'new') {
                     actions.loadObservationStatsFailure()
@@ -667,7 +760,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
                     const { order_by: _ignored, ...params } = buildObservationListParams(values)
-                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, params)
+                    const recentDays = daysFromChartRange(values.chartDateFrom, values.chartDateTo)
+                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, {
+                        ...params,
+                        recent_days: recentDays,
+                    })
                     actions.loadObservationStatsSuccess(response)
                 } catch {
                     actions.loadObservationStatsFailure()
