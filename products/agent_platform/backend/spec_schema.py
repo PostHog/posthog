@@ -632,7 +632,7 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
             for mode in modes:
                 if not isinstance(mode, dict):
                     continue
-                requirement = _auth_mode_secret_requirement(mode)
-                if requirement is not None:
-                    consider(requirement, trigger_type)
+                auth_requirement = _auth_mode_secret_requirement(mode)
+                if auth_requirement is not None:
+                    consider(auth_requirement, trigger_type)
     return out
