@@ -68,6 +68,24 @@ describe('TaskSessionView', () => {
     const originalFetch = global.fetch
     let detailLogic: ReturnType<typeof taskDetailSceneLogic.build>
     let composer: ReturnType<typeof taskComposerLogic.build>
+    let offsetHeightDescriptor: PropertyDescriptor | undefined
+
+    beforeAll(() => {
+        // jsdom reports zero heights, so the virtualizer would render no rows.
+        offsetHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+        Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+            configurable: true,
+            get(this: HTMLElement): number {
+                return this.getAttribute('data-attr') === 'virtualized-list-scroll' ? 800 : 50
+            },
+        })
+    })
+
+    afterAll(() => {
+        if (offsetHeightDescriptor) {
+            Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeightDescriptor)
+        }
+    })
 
     async function setup(status: TaskRunStatus): Promise<TaskRun> {
         const run = makeRun(status)
@@ -106,6 +124,8 @@ describe('TaskSessionView', () => {
                 isPolling={false}
                 isStreaming={false}
                 run={run}
+                streamingFailed={false}
+                onRetryStream={() => {}}
             />
         )
         // The composer (its textarea placeholder) renders for a non-terminal run.
@@ -126,6 +146,8 @@ describe('TaskSessionView', () => {
                 isPolling={true}
                 isStreaming={false}
                 run={run}
+                streamingFailed={false}
+                onRetryStream={() => {}}
             />
         )
         expect(screen.getByText('queued while booting')).toBeInTheDocument()
@@ -142,6 +164,8 @@ describe('TaskSessionView', () => {
                 isPolling={false}
                 isStreaming={false}
                 run={run}
+                streamingFailed={false}
+                onRetryStream={() => {}}
             />
         )
         // Terminal runs still show the composer (in resume mode), not a crash.

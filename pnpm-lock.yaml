@@ -814,6 +814,9 @@ importers:
       '@stripe/stripe-js':
         specifier: ^4.5.0
         version: 4.5.0
+      '@tanstack/react-virtual':
+        specifier: ^3.13.26
+        version: 3.14.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/dom':
         specifier: '>=9.3.4'
         version: 9.3.4
@@ -10980,9 +10983,18 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
+  '@tanstack/react-virtual@3.14.2':
+    resolution: {integrity: sha512-IpWnmCLvuymRfeeLNVXIzNEYBFLpd3drVIS91sqV78VTZFyldlChkOocZRCPp1B+Wnk09bcLNme8WaMU/9/9bQ==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
   '@tanstack/table-core@8.21.3':
     resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
     engines: {node: '>=12'}
+
+  '@tanstack/virtual-core@3.17.0':
+    resolution: {integrity: sha512-gOxY/hFkPh/XQYhnThBHzkbkX3Ed+z/iushyz+R+JAr213aXxUDgQoTgTdrDpBSRsjFM73P/KfUyWmaF9WHMkQ==}
 
   '@temporalio/activity@1.15.0':
     resolution: {integrity: sha512-kKEIrHMTsANiEpDVZd+v3OT6kU20UtcvAK7iibJNzQnoZUGC7XnqdKQlBuGYBxgpJzD9ppGgskXRczW+XU5Kng==}
@@ -21766,8 +21778,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.421.0:
-    resolution: {integrity: sha512-RLbY7hhxwpEZUKb+daI/auXi9gjOu/3SwD56QCbriiI8BElulh9+EO7zRM+It1Th60QbNjn0GStav61G/g/r2g==}
+  unlayer-types@1.423.0:
+    resolution: {integrity: sha512-TyFu/p0durNCmK4XVAKfxAzUHxEK6YaPc3jXcFgahAK+hWrjjl7T71x6cs0p3vlb6aJJq+i+Pcvm40F15DYAaA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -32113,7 +32125,15 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@tanstack/react-virtual@3.14.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/virtual-core': 3.17.0
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   '@tanstack/table-core@8.21.3': {}
+
+  '@tanstack/virtual-core@3.17.0': {}
 
   '@temporalio/activity@1.15.0':
     dependencies:
@@ -43657,7 +43677,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.421.0
+      unlayer-types: 1.423.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45988,7 +46008,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.421.0: {}
+  unlayer-types@1.423.0: {}
 
   unpipe@1.0.0: {}
 

@@ -182,6 +182,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             false,
             {
                 setSelectedRunId: () => false,
+                startStreaming: () => false,
                 markStreamingFailed: () => true,
             },
         ],

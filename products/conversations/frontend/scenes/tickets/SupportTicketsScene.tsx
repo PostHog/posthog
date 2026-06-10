@@ -303,7 +303,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         bulk.isAllOnPageSelected,
         bulk.toggleAllOnPage,
         bulk.selectedKeysSet,
-        bulk.toggleRow bulk,
+        bulk.toggleRow,
     ])
 
     return (

@@ -1,17 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
+import { IconArchive, IconExternal, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { humanFriendlyDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -30,7 +27,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
-import { CollapsibleContent } from './CollapsibleContent'
+import { PrBadge } from './PrBadge'
 import { TaskRunItem } from './TaskRunItem'
 import { TaskSessionView } from './TaskSessionView'
 
@@ -52,8 +49,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
         shouldPoll,
         events,
         isStreaming,
+        streamingFailed,
     } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask, updateTask, startStreaming } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
@@ -78,7 +76,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const prUrl = selectedRun?.output?.pr_url as string | undefined
 
     return (
-        <SceneContent>
+        <SceneContent className="flex-1 min-h-0">
             {sceneMenuBarEnabled && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
@@ -149,7 +147,15 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 description={null}
                 resourceType={{ type: 'task' }}
                 isLoading={false}
-                canEdit={false}
+                canEdit={true}
+                saveOnBlur
+                renameDebounceMs={0}
+                onNameChange={(value) => {
+                    const title = value.trim()
+                    if (title && title !== task.title) {
+                        updateTask({ data: { title } })
+                    }
+                }}
                 forceBackTo={{
                     key: 'tasks',
                     name: 'Tasks',
@@ -165,16 +171,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         >
                             Open in PostHog Code
                         </LemonButton>
-                        {prUrl && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGithub />}
-                                onClick={() => window.open(prUrl, '_blank')}
-                            >
-                                View PR
-                            </LemonButton>
-                        )}
+                        <PrBadge prUrl={prUrl} />
                         {!isLatestRunInProgress && (
                             <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
                                 {runButtonText}
@@ -183,37 +180,6 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </div>
                 }
             />
-
-            {selectedRun && (
-                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
-                    <span>
-                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
-                    </span>
-                    {selectedRun.completed_at && (
-                        <span>
-                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
-                        </span>
-                    )}
-                    {selectedRun.completed_at && (
-                        <span>
-                            Duration:{' '}
-                            {humanFriendlyDuration(
-                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
-                            )}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            {task.description && (
-                <div className="relative -mt-2 mb-2 px-2">
-                    <CollapsibleContent>
-                        <LemonMarkdown lowKeyHeadings className="text-sm">
-                            {task.description}
-                        </LemonMarkdown>
-                    </CollapsibleContent>
-                </div>
-            )}
 
             {runsLoading ? (
                 <div className="flex items-center justify-center h-32">
@@ -224,7 +190,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     <p className="text-muted">This task hasn't been run yet</p>
                 </div>
             ) : selectedRun ? (
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden">
                     <TaskSessionView
                         taskId={taskId}
                         logs={logs}
@@ -233,6 +199,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         isPolling={shouldPoll}
                         isStreaming={isStreaming}
                         run={selectedRun}
+                        streamingFailed={streamingFailed}
+                        onRetryStream={startStreaming}
                     />
                 </div>
             ) : null}

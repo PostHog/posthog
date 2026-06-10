@@ -164,6 +164,7 @@ export function TasksList(): JSX.Element {
                     dataSource={tasks}
                     columns={columns}
                     rowKey="id"
+                    pagination={{ pageSize: 100 }}
                     onRow={(task) => ({
                         onClick: (e) => {
                             const url = urls.taskDetail(task.id)

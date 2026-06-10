@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { JSX } from 'react'
+import { JSX, useRef } from 'react'
 
 import { IconSend, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { AttachmentButton, AttachmentsBar } from './Attachments'
+import { useComposerShortcuts } from './composerShortcuts'
 import { getConfigOptionByCategory } from './configOptions'
 import { ModelSelector, ModeSelector, ReasoningEffortSelector } from './ConfigSelectors'
 import { taskComposerLogic } from './taskComposerLogic'
@@ -18,11 +19,20 @@ export function TaskComposer({ taskId }: { taskId: string }): JSX.Element {
     const modelOption = getConfigOptionByCategory(configOptions, 'model')
     const thoughtOption = getConfigOptionByCategory(configOptions, 'thought_level')
 
+    const containerRef = useRef<HTMLDivElement>(null)
+    useComposerShortcuts(containerRef, {
+        agentBusy,
+        onCancel: cancelRun,
+        modeOption,
+        onModeChange: (value) => modeOption && setConfigOption(modeOption.id, value),
+    })
+
     const canSend = draft.trim().length > 0 || pendingFiles.length > 0
     const sendDisabledReason = sending ? 'Sending…' : !canSend ? 'Enter a message or attach a file' : undefined
 
     return (
         <div
+            ref={containerRef}
             className="flex flex-col rounded-lg border border-border bg-bg-light focus-within:border-accent"
             data-attr="task-composer"
         >
