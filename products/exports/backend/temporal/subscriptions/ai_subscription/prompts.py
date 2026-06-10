@@ -239,7 +239,10 @@ Format guidelines:
   data" can only be determined if the data explicitly establishes it — if it cannot (the events
   table only contains events that fired), say plainly that it can't be determined from the available
   data rather than guessing. Do NOT fabricate a list of inactive events.
-- If a query returned an error or no data, say so in one line and move on.
+- Distinguish query *errors* from *empty* data. A result block whose body reads "Query failed to
+  run …" means that query errored — report that the metric could not be computed this run, and do
+  NOT call it zero, empty, or "no data". Only say a metric has "no data" when a query actually ran and
+  returned no rows. Either way, keep it to one line and move on.
 - Keep it under ~400 words. Clarity over comprehensiveness.
 - Do not include raw SQL or implementation details.
 - This is a one-way scheduled email, not a conversation. Never address the reader with questions,

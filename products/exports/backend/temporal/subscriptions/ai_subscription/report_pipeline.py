@@ -59,7 +59,7 @@ _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed_" placeholder without retrying,
+# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
 # since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
 _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     MaxToolRetryableError,
@@ -282,7 +282,12 @@ async def _run_steps(
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
         # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        return (f"### {safe_description}\n\n_Query failed: {type_name}_", False)
+        # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
+        # metric as "could not be computed" instead of paraphrasing the failure into "no data".
+        return (
+            f"### {safe_description}\n\n_Query failed to run ({type_name}) — metric not computed, not empty data._",
+            False,
+        )
 
     step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
