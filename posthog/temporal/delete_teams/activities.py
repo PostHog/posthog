@@ -1,6 +1,6 @@
 import temporalio.activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.delete_teams.types import (
     OrganizationEmailInputs,
@@ -24,8 +24,8 @@ async def queue_recording_deletions_activity(inputs: TeamDataActivityInputs) -> 
     async with Heartbeater():
         from posthog.tasks.tasks import _queue_delete_team_recordings
 
-        deleted_by = await database_sync_to_async(_resolve_deleted_by)(inputs.user_id)
-        await database_sync_to_async(_queue_delete_team_recordings)(inputs.team_ids, deleted_by)
+        deleted_by = await database_sync_to_async_pool(_resolve_deleted_by)(inputs.user_id)
+        await database_sync_to_async_pool(_queue_delete_team_recordings)(inputs.team_ids, deleted_by)
 
 
 @temporalio.activity.defn
@@ -33,7 +33,7 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
     async with Heartbeater():
         from posthog.models.team.util import _delete_misc_small_tables_for_teams
 
-        await database_sync_to_async(_delete_misc_small_tables_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_misc_small_tables_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -41,7 +41,7 @@ async def delete_personless_distinct_ids_activity(inputs: TeamDataActivityInputs
     async with Heartbeater():
         from posthog.models.team.util import _delete_personless_distinct_ids_for_teams
 
-        await database_sync_to_async(_delete_personless_distinct_ids_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_personless_distinct_ids_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -49,7 +49,7 @@ async def delete_cohort_members_activity(inputs: TeamDataActivityInputs) -> None
     async with Heartbeater():
         from posthog.models.team.util import _delete_cohort_members_for_all_teams
 
-        await database_sync_to_async(_delete_cohort_members_for_all_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_cohort_members_for_all_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -57,8 +57,8 @@ async def delete_groups_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_group_type_mappings_for_teams, _delete_groups_for_teams
 
-        await database_sync_to_async(_delete_groups_for_teams)(inputs.team_ids)
-        await database_sync_to_async(_delete_group_type_mappings_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_groups_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -66,7 +66,7 @@ async def delete_team_persons_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_persons_for_teams
 
-        await database_sync_to_async(_delete_persons_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_persons_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -74,7 +74,7 @@ async def delete_batch_exports_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import delete_batch_exports
 
-        await database_sync_to_async(delete_batch_exports)(inputs.team_ids)
+        await database_sync_to_async_pool(delete_batch_exports)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -82,7 +82,7 @@ async def delete_data_modeling_schedules_activity(inputs: TeamDataActivityInputs
     async with Heartbeater():
         from posthog.models.team.util import delete_data_modeling_schedules
 
-        await database_sync_to_async(delete_data_modeling_schedules)(inputs.team_ids)
+        await database_sync_to_async_pool(delete_data_modeling_schedules)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -90,7 +90,7 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import delete_team_records
 
-        await database_sync_to_async(delete_team_records)(inputs.team_ids)
+        await database_sync_to_async_pool(delete_team_records)(inputs.team_ids)
 
 
 def _enqueue_clickhouse_deletion(team_ids: list[int], user_id: int) -> None:
@@ -115,7 +115,7 @@ def _enqueue_clickhouse_deletion(team_ids: list[int], user_id: int) -> None:
 @temporalio.activity.defn
 async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
+        await database_sync_to_async_pool(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
 
 
 @temporalio.activity.defn
@@ -123,7 +123,7 @@ async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import delete_project_record
 
-        await database_sync_to_async(delete_project_record)(inputs.project_id)
+        await database_sync_to_async_pool(delete_project_record)(inputs.project_id)
 
 
 def _delete_organization_record(organization_id: str, user_id: int) -> None:
@@ -137,7 +137,7 @@ def _delete_organization_record(organization_id: str, user_id: int) -> None:
 @temporalio.activity.defn
 async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(_delete_organization_record)(inputs.organization_id, inputs.user_id)
+        await database_sync_to_async_pool(_delete_organization_record)(inputs.organization_id, inputs.user_id)
 
 
 def _send_project_deleted_email(user_id: int, project_name: str) -> None:
@@ -151,7 +151,7 @@ def _send_project_deleted_email(user_id: int, project_name: str) -> None:
 @temporalio.activity.defn
 async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(_send_project_deleted_email)(inputs.user_id, inputs.project_name)
+        await database_sync_to_async_pool(_send_project_deleted_email)(inputs.user_id, inputs.project_name)
 
 
 def _send_organization_deleted_email(user_id: int, organization_name: str, project_names: list[str]) -> None:
@@ -167,6 +167,6 @@ def _send_organization_deleted_email(user_id: int, organization_name: str, proje
 @temporalio.activity.defn
 async def send_organization_deleted_email_activity(inputs: OrganizationEmailInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(_send_organization_deleted_email)(
+        await database_sync_to_async_pool(_send_organization_deleted_email)(
             inputs.user_id, inputs.organization_name, inputs.project_names
         )
