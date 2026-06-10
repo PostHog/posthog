@@ -10,36 +10,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
+)
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
-
-_PULL_REQUESTS_COLUMNS = {
-    "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "number": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "title": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "state": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "draft": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
-    "created_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "updated_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "merged_at": {"clickhouse": "Nullable(DateTime64(3, 'UTC'))", "hogql": "DateTimeDatabaseField"},
-    "closed_at": {"clickhouse": "Nullable(DateTime64(3, 'UTC'))", "hogql": "DateTimeDatabaseField"},
-    "user": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "head": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "base": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "labels": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-}
-
-_WORKFLOW_RUNS_COLUMNS = {
-    "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "name": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "head_sha": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "status": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "conclusion": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
-    "created_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "run_started_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "updated_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "repository": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-}
 
 
 def _user(login: str) -> str:
