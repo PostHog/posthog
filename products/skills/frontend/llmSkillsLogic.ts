@@ -11,8 +11,16 @@ import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
-import { llmSkillsList, llmSkillsNameArchiveCreate, llmSkillsNameDuplicateCreate } from '../generated/api'
-import type { LLMSkillListApi, PaginatedLLMSkillListListApi } from '../generated/api.schemas'
+import {
+    llmSkillsList,
+    llmSkillsNameArchiveCreate,
+    llmSkillsNameDuplicateCreate,
+} from 'products/ai_observability/frontend/generated/api'
+import type {
+    LLMSkillListApi,
+    PaginatedLLMSkillListListApi,
+} from 'products/ai_observability/frontend/generated/api.schemas'
+
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
 
 export const SKILLS_PER_PAGE = 30
@@ -135,7 +143,7 @@ export function groupSkillsByPrefix(skills: LLMSkillListApi[]): SkillGroupTree {
 export type LLMSkillsLogicProps = Record<string, never>
 
 export const llmSkillsLogic = kea<llmSkillsLogicType>([
-    path(['scenes', 'ai-observability', 'llmSkillsLogic']),
+    path(['scenes', 'skills', 'llmSkillsLogic']),
     props({} as LLMSkillsLogicProps),
 
     actions({
@@ -299,7 +307,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     new_name: newName,
                 })
                 lemonToast.success(`Skill duplicated as "${newName}".`)
-                router.actions.push(urls.aiObservabilitySkill(newName))
+                router.actions.push(urls.skill(newName))
             } catch (e) {
                 console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
@@ -313,7 +321,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {
-                return [urls.aiObservabilitySkills(), nextValues, {}, { replace: true }]
+                return [urls.skills(), nextValues, {}, { replace: true }]
             }
         }
 
@@ -321,7 +329,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        [urls.aiObservabilitySkills()]: (_, searchParams, __, { method }) => {
+        [urls.skills()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
             if (!objectsEqual(values.filters, newFilters)) {
@@ -333,7 +341,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             if (forceReload) {
                 const nextSearchParams = { ...searchParams }
                 delete nextSearchParams[LLM_SKILLS_FORCE_RELOAD_PARAM]
-                router.actions.replace(urls.aiObservabilitySkills(), nextSearchParams)
+                router.actions.replace(urls.skills(), nextSearchParams)
             }
         },
     })),

@@ -203,6 +203,17 @@ export function AccountNotebooksExpansion({
                                     />
                                 ),
                             },
+                            {
+                                key: 'spend',
+                                label: 'Spend',
+                                content: (
+                                    <AccountBillingExpansion
+                                        accountId={accountId}
+                                        externalId={externalId}
+                                        kind="spend"
+                                    />
+                                ),
+                            },
                         ]}
                     />
                 </div>

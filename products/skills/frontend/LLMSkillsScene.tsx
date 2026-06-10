@@ -25,7 +25,8 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { LLMSkillListApi } from '../generated/api.schemas'
+import type { LLMSkillListApi } from 'products/ai_observability/frontend/generated/api.schemas'
+
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
@@ -259,7 +260,7 @@ export function LLMSkillsScene(): JSX.Element {
     const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills } =
         useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
-    const skillUrl = (name: string): string => combineUrl(urls.aiObservabilitySkill(name), searchParams).url
+    const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.

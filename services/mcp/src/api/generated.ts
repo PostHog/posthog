@@ -14951,6 +14951,8 @@ export namespace Schemas {
     export interface EndpointRunResponse {
       /** URL-safe endpoint name that was executed. */
       name: string;
+      /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+      execution_id?: string;
       /** Query result rows. Each row is a list of values matching the columns order. */
       results?: unknown[];
       /** Column names from the query SELECT clause. */
@@ -24252,6 +24254,8 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -25689,6 +25693,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -31450,6 +31455,8 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedParserRecipe {
@@ -32473,6 +32480,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
@@ -43511,6 +43519,38 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsEndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
@@ -47288,7 +47328,7 @@ export namespace Schemas {
      */
     order?: string;
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
     };
@@ -48954,6 +48994,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EndpointsOpenapiSpecRetrieveParams = {
