@@ -894,6 +894,12 @@ def complete_run(run_id: UUID) -> Run:
     # is_partial is client-supplied and only suppresses removed-baseline
     # detection. Never honor it on the default branch (authoritative full
     # baseline), so a token can't hide deleted snapshots from the gate.
+    # On PR branches honoring the client is deliberate: the baseline file
+    # ships in the repo checkout, so any caller able to set this flag could
+    # equally forge a green run by reporting every identifier at its baseline
+    # hash — a server-side check buys nothing there. The mitigations are this
+    # default-branch fence, approval merges that never delete untouched
+    # baseline entries, and the "(partial run)" annotation on posted statuses.
     effective_is_partial = run.is_partial
     if effective_is_partial and _run_is_on_default_branch(repo, run.branch):
         logger.warning(
@@ -1517,9 +1523,17 @@ def _post_commit_status(
     POST /repos/{owner}/{repo}/statuses/{sha}
 
     state: "pending", "success", "failure", "error"
+
+    Partial runs are annotated in the description: is_partial is client-supplied
+    and suppresses removed-baseline detection on PR branches, so the status must
+    disclose that the run didn't exercise the full suite — a clean partial run
+    must never be indistinguishable from a clean full run to a reviewer.
     """
     if not repo.repo_full_name:
         return
+
+    if run.is_partial:
+        description = f"{description} (partial run)"
 
     from django.conf import settings
 

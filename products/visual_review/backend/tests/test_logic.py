@@ -947,7 +947,33 @@ class TestCommitStatusChecks:
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
-        assert "No visual changes" in statuses[-1]["description"]
+        assert statuses[-1]["description"] == "No visual changes"
+
+    def test_complete_run_partial_annotates_posted_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+        logic.complete_run(run.id)
+
+        # A clean partial run must be distinguishable from a clean full run:
+        # is_partial suppresses removal detection, so the status discloses it.
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "No visual changes (partial run)"
 
     def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
         github_repo.enable_pr_comments = True
