@@ -78,4 +78,4 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
         report = await generate_ai_report(team=self.team, user=self.user, prompt="x", window_days=7)
 
         assert report == "# Degraded report"
-        assert "_Query failed" in captured["human"]
+        assert "Query failed to run" in captured["human"]

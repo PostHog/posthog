@@ -11,16 +11,11 @@ description: >
   clears the confidence bar, otherwise it updates the baseline memory and closes out
   empty. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
-  Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes plus
-  signal_scout_internal:write (scratchpad + emit) and notebook:write (write-up artifact).
-  Uses the signals-scout MCP family
-  (project-profile-get, runs-list, runs-retrieve, scratchpad-search/-remember/-forget,
-  emit-signal) plus dashboard/insight tools (insights-trending-retrieve, insight-get,
-  insight-query, dashboards-get-all, dashboard-get, dashboard-insights-run, insights-list),
-  alert-simulate (the anomaly-detection simulator — primary scorer for saved insights),
-  notebooks-create / notebooks-destroy (the durable write-up that backs each emitted
-  finding, removed if the emit is preflight-skipped),
-  execute-sql, read-data-schema, inbox-reports-list.
+  Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
+  plus signal_scout_internal:write (scratchpad + emit) and notebook:write (the notebook
+  write-up behind each finding). Assumes the signals-scout MCP tool family plus the
+  dashboard/insight, alert-simulate, and notebook tools listed in the body's MCP tools
+  section.
 metadata:
   owner_team: signals
   scope: anomaly_detection
@@ -155,11 +150,11 @@ For each candidate anomaly, classify against prior runs and the scratchpad
   hook, but the notebook is the durable artifact a human opens to see the charts, the baseline
   math, and the attribution behind the call. Build it first, then put its URL in the emitted
   finding's description and an evidence entry so the signal links straight to the write-up. The
-  emit contract _and_ the notebook structure — schema, weight/confidence rubrics, severity,
+  emit contract _and_ the notebook structure — schema, confidence rubric, severity,
   dedupe keys, description prose, the notebook layout + embedded-chart recipe, worked example —
   are in [`references/emit-contract.md`](references/emit-contract.md). For this
   scout a strong finding is: robust z ≥ ~3.5 on the latest complete bucket, the move is not
-  explained by seasonality or a known data-pipeline gap, weight ≥ 0.7, confidence ≥ 0.85,
+  explained by seasonality or a known data-pipeline gap, confidence ≥ 0.85,
   with the insight `short_id`, the bucket value, the baseline, the z-score, and the time
   window in the evidence. Cross-check `inbox-reports-list` first — if the same metric move
   is already reported, emit only if your angle is materially new.

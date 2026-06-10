@@ -353,20 +353,24 @@ describe('createDefaultPropertyFilter()', () => {
         )
     })
 
-    it('creates a standard event property filter with Exact operator', () => {
+    it.each([
+        ['$browser', PropertyOperator.Exact],
+        ['$current_url', PropertyOperator.IContains],
+        ['$pathname', PropertyOperator.IContains],
+    ])('defaults the %s event property filter to the %s operator', (propertyKey, expectedOperator) => {
         const result = createDefaultPropertyFilter(
             null,
-            '$browser',
+            propertyKey,
             PropertyFilterType.Event,
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
         expect(result).toEqual(
             expect.objectContaining({
-                key: '$browser',
+                key: propertyKey,
                 value: null,
                 type: PropertyFilterType.Event,
-                operator: PropertyOperator.Exact,
+                operator: expectedOperator,
             })
         )
     })

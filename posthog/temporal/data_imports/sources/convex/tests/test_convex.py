@@ -53,10 +53,17 @@ class TestValidateDeployUrl:
                 "https://clever-falcon-77.us-east-1.convex.cloud",
                 "https://clever-falcon-77.us-east-1.convex.cloud",
             ),
+            # missing scheme — normalized by prepending https://
+            ("no_scheme", "swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
+            (
+                "no_scheme_regional",
+                "breezy-otter-42.eu-west-1.convex.cloud",
+                "https://breezy-otter-42.eu-west-1.convex.cloud",
+            ),
+            ("no_scheme_trailing_slash", "swift-lemur-123.convex.cloud/", "https://swift-lemur-123.convex.cloud"),
             # invalid — should raise
             ("http", "http://swift-lemur-123.convex.cloud", None),
             ("ftp", "ftp://swift-lemur-123.convex.cloud", None),
-            ("no_scheme", "swift-lemur-123.convex.cloud", None),
             ("wrong_tld", "https://swift-lemur-123.convex.io", None),
             ("two_extra_subdomains", "https://extra.foo.swift-lemur-123.convex.cloud", None),
             ("lookalike", "https://convex.cloud.evil.com", None),
