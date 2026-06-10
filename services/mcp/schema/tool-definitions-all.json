@@ -5969,20 +5969,6 @@
             "readOnlyHint": true
         }
     },
-    "toolbar-annotations-update": {
-        "description": "Update a toolbar annotation as you work through it — set `annotation_status` to acknowledged, resolved, or dismissed, and optionally write a `resolution` note describing what you changed or why it was dismissed.",
-        "category": "Toolbar annotations",
-        "feature": "toolbar_annotations",
-        "summary": "Update toolbar annotation",
-        "title": "Update toolbar annotation",
-        "required_scopes": ["toolbar_annotation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
         "category": "Feature flags",

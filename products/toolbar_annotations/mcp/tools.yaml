@@ -60,6 +60,9 @@ tools:
                 - screenshot_url
                 - created_at
                 - created_by
+    toolbar-annotations-partial-update:
+        operation: toolbar_annotations_partial_update
+        enabled: false
     toolbar-annotations-update:
         operation: toolbar_annotations_update
         enabled: false
