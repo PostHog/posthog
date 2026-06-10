@@ -1138,6 +1138,7 @@ POSTHOG_AI_PRODUCTS = [
     "slack_app",
     "subscriptions",
     "alert_investigation_agent",
+    "product_analytics",
 ]
 
 # ai_product values billed as signals credits.
