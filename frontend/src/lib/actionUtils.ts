@@ -1,5 +1,3 @@
-import { cssEscape } from 'lib/utils/cssEscape'
-
 import { ElementType } from '~/types'
 
 // these plus any element with cursor:pointer will be click targets
@@ -64,20 +62,20 @@ export function elementToSelector(element: ElementType, dataAttributes: string[]
         return selector
     }
     if (element.attr_id) {
-        selector += `[id="${cssEscape(element.attr_id)}"]`
+        selector += `[id="${CSS.escape(element.attr_id)}"]`
         return selector
     }
     if (element.tag_name) {
-        selector += cssEscape(element.tag_name)
+        selector += CSS.escape(element.tag_name)
     }
     if (element.attr_class) {
         selector += element.attr_class
             .filter((a) => a)
-            .map((a) => `.${cssEscape(a)}`)
+            .map((a) => `.${CSS.escape(a)}`)
             .join('')
     }
     if (element.href && element.tag_name === 'a') {
-        selector += `[href="${cssEscape(element.href)}"]`
+        selector += `[href="${CSS.escape(element.href)}"]`
     }
     if (element.nth_child) {
         selector += `:nth-child(${parseInt(element.nth_child as any)})`
