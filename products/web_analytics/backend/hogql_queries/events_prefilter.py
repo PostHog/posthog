@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, StringDatabaseField
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -29,8 +29,29 @@ class _EventsFieldCollector(TraversingVisitor):
         if isinstance(field_type, ast.PropertyType):
             self._record_property_access(field_type.field_type, str(field_type.chain[0]) if field_type.chain else None)
             field_type = field_type.field_type
-        if isinstance(field_type, ast.FieldType) and field_type.table_type == self.events_table_type:
+        if isinstance(field_type, ast.FieldType) and self._matches_events_table(field_type.table_type):
             self.fields.add(field_type.name)
+
+    def _matches_events_table(self, table_type: ast.Type | None) -> bool:
+        """True when `table_type` is this collector's events-table occurrence.
+
+        Property resolution reads materialized / dmat / property-group columns through a copy of the events table with
+        the synthetic column added (the HogQL schema doesn't know those columns), so the reads it rewrote no longer
+        compare equal to the occurrence's own type. Treat such an augmented copy of the same table as a match — without
+        this, those columns are left out of the prefilter subquery and the outer query fails with UNKNOWN_IDENTIFIER.
+        """
+        if table_type == self.events_table_type:
+            return True
+        candidate: ast.Type | None = table_type
+        target: ast.Type | None = self.events_table_type
+        if isinstance(candidate, ast.TableAliasType) and isinstance(target, ast.TableAliasType):
+            if candidate.alias != target.alias:
+                return False
+            candidate, target = candidate.table_type, target.table_type
+        if not isinstance(candidate, ast.TableType) or not isinstance(target, ast.TableType):
+            return False
+        # An augmented copy is the same table class with the original's fields plus the synthetic ones.
+        return type(candidate.table) is type(target.table) and set(target.table.fields).issubset(candidate.table.fields)
 
     def visit_jsonfield_access(self, node: ast.JSONFieldAccess):
         # After the lowering pass an unmaterialized `properties.$x` read is a `JSONFieldAccess` over the blob `Field`,
@@ -54,7 +75,7 @@ class _EventsFieldCollector(TraversingVisitor):
             if isinstance(db_field, DatabaseField):
                 col_name = db_field.name
             table_type = table_type.table_type
-        if table_type == self.events_table_type:
+        if self._matches_events_table(table_type):
             self.property_accesses.add((property_name, col_name))
 
 
@@ -129,6 +150,16 @@ class EventsPrefilterTransformer(TraversingVisitor):
         mat_column_names = self._resolve_materialized_columns(
             collector.property_accesses, events_columns, events_table_type
         )
+
+        # Any collected column the HogQL schema doesn't know (a synthetic materialized / dmat / property-group read
+        # built by property resolution) must be registered on the table for the duration of the print, or the
+        # subquery's bare SELECT of it won't resolve.
+        table = self._get_events_table(events_table_type)
+        if table is not None:
+            for column in events_columns | mat_column_names:
+                if column not in table.fields:
+                    table.fields[column] = StringDatabaseField(name=column)
+                    self._temp_schema_fields.append((table, column))
 
         inner_join = ast.JoinExpr(table=join.table, type=events_table_type)
         subquery = ast.SelectQuery(
