@@ -1,7 +1,6 @@
 import {
     ClipboardEvent as ReactClipboardEvent,
     FormEvent,
-    KeyboardEvent,
     MutableRefObject,
     ReactNode,
     useCallback,
@@ -11,8 +10,8 @@ import {
 } from 'react'
 
 import { shouldUseMarkdownPaste } from './documentModel'
-import { getCollapsedSelectionRange, getInlineLinkPasteResult, getSelectionRange } from './domSelection'
-import { InsertMenuSelectionDirection, RestoreSelectionRequest, TextSelectionPointerStartEvent } from './editorTypes'
+import { getInlineLinkPasteResult, getSelectionRange } from './domSelection'
+import { RestoreSelectionRequest, TextSelectionPointerStartEvent } from './editorTypes'
 import { splitInlineNodesAt } from './inlineContent'
 import { RenderedListItem, buildRenderedListItems, getListItemIndex, getOrderedListStart } from './listModel'
 import { htmlElementToInlineNodes, inlineNodesToHtml, parseMarkdownNotebook } from './markdown'
@@ -25,7 +24,6 @@ export function EditableListBlock({
     setBlockRef,
     setListItemRef,
     updateNode,
-    moveFocusToAdjacentListItem,
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
@@ -35,12 +33,6 @@ export function EditableListBlock({
     setBlockRef: (element: HTMLElement | null) => void
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
-    moveFocusToAdjacentListItem: (
-        nodeId: string,
-        itemIndex: number,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
@@ -208,29 +200,6 @@ export function EditableListBlock({
         updateListItemChildrenFromElement(element)
     }
 
-    const handleListBlockKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        const element = getActiveListItemContentElement()
-        const details = element ? getListItemDetails(element) : null
-        if (!element || !details) {
-            return
-        }
-
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            const selection = getCollapsedSelectionRange(element, node.id)
-            if (
-                selection &&
-                moveFocusToAdjacentListItem(
-                    node.id,
-                    details.itemIndex,
-                    event.key === 'ArrowDown' ? 'next' : 'previous',
-                    selection.start
-                )
-            ) {
-                event.preventDefault()
-            }
-        }
-    }
-
     const renderListItems = (items: RenderedListItem[], ordered: boolean): ReactNode =>
         items.map((item) => {
             const itemOrdered = item.ordered ?? ordered
@@ -260,7 +229,6 @@ export function EditableListBlock({
             suppressContentEditableWarning
             onInput={handleListBlockInput}
             onPaste={handleListBlockPaste}
-            onKeyDown={handleListBlockKeyDown}
             onMouseDown={startTextSelectionPointer}
             onPointerDown={startTextSelectionPointer}
             onTouchStart={startTextSelectionPointer}

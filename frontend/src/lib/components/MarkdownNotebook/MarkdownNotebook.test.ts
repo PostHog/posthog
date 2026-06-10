@@ -6023,6 +6023,84 @@ Keep after`),
 3. Sibling`)
     })
 
+    it('merges a paragraph into the last list item with backspace at the start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`1. First
+2. Second
+
+tail text`),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container, 1)
+
+        expect(paragraph.textContent).toEqual('tail text')
+
+        selectTextInElement(paragraph, 0, 0)
+        fireEvent.keyDown(paragraph, { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. First
+2. Secondtail text`)
+        expect(document.activeElement?.textContent).toEqual('Secondtail text')
+        expect(window.getSelection()?.focusOffset).toEqual('Second'.length)
+    })
+
+    it('merges a paragraph into the last list item through native deleteContentBackward', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- First
+- Second
+
+tail text`),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container, 1)
+
+        selectTextInElement(paragraph, 0, 0)
+        const event = beforeInputInContentEditable(paragraph, 'deleteContentBackward')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First
+- Secondtail text`)
+        expect(document.activeElement?.textContent).toEqual('Secondtail text')
+        expect(window.getSelection()?.focusOffset).toEqual('Second'.length)
+    })
+
+    it('removes an empty paragraph after a list and moves the caret into the last item through native deleteContentBackward', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- First
+- Second
+
+ `),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container, 1)
+
+        expect(paragraph.textContent).toEqual('')
+
+        placeCaretInElement(paragraph)
+        const event = beforeInputInContentEditable(paragraph, 'deleteContentBackward')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First
+- Second`)
+        expect(document.activeElement?.textContent).toEqual('Second')
+        expect(window.getSelection()?.focusOffset).toEqual('Second'.length)
+    })
+
     it('turns a top-level list item into regular text with backspace at the start', () => {
         const onChange = jest.fn()
         const { container } = render(

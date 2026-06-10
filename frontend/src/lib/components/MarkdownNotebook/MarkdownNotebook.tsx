@@ -168,7 +168,6 @@ import {
     NotebookDocument,
     NotebookInlineMark,
     NotebookInlineNode,
-    NotebookListBlockNode,
     NotebookListItem,
     NotebookMode,
     NotebookTableBlockNode,
@@ -1196,6 +1195,137 @@ export function MarkdownNotebook({
         [commitDocument, onInteractionStateChange]
     )
 
+    // Backspace at the start of a text block whose previous sibling is not a text block: the
+    // previous block must never be deleted wholesale — the caret moves into its trailing edge
+    // (merging the text into a trailing list item where possible) so further backspaces delete
+    // characters.
+    const mergeTextBlockIntoPreviousBlock = useCallback(
+        (nodeIndex: number): boolean => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes[nodeIndex]
+            const previousNode = nodes[nodeIndex - 1]
+            if (!node || !isTextBlockNode(node) || !previousNode || isTextBlockNode(previousNode)) {
+                return false
+            }
+
+            const isEmptyTextBlock = !getInlineText(node.children).length
+
+            if (previousNode.type === 'list') {
+                const lastItemIndex = previousNode.items.length - 1
+                const lastItem = previousNode.items[lastItemIndex]
+                if (!lastItem) {
+                    return false
+                }
+
+                const lastItemTextLength = getInlineText(lastItem.children).length
+                restoreSelectionRef.current = {
+                    nodeId: previousNode.id,
+                    listItemIndex: lastItemIndex,
+                    listItemId: lastItem.id,
+                    start: lastItemTextLength,
+                    end: lastItemTextLength,
+                }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.flatMap((currentNode, index) => {
+                        if (index === nodeIndex - 1 && currentNode.type === 'list') {
+                            return [
+                                {
+                                    ...currentNode,
+                                    items: currentNode.items.map((item, itemIndex) =>
+                                        itemIndex === lastItemIndex
+                                            ? {
+                                                  ...item,
+                                                  children: normalizeInlineNodes([...item.children, ...node.children]),
+                                              }
+                                            : item
+                                    ),
+                                },
+                            ]
+                        }
+                        if (index === nodeIndex) {
+                            return []
+                        }
+                        return [currentNode]
+                    }),
+                })
+                return true
+            }
+
+            if (previousNode.type === 'code') {
+                const codeTextLength = previousNode.text.length
+                if (isEmptyTextBlock) {
+                    restoreSelectionRef.current = {
+                        nodeId: previousNode.id,
+                        start: codeTextLength,
+                        end: codeTextLength,
+                    }
+                    commitDocument({
+                        ...currentDocument,
+                        nodes: nodes.filter((_, index) => index !== nodeIndex),
+                    })
+                    return true
+                }
+
+                const element = blockRefs.current[previousNode.id]
+                if (element) {
+                    element.focus()
+                    restoreSelection(element, codeTextLength, codeTextLength)
+                }
+                return true
+            }
+
+            if (previousNode.type === 'table') {
+                const lastCellPosition = getTableEdgeCellPosition(previousNode, 'previous')
+                if (!lastCellPosition) {
+                    return false
+                }
+
+                const offset = getInlineText(
+                    getTableCellAtPosition(previousNode, lastCellPosition)?.children ?? []
+                ).length
+                if (isEmptyTextBlock) {
+                    restoreSelectionRef.current = {
+                        nodeId: previousNode.id,
+                        tableCell: lastCellPosition,
+                        start: offset,
+                        end: offset,
+                    }
+                    commitDocument({
+                        ...currentDocument,
+                        nodes: nodes.filter((_, index) => index !== nodeIndex),
+                    })
+                    return true
+                }
+
+                const element = tableCellRefs.current[getTableCellRefKey(previousNode.id, lastCellPosition)]
+                if (element) {
+                    element.focus()
+                    restoreSelection(element, offset, offset)
+                }
+                return true
+            }
+
+            if (previousNode.type === 'component') {
+                if (isEmptyTextBlock && node.type === 'paragraph') {
+                    focusNodeRef.current = previousNode.id
+                    commitDocument({
+                        ...currentDocument,
+                        nodes: nodes.filter((_, index) => index !== nodeIndex),
+                    })
+                    return true
+                }
+
+                blockRefs.current[previousNode.id]?.focus()
+                return true
+            }
+
+            return false
+        },
+        [commitDocument]
+    )
+
     const deleteTextAtCurrentSelection = useCallback(
         (direction: 'backward' | 'forward'): boolean => {
             const notebookElement = notebookRef.current
@@ -1308,14 +1438,9 @@ export function MarkdownNotebook({
                 return true
             }
 
-            restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.filter((_, index) => index !== nodeIndex - 1),
-            })
-            return true
+            return mergeTextBlockIntoPreviousBlock(nodeIndex)
         },
-        [commitDocument]
+        [commitDocument, mergeTextBlockIntoPreviousBlock]
     )
 
     useEffect(() => {
@@ -1570,14 +1695,9 @@ export function MarkdownNotebook({
                 return false
             }
 
-            restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.filter((_, index) => index !== nodeIndex - 1),
-            })
-            return true
+            return mergeTextBlockIntoPreviousBlock(nodeIndex)
         },
-        [commitDocument]
+        [commitDocument, mergeTextBlockIntoPreviousBlock]
     )
 
     const openAIPrompt = useCallback(
@@ -2826,34 +2946,6 @@ export function MarkdownNotebook({
         [insertMenu]
     )
 
-    const moveFocusToAdjacentListItem = useCallback(
-        (nodeId: string, itemIndex: number, direction: InsertMenuSelectionDirection, offset: number): boolean => {
-            const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
-            const node = nodes.find(
-                (candidate): candidate is NotebookListBlockNode => candidate.id === nodeId && candidate.type === 'list'
-            )
-            if (!node) {
-                return false
-            }
-
-            const nextItemIndex = itemIndex + (direction === 'next' ? 1 : -1)
-            if (nextItemIndex >= 0 && nextItemIndex < node.items.length) {
-                const element = listItemRefs.current[getListItemRefKey(nodeId, nextItemIndex)]
-                if (!element) {
-                    return false
-                }
-
-                const targetOffset = Math.min(offset, getInlineText(node.items[nextItemIndex].children).length)
-                element.focus()
-                restoreSelection(element, targetOffset, targetOffset)
-                return true
-            }
-
-            return moveFocusToAdjacentNode(nodeId, direction, offset)
-        },
-        [moveFocusToAdjacentNode]
-    )
-
     const moveFocusToAdjacentTableCell = useCallback(
         (
             nodeId: string,
@@ -3787,7 +3879,6 @@ export function MarkdownNotebook({
                     insertParagraphAfterNode: () => insertEmptyParagraphAfterNode(node.id),
                     deleteNodeBefore,
                     moveFocusToAdjacentNode,
-                    moveFocusToAdjacentListItem,
                     openInsertMenu: (query = '') => openInsertMenu(node.id, query),
                     openDetachedInsertMenu: () => openDetachedInsertMenuFromNode(node.id),
                     updateAIPromptQuery: (query) => updateAIPromptQuery(node.id, query),

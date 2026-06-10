@@ -42,7 +42,6 @@ export function renderNode({
     insertParagraphAfterNode,
     deleteNodeBefore,
     moveFocusToAdjacentNode,
-    moveFocusToAdjacentListItem,
     openInsertMenu,
     openDetachedInsertMenu,
     updateAIPromptQuery,
@@ -86,12 +85,6 @@ export function renderNode({
     insertParagraphAfterNode: () => void
     deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
-    moveFocusToAdjacentListItem: (
-        nodeId: string,
-        itemIndex: number,
-        direction: InsertMenuSelectionDirection,
-        offset: number
-    ) => boolean
     openInsertMenu: (query?: string) => void
     openDetachedInsertMenu: () => boolean
     updateAIPromptQuery: (query: string) => void
@@ -158,7 +151,6 @@ export function renderNode({
                 setBlockRef={setBlockRef}
                 setListItemRef={setListItemRef}
                 updateNode={updateNode}
-                moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}
