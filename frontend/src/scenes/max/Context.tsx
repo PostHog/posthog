@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
@@ -338,6 +338,7 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
  */
 export function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
     const { chipsForDisplay } = useValues(posthogAiContextLogic)
+    const { detach } = useActions(posthogAiContextLogic)
 
     if (chipsForDisplay.length === 0) {
         return null
@@ -349,7 +350,7 @@ export function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'def
                 <Tooltip key={chip.key} title={chip.label}>
                     <LemonTag
                         icon={chip.icon as JSX.Element}
-                        onClose={chip.onRemove}
+                        onClose={() => detach(chip.key)}
                         closable
                         closeOnClick
                         className={clsx('flex items-center text-secondary', size === 'small' ? 'max-w-20' : 'max-w-48')}
@@ -367,7 +368,7 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { showContextUI, contextDisabledReason, conversation } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason, conversation, sandboxConversationKey } = useValues(maxThreadLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
@@ -406,7 +407,12 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                     </span>
                 </Tooltip>
                 {isSandboxRuntime ? (
-                    <SandboxContextTags size={size} />
+                    sandboxConversationKey ? (
+                        // Same key maxThreadLogic's connect() uses, so both resolve the same instance
+                        <BindLogic logic={posthogAiContextLogic} props={{ conversationId: sandboxConversationKey }}>
+                            <SandboxContextTags size={size} />
+                        </BindLogic>
+                    ) : null
                 ) : (
                     <>
                         <ContextToolInfoTags size={size} />

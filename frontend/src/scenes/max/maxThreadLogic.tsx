@@ -142,7 +142,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ panelId }: MaxThreadLogicProps) => ({
+    connect(({ panelId, conversationId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
@@ -162,9 +162,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
-            // Mounts the sandbox attachment store so its `attachments` are readable at send time
-            // even when no context-chip UI is rendered (a fresh conversation never mounts it itself).
-            posthogAiContextLogic,
+            // Mounts this conversation's sandbox attachment store so its `attachments` are readable
+            // at send time even when no context-chip UI is rendered (a fresh conversation never
+            // mounts it itself).
+            posthogAiContextLogic({ conversationId }),
             ['attachments as sandboxAttachments'],
         ],
         actions: [
@@ -182,10 +183,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ],
             maxGlobalLogic,
             ['loadConversation'],
-            // Pulling the action in (rather than calling sandboxStreamLogic.actions.* directly) mounts
-            // the logic as a dependency, so its listeners actually run. SandboxThread only mounts it
-            // while a sandbox conversation is rendered — too late for the first message of a new one.
-            sandboxStreamLogic,
+            // Pulling the action in (rather than calling the instance's actions directly) mounts this
+            // conversation's stream logic as a dependency, so its listeners actually run. SandboxThread
+            // only mounts it while a sandbox conversation is rendered — too late for the first message
+            // of a new one.
+            sandboxStreamLogic({ conversationId }),
             [
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
@@ -914,22 +916,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             cache.generationController = undefined
             releaseStreamingLock() // release the lock
         },
-        // Sandbox runs stream through sandboxStreamLogic, so the streaming lock taken in
-        // streamConversation can only be released when that logic signals the turn ended —
-        // on turn completion, a terminal run status, or a stream error.
-        [sandboxStreamLogic.actionTypes.markTurnComplete]: () => {
-            const { cache } = logic as BuiltLogic<maxThreadLogicType>
-            cache.sandboxStreamRelease?.()
-        },
-        [sandboxStreamLogic.actionTypes.handleTerminalStatus]: () => {
-            const { cache } = logic as BuiltLogic<maxThreadLogicType>
-            cache.sandboxStreamRelease?.()
-        },
-        [sandboxStreamLogic.actionTypes.handleStreamError]: () => {
-            const { cache } = logic as BuiltLogic<maxThreadLogicType>
-            cache.sandboxStreamRelease?.()
-        },
     })),
+    // Sandbox runs stream through this conversation's sandboxStreamLogic instance, so the streaming
+    // lock taken in streamConversation can only be released when that instance signals the turn
+    // ended — on turn completion, a terminal run status, or a stream error. Its action types are
+    // per-instance (the key is in the path), so they're resolved from props at build time.
+    listeners(({ props, cache }) => {
+        const sandboxStreamActionTypes = sandboxStreamLogic({ conversationId: props.conversationId }).actionTypes
+        return {
+            [sandboxStreamActionTypes.markTurnComplete]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.handleTerminalStatus]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.handleStreamError]: () => cache.sandboxStreamRelease?.(),
+        }
+    }),
     listeners(({ actions, values, cache, props }) => ({
         setConversation: ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
@@ -1456,6 +1455,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s, p) => [s.conversation, p.conversationId],
             (conversation, propsConversationId) => (conversation?.id ? conversation.id : propsConversationId),
         ],
+
+        // The exact id this instance was keyed with. React must bind the per-conversation sandbox
+        // logics with the same id connect() used above, or the two would resolve different instances.
+        sandboxConversationKey: [(_, p) => [p.conversationId], (conversationId): string => conversationId],
 
         effectiveApprovalStatuses: [
             (s) => [s.resolvedApprovalStatuses, s.pendingApprovalsData],

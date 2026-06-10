@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
 
@@ -190,7 +190,8 @@ function SandboxThread(): JSX.Element {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, conversation } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, conversation, sandboxConversationKey } =
+        useValues(maxThreadLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
@@ -206,6 +207,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     )
 
     if (isSandboxRuntime) {
+        if (!sandboxConversationKey) {
+            return null
+        }
         return (
             <div
                 className={cn(
@@ -213,7 +217,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     className
                 )}
             >
-                <SandboxThread />
+                {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
+                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+                    <SandboxThread />
+                </BindLogic>
             </div>
         )
     }

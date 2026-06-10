@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
@@ -8,6 +8,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AttachedContext, MaxContextInput, MaxContextType } from './maxTypes'
 import type { posthogAiContextLogicType } from './posthogAiContextLogicType'
+
+export interface PosthogAiContextLogicProps {
+    conversationId: string
+}
 
 /** Stable dedupe + chip key for an attachment: `${type}:${id ?? value}`. */
 export function attachedContextKey(item: AttachedContext): string {
@@ -73,9 +77,13 @@ function labelForItem(item: AttachedContext): string {
  * items down to `AttachedContext` at consumption time — zero scene-side edits.
  *
  * Coexistence sibling to `maxContextLogic.ts`; used only when `agent_runtime === 'sandbox'`.
+ *
+ * Keyed by conversation id so each conversation keeps its own attachment set.
  */
 export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
-    path(['scenes', 'max', 'posthogAiContextLogic']),
+    props({} as PosthogAiContextLogicProps),
+    key((props) => props.conversationId),
+    path((key) => ['scenes', 'max', 'posthogAiContextLogic', key]),
     connect(() => ({
         values: [sceneLogic, ['activeSceneLogic']],
     })),
@@ -109,16 +117,14 @@ export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
     selectors({
         chipsForDisplay: [
             (s) => [s.attachments],
-            (attachments): { key: string; label: string; icon: ReactNode; onRemove: () => void }[] =>
-                attachments.map((item) => {
-                    const key = attachedContextKey(item)
-                    return {
-                        key,
-                        label: labelForItem(item),
-                        icon: iconForType(item.type),
-                        onRemove: () => posthogAiContextLogic.actions.detach(key),
-                    }
-                }),
+            // No onRemove closures here — removal dispatches `detach(key)` on the consumer's
+            // bound instance, so chips stay instance-agnostic data.
+            (attachments): { key: string; label: string; icon: ReactNode }[] =>
+                attachments.map((item) => ({
+                    key: attachedContextKey(item),
+                    label: labelForItem(item),
+                    icon: iconForType(item.type),
+                })),
         ],
     }),
     listeners(({ values, actions }) => ({

@@ -18,7 +18,7 @@ describe('sandboxStreamLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = sandboxStreamLogic()
+        logic = sandboxStreamLogic({ conversationId: 'test-conversation' })
         logic.mount()
     })
 
@@ -184,6 +184,25 @@ describe('sandboxStreamLogic', () => {
                 complete: true,
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+    })
+
+    describe('per-conversation isolation', () => {
+        it('keeps thread state independent between two mounted conversations', async () => {
+            const otherLogic = sandboxStreamLogic({ conversationId: 'other-conversation' })
+            otherLogic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('hello agent')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi!' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toHaveLength(2)
+            expect(otherLogic.values.threadItems).toHaveLength(0)
+
+            otherLogic.unmount()
         })
     })
 

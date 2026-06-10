@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -13,6 +13,10 @@ import type {
 
 export type SandboxSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type SandboxRunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+
+export interface SandboxStreamLogicProps {
+    conversationId: string
+}
 
 /** Matches `mcp__posthog__exec` (and plugin/regional variants). Ported from Twig posthog-exec-display.ts. */
 const POSTHOG_EXEC_TOOL_RE = /^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$/
@@ -104,9 +108,14 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
  * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
  * and stream-error capture. Reconnect/backoff and content dedup are intentionally not implemented
  * here yet.
+ *
+ * Keyed by conversation id so concurrent conversations keep independent stream state and
+ * EventSource connections.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
-    path(['scenes', 'max', 'sandboxStreamLogic']),
+    props({} as SandboxStreamLogicProps),
+    key((props) => props.conversationId),
+    path((key) => ['scenes', 'max', 'sandboxStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),

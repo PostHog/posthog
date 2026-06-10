@@ -3007,13 +3007,16 @@ describe('maxThreadLogic', () => {
             // The POST finished, but the turn is still streaming — the lock must still be held
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
 
+            // The thread logic connects to the instance keyed by its own conversationId
+            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+
             // The release listeners are synchronous, so the lock state settles with the dispatch
-            sandboxStreamLogic.actions.markTurnComplete()
+            sandboxStreamInstance.actions.markTurnComplete()
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
 
             // A later terminal event must not release the (already released) lock again
             maxLogicInstance.actions.incrActiveStreamingThreads()
-            sandboxStreamLogic.actions.handleTerminalStatus({ status: 'completed' })
+            sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed' })
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
             maxLogicInstance.actions.decrActiveStreamingThreads()
         })
@@ -3030,7 +3033,7 @@ describe('maxThreadLogic', () => {
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
             expect(
-                sandboxStreamLogic.values.threadItems.some(
+                sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>
                         item.type === 'error' && item.errorMessage === 'Failed to send your message. Please try again.'
                 )
