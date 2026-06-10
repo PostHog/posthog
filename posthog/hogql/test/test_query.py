@@ -1649,17 +1649,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             f"Query uses '{name}' in a placeholder, but no {name} were provided with the query.",
         )
 
-    def test_placeholder_expression_with_filters_provided_raises_query_error(self):
-        with self.assertRaises(QueryError) as e:
-            execute_hogql_query(
-                "SELECT event FROM events WHERE {toDateTime(filters.dateRange.from)} < now()",
+    @parameterized.expand(["filters", "variables"])
+    def test_placeholder_expression_with_globals_provided_raises_query_error(self, name: str):
+        if name == "filters":
+            query = "SELECT event FROM events WHERE {toDateTime(filters.dateRange.from)} < now()"
+            kwargs: dict = {"filters": HogQLFilters(dateRange=DateRange(date_from="-7d"))}
+        else:
+            insight_variable = InsightVariable.objects.create(
                 team=self.team,
-                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                name="Test var",
+                code_name="test_var",
+                type=InsightVariable.Type.STRING,
             )
+            query = "SELECT {toString(variables.test_var)}"
+            kwargs = {
+                "variables": {
+                    "test_var": HogQLVariable(code_name="test_var", value="x", variableId=str(insight_variable.id))
+                }
+            }
+
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team, **kwargs)
         self.assertEqual(
             str(e.exception),
-            "'filters' can only be used as a direct placeholder field "
-            "(e.g. {filters.foo}), not inside a placeholder expression.",
+            f"'{name}' can only be used as a direct placeholder field "
+            f"(e.g. {{{name}.foo}}), not inside a placeholder expression.",
         )
 
     def test_placeholder_with_unknown_global_reraises_hogvm_exception(self):

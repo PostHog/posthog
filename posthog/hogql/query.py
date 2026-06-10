@@ -344,6 +344,8 @@ class HogQLQueryExecutor:
                 except HogVMException as e:
                     # A {filters.*}/{variables.*} placeholder that escaped substitution is a
                     # malformed query, not an internal error — surface it as a user-facing one.
+                    # The matched text is pinned by common/hogvm/python/test/test_execute.py; if
+                    # it ever drifts, this fails open to re-raising the original exception.
                     match = re.fullmatch(r"Global variable not found: (filters|variables)", str(e))
                     if not match:
                         raise
