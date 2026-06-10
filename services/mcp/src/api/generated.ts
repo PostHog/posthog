@@ -19670,18 +19670,18 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-         * Hash TTL in seconds (60 to ~94M / 3y).
+         * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
       /**
-         * Min matching events before triggering (k-anonymity).
+         * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
          * @nullable
          */
       threshold?: number | null;
-      /** HogQL template, e.g. '{person.properties.email}'. */
+      /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
       hash: string;
       /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
@@ -19860,7 +19860,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -30473,7 +30473,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
       readonly trigger?: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
