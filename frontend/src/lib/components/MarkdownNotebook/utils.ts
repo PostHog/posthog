@@ -92,7 +92,7 @@ export function getNodeSignature(node: NotebookBlockNode): string {
         return `${node.type}:${node.level ?? 1}`
     }
     if (node.type === 'list') {
-        return `${node.type}:${node.ordered ? 'ordered' : 'bullet'}`
+        return `${node.type}:${node.ordered ? `ordered:${String(node.start ?? 1)}` : 'bullet'}`
     }
     if (node.type === 'table') {
         return `${node.type}:${node.headers.length}`
@@ -115,6 +115,7 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
         return JSON.stringify({
             type: node.type,
             ordered: node.ordered,
+            start: node.start,
             items: node.items,
         })
     }

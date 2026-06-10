@@ -42,12 +42,14 @@ export type NotebookListItem = {
     children: NotebookInlineNode[]
     depth: number
     ordered?: boolean
+    start?: number
 }
 
 export type NotebookListBlockNode = {
     id: string
     type: 'list'
     ordered: boolean
+    start?: number
     items: NotebookListItem[]
 }
 

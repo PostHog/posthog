@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement, useEffect, useState } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
@@ -150,16 +150,12 @@ function updateAIPromptInput(input: HTMLTextAreaElement, value: string): void {
     fireEvent.change(input, { target: { value } })
 }
 
-function getFormattingStyleButton(container: HTMLElement): HTMLButtonElement {
-    const button = container.querySelector('.MarkdownNotebook__format-style-button')
+function getFormattingStyleButton(container: HTMLElement, label: string): HTMLButtonElement {
+    const button = container.querySelector(`.MarkdownNotebook__format-style-button[aria-label="${label}"]`)
 
     expect(button).toBeInstanceOf(HTMLButtonElement)
 
     return button as HTMLButtonElement
-}
-
-async function waitForFormattingStyleMenuItem(label: string): Promise<HTMLElement> {
-    return await waitFor(() => screen.getByRole('menuitem', { name: label }))
 }
 
 function getFirstTextNode(element: HTMLElement): Text {
@@ -178,6 +174,18 @@ function selectElementContents(element: HTMLElement): void {
     act(() => {
         const range = document.createRange()
         range.selectNodeContents(element)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+    })
+}
+
+function placeCaretInElement(element: HTMLElement, offset: number = 0): void {
+    act(() => {
+        element.focus()
+        const range = document.createRange()
+        range.setStart(element, Math.min(offset, element.childNodes.length))
+        range.setEnd(element, Math.min(offset, element.childNodes.length))
         const selection = window.getSelection()
         selection?.removeAllRanges()
         selection?.addRange(range)
@@ -495,6 +503,16 @@ continued line
     it('parses empty markdown list markers as list items', () => {
         expect(serializeMarkdownNotebook(parseMarkdownNotebook('-'))).toEqual('-')
         expect(serializeMarkdownNotebook(parseMarkdownNotebook('1.'))).toEqual('1.')
+    })
+
+    it('preserves ordered markdown list start numbers', () => {
+        const markdown = `5. First
+6. Second
+  3. Nested first
+  4. Nested second
+7. Third`
+
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
     })
 
     it('round-trips intentional blank paragraph placeholders', () => {
@@ -2494,8 +2512,8 @@ ${queryMarkdown}`)
         fireEvent.click(firstInsertItem)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-title')?.textContent).toEqual('PostHog AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask PostHog AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-title')).toBeNull()
         expect(container.querySelector('button[aria-label="Delete prompt"]')).toBeInstanceOf(HTMLButtonElement)
         expect(
             container.querySelector('.MarkdownNotebook__ai-prompt-card')?.closest('.MarkdownNotebook__text-group')
@@ -2553,7 +2571,7 @@ ${queryMarkdown}`)
         const { container } = render(createElement(MarkdownNotebook, { value: persistedPromptMarkdown }))
         const editableTextBlock = getAIPromptInput(container)
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask PostHog AI')
         expect(editableTextBlock.value).toEqual('Summarize this notebook')
     })
 
@@ -2564,7 +2582,8 @@ ${queryMarkdown}`)
         const titleButton = container.querySelector('.MarkdownNotebook__ai-prompt-heading') as HTMLButtonElement
 
         expect(titleButton).toBeInstanceOf(HTMLButtonElement)
-        expect(titleButton.textContent).toContain('PostHog AI')
+        expect(titleButton.textContent).toContain('Ask PostHog AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-title')).toBeNull()
         expect(titleButton.getAttribute('aria-expanded')).toEqual('true')
         expect(getAIPromptInput(container)).toBeInstanceOf(HTMLTextAreaElement)
 
@@ -2615,7 +2634,7 @@ ${queryMarkdown}`)
             })
         )
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask PostHog AI')
         expect(getAIPromptInput(container).value).toEqual('Summarize this notebook')
 
         fireEvent.keyDown(getAIPromptInput(container), { key: 'Enter' })
@@ -2959,7 +2978,7 @@ aXbc
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
 
-        expect(getFormattingStyleButton(container).textContent?.trim()).toEqual('Text')
+        expect(getFormattingStyleButton(container, 'Text').classList.contains('LemonButton--active')).toBe(true)
     })
 
     it('shows an empty block style for mixed text row selections', () => {
@@ -2970,7 +2989,11 @@ aXbc
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
 
-        expect(getFormattingStyleButton(container).textContent?.trim()).toEqual('')
+        expect(
+            Array.from(container.querySelectorAll('.MarkdownNotebook__format-style-button')).some((button) =>
+                button.classList.contains('LemonButton--active')
+            )
+        ).toBe(false)
     })
 
     it('delays the formatting toolbar after a mouse drag selection ends', () => {
@@ -3571,8 +3594,7 @@ Second mixed row`)
         const textBlocks = getEditableTextBlocks(container)
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
-        fireEvent.click(getFormattingStyleButton(container))
-        fireEvent.click(await waitForFormattingStyleMenuItem('Heading 2'))
+        fireEvent.click(getFormattingStyleButton(container, 'Heading 2'))
 
         expect(onChange).toHaveBeenLastCalledWith(
             `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n## First paragraph\n\n## Second paragraph`
@@ -3589,8 +3611,7 @@ Second mixed row`)
         const textBlock = getBodyTextBlock(container)
 
         selectTextNode(getFirstTextNode(textBlock), 0, 'First'.length, true)
-        fireEvent.click(getFormattingStyleButton(container))
-        fireEvent.click(await waitForFormattingStyleMenuItem('Code'))
+        fireEvent.click(getFormattingStyleButton(container, 'Code'))
 
         const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
         expect(codeBlock).toBeInstanceOf(HTMLElement)
@@ -3614,6 +3635,23 @@ First paragraph
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> First paragraph`)
     })
 
+    it('converts the active block style back to text when clicked again', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> First paragraph'), onChange })
+        )
+        const quoteBlock = getBodyTextBlock(container)
+
+        selectTextNode(getFirstTextNode(quoteBlock), 0, 'First'.length, true)
+        const quoteButton = getFormattingStyleButton(container, 'Quote')
+
+        expect(quoteButton.classList.contains('LemonButton--active')).toBe(true)
+        fireEvent.click(quoteButton)
+
+        expect(container.querySelector('blockquote.MarkdownNotebook__text-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph`)
+    })
+
     it('shows only block style controls for selected code block text', () => {
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle('```\nselect 1\n```') })
@@ -3623,8 +3661,8 @@ First paragraph
         selectTextNode(getFirstTextNode(codeBlock), 0, 'select'.length, true)
 
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
-        expect(getFormattingStyleButton(container).textContent).toEqual('Code')
-        expect(container.querySelector('button[aria-label="Quote"]')).toBeInstanceOf(HTMLButtonElement)
+        expect(getFormattingStyleButton(container, 'Code').classList.contains('LemonButton--active')).toBe(true)
+        expect(getFormattingStyleButton(container, 'Quote')).toBeInstanceOf(HTMLButtonElement)
         expect(container.querySelector('button[aria-label="Bold"]')).toBeNull()
         expect(container.querySelector('button[aria-label="Italic"]')).toBeNull()
         expect(container.querySelector('button[aria-label="Link"]')).toBeNull()
@@ -3718,7 +3756,7 @@ First paragraph
         fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
 
         expect(onAskAI).not.toHaveBeenCalled()
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask PostHog AI')
 
         const promptBlock = getAIPromptInput(container)
         updateAIPromptInput(promptBlock, 'Explain what this means')
@@ -4341,7 +4379,7 @@ second line
         fireEvent.input(canvas)
         fireEvent.keyDown(canvas, { key: 'Enter' })
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask PostHog AI')
 
         const aiPromptBlock = getAIPromptInput(container)
         updateAIPromptInput(aiPromptBlock, 'Add a summary here')
@@ -4868,16 +4906,18 @@ Tail with **bold** text`)
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
         const textBlock = getBodyTextBlock(container)
 
-        textBlock.textContent = '1. '
+        textBlock.textContent = '7. '
         fireEvent.input(textBlock)
 
         const listBlock = container.querySelector('.MarkdownNotebook__list-block')
+        const orderedList = listBlock?.querySelector('ol')
         const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
 
-        expect(listBlock?.querySelector('ol')).toBeInstanceOf(HTMLElement)
+        expect(orderedList).toBeInstanceOf(HTMLElement)
+        expect(orderedList?.getAttribute('start')).toEqual('7')
         expect(listItem).toBeInstanceOf(HTMLElement)
         expect(document.activeElement).toEqual(listItem)
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n1.`)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n7.`)
     })
 
     it.each(['- ', '* ', '+ ', '• '])(
@@ -5006,9 +5046,10 @@ Outro paragraph`),
 
         expect(blockquote).toBeInstanceOf(HTMLElement)
         expect(blockquote?.closest('.MarkdownNotebook__text-group')).toBeNull()
+        expect(blockquote?.closest('.MarkdownNotebook__blockquote-group')).toBeInstanceOf(HTMLElement)
     })
 
-    it('continues a blockquote when pressing Enter in the middle of the quote', () => {
+    it('continues a blockquote inside one visual quote group when pressing Enter', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle('> QuoteTail'), onChange })
@@ -5022,6 +5063,14 @@ Outro paragraph`),
             container.querySelectorAll('blockquote.MarkdownNotebook__text-block')
         ) as HTMLElement[]
         expect(quotes.map((quote) => quote.textContent)).toEqual(['Quote', 'Tail'])
+        expect(quotes[0].closest('.MarkdownNotebook__blockquote-group')).toEqual(
+            quotes[1].closest('.MarkdownNotebook__blockquote-group')
+        )
+        expect(
+            quotes[0]
+                .closest('.MarkdownNotebook__blockquote-group')
+                ?.querySelector('.MarkdownNotebook__insert-boundary')
+        ).toBeNull()
         expect(document.activeElement).toEqual(quotes[1])
         expect(window.getSelection()?.focusOffset).toEqual(0)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> Quote\n\n> Tail`)
@@ -5042,6 +5091,9 @@ Outro paragraph`),
             container.querySelectorAll('blockquote.MarkdownNotebook__text-block')
         ) as HTMLElement[]
         expect(quotes.map((quote) => quote.textContent)).toEqual(['Quote', 'Tail'])
+        expect(quotes[0].closest('.MarkdownNotebook__blockquote-group')).toEqual(
+            quotes[1].closest('.MarkdownNotebook__blockquote-group')
+        )
         expect(document.activeElement).toEqual(quotes[1])
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> Quote\n\n> Tail`)
     })
@@ -5217,6 +5269,159 @@ Keep after`),
   - Child`)
         expect(document.activeElement?.textContent).toEqual('Child')
         expect(window.getSelection()?.focusOffset).toEqual(3)
+    })
+
+    it('keeps focus inside list items when tab cannot indent further', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- First'),
+                onChange,
+            })
+        )
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content') as HTMLElement
+
+        listItem.focus()
+        selectTextInElement(listItem, 2, 2)
+
+        expect(fireEvent.keyDown(listItem, { key: 'Tab' })).toEqual(false)
+        expect(document.activeElement).toEqual(listItem)
+        expect(window.getSelection()?.focusOffset).toEqual(2)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('outdents list items with shift tab while preserving selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+  - Child`),
+                onChange,
+            })
+        )
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+
+        selectTextInElement(listItems[1], 2, 2)
+        fireEvent.keyDown(listItems[1], { key: 'Tab', shiftKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+- Child`)
+        expect(document.activeElement?.textContent).toEqual('Child')
+        expect(window.getSelection()?.focusOffset).toEqual(2)
+    })
+
+    it('outdents nested list items with backspace at the start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+  - Child`),
+                onChange,
+            })
+        )
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+
+        selectTextInElement(listItems[1], 0, 0)
+        fireEvent.keyDown(listItems[1], { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+- Child`)
+        expect(document.activeElement?.textContent).toEqual('Child')
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+    })
+
+    it('turns a top-level list item into regular text with backspace at the start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- First
+- Second`),
+                onChange,
+            })
+        )
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content') as HTMLElement
+
+        selectTextInElement(listItem, 0, 0)
+        fireEvent.keyDown(listItem, { key: 'Backspace' })
+
+        const textBlocks = getEditableTextBlocks(container)
+        const remainingListItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+        expect(textBlocks[1].tagName).toEqual('P')
+        expect(textBlocks[1].textContent).toEqual('First')
+        expect(remainingListItems.map((item) => item.textContent)).toEqual(['Second'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First
+
+- Second`)
+    })
+
+    it('outdents an empty nested list item when pressing enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+  - `),
+                onChange,
+            })
+        )
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+
+        placeCaretInElement(listItems[1])
+        fireEvent.keyDown(listItems[1], { key: 'Enter' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+-`)
+        expect(document.activeElement?.textContent).toEqual('')
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+    })
+
+    it('exits a top-level empty list item when pressing enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`- Parent
+- `),
+                onChange,
+            })
+        )
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+
+        placeCaretInElement(listItems[1])
+        fireEvent.keyDown(listItems[1], { key: 'Enter' })
+
+        const paragraph = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
+        expect(
+            Array.from(container.querySelectorAll('.MarkdownNotebook__list-item-content')).map(
+                (item) => item.textContent
+            )
+        ).toEqual(['Parent'])
+        expect(paragraph).toBeInstanceOf(HTMLElement)
+        expect(paragraph.textContent).toEqual('')
+        expect(document.activeElement).toEqual(paragraph)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
+
+ `)
     })
 
     it('copies selected list items as markdown', () => {

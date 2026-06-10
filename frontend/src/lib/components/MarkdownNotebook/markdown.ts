@@ -116,15 +116,20 @@ export function serializeNode(node: NotebookBlockNode): string {
             .join('\n')
     }
     if (node.type === 'list') {
-        const orderedCounters: number[] = []
+        const orderedCounters: (number | undefined)[] = []
         return node.items
             .map((item) => {
                 const depth = Math.max(0, item.depth)
                 const ordered = item.ordered ?? node.ordered
                 orderedCounters.length = depth + 1
-                const marker = ordered ? `${(orderedCounters[depth] ?? 0) + 1}.` : '-'
+                const start = item.start ?? (depth === 0 ? node.start : undefined) ?? 1
+                const marker = ordered
+                    ? `${orderedCounters[depth] === undefined ? start : orderedCounters[depth] + 1}.`
+                    : '-'
                 if (ordered) {
-                    orderedCounters[depth] = (orderedCounters[depth] ?? 0) + 1
+                    orderedCounters[depth] = orderedCounters[depth] === undefined ? start : orderedCounters[depth] + 1
+                } else {
+                    orderedCounters[depth] = undefined
                 }
                 return `${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
             })
@@ -392,6 +397,7 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
             id: '',
             type: 'list',
             ordered,
+            start: ordered ? items.find((item) => item.depth === 0 && item.ordered)?.start : undefined,
             items,
         },
         nextLineIndex,
@@ -404,10 +410,13 @@ function parseListItemLine(line: string): NotebookListBlockNode['items'][number]
         return null
     }
 
+    const orderedMatch = match[2].match(/^(\d+)[.)]$/)
+
     return {
         children: parseInlineMarkdown(match[3] ?? ''),
         depth: getListItemDepth(match[1]),
-        ordered: /^\d+[.)]$/.test(match[2]),
+        ordered: orderedMatch !== null,
+        start: orderedMatch ? Number(orderedMatch[1]) : undefined,
     }
 }
 

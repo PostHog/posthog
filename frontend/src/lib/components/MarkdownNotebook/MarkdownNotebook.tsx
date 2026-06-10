@@ -41,7 +41,7 @@ import {
     IconTrash,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
@@ -200,6 +200,20 @@ type FloatingToolbarPointerAnchor = {
 
 type FloatingToolbarPosition = Pick<FloatingToolbarState, 'placement' | 'top' | 'left'>
 type TextBlockStyle = 'paragraph' | 'blockquote' | 'code' | 1 | 2 | 3
+
+const TEXT_BLOCK_STYLE_BUTTONS: {
+    style: TextBlockStyle
+    label: string
+    content?: string
+    icon?: JSX.Element
+}[] = [
+    { style: 'paragraph', label: 'Text', content: 'Text' },
+    { style: 1, label: 'Heading 1', content: 'H1' },
+    { style: 2, label: 'Heading 2', content: 'H2' },
+    { style: 3, label: 'Heading 3', content: 'H3' },
+    { style: 'blockquote', label: 'Quote', icon: <IconQuote /> },
+    { style: 'code', label: 'Code', icon: <IconCode /> },
+]
 
 type TextSelectionPointerState = {
     originX: number
@@ -3622,6 +3636,21 @@ export function MarkdownNotebook({
                                 )
                             }
 
+                            if (group.type === 'quote') {
+                                const lastItem = group.items[group.items.length - 1]
+
+                                return (
+                                    <Fragment key={group.key}>
+                                        <div className="MarkdownNotebook__blockquote-group">
+                                            {group.items.map(({ node, index }) => (
+                                                <Fragment key={node.id}>{renderNotebookRow(node, index)}</Fragment>
+                                            ))}
+                                        </div>
+                                        {renderInsertBoundaryButton(lastItem.index + 1)}
+                                    </Fragment>
+                                )
+                            }
+
                             return (
                                 <Fragment key={group.key}>
                                     {renderNotebookRow(group.node, group.index)}
@@ -3833,7 +3862,6 @@ function renderNode({
                 setListItemRef={setListItemRef}
                 updateNode={updateNode}
                 replaceNodeWithNodes={replaceNodeWithNodes}
-                deleteNodeBefore={deleteNodeBefore}
                 moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
@@ -4142,11 +4170,10 @@ function EditablePromptComponent({
                         aria-expanded={!isCollapsed}
                         onClick={() => setIsCollapsed((currentValue) => !currentValue)}
                     >
-                        <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask AI prompt">
+                        <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask PostHog AI prompt">
                             <IconSparkles />
-                            Ask AI
+                            Ask PostHog AI
                         </span>
-                        <span className="MarkdownNotebook__ai-prompt-title">PostHog AI</span>
                     </button>
                     <LemonButton
                         size="xsmall"
@@ -4197,7 +4224,6 @@ function EditableListBlock({
     setListItemRef,
     updateNode,
     replaceNodeWithNodes,
-    deleteNodeBefore,
     moveFocusToAdjacentListItem,
     handleSelectionChange,
     startTextSelectionPointer,
@@ -4209,7 +4235,6 @@ function EditableListBlock({
     setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
-    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -4237,6 +4262,59 @@ function EditableListBlock({
 
     const updateListItemChildren = (itemIndex: number, children: NotebookInlineNode[]): void => {
         updateListItem(itemIndex, (item) => ({ ...item, children }))
+    }
+
+    const makeListNode = (
+        items: NotebookListItem[],
+        idSeed: string,
+        idOverride?: string
+    ): NotebookListBlockNode | null => {
+        if (!items.length) {
+            return null
+        }
+
+        const normalizedItems = normalizeListItemDepths(items)
+        const ordered = normalizedItems[0]?.ordered ?? node.ordered
+        return {
+            ...node,
+            id: idOverride ?? makeEmptyParagraph(idSeed).id,
+            ordered,
+            start: getOrderedListStart(normalizedItems, ordered, node.start),
+            items: normalizedItems,
+        }
+    }
+
+    const replaceListItemWithParagraph = (itemIndex: number, offset: number = 0): void => {
+        const item = node.items[itemIndex]
+        if (!item) {
+            return
+        }
+
+        const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, itemIndex)
+        const beforeListNode = makeListNode(node.items.slice(0, itemIndex), `before-list-${node.id}`, node.id)
+        const paragraph: NotebookTextBlockNode = {
+            id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
+            type: 'paragraph',
+            children: item.children,
+        }
+        const childItems = node.items
+            .slice(itemIndex + 1, subtreeEndIndex)
+            .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
+        const afterListNode = makeListNode(
+            [...childItems, ...node.items.slice(subtreeEndIndex)],
+            `after-list-${node.id}`
+        )
+        const replacementNodes: NotebookBlockNode[] = []
+        if (beforeListNode) {
+            replacementNodes.push(beforeListNode)
+        }
+        replacementNodes.push(paragraph)
+        if (afterListNode) {
+            replacementNodes.push(afterListNode)
+        }
+
+        replaceNodeWithNodes(node.id, replacementNodes)
+        restoreSelectionRef.current = { nodeId: paragraph.id, start: offset, end: offset }
     }
 
     const shiftListItemDepth = (itemIndex: number, direction: 'in' | 'out', offset: number = 0): boolean => {
@@ -4272,6 +4350,20 @@ function EditableListBlock({
     }
 
     const removeListItem = (itemIndex: number): void => {
+        const item = node.items[itemIndex]
+        if (!item) {
+            return
+        }
+
+        if (item.depth && shiftListItemDepth(itemIndex, 'out', 0)) {
+            return
+        }
+
+        if (item.depth === 0) {
+            replaceListItemWithParagraph(itemIndex, 0)
+            return
+        }
+
         const nextItems = node.items.filter((_, index) => index !== itemIndex)
         if (!nextItems.length) {
             const paragraph = makeEmptyParagraph(`after-list-${node.id}`)
@@ -4297,10 +4389,11 @@ function EditableListBlock({
         }
 
         if (!getInlineText(item.children).length) {
-            const paragraph = makeEmptyParagraph(`after-list-${node.id}`)
-            const nextItems = node.items.filter((_, index) => index !== itemIndex)
-            replaceNodeWithNodes(node.id, nextItems.length ? [{ ...node, items: nextItems }, paragraph] : [paragraph])
-            restoreSelectionRef.current = { nodeId: paragraph.id, start: 0, end: 0 }
+            if (item.depth > 0 && shiftListItemDepth(itemIndex, 'out', 0)) {
+                return
+            }
+
+            replaceListItemWithParagraph(itemIndex, 0)
             return
         }
 
@@ -4328,42 +4421,44 @@ function EditableListBlock({
         }
     }
 
-    const renderItems = (items: RenderedListItem[], ordered: boolean): ReactNode => {
-        const ListTag = ordered ? 'ol' : 'ul'
-        return (
-            <ListTag>
-                {items.map((item) => {
-                    const itemOrdered = item.ordered ?? ordered
-                    return (
-                        <li key={item.index}>
-                            <EditableListItemContent
-                                node={node}
-                                item={item}
-                                mode={mode}
-                                setListItemRef={setListItemRef}
-                                updateListItemChildren={updateListItemChildren}
-                                splitListItem={splitListItem}
-                                removeListItem={removeListItem}
-                                shiftListItemDepth={shiftListItemDepth}
-                                deleteNodeBefore={deleteNodeBefore}
-                                moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
-                                handleSelectionChange={handleSelectionChange}
-                                startTextSelectionPointer={startTextSelectionPointer}
-                                restoreSelectionRef={restoreSelectionRef}
-                            />
-                            {item.childrenItems.length
-                                ? renderItems(item.childrenItems, item.childrenItems[0].ordered ?? itemOrdered)
-                                : null}
-                        </li>
-                    )
-                })}
-            </ListTag>
-        )
+    const renderListItems = (items: RenderedListItem[], ordered: boolean): ReactNode =>
+        items.map((item) => {
+            const itemOrdered = item.ordered ?? ordered
+            return (
+                <li key={item.index}>
+                    <EditableListItemContent
+                        node={node}
+                        item={item}
+                        mode={mode}
+                        setListItemRef={setListItemRef}
+                        updateListItemChildren={updateListItemChildren}
+                        splitListItem={splitListItem}
+                        removeListItem={removeListItem}
+                        replaceListItemWithParagraph={replaceListItemWithParagraph}
+                        shiftListItemDepth={shiftListItemDepth}
+                        moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
+                        handleSelectionChange={handleSelectionChange}
+                        startTextSelectionPointer={startTextSelectionPointer}
+                        restoreSelectionRef={restoreSelectionRef}
+                    />
+                    {item.childrenItems.length
+                        ? renderItems(item.childrenItems, item.childrenItems[0].ordered ?? itemOrdered)
+                        : null}
+                </li>
+            )
+        })
+
+    const renderItems = (items: RenderedListItem[], ordered: boolean, fallbackStart?: number): ReactNode => {
+        if (ordered) {
+            return <ol start={getOrderedListStart(items, ordered, fallbackStart)}>{renderListItems(items, ordered)}</ol>
+        }
+
+        return <ul>{renderListItems(items, ordered)}</ul>
     }
 
     return (
         <div className="MarkdownNotebook__list-block" ref={setBlockRef}>
-            {renderItems(renderedItems, node.ordered)}
+            {renderItems(renderedItems, node.ordered, node.start)}
         </div>
     )
 }
@@ -4376,8 +4471,8 @@ function EditableListItemContent({
     updateListItemChildren,
     splitListItem,
     removeListItem,
+    replaceListItemWithParagraph,
     shiftListItemDepth,
-    deleteNodeBefore,
     moveFocusToAdjacentListItem,
     handleSelectionChange,
     startTextSelectionPointer,
@@ -4390,8 +4485,8 @@ function EditableListItemContent({
     updateListItemChildren: (itemIndex: number, children: NotebookInlineNode[]) => void
     splitListItem: (itemIndex: number, offset: number) => void
     removeListItem: (itemIndex: number) => void
+    replaceListItemWithParagraph: (itemIndex: number, offset?: number) => void
     shiftListItemDepth: (itemIndex: number, direction: 'in' | 'out', offset?: number) => boolean
-    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -4501,10 +4596,9 @@ function EditableListItemContent({
 
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (event.key === 'Tab') {
+            event.preventDefault()
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            if (shiftListItemDepth(item.index, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)) {
-                event.preventDefault()
-            }
+            shiftListItemDepth(item.index, event.shiftKey ? 'out' : 'in', selection?.start ?? 0)
             return
         }
 
@@ -4548,9 +4642,16 @@ function EditableListItemContent({
                 return
             }
 
-            if (item.index === 0 && deleteNodeBefore(node.id)) {
+            if (item.depth === 0) {
                 event.preventDefault()
+                replaceListItemWithParagraph(item.index, 0)
+                return
             }
+        }
+
+        if (event.key === 'Delete' && !getInlineText(item.children).length) {
+            event.preventDefault()
+            removeListItem(item.index)
         }
     }
 
@@ -6026,7 +6127,6 @@ function FormattingToolbar({
     } as CSSProperties
     const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
-    const selectedBlockStyleLabel = getTextBlockStyleLabel(selectedBlockStyle)
 
     useEffect(() => {
         if (initialLinkEditorOpen) {
@@ -6078,33 +6178,29 @@ function FormattingToolbar({
                 event.preventDefault()
             }}
         >
-            <LemonMenu
-                items={[
-                    { label: 'Text', onClick: () => setBlockStyle('paragraph') },
-                    { label: 'Heading 1', onClick: () => setBlockStyle(1) },
-                    { label: 'Heading 2', onClick: () => setBlockStyle(2) },
-                    { label: 'Heading 3', onClick: () => setBlockStyle(3) },
-                    { label: 'Quote', onClick: () => setBlockStyle('blockquote') },
-                    { label: 'Code', onClick: () => setBlockStyle('code') },
-                ]}
+            <div
+                className={clsx(
+                    'MarkdownNotebook__format-style-buttons',
+                    showInlineActions && 'MarkdownNotebook__format-style-buttons--separated'
+                )}
+                role="group"
+                aria-label="Text style"
             >
-                <LemonButton
-                    size="xsmall"
-                    tooltip="Text style"
-                    aria-label="Text style"
-                    className="MarkdownNotebook__format-style-button"
-                >
-                    {selectedBlockStyleLabel}
-                </LemonButton>
-            </LemonMenu>
-            <LemonButton
-                size="xsmall"
-                icon={<IconQuote />}
-                tooltip="Quote"
-                aria-label="Quote"
-                active={selectedBlockStyle === 'blockquote'}
-                onClick={() => setBlockStyle('blockquote')}
-            />
+                {TEXT_BLOCK_STYLE_BUTTONS.map((button) => (
+                    <LemonButton
+                        key={button.label}
+                        size="xsmall"
+                        icon={button.icon}
+                        tooltip={button.label}
+                        aria-label={button.label}
+                        active={selectedBlockStyle === button.style}
+                        className="MarkdownNotebook__format-style-button"
+                        onClick={() => setBlockStyle(selectedBlockStyle === button.style ? 'paragraph' : button.style)}
+                    >
+                        {button.content}
+                    </LemonButton>
+                ))}
+            </div>
             {showInlineActions ? (
                 <>
                     <LemonButton
@@ -7058,6 +7154,11 @@ type MarkdownNotebookVisualGroup =
           items: { node: NotebookBlockNode; index: number }[]
       }
     | {
+          type: 'quote'
+          key: string
+          items: { node: NotebookBlockNode; index: number }[]
+      }
+    | {
           type: 'block'
           key: string
           node: NotebookBlockNode
@@ -7070,9 +7171,11 @@ function getMarkdownNotebookVisualGroups(
 ): MarkdownNotebookVisualGroup[] {
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
+    let currentQuoteGroup: Extract<MarkdownNotebookVisualGroup, { type: 'quote' }> | null = null
 
     nodes.forEach((node, index) => {
         if (isGroupedTextBlockNode(node) && node.id !== insertMenuNodeId) {
+            currentQuoteGroup = null
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -7086,7 +7189,23 @@ function getMarkdownNotebookVisualGroups(
             return
         }
 
+        if (isGroupedBlockquoteNode(node) && node.id !== insertMenuNodeId) {
+            currentTextGroup = null
+            if (!currentQuoteGroup) {
+                currentQuoteGroup = {
+                    type: 'quote',
+                    key: `quote-${node.id}`,
+                    items: [],
+                }
+                groups.push(currentQuoteGroup)
+            }
+
+            currentQuoteGroup.items.push({ node, index })
+            return
+        }
+
         currentTextGroup = null
+        currentQuoteGroup = null
         groups.push({
             type: 'block',
             key: node.id,
@@ -7104,6 +7223,10 @@ function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode
 
 function isGroupedTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return isTextBlockNode(node) && node.type !== 'blockquote'
+}
+
+function isGroupedBlockquoteNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
+    return isTextBlockNode(node) && node.type === 'blockquote'
 }
 
 function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -7192,6 +7315,23 @@ function buildRenderedListItems(items: NotebookListItem[]): RenderedListItem[] {
     })
 
     return rootItems
+}
+
+function getOrderedListStart(items: NotebookListItem[], ordered: boolean, fallbackStart?: number): number | undefined {
+    if (!ordered) {
+        return undefined
+    }
+
+    return items.find((item) => item.depth === 0 && (item.ordered ?? ordered))?.start ?? fallbackStart ?? 1
+}
+
+function normalizeListItemDepths(items: NotebookListItem[]): NotebookListItem[] {
+    const minimumDepth = Math.min(...items.map((item) => Math.max(0, item.depth)))
+    if (!Number.isFinite(minimumDepth) || minimumDepth <= 0) {
+        return items.map((item) => ({ ...item, depth: Math.max(0, item.depth) }))
+    }
+
+    return items.map((item) => ({ ...item, depth: Math.max(0, item.depth - minimumDepth) }))
 }
 
 function getListItemSubtreeEndIndex(items: NotebookListItem[], itemIndex: number): number {
@@ -7306,10 +7446,11 @@ function normalizeNotebookTitlePasteBodyNode(node: NotebookBlockNode): NotebookB
     }
 }
 
-function getListShortcut(text: string): { ordered: boolean } | null {
+function getListShortcut(text: string): { ordered: boolean; start?: number } | null {
     const normalizedText = text.replace(/\u00a0/g, ' ')
-    if (/^\d+[.)]\s*$/.test(normalizedText)) {
-        return { ordered: true }
+    const orderedMatch = normalizedText.match(/^(\d+)[.)]\s*$/)
+    if (orderedMatch) {
+        return { ordered: true, start: Number(orderedMatch[1]) }
     }
 
     if (/^[-*+•]\s+$/.test(normalizedText)) {
@@ -7384,11 +7525,13 @@ function getTextBlockShortcutReplacement(
                     id: node.id,
                     type: 'list',
                     ordered: listShortcut.ordered,
+                    start: listShortcut.start,
                     items: [
                         {
                             children: [],
                             depth: 0,
                             ordered: listShortcut.ordered,
+                            start: listShortcut.start,
                         },
                     ],
                 },
@@ -7775,26 +7918,6 @@ function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]): Text
 
     const firstStyle = getTextBlockStyle(firstTextRange.node)
     return textRanges.every(({ node }) => getTextBlockStyle(node) === firstStyle) ? firstStyle : null
-}
-
-function getTextBlockStyleLabel(style: TextBlockStyle | null): string {
-    if (style === null) {
-        return ''
-    }
-
-    if (style === 'paragraph') {
-        return 'Text'
-    }
-
-    if (style === 'blockquote') {
-        return 'Quote'
-    }
-
-    if (style === 'code') {
-        return 'Code'
-    }
-
-    return `H${style}`
 }
 
 function plainTextToInlineNodes(text: string): NotebookInlineNode[] {

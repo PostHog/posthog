@@ -238,29 +238,59 @@
     margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
     background: var(--markdown-notebook-text-group-background);
     border: 1px solid var(--markdown-notebook-text-group-border);
+    border-left: 3px solid var(--markdown-notebook-text-block-gutter);
     border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
     box-shadow: var(--markdown-notebook-text-group-shadow);
 }
 
 .MarkdownNotebook__text-group:focus-within {
     border-color: color-mix(in sRGB, var(--primary) 34%, var(--markdown-notebook-text-group-border));
+    border-left-color: var(--markdown-notebook-text-block-gutter);
+}
+
+.MarkdownNotebook__blockquote-group {
+    box-sizing: border-box;
+    width: calc(100% - var(--markdown-notebook-content-offset));
+    min-height: 3rem;
+    padding: 0.875rem 1rem;
+    margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
+    font-style: italic;
+    color: var(--color-text-primary);
+    background: var(--markdown-notebook-quote-background);
+    border: 1px solid var(--markdown-notebook-quote-border);
+    border-left: 3px solid var(--markdown-notebook-quote-gutter);
+    border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    box-shadow: var(--markdown-notebook-quote-shadow);
+}
+
+.MarkdownNotebook__blockquote-group:focus-within {
+    border-color: var(--primary);
+    border-left-color: var(--markdown-notebook-quote-gutter);
+    box-shadow: 0 0 0 1px var(--primary);
 }
 
 .MarkdownNotebook__text-group .MarkdownNotebook__text-block:focus {
     background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 58%, transparent);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__text-row {
+.MarkdownNotebook__text-group .MarkdownNotebook__text-row,
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-row {
     grid-template-columns: minmax(0, 1fr);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area {
+.MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area,
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
     position: absolute;
     left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
     width: calc(var(--markdown-notebook-content-offset) + 1rem);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__text-block {
+.MarkdownNotebook__text-group .MarkdownNotebook__text-block,
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-block {
     grid-column: 1;
 }
 
@@ -286,6 +316,22 @@
     left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
 }
 
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-block--blockquote {
+    min-height: 1.75rem;
+    padding: 0.125rem 0;
+    margin: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-block--blockquote:focus {
+    background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 36%, transparent);
+    border: 0;
+    box-shadow: none;
+}
+
 .MarkdownNotebook__text-block {
     display: block;
     grid-column: 2;
@@ -296,10 +342,7 @@
     margin: 0;
     line-height: 1.55;
     word-break: break-word;
-    border-left: 2px solid var(--markdown-notebook-text-block-gutter);
     border-radius: 0.25rem;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
     outline: none;
 }
 
@@ -345,33 +388,22 @@
     outline-offset: 2px;
 }
 
-.MarkdownNotebook__ai-prompt-title {
-    overflow: hidden;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--color-text-primary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .MarkdownNotebook__ai-prompt-tag {
     display: inline-flex;
     grid-column: 2;
     gap: 0.25rem;
     align-items: center;
     justify-self: start;
-    padding: 0.125rem 0.5rem;
+    padding: 0.0625rem 0.375rem;
     font-size: 0.75rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.5;
-    color: var(--color-text-primary);
+    color: var(--color-text-secondary);
     white-space: nowrap;
     appearance: none;
-    background: var(--color-accent-highlight-secondary);
-    border: 1px solid var(--color-accent);
-    border-radius: 0.375rem;
-    box-shadow: 0 0 0 2px color-mix(in sRGB, var(--color-accent) 12%, transparent);
+    background: color-mix(in sRGB, var(--color-accent-highlight-secondary) 42%, transparent);
+    border: 1px solid color-mix(in sRGB, var(--color-accent) 44%, var(--color-border-primary));
+    border-radius: 0.25rem;
 }
 
 .MarkdownNotebook__ai-prompt-tag svg {
@@ -495,6 +527,18 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__format-toolbar--below {
     transform: translate(-50%, 0);
+}
+
+.MarkdownNotebook__format-style-buttons {
+    display: inline-flex;
+    gap: 0.125rem;
+    align-items: center;
+}
+
+.MarkdownNotebook__format-style-buttons--separated {
+    padding-right: 0.25rem;
+    margin-right: 0.125rem;
+    border-right: 1px solid var(--color-border-primary);
 }
 
 .MarkdownNotebook__format-link-editor {
@@ -627,18 +671,36 @@ h3.MarkdownNotebook__text-block--heading {
     color: var(--danger);
 }
 
-.MarkdownNotebook__list-block,
 .MarkdownNotebook__table-block {
+    max-width: 100%;
     margin-left: var(--markdown-notebook-content-offset);
 }
 
 .MarkdownNotebook__list-block {
+    box-sizing: border-box;
+    width: calc(100% - var(--markdown-notebook-content-offset));
+    min-height: 3rem;
+    padding: 1.75rem 1rem;
+    margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
     line-height: 1.55;
+    color: var(--color-text-primary);
+    background: var(--markdown-notebook-text-group-background);
+    border: 1px solid var(--markdown-notebook-text-group-border);
+    border-left: 3px solid var(--markdown-notebook-text-block-gutter);
+    border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    box-shadow: var(--markdown-notebook-text-group-shadow);
+}
+
+.MarkdownNotebook__list-block:focus-within {
+    border-color: color-mix(in sRGB, var(--primary) 34%, var(--markdown-notebook-text-group-border));
+    border-left-color: var(--markdown-notebook-text-block-gutter);
 }
 
 .MarkdownNotebook__list-block ol,
 .MarkdownNotebook__list-block ul {
-    padding-left: 1.25rem;
+    padding-left: 1.5rem;
     margin: 0;
 }
 
@@ -662,18 +724,19 @@ h3.MarkdownNotebook__text-block--heading {
     padding-left: 0.125rem;
 }
 
+.MarkdownNotebook__list-block li::marker {
+    color: var(--color-text-secondary);
+}
+
 .MarkdownNotebook__list-item-content {
     min-height: 1.55em;
+    padding: 0.125rem 0.25rem;
     border-radius: 0.25rem;
     outline: none;
 }
 
 .MarkdownNotebook__list-item-content:focus {
     background: var(--bg-light);
-}
-
-.MarkdownNotebook__table-block {
-    max-width: 100%;
 }
 
 .MarkdownNotebook__table-scroll {
