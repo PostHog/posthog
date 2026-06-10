@@ -2,5 +2,20 @@
     "name": "@posthog/products-growth",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "catalog:",
+        "@types/react": "*",
+        "clsx": "*",
+        "jest": "*",
+        "react": "*",
+        "typescript": "catalog:*"
     }
 }
