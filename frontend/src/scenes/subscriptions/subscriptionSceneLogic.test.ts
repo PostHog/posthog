@@ -77,6 +77,8 @@ describe('subscriptionSceneLogic', () => {
 
     beforeEach(() => {
         deliveriesRequestUrls = []
+        // deliveryFeedback persists to localStorage; clear it so recorded feedback can't leak between tests.
+        localStorage.clear()
     })
 
     it('includes status in deliveries list request when status filter is set', async () => {
@@ -261,6 +263,67 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
         featureFlagLogic.unmount()
         captureSpy.mockRestore()
+    })
+
+    it('does not re-capture from a feedback link for an already-recorded delivery', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-123', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        captureSpy.mockClear()
+
+        await expectLogic(logic, () => {
+            router.actions.push('/subscriptions/2', {
+                feedback_delivery: 'd-123',
+                feedback: 'negative',
+                feedback_source: 'email',
+            })
+        }).toFinishAllListeners()
+
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(0)
+        // Params are still stripped, and the originally recorded feedback wins.
+        expect(router.values.searchParams).toEqual({})
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-123': 'positive' })
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
+    })
+
+    it('persists recorded feedback across remounts', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        let logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        logic.unmount()
+
+        logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
+
+        logic.unmount()
+        featureFlagLogic.unmount()
     })
 
     it('captures in-app thumbs feedback and records it per delivery', async () => {

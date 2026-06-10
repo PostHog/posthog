@@ -85,6 +85,9 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         ],
         deliveryFeedback: [
             {} as Record<string, DeliveryFeedback>,
+            // localStorage on purpose: feedback is an analytics event, not a DB row — this only keeps
+            // the UI honest (and the capture deduped) across reloads on this browser.
+            { persist: true },
             {
                 submitDeliveryFeedback: (state, { deliveryId, feedback }) => ({ ...state, [deliveryId]: feedback }),
             },
@@ -247,7 +250,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
         },
     })),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         // Feedback links in delivered emails/Slack messages land here with these params;
         // capture once, then strip them so a refresh doesn't double-capture.
         [urls.subscription(':id')]: ({ id }, searchParams) => {
@@ -258,11 +261,13 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             if (!feedback_delivery || (feedback !== 'positive' && feedback !== 'negative')) {
                 return
             }
-            actions.submitDeliveryFeedback(
-                String(feedback_delivery),
-                feedback,
-                feedback_source === 'slack' ? 'slack' : 'email'
-            )
+            const deliveryId = String(feedback_delivery)
+            if (values.deliveryFeedback[deliveryId]) {
+                // Persisted state remembers this delivery — don't re-capture from a re-clicked link.
+                lemonToast.info('Your feedback for this report was already recorded')
+            } else {
+                actions.submitDeliveryFeedback(deliveryId, feedback, feedback_source === 'slack' ? 'slack' : 'email')
+            }
             router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
         },
     })),
