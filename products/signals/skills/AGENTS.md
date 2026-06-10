@@ -50,10 +50,39 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   flags). Its discriminator is the flag's configured state against the
   `$feature_flag_called` stream; experiment-linked flags are the experiments
   scout's territory.
+- `signals-scout-data-pipelines/` — delivery watcher for data pipelines: CDP
+  destinations and transformations (hog functions), batch exports, and hog flows.
+  Watches for platform interventions (the hog watcher degrading or auto-disabling
+  an enabled function), delivery failure shares stepping above a pipeline's own
+  baseline, batch export runs failing or stalling (a growing data gap), filter
+  starvation, and active flows failing for the people they trigger on. Its
+  discriminator is configured-to-deliver vs actually-delivering — drafts, paused
+  exports, and deliberately disabled functions are operator choices, not signal;
+  data warehouse / external-data syncs are the health-checks scout's territory.
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
+- `signals-scout-session-replay/` — capture-integrity + friction watcher for session
+  replay. Watches recording volume against site traffic for capture cliffs (SDK
+  breakage, config drift — recordings are not retroactive), and the friction stream
+  (`$rageclick`, dead clicks, errors-after-click via `session_replay_features`) for
+  clusters concentrating on one URL or element above that surface's own baseline.
+  Also the judgment layer over replay vision: scanner watch-gaps (failing scanners,
+  exhausted quota) and cross-session aggregation of `$recording_observed` scanner
+  output. Its discriminator is concentration-vs-diffusion — friction that piles up
+  in one place is signal, friction that tracks traffic is baseline; exceptions per
+  se are the error-tracking scout's territory.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
+- `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
+  Reads the `sessions` table for per-channel volume diverging from
+  seasonality-aligned baselines (same 24h window 7/14 days back), attribution
+  breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
+  entry-path bounce steps and traffic cliffs, 404 spikes (via the project's own
+  not-found event, discovered by name), and per-path web vitals p75 regressions. Its
+  discriminator is segment-vs-aggregate divergence — one channel/path/referrer
+  stepping away from its own baseline while totals hold is signal; the whole site
+  moving together is baseline. Whole-site metric anomalies on watched dashboards are
+  the anomaly-detection scout's territory.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift

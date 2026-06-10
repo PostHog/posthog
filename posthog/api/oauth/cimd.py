@@ -346,6 +346,13 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
     is absent so callers leave existing scopes untouched. A present field returns a
     (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
+
+    Raises CIMDValidationError when the field is present and non-empty but every entry is
+    non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
+    (`effective_ceiling`), so silently storing `[]` here would widen a misconfigured app
+    to the full default surface — broader than it asked for. Reject it the way DCR rejects
+    an all-stripped `scope` string, so the partner fixes their metadata. An explicitly empty
+    list is left as the legitimate "use default" signal, same as an absent field.
     """
     com_posthog = metadata.get("com.posthog")
     if not isinstance(com_posthog, dict):
@@ -354,7 +361,13 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
-    return filter_to_unprivileged_scopes(raw_scopes)
+    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    if raw_scopes and not filtered:
+        raise CIMDValidationError(
+            "None of the declared com.posthog.scopes are available to self-registered clients. "
+            "Remove the field to register with the default scope set."
+        )
+    return filtered
 
 
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:

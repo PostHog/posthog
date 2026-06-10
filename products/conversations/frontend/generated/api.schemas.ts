@@ -145,6 +145,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * * `llm_analytics` - llm_analytics
  * * `sandbox` - sandbox
  * * `user_interview` - user_interview
+ * * `customer_analytics` - customer_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -161,6 +162,7 @@ export const AgentModeEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
     UserInterview: 'user_interview',
+    CustomerAnalytics: 'customer_analytics',
 } as const
 
 /**
