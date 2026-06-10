@@ -430,6 +430,67 @@ class TestPostgresSourceForPipelineSchemaResolution:
         validate_credentials.assert_called_once_with(config, 1, schema_name=None)
 
 
+class TestValidateCredentialsErrorMapping:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    @pytest.fixture
+    def config(self, source):
+        return source.parse_config(
+            {
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg, expected",
+        [
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "error received from server in SCRAM exchange: Wrong password",
+                "Invalid user or password",
+            ),
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "FATAL:  the database system is starting up",
+                "Your database is starting up or recovering. Wait a moment and try again.",
+            ),
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "server does not support SSL, but SSL was required",
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server.",
+            ),
+            (
+                "consuming input failed: SSL connection has been closed unexpectedly",
+                "The SSL/TLS connection to your database was closed unexpectedly. "
+                "Check your database's SSL configuration and that the port is correct.",
+            ),
+            # Unmapped errors fall back to the generic message.
+            (
+                "some brand new failure",
+                "Could not connect to Postgres. Please check all connection details are valid.",
+            ),
+        ],
+    )
+    def test_operational_errors_map_to_friendly_messages(self, source, config, error_msg, expected):
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=psycopg.OperationalError(error_msg)),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error == expected
+
+
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
         cursor = mock.MagicMock()
