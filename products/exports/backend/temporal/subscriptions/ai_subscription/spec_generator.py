@@ -55,6 +55,12 @@ DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
+# Save-time validation runs inside an API request, so it gets a much tighter LLM budget than the
+# pipeline's planner call — callers fail open on timeout.
+PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS = 15.0
+# Only sets the "suggested analysis window" context line for the save-time planner call; the real
+# window is derived from the subscription's cadence at run time.
+SAVE_VALIDATION_WINDOW_DAYS = 7
 
 
 class PromptRejectedError(ValueError):
@@ -289,15 +295,17 @@ def generate_query_plan(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    llm_timeout: float = _PLANNER_LLM_TIMEOUT_SECONDS,
+    stage: str = "plan",
 ) -> QueryPlan:
-    # `user is None` is enforced at the public entry point (`generate_ai_report`)
-    # which is the only caller path into here. Don't repeat the check.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
+    # `user is None` is enforced at the public entry points (`generate_ai_report` raises;
+    # `validate_prompt_plannable` requires it by type). Don't repeat the check.
+    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": stage}
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
-        timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
+        timeout=llm_timeout,
         user=user,
         team=team,
         billable=True,
@@ -313,6 +321,30 @@ def generate_query_plan(
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
     return result
+
+
+def validate_prompt_plannable(
+    *,
+    team: Team,
+    user: User,
+    prompt: Optional[str],
+    trace_correlation_id: Optional[Union[int, str]] = None,
+) -> None:
+    # Save-time mirror of the pipeline's planner stage (sanitize + plan), minus the event-selection
+    # pass and any query execution, so save-time acceptance and run-time rejection can't drift.
+    # Raises PromptRejectedError on a genuine rejection; any other exception (LLM timeout, infra
+    # failure) is transient and callers are expected to fail open.
+    cleaned = sanitize_prompt(prompt)
+    context_blob = build_context_blob(team, SAVE_VALIDATION_WINDOW_DAYS)
+    generate_query_plan(
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        team=team,
+        user=user,
+        trace_correlation_id=trace_correlation_id,
+        llm_timeout=PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS,
+        stage="save_validation",
+    )
 
 
 def build_enriched_prompt(

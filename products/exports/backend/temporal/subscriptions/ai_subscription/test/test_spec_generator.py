@@ -14,7 +14,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    _PLANNER_LLM_TIMEOUT_SECONDS,
     PROMPT_MAX_LENGTH,
+    PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS,
     PromptRejectedError,
     _event_property_names,
     _group_type_labels,
@@ -24,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_context_blob,
     generate_query_plan,
     sanitize_prompt,
+    validate_prompt_plannable,
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -280,3 +283,74 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         with pytest.raises(PromptRejectedError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_defaults_to_runtime_timeout_and_plan_stage(self, mock_chat: MagicMock) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="intent",
+            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
+        )
+
+        generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+
+        assert mock_chat.call_args.kwargs["timeout"] == _PLANNER_LLM_TIMEOUT_SECONDS
+        assert mock_chat.call_args.kwargs["posthog_properties"]["stage"] == "plan"
+
+
+class TestValidatePromptPlannable(APIBaseTest):
+    _VALID_PLAN = QueryPlan(overall_intent="intent", steps=[QueryPlanStep(description="d", hogql="SELECT 1")])
+
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_accepts_plannable_prompt_with_save_time_timeout(self, mock_chat: MagicMock, _mock_top: object) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = self._VALID_PLAN
+
+        validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
+
+        assert mock_chat.call_args.kwargs["timeout"] == PROMPT_SAVE_VALIDATION_LLM_TIMEOUT_SECONDS
+        assert mock_chat.call_args.kwargs["posthog_properties"]["stage"] == "save_validation"
+
+    @parameterized.expand(
+        [
+            ("empty", "   "),
+            ("over_max_length", "x" * (PROMPT_MAX_LENGTH + 1)),
+            ("only_framing_tags", "<system></system>"),
+        ]
+    )
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_rejects_unsanitizable_prompt_without_llm_call(self, _name: str, raw: str, mock_chat: MagicMock) -> None:
+        with pytest.raises(PromptRejectedError):
+            validate_prompt_plannable(team=self.team, user=self.user, prompt=raw)
+        mock_chat.assert_not_called()
+
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_rejects_when_planner_returns_malformed_plan(self, mock_chat: MagicMock, _mock_top: object) -> None:
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = "not a QueryPlan"
+
+        with pytest.raises(PromptRejectedError, match="malformed"):
+            validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
+
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_propagates_transient_llm_errors_for_caller_to_fail_open(
+        self, mock_chat: MagicMock, _mock_top: object
+    ) -> None:
+        mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = TimeoutError("llm timed out")
+
+        with pytest.raises(TimeoutError):
+            validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
+
+    @patch(f"{_SG}._select_relevant_events")
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_skips_the_event_selection_pass(
+        self, mock_chat: MagicMock, _mock_top: object, mock_select: MagicMock
+    ) -> None:
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = self._VALID_PLAN
+
+        validate_prompt_plannable(team=self.team, user=self.user, prompt="Weekly pageviews summary")
+
+        mock_select.assert_not_called()

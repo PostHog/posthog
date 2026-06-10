@@ -27,12 +27,14 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.api.subscription import AI_PROMPT_VALIDATION_ERRORED_EVENT, AI_PROMPT_VALIDATION_FAILED_EVENT
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -2103,6 +2105,14 @@ class TestSubscriptionFreeTierAccess(APILicensedTest):
 @patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.api.subscription.is_cloud", return_value=True)
 class TestAISubscriptionAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Patched via setUp (not a class decorator) so existing test signatures stay unchanged;
+        # individual tests steer it through self.mock_validate_prompt.
+        patcher = patch("ee.api.subscription.validate_prompt_plannable")
+        self.mock_validate_prompt = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _enable_ai(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -2547,3 +2557,112 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    @parameterized.expand(
+        [
+            ("accepted", None, status.HTTP_201_CREATED, None),
+            (
+                "rejected",
+                PromptRejectedError("Planner returned a malformed plan."),
+                status.HTTP_400_BAD_REQUEST,
+                AI_PROMPT_VALIDATION_FAILED_EVENT,
+            ),
+            (
+                "llm_error_fails_open",
+                RuntimeError("llm down"),
+                status.HTTP_201_CREATED,
+                AI_PROMPT_VALIDATION_ERRORED_EVENT,
+            ),
+            (
+                "llm_timeout_fails_open",
+                TimeoutError("timed out"),
+                status.HTTP_201_CREATED,
+                AI_PROMPT_VALIDATION_ERRORED_EVENT,
+            ),
+        ]
+    )
+    @patch("ee.api.subscription.posthoganalytics.capture")
+    def test_create_prompt_validation_outcomes(
+        self,
+        _name,
+        side_effect,
+        expected_status,
+        expected_event,
+        mock_capture,
+        mock_is_cloud,
+        mock_flag,
+        mock_sync,
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        self.mock_validate_prompt.side_effect = side_effect
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+
+        assert response.status_code == expected_status, response.json()
+        self.mock_validate_prompt.assert_called_once()
+        assert (
+            self.mock_validate_prompt.call_args.kwargs["prompt"] == "What are the biggest event gains week-over-week?"
+        )
+        captured_events = [c.kwargs.get("event") for c in mock_capture.call_args_list]
+        if expected_event is None:
+            assert AI_PROMPT_VALIDATION_FAILED_EVENT not in captured_events
+            assert AI_PROMPT_VALIDATION_ERRORED_EVENT not in captured_events
+        else:
+            assert expected_event in captured_events
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "prompt"
+            assert "can't be turned into a report" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("title_only", {"title": "Renamed"}),
+            ("same_prompt_resent", {"prompt": "What are the biggest event gains week-over-week?"}),
+            ("same_prompt_with_whitespace", {"prompt": "  What are the biggest event gains week-over-week?  "}),
+        ]
+    )
+    def test_update_without_prompt_change_skips_validation(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, patch_body
+    ):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self.mock_validate_prompt.reset_mock()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_body)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.mock_validate_prompt.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("accepted", None, status.HTTP_200_OK),
+            ("rejected", PromptRejectedError("Planner returned a malformed plan."), status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_update_with_changed_prompt_revalidates(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, side_effect, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self.mock_validate_prompt.reset_mock()
+        self.mock_validate_prompt.side_effect = side_effect
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"prompt": "Show me churn by plan"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        self.mock_validate_prompt.assert_called_once()
+        assert self.mock_validate_prompt.call_args.kwargs["trace_correlation_id"] == sub_id
+        stored_prompt = Subscription.objects.get(pk=sub_id).prompt
+        if expected_status == status.HTTP_200_OK:
+            assert stored_prompt == "Show me churn by plan"
+        else:
+            assert stored_prompt == "What are the biggest event gains week-over-week?"
+
+    def test_non_ai_subscription_never_calls_prompt_validation(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._insight_payload())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.mock_validate_prompt.assert_not_called()

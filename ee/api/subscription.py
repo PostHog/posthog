@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -48,6 +49,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
     sanitize_prompt,
+    validate_prompt_plannable,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
@@ -59,8 +61,13 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
+logger = structlog.get_logger(__name__)
+
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+
+AI_PROMPT_VALIDATION_FAILED_EVENT = "ai_subscription_prompt_validation_failed"
+AI_PROMPT_VALIDATION_ERRORED_EVENT = "ai_subscription_prompt_validation_errored"
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -437,7 +444,73 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
+        # Last so an LLM round-trip is never spent on a payload another check already rejects.
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            self._validate_ai_prompt_plannable(attrs, existing)
+
         return attrs
+
+    def _validate_ai_prompt_plannable(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        """Run the pipeline's planner-level prompt check at save time so an unusable prompt
+        fails the write immediately instead of auto-disabling at the first scheduled run.
+        Only a genuine rejection blocks the save; transient LLM/infra errors FAIL OPEN —
+        the run-time auto-disable path remains the backstop."""
+        if "prompt" not in attrs:
+            return  # update that doesn't touch the prompt
+        prompt = attrs["prompt"]  # already stripped and length-checked by _validate_ai_content
+        if existing is not None and prompt == (existing.prompt or "").strip():
+            return
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if not getattr(user, "distinct_id", None):
+            return  # no authenticated user to attribute the LLM call to — leave it to run time
+        subscription_id = existing.id if existing else None
+        try:
+            validate_prompt_plannable(
+                team=self.context["get_team"](),
+                user=user,
+                prompt=prompt,
+                trace_correlation_id=subscription_id,
+            )
+        except PromptRejectedError as exc:
+            self._capture_prompt_validation_event(AI_PROMPT_VALIDATION_FAILED_EVENT, str(exc), subscription_id)
+            raise ValidationError(
+                {
+                    "prompt": [
+                        f"This prompt can't be turned into a report: {exc} "
+                        "Try rephrasing it as a specific question about your product's events or metrics."
+                    ]
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "ai_subscription.prompt_validation_errored",
+                team_id=self.context.get("team_id"),
+                subscription_id=subscription_id,
+                exc_info=True,
+            )
+            self._capture_prompt_validation_event(
+                AI_PROMPT_VALIDATION_ERRORED_EVENT, type(exc).__name__, subscription_id
+            )
+
+    def _capture_prompt_validation_event(self, event: str, reason: str, subscription_id: Optional[int]) -> None:
+        organization = self.context["get_organization"]()
+        try:
+            posthoganalytics.capture(
+                distinct_id=self._caller_distinct_id(),
+                event=event,
+                properties={
+                    "team_id": self.context.get("team_id"),
+                    "organization_id": str(organization.id),
+                    "subscription_id": subscription_id,
+                    "reason": reason,
+                    "is_create": self.instance is None,
+                },
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            # Telemetry must never poison the validation path.
+            pass
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False
