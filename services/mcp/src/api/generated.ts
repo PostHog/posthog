@@ -16080,6 +16080,18 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
+    export interface ErrorTrackingSigningKey {
+      readonly id: string;
+      readonly key_id: string;
+      public_key: string;
+      /** @nullable */
+      label?: string | null;
+      revoked?: boolean;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
     export interface SimilarIssue {
       description: string;
       distance: number;
@@ -24805,6 +24817,15 @@ export namespace Schemas {
       results: ErrorTrackingRelease[];
     }
 
+    export interface PaginatedErrorTrackingSigningKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingSigningKey[];
+    }
+
     export interface PaginatedErrorTrackingSpikeEventList {
       count: number;
       /** @nullable */
@@ -29779,6 +29800,18 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    export interface PatchedErrorTrackingSigningKey {
+      readonly id?: string;
+      readonly key_id?: string;
+      public_key?: string;
+      /** @nullable */
+      label?: string | null;
+      revoked?: boolean;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly last_used_at?: string | null;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
@@ -43550,6 +43583,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsErrorTrackingSigningKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -49014,6 +49058,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSigningKeysListParams = {
     /**
      * Number of results to return per page.
      */

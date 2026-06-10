@@ -862,6 +862,24 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
 })
 
+export const ErrorTrackingSigningKeysCreateBody = /* @__PURE__ */ zod.object({
+    public_key: zod.string(),
+    label: zod.string().nullish(),
+    revoked: zod.boolean().optional(),
+})
+
+export const ErrorTrackingSigningKeysUpdateBody = /* @__PURE__ */ zod.object({
+    public_key: zod.string(),
+    label: zod.string().nullish(),
+    revoked: zod.boolean().optional(),
+})
+
+export const ErrorTrackingSigningKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
+    public_key: zod.string().optional(),
+    label: zod.string().nullish(),
+    revoked: zod.boolean().optional(),
+})
+
 export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     snooze_duration_minutes: zod
         .number()

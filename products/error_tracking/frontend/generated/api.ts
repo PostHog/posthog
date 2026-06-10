@@ -40,6 +40,8 @@ import type {
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
+    ErrorTrackingSigningKeyApi,
+    ErrorTrackingSigningKeysListParams,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -61,6 +63,7 @@ import type {
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
+    PaginatedErrorTrackingSigningKeyListApi,
     PaginatedErrorTrackingSpikeEventListApi,
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
@@ -72,6 +75,7 @@ import type {
     PatchedErrorTrackingIssueFullApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSettingsApi,
+    PatchedErrorTrackingSigningKeyApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
@@ -1107,6 +1111,116 @@ export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedErrorTrackingSettingsApi),
+    })
+}
+
+export const getErrorTrackingSigningKeysListUrl = (projectId: string, params?: ErrorTrackingSigningKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/signing_keys/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/signing_keys/`
+}
+
+export const errorTrackingSigningKeysList = async (
+    projectId: string,
+    params?: ErrorTrackingSigningKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingSigningKeyListApi> => {
+    return apiMutator<PaginatedErrorTrackingSigningKeyListApi>(getErrorTrackingSigningKeysListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSigningKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/signing_keys/`
+}
+
+export const errorTrackingSigningKeysCreate = async (
+    projectId: string,
+    errorTrackingSigningKeyApi: NonReadonly<ErrorTrackingSigningKeyApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingSigningKeyApi> => {
+    return apiMutator<ErrorTrackingSigningKeyApi>(getErrorTrackingSigningKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSigningKeyApi),
+    })
+}
+
+export const getErrorTrackingSigningKeysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/signing_keys/${id}/`
+}
+
+export const errorTrackingSigningKeysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSigningKeyApi> => {
+    return apiMutator<ErrorTrackingSigningKeyApi>(getErrorTrackingSigningKeysRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSigningKeysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/signing_keys/${id}/`
+}
+
+export const errorTrackingSigningKeysUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSigningKeyApi: NonReadonly<ErrorTrackingSigningKeyApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingSigningKeyApi> => {
+    return apiMutator<ErrorTrackingSigningKeyApi>(getErrorTrackingSigningKeysUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSigningKeyApi),
+    })
+}
+
+export const getErrorTrackingSigningKeysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/signing_keys/${id}/`
+}
+
+export const errorTrackingSigningKeysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSigningKeyApi?: NonReadonly<PatchedErrorTrackingSigningKeyApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingSigningKeyApi> => {
+    return apiMutator<ErrorTrackingSigningKeyApi>(getErrorTrackingSigningKeysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSigningKeyApi),
+    })
+}
+
+export const getErrorTrackingSigningKeysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/signing_keys/${id}/`
+}
+
+export const errorTrackingSigningKeysDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSigningKeysDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

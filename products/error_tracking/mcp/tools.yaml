@@ -289,6 +289,24 @@ tools:
     error-tracking-settings-update-settings-partial-update:
         operation: error_tracking_settings_update_settings_partial_update
         enabled: false
+    error-tracking-signing-keys-create:
+        operation: error_tracking_signing_keys_create
+        enabled: false
+    error-tracking-signing-keys-destroy:
+        operation: error_tracking_signing_keys_destroy
+        enabled: false
+    error-tracking-signing-keys-list:
+        operation: error_tracking_signing_keys_list
+        enabled: false
+    error-tracking-signing-keys-partial-update:
+        operation: error_tracking_signing_keys_partial_update
+        enabled: false
+    error-tracking-signing-keys-retrieve:
+        operation: error_tracking_signing_keys_retrieve
+        enabled: false
+    error-tracking-signing-keys-update:
+        operation: error_tracking_signing_keys_update
+        enabled: false
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false

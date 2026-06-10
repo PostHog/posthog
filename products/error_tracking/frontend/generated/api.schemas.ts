@@ -1326,6 +1326,39 @@ export interface PatchedErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
+export interface ErrorTrackingSigningKeyApi {
+    readonly id: string
+    readonly key_id: string
+    public_key: string
+    /** @nullable */
+    label?: string | null
+    revoked?: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export interface PaginatedErrorTrackingSigningKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSigningKeyApi[]
+}
+
+export interface PatchedErrorTrackingSigningKeyApi {
+    readonly id?: string
+    readonly key_id?: string
+    public_key?: string
+    /** @nullable */
+    label?: string | null
+    revoked?: boolean
+    readonly created_at?: string
+    /** @nullable */
+    readonly last_used_at?: string | null
+}
+
 export interface ErrorTrackingSpikeDetectionConfigApi {
     /**
      * Time to wait before alerting again for the same issue after a spike is detected.
@@ -1679,6 +1712,17 @@ export type ErrorTrackingRecommendationsListParams = {
 }
 
 export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSigningKeysListParams = {
     /**
      * Number of results to return per page.
      */
