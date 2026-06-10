@@ -35,6 +35,7 @@ SDK_LIBRARIES = [
     "posthog-java",
     "posthog-dotnet",
     "posthog-elixir",
+    "posthog-rust",
     "posthog-android",
     "posthog-ios",
     "posthog-react-native",
