@@ -63,7 +63,14 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 setSearchTerm: () => 1, // Reset to page 1 on search
             },
         ],
-        accessControlModalView: [
+        accessControlModalOpen: [
+            false,
+            {
+                openAccessControlModal: () => true,
+                closeAccessControlModal: () => false,
+            },
+        ],
+        editingAccessControlView: [
             null as DataWarehouseSavedQuery | null,
             {
                 openAccessControlModal: (_, { view }) => view,

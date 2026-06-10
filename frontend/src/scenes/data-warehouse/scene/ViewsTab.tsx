@@ -96,7 +96,8 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
         runHistoryMapLoading,
         materializedViewsCurrentPage,
         viewsCurrentPage,
-        accessControlModalView,
+        accessControlModalOpen,
+        editingAccessControlView,
         featureFlags,
     } = useValues(viewsTabLogic)
     const {
@@ -120,13 +121,13 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
 
     return (
         <div className="space-y-4">
-            {accessControlModalView ? (
+            {editingAccessControlView ? (
                 <AccessControlObjectModal
-                    isOpen
+                    isOpen={accessControlModalOpen}
                     onClose={closeAccessControlModal}
                     resource={AccessControlResourceType.WarehouseView}
-                    resource_id={accessControlModalView.id}
-                    title={accessControlModalView.name}
+                    resource_id={editingAccessControlView.id}
+                    title={editingAccessControlView.name}
                     description="Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
                 />
             ) : null}
