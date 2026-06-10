@@ -30,6 +30,10 @@ EMIT_CONCURRENCY_LIMIT = 50
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 # Maximum number of attempts for LLM calls (summarization & actionability)
 LLM_MAX_ATTEMPTS = 3
+# Margin below the hard summarization threshold we ask the LLM to target. Giving the model a target
+# comfortably under the limit means a small overshoot still lands under the threshold instead of
+# tripping the length check and forcing a retry.
+LLM_SUMMARY_TARGET_MARGIN_CHARS = 200
 # Per-call timeout for LLM requests (seconds)
 LLM_CALL_TIMEOUT_SECONDS = 120
 # Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
@@ -137,10 +141,17 @@ async def _summarize_description(
     summarization_prompt: str,
     threshold: int,
 ) -> SignalEmitterOutput:
+    # Ask the model to target a length comfortably below the hard threshold so a small overshoot
+    # still passes the check below instead of needlessly burning a retry.
+    target_length = max(1, threshold - LLM_SUMMARY_TARGET_MARGIN_CHARS)
     messages: list[MessageParam] = [
-        {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
+        {
+            "role": "user",
+            "content": summarization_prompt.format(description=output.description, max_length=target_length),
+        }
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization")
+    last_error: Exception | None = None
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -165,16 +176,16 @@ async def _summarize_description(
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
-            posthoganalytics.capture_exception(
-                e,
-                properties={
-                    "ai_product": "signals",
-                    "tag": "signals_import",
-                    "error_type": "summarization_failed",
-                    "source_type": output.source_type,
-                    "source_id": output.source_id,
-                    "attempt": attempt + 1,
-                },
+            # Per-attempt failures are expected and self-healing (we retry, then hard-truncate), so
+            # they're logged at warning level rather than reported to error tracking. Only the final
+            # exhausted failure is captured below.
+            last_error = e
+            logger.warning(
+                "Signal description summarization attempt failed",
+                error=str(e),
+                attempt=attempt + 1,
+                source_type=output.source_type,
+                source_id=output.source_id,
             )
             # Anthropic requires user/assistant turns to alternate, so only feed the correction
             # back when we actually got assistant text to pair it with; otherwise just retry the
@@ -187,6 +198,20 @@ async def _summarize_description(
                         "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
                     }
                 )
+    # All attempts exhausted: report once. The hard-truncation fallback below keeps the description
+    # correct, so this signals a persistently misbehaving summarizer rather than a lost signal.
+    if last_error is not None:
+        posthoganalytics.capture_exception(
+            last_error,
+            properties={
+                "ai_product": "signals",
+                "tag": "signals_import",
+                "error_type": "summarization_failed",
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+                "attempts": LLM_MAX_ATTEMPTS,
+            },
+        )
     # Hard-truncate the description to the threshold if all attempts failed
     return dataclasses.replace(output, description=output.description[:threshold])
 

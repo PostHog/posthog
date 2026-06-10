@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.temporal.data_imports.signals.fetchers.data_warehouse import data_warehouse_record_fetcher
 from posthog.temporal.data_imports.signals.pipeline import (
     LLM_MAX_ATTEMPTS,
+    LLM_SUMMARY_TARGET_MARGIN_CHARS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
     _check_actionability,
     _emit_signals,
@@ -365,10 +366,22 @@ class TestSummarizeDescription:
         client = self._mock_client(["a" * 300, "Concise."])
         output = _make_output(description="x" * 500)
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
+        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
             result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
 
         assert result.description == "Concise."
+        # A recovered overshoot must not be reported to error tracking — that was the noise source.
+        mock_analytics.capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_does_not_capture_exception_on_success(self):
+        client = self._mock_client(["Short summary."])
+        output = _make_output(description="x" * 500)
+
+        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
+            await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+
+        mock_analytics.capture_exception.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_truncates_after_all_attempts_exhausted(self):
@@ -376,10 +389,24 @@ class TestSummarizeDescription:
         original = "x" * 500
         output = _make_output(description=original)
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
+        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
             result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
 
         assert result.description == original[: self.THRESHOLD]
+        # Only the final exhausted failure is reported, exactly once.
+        mock_analytics.capture_exception.assert_called_once()
+        assert mock_analytics.capture_exception.call_args.kwargs["properties"]["attempts"] == LLM_MAX_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_prompts_for_target_below_hard_threshold(self):
+        threshold = 2000
+        client = self._mock_client(["Short summary."])
+        output = _make_output(description="x" * 5000)
+
+        await _summarize_description(client, 1, output, "Summarize to {max_length}: {description}", threshold)
+
+        prompt_sent = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert f"Summarize to {threshold - LLM_SUMMARY_TARGET_MARGIN_CHARS}:" in prompt_sent
 
     @pytest.mark.asyncio
     async def test_preserves_other_output_fields(self):
