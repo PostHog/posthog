@@ -56,7 +56,9 @@ describe('breadcrumbsLogic', () => {
         expect(global.document.title).toEqual('Dashboards • PostHog')
     })
 
-    it('does not update the default document.title while hidden during startup', async () => {
+    it('resolves the title of a hidden tab the user has never looked at', async () => {
+        // A freshly-loaded background tab (duplicated tab, restored session, cmd+click) should
+        // settle on its scene title even while hidden, so it's identifiable in the tab strip.
         global.document.title = 'PostHog'
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden', writable: true })
 
@@ -65,11 +67,19 @@ describe('breadcrumbsLogic', () => {
 
         router.actions.push(urls.savedInsights())
         await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Product analytics • PostHog' })
-        expect(global.document.title).toEqual('PostHog')
+        expect(global.document.title).toEqual('Product analytics • PostHog')
+
+        // Once the user has focused the tab, later hidden updates are deferred (Chrome keepalive).
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible', writable: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden', writable: true })
+
+        router.actions.push(urls.dashboards())
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })
+        expect(global.document.title).toEqual('Product analytics • PostHog')
 
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible', writable: true })
         document.dispatchEvent(new Event('visibilitychange'))
-
-        expect(global.document.title).toEqual('Product analytics • PostHog')
+        expect(global.document.title).toEqual('Dashboards • PostHog')
     })
 })

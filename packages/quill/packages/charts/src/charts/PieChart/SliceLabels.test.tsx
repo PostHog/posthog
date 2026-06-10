@@ -6,7 +6,8 @@ import type { RadialLayoutContextValue } from '../../core/radial-context'
 import type { ResolvedSeries } from '../../core/types'
 import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
-import { SliceLabels } from './SliceLabels'
+import { nonCollidingKeys, SliceLabels } from './SliceLabels'
+import type { LabelBox } from './SliceLabels'
 
 const PLOT = { plotLeft: 0, plotTop: 0, plotWidth: 400, plotHeight: 400 }
 
@@ -101,5 +102,27 @@ describe('SliceLabels', () => {
         const a = labels(container)[0]
         expect(a.textContent).toContain('A')
         expect(a.textContent).toContain('50')
+    })
+
+    // y=0 for every box, so overlap is decided purely by x against the summed half-widths.
+    function box(key: string, x: number, value: number, halfWidth = 10): LabelBox {
+        return { key, x, y: 0, halfWidth, halfHeight: 10, value, lines: [key] }
+    }
+
+    it('keeps every label when none of the boxes overlap', () => {
+        const kept = nonCollidingKeys([box('a', 0, 1), box('b', 100, 1), box('c', 200, 1)])
+        expect([...kept].sort()).toEqual(['a', 'b', 'c'])
+    })
+
+    it('drops the smaller-value label when two boxes overlap', () => {
+        // 5px apart, half-widths 10 each → boxes overlap; b carries the larger value.
+        const kept = nonCollidingKeys([box('a', 0, 3), box('b', 5, 9)])
+        expect(kept.has('b')).toBe(true)
+        expect(kept.has('a')).toBe(false)
+    })
+
+    it('keeps only the largest label in a crowded cluster', () => {
+        const kept = nonCollidingKeys([box('a', 0, 1), box('b', 4, 5), box('c', 8, 3)])
+        expect([...kept]).toEqual(['b'])
     })
 })

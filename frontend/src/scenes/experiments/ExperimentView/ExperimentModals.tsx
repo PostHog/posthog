@@ -198,7 +198,7 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
+    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } = useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
@@ -277,6 +277,7 @@ export function FinishExperimentModal(): JSX.Element {
                         <LemonButton
                             onClick={handleEndExperiment}
                             type="primary"
+                            loading={endExperimentLoading}
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
                             End experiment

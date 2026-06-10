@@ -449,6 +449,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -1479,6 +1480,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1510,6 +1513,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1676,6 +1680,17 @@ export type FunnelsFilter = {
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
+    /**
+     * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
+     * tail of the trend isn't dragged down by entrants who still have time to convert.
+     * @default false
+     */
+    hideIncompleteConversionWindowPeriods?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -2089,6 +2104,8 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponse
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
@@ -2283,8 +2300,6 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     metricsResults?: (number | null)[]
 }
 
-export type AccountsRoleAssignmentFilter = integer | 'unassigned'
-
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
@@ -2292,9 +2307,12 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    csm?: AccountsRoleAssignmentFilter
-    accountExecutive?: AccountsRoleAssignmentFilter
-    accountOwner?: AccountsRoleAssignmentFilter
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: integer[]
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: integer[]
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -3062,6 +3080,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3182,6 +3202,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3379,7 +3401,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
@@ -3686,11 +3708,16 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilter[]
 }
@@ -5905,6 +5932,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleSearchConsole',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
@@ -6032,6 +6060,85 @@ export const externalDataSources = [
     'Resend',
     'PgAnalyze',
     'WorkOS',
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'Databricks',
+    'Dynamics365',
+    'SalesforceMarketingCloud',
+    'Db2',
+    'Heap',
+    'AdobeAnalytics',
+    'Matomo',
+    'Optimizely',
+    'Adyen',
+    'GoCardless',
+    'Mollie',
+    'CheckoutCom',
+    'Branch',
+    'Criteo',
+    'Outbrain',
+    'Taboola',
+    'AdRoll',
+    'DisplayVideo360',
+    'GoogleAdManager',
+    'CampaignManager360',
+    'SearchAds360',
+    'AdobeCommerce',
+    'AmazonSellingPartner',
+    'Ebay',
+    'Commercetools',
+    'LightspeedRetail',
+    'ShipStation',
+    'ConstantContact',
+    'Mailgun',
+    'Eloqua',
+    'Sailthru',
+    'Ortto',
+    'Attentive',
+    'Kustomer',
+    'Dixa',
+    'Gladly',
+    'Qualtrics',
+    'Delighted',
+    'AzureDevOps',
+    'Rollbar',
+    'Opsgenie',
+    'IncidentIo',
+    'Pingdom',
+    'Cloudflare',
+    'CosmosDB',
+    'PlanetScale',
+    'SapHana',
+    'Rippling',
+    'HiBob',
+    'Personio',
+    'Deel',
+    'AdpWorkforceNow',
+    'Paylocity',
+    'Gusto',
+    'CultureAmp',
+    'Lattice',
+    'SageIntacct',
+    'FreshBooks',
+    'Expensify',
+    'Ramp',
+    'Brex',
+    'Coupa',
+    'SapConcur',
+    'Apollo',
+    'Crunchbase',
+    'ZoomInfo',
+    'Clari',
+    'Chorus',
+    'Coda',
+    'Guru',
+    'Dropbox',
+    'Docusign',
+    'PandaDoc',
+    'SapErp',
+    'SapSuccessFactors',
+    'OracleEbs',
+    'OracleFusion',
     'Custom',
 ] as const
 
@@ -6183,7 +6290,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it
@@ -6329,6 +6436,11 @@ export enum DashboardAutoRefreshInterval {
 /** Subscriptions a free-tier team may create. */
 export enum SubscriptionFreeTierLimit {
     COUNT = 5,
+}
+
+/** Maximum length, in characters, of an AI subscription prompt. */
+export enum SubscriptionAIPromptMaxLength {
+    CHARACTERS = 4000,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'

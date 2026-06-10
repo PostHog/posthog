@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.signals.backend.views as signals
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
+    SignalScoutConfigViewSet,
     SignalScoutRunViewSet,
     SignalScratchpadViewSet,
 )
@@ -37,6 +38,9 @@ def register_routes(routers: RouterRegistry) -> None:
     # sandbox-scope only via `signal_scout_internal:write`.
     routers.projects.register(
         r"signals/scout/runs", SignalScoutRunViewSet, "environment_signals_scout_runs", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/scout/configs", SignalScoutConfigViewSet, "environment_signals_scout_configs", ["team_id"]
     )
     routers.projects.register(
         r"signals/scout/scratchpad", SignalScratchpadViewSet, "environment_signals_scout_scratchpad", ["team_id"]

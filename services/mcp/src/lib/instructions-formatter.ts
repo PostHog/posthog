@@ -2,7 +2,6 @@ import type { GroupType } from '@/api/client'
 import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
-    buildQueryToolsCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     type QueryToolInfo,
@@ -76,8 +75,10 @@ export class InstructionsFormatter {
 
     /** Build the `command` parameter description for the exec tool. When
      *  `stripEnvContext` is true (the client already received env via the
-     *  `instructions` field), the env-related placeholders resolve to empty
-     *  strings to avoid duplication. */
+     *  `instructions` field), the env-related placeholders (metadata, group
+     *  types, tool domains) resolve to empty strings to avoid duplication. The
+     *  query-tool catalog is kept: in single-exec mode it lives here on the exec
+     *  tool, not in `instructions` (which only carries the `query` tool domain). */
     buildExecCommandReference(ctx: InstructionsContext, opts: { stripEnvContext: boolean }): string {
         const sections = [
             CLI_SYNTAX,
@@ -94,7 +95,9 @@ export class InstructionsFormatter {
             ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
             EXAMPLES,
         ]
-        const renderCtx: InstructionsContext = opts.stripEnvContext ? { guidelines: ctx.guidelines } : ctx
+        const renderCtx: InstructionsContext = opts.stripEnvContext
+            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools }
+            : ctx
         return this.compose(sections, renderCtx, { compact: false })
     }
 
@@ -107,13 +110,15 @@ export class InstructionsFormatter {
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
         const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
-        const renderQueryTools = opts.compact ? buildQueryToolsCompact : buildQueryToolsBlock
+        // `{query_tools}` only appears in non-compact sections (the exec command
+        // reference and tools-mode instructions); compact mode surfaces queries
+        // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
-            query_tools: ctx.queryTools ? renderQueryTools(ctx.queryTools) : '',
+            query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
         }
         const body = sections
             .map((s) => s.trim())

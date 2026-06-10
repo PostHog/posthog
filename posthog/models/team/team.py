@@ -89,7 +89,7 @@ class TeamManager(models.Manager):
         team = cast("Team", self.create(**kwargs))
 
         # Create internal/test users cohort and set test_account_filters to exclude it
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         initiating_user_email = initiating_user.email if initiating_user else None
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)
@@ -321,6 +321,7 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
+    ingested_production_event = models.BooleanField(default=False, db_default=False)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(
@@ -731,6 +732,12 @@ class Team(UUIDTClassicModel):
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
+
+    @cached_property
+    def workflows_config(self):
+        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+        return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
     @property
     def default_modifiers(self) -> dict:

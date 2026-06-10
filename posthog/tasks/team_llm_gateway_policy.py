@@ -54,8 +54,8 @@ def refresh_expiring_llm_gateway_policy_cache_entries() -> None:
     threshold, so simultaneous expiry of the 7-day TTL across the team pool
     cannot cause a DB-lookup spike.
     """
-    if not settings.FLAGS_REDIS_URL:
-        logger.info("Flags Redis URL not set, skipping llm-gateway policy cache refresh")
+    if not settings.AI_GATEWAY_REDIS_URL:
+        logger.info("AI gateway Redis URL not set, skipping llm-gateway policy cache refresh")
         return
 
     start_time = time.time()

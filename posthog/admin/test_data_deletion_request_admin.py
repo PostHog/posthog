@@ -707,3 +707,66 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         response = self._call(self.admin.preview_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminVerify(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+        self.user.groups.add(clickhouse_team)
+
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _queued_request(self):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+    def _call_verify(self, request, user=None):
+        path = f"/admin/posthog/datadeletionrequest/{request.pk}/verify/"
+        http_request = self.factory.post(path)
+        http_request.user = user or self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            return self.admin.verify_view(http_request, str(request.pk))
+
+    def test_verify_view_promotes_when_events_gone(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_queued_when_events_remain(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=5):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)
+
+    def test_verify_view_rejects_non_queued(self):
+        request = self._queued_request()
+        request.status = RequestStatus.APPROVED
+        request.save(update_fields=["status"])
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+
+    def test_verify_view_rejects_non_clickhouse_team(self):
+        request = self._queued_request()
+        self.user.groups.clear()
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)
