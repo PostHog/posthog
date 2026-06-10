@@ -459,11 +459,18 @@ function ColumnsAndRowFiltersSection({
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
 
+    // Derive the access-disabled reason as a plain value rather than via the render-prop form of
+    // SourceEditorAction: every edit re-renders this component, and the render-prop's fresh inline
+    // function would remount the editors (AccessControlAction treats it as a new component type),
+    // wiping their in-progress selection. See useSourceEditorAccess's docstring.
+    const { disabledReason: editorDisabledReason } = useSourceEditorAccess(source)
+
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
 
-    // Reset the drafts when navigating to a different schema or when the server values change (poll).
+    // Reset the drafts when navigating to a different schema or when the server values change
+    // (e.g. the schema reloads after a save). Keyed on content so unrelated re-renders don't wipe edits.
     useEffect(() => {
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
@@ -569,13 +576,9 @@ function ColumnsAndRowFiltersSection({
                     ) : (
                         <>
                             <span className="text-sm text-secondary">{columnsSummary}</span>
-                            <SourceEditorAction source={source}>
-                                {({ disabledReason }) => (
-                                    <fieldset disabled={!!disabledReason}>
-                                        <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
-                                    </fieldset>
-                                )}
-                            </SourceEditorAction>
+                            <fieldset disabled={!!editorDisabledReason}>
+                                <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
+                            </fieldset>
                         </>
                     )}
                 </div>
@@ -594,13 +597,9 @@ function ColumnsAndRowFiltersSection({
                     ) : (
                         <>
                             <span className="text-sm text-secondary">{rowFiltersSummary}</span>
-                            <SourceEditorAction source={source}>
-                                {({ disabledReason }) => (
-                                    <fieldset disabled={!!disabledReason}>
-                                        <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
-                                    </fieldset>
-                                )}
-                            </SourceEditorAction>
+                            <fieldset disabled={!!editorDisabledReason}>
+                                <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
+                            </fieldset>
                         </>
                     )}
                 </div>
@@ -608,24 +607,20 @@ function ColumnsAndRowFiltersSection({
 
             {hasAvailableColumns && (
                 <div className="flex justify-end">
-                    <SourceEditorAction source={source}>
-                        {({ disabledReason }) => (
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={
-                                    disabledReason ??
-                                    (hasRowFilterErrors
-                                        ? 'Fix the highlighted row filters first'
-                                        : !isDirty
-                                          ? 'No changes to save'
-                                          : undefined)
-                                }
-                            >
-                                Save
-                            </LemonButton>
-                        )}
-                    </SourceEditorAction>
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSave}
+                        disabledReason={
+                            editorDisabledReason ??
+                            (hasRowFilterErrors
+                                ? 'Fix the highlighted row filters first'
+                                : !isDirty
+                                  ? 'No changes to save'
+                                  : undefined)
+                        }
+                    >
+                        Save
+                    </LemonButton>
                 </div>
             )}
         </div>
