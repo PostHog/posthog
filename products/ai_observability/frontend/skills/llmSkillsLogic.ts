@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -132,14 +132,11 @@ export function groupSkillsByPrefix(skills: LLMSkillListApi[]): SkillGroupTree {
     return buildGroupTree(skills, 0, '')
 }
 
-export interface LLMSkillsLogicProps {
-    tabId?: string
-}
+export type LLMSkillsLogicProps = Record<string, never>
 
 export const llmSkillsLogic = kea<llmSkillsLogicType>([
     path(['scenes', 'ai-observability', 'llmSkillsLogic']),
     props({} as LLMSkillsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<SkillFilters>, merge: boolean = true, debounce: boolean = true) => ({

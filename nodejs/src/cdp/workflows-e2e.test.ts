@@ -1080,6 +1080,111 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
         })
     })
+
+    describe('posthog_ticket_tags input resolves templated values per element', () => {
+        // Regression guard for the templating opt-in in posthog/cdp/validation.py.
+        // Reproduces the real user-reported case: a ticket tag set to
+        // `zendesk/{variables.zendesk_ticketid}` used to ship to the runtime as
+        // a literal placeholder string (because the type wasn't on the bytecode
+        // opt-in list), so the ticket ended up tagged with the raw template text
+        // instead of "zendesk/12345". The fix puts the per-element bytecode that
+        // `generate_template_bytecode` already emits for lists into a shape that
+        // `formatHogInput` can walk element-by-element.
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-tags',
+                name: 'Workflows E2E Tags',
+                code: `fetch(inputs.url, { 'method': 'POST', 'body': jsonStringify(inputs.tags) });`,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'tags', type: 'posthog_ticket_tags', required: true },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        function_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-workflows-e2e-tags',
+                                inputs: {
+                                    url: { value: 'https://example.com/tags' },
+                                    tags: {
+                                        // What the Python serializer now produces for a
+                                        // `posthog_ticket_tags` value like
+                                        // `["zendesk/{variables.zendesk_ticketid}"]`:
+                                        // one outer array, one inner bytecode per element.
+                                        // Inner bytecode is a concat of the literal prefix
+                                        // and a variables.* field access — same shape Django
+                                        // emits today for other templated string inputs
+                                        // (cf. the production `text` input bytecode).
+                                        value: ['zendesk/{variables.zendesk_ticketid}'],
+                                        templating: 'hog',
+                                        bytecode: [
+                                            [
+                                                '_H',
+                                                1,
+                                                32,
+                                                'zendesk/',
+                                                32,
+                                                'zendesk_ticketid',
+                                                32,
+                                                'variables',
+                                                1,
+                                                2,
+                                                2,
+                                                'concat',
+                                                2,
+                                            ],
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_1', type: 'continue' },
+                        { from: 'function_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            // Workflow-defined variable with a default — populated into state.variables
+            // by createHogFlowInvocation, so the function action sees it via globals.variables.
+            // In a real workflow the value would be set by an earlier `Get ticket` action's
+            // output_variable; for this test we pre-seed via the default to keep it focused.
+            hogFlow.variables = [
+                { key: 'zendesk_ticketid', type: 'string', label: 'Zendesk ticket id', default: '12345' },
+            ]
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            globals = createGlobals()
+        })
+
+        it('resolves zendesk/{variables.zendesk_ticketid} per element', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            // The body proves the full chain end-to-end: per-element bytecode →
+            // formatHogInput recurses into the list → executes against globals
+            // populated with workflow variables → concat produces "zendesk/12345".
+            // Pre-fix behaviour would emit `["zendesk/{variables.zendesk_ticketid}"]`.
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/tags',
+                expect.objectContaining({
+                    body: JSON.stringify(['zendesk/12345']),
+                    method: 'POST',
+                })
+            )
+        })
+    })
 })
 
 // Email queue routing is postgres-v2 only — the email worker reschedules jobs

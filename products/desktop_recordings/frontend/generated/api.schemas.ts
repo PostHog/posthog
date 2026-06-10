@@ -9,10 +9,10 @@
  */
 /**
  * * `zoom` - Zoom
- * `teams` - Microsoft Teams
- * `meet` - Google Meet
- * `desktop_audio` - Desktop audio
- * `slack` - Slack huddle
+ * * `teams` - Microsoft Teams
+ * * `meet` - Google Meet
+ * * `desktop_audio` - Desktop audio
+ * * `slack` - Slack huddle
  */
 export type MeetingPlatformEnumApi = (typeof MeetingPlatformEnumApi)[keyof typeof MeetingPlatformEnumApi]
 
@@ -26,10 +26,10 @@ export const MeetingPlatformEnumApi = {
 
 /**
  * * `recording` - Recording
- * `uploading` - Uploading
- * `processing` - Processing
- * `ready` - Ready
- * `error` - Error
+ * * `uploading` - Uploading
+ * * `processing` - Processing
+ * * `ready` - Ready
+ * * `error` - Error
  */
 export type DesktopRecordingStatusEnumApi =
     (typeof DesktopRecordingStatusEnumApi)[keyof typeof DesktopRecordingStatusEnumApi]
@@ -148,10 +148,10 @@ export interface PaginatedDesktopRecordingListApi {
 
 /**
  * * `zoom` - zoom
- * `teams` - teams
- * `meet` - meet
- * `desktop_audio` - desktop_audio
- * `slack` - slack
+ * * `teams` - teams
+ * * `meet` - meet
+ * * `desktop_audio` - desktop_audio
+ * * `slack` - slack
  */
 export type CreateRecordingRequestPlatformEnumApi =
     (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
@@ -169,12 +169,12 @@ export const CreateRecordingRequestPlatformEnumApi = {
  */
 export interface CreateRecordingRequestApi {
     /** Meeting platform being recorded
-
-  * `zoom` - zoom
-  * `teams` - teams
-  * `meet` - meet
-  * `desktop_audio` - desktop_audio
-  * `slack` - slack */
+     *
+     * * `zoom` - zoom
+     * * `teams` - teams
+     * * `meet` - meet
+     * * `desktop_audio` - desktop_audio
+     * * `slack` - slack */
     platform?: CreateRecordingRequestPlatformEnumApi
 }
 
