@@ -1263,11 +1263,24 @@ CLOUD_REGION_TO_URL = {
     "US": "https://us.posthog.com",
 }
 
+AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
+
 
 def get_instance_region_url() -> Optional[str]:
     """Customer-facing URL for the current Cloud region, used as the AI billing `instance` group value."""
     region = get_instance_region()
     return CLOUD_REGION_TO_URL.get(region) if region else None
+
+
+def get_ai_billing_groups() -> dict[str, str]:
+    """Capture-time groups for billable AI generations.
+
+    The AI usage report filters on the $group_N column holding the `instance` group, whose
+    index differs per region (US: 1, EU: 2). Passing the group by name lets ingestion resolve
+    the right column for the destination team, so emitters must never stamp $group_N literally.
+    """
+    region_url = get_instance_region_url()
+    return {AI_BILLING_INSTANCE_GROUP_TYPE: region_url} if region_url else {}
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:

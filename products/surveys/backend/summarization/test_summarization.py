@@ -125,7 +125,7 @@ class TestSummarizeWithGemini:
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
 
-    @patch("products.surveys.backend.llm.client.get_instance_region_url")
+    @patch("posthog.utils.get_instance_region_url")
     @patch("products.surveys.backend.llm.client.create_gemini_client")
     def test_generation_is_tagged_billable(self, mock_create_client, mock_region_url):
         mock_region_url.return_value = "https://us.posthog.com"
@@ -140,11 +140,12 @@ class TestSummarizeWithGemini:
 
         summarize_with_gemini("What do you want?", ["Make it faster"], team_id=42)
 
-        properties = mock_client.models.generate_content.call_args.kwargs["posthog_properties"]
+        call_kwargs = mock_client.models.generate_content.call_args.kwargs
+        properties = call_kwargs["posthog_properties"]
         assert properties["$ai_billable"] is True
         assert properties["team_id"] == 42
         assert properties["ai_product"] == "survey_summary"
-        assert properties["$group_1"] == "https://us.posthog.com"
+        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
 
     @patch("products.surveys.backend.llm.client.create_gemini_client")
     def test_generation_not_billable_without_team_id(self, mock_create_client):

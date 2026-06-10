@@ -44,6 +44,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
+    AI_BILLING_INSTANCE_GROUP_TYPE,
     CLOUD_REGION_TO_URL,
     get_helm_info_env,
     get_instance_realm,
@@ -1126,7 +1127,6 @@ def get_teams_with_ai_event_count_in_period(
 AI_COST_MARKUP_PERCENT = 0.2
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
-AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,

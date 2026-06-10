@@ -31,7 +31,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
         assert response.json()["name"] == "Daily Pageviews"
         assert response.json()["description"] == "Tracks daily page views."
 
-    @patch("products.product_analytics.backend.api.ai_billing.get_instance_region_url")
+    @patch("posthog.utils.get_instance_region_url")
     @patch(MOCK_PATH)
     def test_generation_is_tagged_billable(self, mock_openai, mock_region_url):
         mock_region_url.return_value = "https://us.posthog.com"
@@ -44,7 +44,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
         assert properties["team_id"] == self.team.id
         assert properties["ai_product"] == "product_analytics"
         assert properties["ai_feature"] == "insight-ai-metadata-generation"
-        assert properties["$group_1"] == "https://us.posthog.com"
+        assert mock_openai.call_args.kwargs["posthog_groups"] == {"instance": "https://us.posthog.com"}
 
     def test_missing_query_returns_400(self):
         response = self.client.post(self.url, {}, format="json")
