@@ -27,6 +27,7 @@ from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -82,6 +83,7 @@ class GenerateEmbeddingOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -528,6 +530,7 @@ class FetchReportContextsOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -667,6 +670,7 @@ class AssignAndEmitSignalOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 

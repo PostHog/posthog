@@ -6,8 +6,8 @@ import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
 
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
@@ -113,24 +113,9 @@ class SafetyJudgeOutput:
     explanation: Optional[str]
 
 
-def _store_safety_judgment(team_id: int, report_id: str, result: SafetyJudgeResponse) -> None:
-    # Runs via database_sync_to_async, which discards connections reaped during the preceding
-    # slow LLM call — Temporal activities have no request cycle to fire close_old_connections.
-    SignalReportArtefact.objects.create(
-        team_id=team_id,
-        report_id=report_id,
-        type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-        content=json.dumps(
-            {
-                "choice": result.choice,
-                "explanation": result.explanation,
-            }
-        ),
-    )
-
-
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
@@ -139,8 +124,16 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             signals=input.signals,
         )
 
-        await database_sync_to_async(_store_safety_judgment, thread_sensitive=False)(
-            input.team_id, input.report_id, result
+        await SignalReportArtefact.objects.acreate(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content=json.dumps(
+                {
+                    "choice": result.choice,
+                    "explanation": result.explanation,
+                }
+            ),
         )
 
         logger.debug(
