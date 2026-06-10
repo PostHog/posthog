@@ -179,7 +179,7 @@ class TestExecuteSummarizeSessionVideoStream:
 
     @staticmethod
     async def _collect(
-        generator: AsyncGenerator[str, None],
+        generator: AsyncGenerator[str],
     ) -> list[str]:
         return [event async for event in generator]
 

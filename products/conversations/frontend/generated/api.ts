@@ -18,16 +18,20 @@ import type {
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
+    ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
+    PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
     SuggestReplyResponseApi,
     TicketApi,
+    TicketMessageApi,
+    TicketReplyRequestApi,
     TicketViewApi,
 } from './api.schemas'
 
@@ -374,6 +378,66 @@ export const conversationsTicketsDestroy = async (
     return apiMutator<void>(getConversationsTicketsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsTicketsMessagesListUrl = (
+    projectId: string,
+    id: string,
+    params?: ConversationsTicketsMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/tickets/${id}/messages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/tickets/${id}/messages/`
+}
+
+/**
+ * Return the message thread for a ticket, ordered chronologically (paginated).
+ */
+export const conversationsTicketsMessagesList = async (
+    projectId: string,
+    id: string,
+    params?: ConversationsTicketsMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketMessageListApi> => {
+    return apiMutator<PaginatedTicketMessageListApi>(getConversationsTicketsMessagesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/reply/`
+}
+
+/**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreate = async (
+    projectId: string,
+    id: string,
+    ticketReplyRequestApi: TicketReplyRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsReplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketReplyRequestApi),
     })
 }
 

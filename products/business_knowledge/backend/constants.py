@@ -112,6 +112,29 @@ PENDING_EMBEDDING_SCAN_CAP = 50
 # re-checking docs whose vectors are simply still in flight through Kafka.
 RECONCILE_EMBEDDING_SCAN_CAP = 50
 RECONCILE_EMBEDDING_GRACE = datetime.timedelta(hours=2)
+# Periodic TTL refresh. The shared document_embeddings table TTLs rows at
+# `timestamp + 3 MONTH`, computed from the user-supplied `timestamp` we pass at
+# emit time (NOT inserted_at). A SAFE doc embedded once and never re-emitted
+# silently loses its vectors after ~3 months and falls back to FTS-only forever
+# — the first-emission `embeddings_emitted_at IS NULL` guard means it's never
+# re-emitted on its own. This window picks up docs whose last emission is older
+# than ~2 months, comfortably under the 3-month TTL, so the re-emit lands a
+# fresh live row before the old one expires.
+#
+# Unlike first emission (which passes the stable document.created_at so re-emits
+# of an unchanged chunk collapse onto one sort key), the refresh MUST pass a
+# fresh timestamp=now() — the TTL is on `timestamp`, so re-emitting under the
+# old created_at would not reset the clock at all. The fresh-timestamp row lands
+# under today's partition; the old row ages out under its own TTL. This is
+# correctness-safe: the read path always re-joins to Postgres and dedups
+# candidates by chunk_id, so the transient extra row can never double-count or
+# surface stale content.
+EMBEDDING_TTL_REFRESH_WINDOW = datetime.timedelta(days=60)
+# Per coordinator pass: how many aging SAFE docs to re-emit (oldest-emitted
+# first). Same memory knob as the other embedding caps — each doc loads its
+# chunk content to produce to Kafka. A large refresh wave drains over many
+# hourly passes instead of blowing up a single run across all teams.
+REEMIT_EMBEDDING_SCAN_CAP = 50
 
 # --- Hybrid retrieval tunables (PR2 read path) ---
 # cosineDistance threshold: vectors above this are discarded BEFORE re-joining
