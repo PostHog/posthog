@@ -272,7 +272,7 @@
          toTimeZone(events.timestamp, 'UTC') AS timestamp,
          events.properties AS properties
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['00000000-0000-0000-0000-000000000000' /* ... */]), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2022-01-03 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), in(events.uuid, ['00000000-0000-0000-0000-000000000000' /* ... */]), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
   LIMIT 1 BY events.uuid
   LIMIT 3 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -668,7 +668,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2022-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE ifNull(greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -752,7 +752,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(less(fp.first_seen, parseDateTime64BestEffort('2022-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE ifNull(less(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
