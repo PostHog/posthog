@@ -257,13 +257,6 @@ describe('confirmed-action metrics', () => {
         confirmedActionRefusalsTotal.reset()
     })
 
-    function makeCodec(): SignedStateCodec {
-        return new SignedStateCodec(Buffer.alloc(32, 0x42), {
-            now: () => 1_700_000_000_000,
-            randomNonce: () => 'nonce-metrics',
-            ttlSeconds: 300,
-        })
-    }
     function makeLedger(): NonceLedger {
         const consumed = new Set<string>()
         return new NonceLedger({
