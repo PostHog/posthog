@@ -7,13 +7,7 @@ export {
     getMarkdownNotebookComponentDefaultProps,
     mergeMarkdownNotebookRegistries,
 } from './registry'
-export {
-    parseMarkdownNotebook,
-    serializeMarkdownNotebook,
-    parseInlineMarkdown,
-    serializeInlineNodes,
-    htmlElementToInlineNodes,
-} from './markdown'
+export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNodes } from './markdown'
 export { reconcileNotebookDocuments } from './reconcile'
 export { mergeNotebookMarkdownChanges } from './collaboration'
 export type {

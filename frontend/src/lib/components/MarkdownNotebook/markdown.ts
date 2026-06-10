@@ -278,14 +278,6 @@ export function sanitizeNotebookLinkHref(href: string): string | null {
     }
 }
 
-export function validateComponentNode(
-    node: NotebookComponentBlockNode,
-    validateProps?: (props: NotebookComponentProps) => string[]
-): NotebookComponentBlockNode {
-    const errors = validateProps?.(node.props) ?? []
-    return { ...node, errors: errors.length ? errors : node.errors }
-}
-
 function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     const line = lines[lineIndex]
     const trimmed = line.trim()
