@@ -127,7 +127,7 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation): strin
     )
     const keys = getSigningKeys()
     if (keys.length === 0) {
-        // Fail open while signing rolls out so sends never break; tighten to throw once signing is enforced.
+        // Fail open while signing rolls out so sends never break; tighten to throw once enforced (#62624).
         return payload
     }
     return `${payload}.${signPayload(payload, keys[0])}`
