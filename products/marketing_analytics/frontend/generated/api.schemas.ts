@@ -297,11 +297,23 @@ export interface GoalExplanationApi {
      * @nullable
      */
     non_integrated_count: number | null
-    /** List of [event_name, count] pairs */
+    /**
+     * List of [event_name, count] pairs
+     * @items.minItems 2
+     * @items.maxItems 2
+     */
     by_event: [string, number][]
-    /** List of [utm_source, count] pairs */
+    /**
+     * List of [utm_source, count] pairs
+     * @items.minItems 2
+     * @items.maxItems 2
+     */
     by_utm_source: [string, number][]
-    /** List of [integration, count] pairs */
+    /**
+     * List of [integration, count] pairs
+     * @items.minItems 2
+     * @items.maxItems 2
+     */
     by_matched_integration: [string, number][]
     /** A small sample of matching events */
     samples: GoalEventSampleApi[]
@@ -320,7 +332,11 @@ export interface CandidateEventApi {
     pct_with_utm_source: number
     /** Percentage of events that carry a utm_campaign */
     pct_with_utm_campaign: number
-    /** List of [utm_source, count] pairs */
+    /**
+     * List of [utm_source, count] pairs
+     * @items.minItems 2
+     * @items.maxItems 2
+     */
     top_utm_sources: [string, number][]
     /** Whether this event is already configured as a goal */
     is_already_a_goal: boolean
@@ -435,7 +451,7 @@ export interface UtmMappingSuggestionsResponseApi {
 
 /**
  * * `error` - error
- * `warning` - warning
+ * * `warning` - warning
  */
 export type UtmIssueSeverityEnumApi = (typeof UtmIssueSeverityEnumApi)[keyof typeof UtmIssueSeverityEnumApi]
 
@@ -448,9 +464,9 @@ export interface UtmIssueApi {
     /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
     field: string
     /** Issue severity level
-
-  * `error` - error
-  * `warning` - warning */
+     *
+     * * `error` - error
+     * * `warning` - warning */
     severity: UtmIssueSeverityEnumApi
     /** Human-readable description of the issue */
     message: string
@@ -479,8 +495,8 @@ export interface CampaignAuditResultApi {
 
 /**
  * * `none` - none
- * `auto` - auto
- * `mapped` - mapped
+ * * `auto` - auto
+ * * `mapped` - mapped
  */
 export type SourceMatchEnumApi = (typeof SourceMatchEnumApi)[keyof typeof SourceMatchEnumApi]
 
@@ -498,16 +514,16 @@ export interface UtmEventApi {
     /** Number of pageview events with this UTM combination */
     event_count: number
     /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
-
-  * `none` - none
-  * `auto` - auto
-  * `mapped` - mapped */
+     *
+     * * `none` - none
+     * * `auto` - auto
+     * * `mapped` - mapped */
     campaign_match: SourceMatchEnumApi
     /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
-
-  * `none` - none
-  * `auto` - auto
-  * `mapped` - mapped */
+     *
+     * * `none` - none
+     * * `auto` - auto
+     * * `mapped` - mapped */
     source_match: SourceMatchEnumApi
     /**
      * Name of the matched campaign, if any

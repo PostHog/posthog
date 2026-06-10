@@ -30,7 +30,7 @@ Set mins on the catalog entry only:
 
 ```typescript
 // products/dashboards/frontend/widget_types/catalog.ts
-defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
 ```
 
 | Field          | Meaning                                                                             |
@@ -50,7 +50,7 @@ defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
 
 | Constant                      | Value | Used when                          |
 | ----------------------------- | ----- | ---------------------------------- |
-| `MIN_WIDGET_TILE_WIDTH_COLS`  | 6     | Widget tile, catalog has no `minW` |
+| `MIN_WIDGET_TILE_WIDTH_COLS`  | 3     | Widget tile, catalog has no `minW` |
 | `MIN_WIDGET_TILE_HEIGHT_ROWS` | 4     | Widget tile, catalog has no `minH` |
 | `MIN_TILE_HEIGHT_ROWS`        | 2     | Insight tiles                      |
 | `MIN_TEXT_TILE_HEIGHT_ROWS`   | 1     | Text tiles                         |
