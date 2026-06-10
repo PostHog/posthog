@@ -135,6 +135,49 @@ function logAffectedReasons(label, tasks) {
     console.error(`${label} affected reasons: ${JSON.stringify(reasons)}`)
 }
 
+// --- Test quarantine (.test_quarantine.json) ---
+// Schema contract: tools/hogli-commands/hogli_commands/quarantine/core.py.
+// This script consumes a deliberately trivial subset of it: pytest entries
+// with an explicit `product:<dashed-name>` selector and `mode: "skip"` drop
+// the whole product from the matrix (mode "run" entries need no matrix change
+// — their tests xfail in-shard). ISO date strings compare lexicographically;
+// an entry is active while today <= expires.
+const QUARANTINE_FILE = '.test_quarantine.json'
+
+function quarantinedSkipProducts(jsonText, todayISO) {
+    const parsed = JSON.parse(jsonText)
+    if (parsed?.version !== 1 || !Array.isArray(parsed.entries)) {
+        return new Set()
+    }
+    const products = new Set()
+    for (const entry of parsed.entries) {
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        products.add(entry.id.slice('product:'.length))
+    }
+    return products
+}
+
+function loadQuarantinedSkipProducts(todayISO) {
+    try {
+        return quarantinedSkipProducts(fs.readFileSync(QUARANTINE_FILE, 'utf-8'), todayISO)
+    } catch (e) {
+        // Fail-open: a missing or malformed file means no quarantine, never a blocked matrix.
+        console.error(`Warning: could not read ${QUARANTINE_FILE} (${e.message}) — quarantine ignored`)
+        return new Set()
+    }
+}
+
+function loadBaseQuarantinedSkipProducts(base, todayISO) {
+    // Fail-open: file absent at base (or unreadable ref) means nothing was quarantined there.
+    try {
+        return quarantinedSkipProducts(execFileSync('git', ['show', `${base}:${QUARANTINE_FILE}`], TURBO_EXEC_OPTS), todayISO)
+    } catch {
+        return new Set()
+    }
+}
+
 function loadTestDurations() {
     let parsed
     try {
@@ -437,6 +480,40 @@ if (skipProducts.size > 0) {
     const before = products.length
     products = products.filter((p) => !skipProducts.has(p))
     console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
+}
+
+const todayISO = new Date().toISOString().slice(0, 10)
+const quarantinedProducts = loadQuarantinedSkipProducts(todayISO)
+if (quarantinedProducts.size > 0) {
+    const allProductSet = new Set(allProducts)
+    for (const name of quarantinedProducts) {
+        if (!allProductSet.has(name)) {
+            console.error(
+                `::warning::${QUARANTINE_FILE}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
+            )
+        }
+    }
+    const before = products.length
+    products = products.filter((p) => !quarantinedProducts.has(p))
+    console.error(
+        `Quarantined products (mode: skip): ${[...quarantinedProducts].join(',')} — dropped ${before - products.length} product(s)`
+    )
+}
+
+// Un-quarantining must re-run the suite: Turbo doesn't see .test_quarantine.json
+// as a product input, so products whose active skip-quarantine was lifted since
+// the merge base are forced into the matrix.
+if (process.env.TURBO_SCM_BASE) {
+    const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
+    const allProductSet = new Set(allProducts)
+    const productSet = new Set(products)
+    for (const name of baseQuarantined) {
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
+        if (!allProductSet.has(name) || productSet.has(name)) continue
+        console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
+        products.push(name)
+    }
+    products.sort()
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)

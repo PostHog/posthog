@@ -156,6 +156,7 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
+                        - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -204,6 +205,7 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
+                        - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
