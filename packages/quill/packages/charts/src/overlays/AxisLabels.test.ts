@@ -60,6 +60,20 @@ describe('computeVisibleValueTicks', () => {
         }
     })
 
+    it('keeps numeric ticks separated by a small but legible gap', () => {
+        // Two wide labels whose boxes sit ~14px apart: comfortably readable, but under the 20px gap
+        // the category-label path enforces — value ticks must not inherit that aggressive culling.
+        const ticks = [100_000, 120_000]
+        const [w0, w1] = ticks.map((t) => measureLabelWidth(fmt(t)))
+        const x0 = w0 / 2 + 10
+        const x1 = x0 + w0 / 2 + 14 + w1 / 2
+        const valueToCoord = (v: number): number => (v === ticks[0] ? x0 : x1)
+
+        const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
+
+        expect(visible.map((v) => v.tick)).toEqual(ticks)
+    })
+
     it.each([
         {
             description: 'keeps every tick when they are spread far apart',

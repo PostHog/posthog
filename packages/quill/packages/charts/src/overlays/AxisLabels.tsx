@@ -20,7 +20,11 @@ interface AxisLabelsProps {
     maxCategoryLabelWidth?: number
 }
 
-const LABEL_PADDING = 20
+// Minimum gap (px) required between adjacent kept labels. Category labels are often words and get
+// generous breathing room; uniformly-spaced numeric value ticks read clearly much closer, so forcing
+// the category gap on them culls ticks that have plenty of room.
+const CATEGORY_LABEL_PADDING = 20
+const VALUE_TICK_LABEL_PADDING = 8
 
 interface XLabelCandidate {
     index: number
@@ -38,8 +42,8 @@ function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { t
 }
 
 /** Greedily keep entries left→right, dropping any whose centered label would collide with the
- *  previously kept one (within LABEL_PADDING). Entries must be sorted by ascending `x`. */
-function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[]): T[] {
+ *  previously kept one (closer than `padding` px). Entries must be sorted by ascending `x`. */
+function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
     if (candidates.length === 0) {
         return []
     }
@@ -57,7 +61,7 @@ function dropOverlappingLabels<T extends { text: string; x: number }>(candidates
         const halfWidth = ctx.measureText(candidate.text).width / 2
         const leftEdge = candidate.x - halfWidth
 
-        if (leftEdge >= lastRightEdge + LABEL_PADDING) {
+        if (leftEdge >= lastRightEdge + padding) {
             visible.push(candidate)
             lastRightEdge = candidate.x + halfWidth
         }
@@ -87,7 +91,7 @@ export function computeVisibleXLabels(
         candidates.push({ index: i, text, title, x })
     }
 
-    return dropOverlappingLabels(candidates)
+    return dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING)
 }
 
 interface ValueTickCandidate {
@@ -115,7 +119,7 @@ export function computeVisibleValueTicks(
         candidates.push({ tick, text: formatter ? formatter(tick) : String(tick), x })
     }
 
-    return dropOverlappingLabels(candidates)
+    return dropOverlappingLabels(candidates, VALUE_TICK_LABEL_PADDING)
 }
 
 const TICK_STYLE_BASE: React.CSSProperties = {
