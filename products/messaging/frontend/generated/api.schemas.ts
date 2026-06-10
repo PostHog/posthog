@@ -9,7 +9,7 @@
  */
 /**
  * * `marketing` - Marketing
- * `transactional` - Transactional
+ * * `transactional` - Transactional
  */
 export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
 
@@ -81,7 +81,7 @@ export interface MessagePreferencesApi {
 
 /**
  * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
 export type HogFunctionTemplatingEnumApi =
     (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
@@ -105,13 +105,13 @@ export interface MessageTemplateContentApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 

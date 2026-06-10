@@ -56,6 +56,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
+    _rls_active_from_conn,
+    _role_subject_to_rls,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -2608,3 +2610,54 @@ class TestIteratePartitionsRealDb:
                 )
             )
             assert sum(t.num_rows for t in tables) == 80
+
+
+class TestRlsDetectionRealDb:
+    def _create_table(self, cursor, *, rls_active: bool) -> None:
+        cursor.execute("CREATE TABLE test_rls_param (id SERIAL PRIMARY KEY, user_id INTEGER)")
+        if not rls_active:
+            return
+        cursor.execute("ALTER TABLE test_rls_param ENABLE ROW LEVEL SECURITY")
+        cursor.execute("ALTER TABLE test_rls_param FORCE ROW LEVEL SECURITY")
+        cursor.execute("CREATE POLICY test_rls_param_policy ON test_rls_param USING (false)")
+        # FORCE subjects a non-superuser owner directly; a superuser bypasses even FORCE, so observe
+        # via a freshly created unprivileged role (a superuser can always create one).
+        cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+        if cursor.fetchone()[0]:
+            cursor.execute("CREATE ROLE test_rls_param_role NOLOGIN")
+            cursor.execute("GRANT SELECT ON test_rls_param TO test_rls_param_role")
+            cursor.execute("SET LOCAL ROLE test_rls_param_role")
+
+    @pytest.mark.parametrize("rls_active,expected", [(False, False), (True, True)])
+    @pytest.mark.django_db
+    def test_role_subject_to_rls(self, rls_active, expected):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            self._create_table(dj_cursor, rls_active=rls_active)
+            try:
+                assert _role_subject_to_rls(cast(Any, dj_cursor), "public", "test_rls_param", logger) is expected
+            finally:
+                dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.parametrize("rls_active,expected", [(False, False), (True, True)])
+    @pytest.mark.django_db
+    def test_rls_active_from_conn(self, rls_active, expected):
+        with django_connection.cursor() as dj_cursor:
+            self._create_table(dj_cursor, rls_active=rls_active)
+            try:
+                result = _rls_active_from_conn(
+                    cast(Any, _DjangoBackedConnection(dj_cursor)), "public", ["test_rls_param"]
+                )
+                assert result == {"test_rls_param": expected}
+            finally:
+                dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.django_db
+    def test_rls_active_from_conn_runs_without_schema_or_names(self):
+        # Regression: an early-return guard used to bail when no schema and no names were given,
+        # silently dropping every RLS warning in multi-schema discovery. The full table list must
+        # still be checked, so the table appears in the result (keyed by its qualified name).
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_noschema (id SERIAL PRIMARY KEY)")
+            result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "", None)
+            assert "public.test_rls_noschema" in result

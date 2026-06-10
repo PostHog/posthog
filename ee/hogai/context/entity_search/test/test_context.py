@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Cohort
-
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -43,6 +43,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
+            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
@@ -369,6 +370,35 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert len(entities) == 1
         assert total == 1
         assert entities[0]["extra_fields"]["name"] == "List Dashboard"
+
+    async def test_list_entities_account(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
+
+        entities, total = await self.context.list_entities("account", limit=10, offset=0)
+
+        assert total == 1
+        assert len(entities) == 1
+        assert entities[0]["type"] == "account"
+        assert entities[0]["result_id"] == str(account.id)
+        assert entities[0]["extra_fields"]["name"] == "Acme Corp"
+        assert entities[0]["extra_fields"]["external_id"] == "acme-1"
+
+    async def test_list_entities_account_pagination(self):
+        for i in range(3):
+            await Account.objects.unscoped().acreate(team=self.team, name=f"Account {i}")
+
+        page1, total = await self.context.list_entities("account", limit=2, offset=0)
+        page2, _ = await self.context.list_entities("account", limit=2, offset=2)
+
+        assert total == 3
+        assert len(page1) == 2
+        assert len(page2) == 1
+
+    async def test_list_entities_account_empty(self):
+        entities, total = await self.context.list_entities("account", limit=10, offset=0)
+
+        assert entities == []
+        assert total == 0
 
     async def test_list_entities_pagination(self):
         for i in range(5):

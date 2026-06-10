@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -31,14 +31,11 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
     }
 }
 
-export interface AIObservabilityDatasetsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityDatasetsLogicProps = Record<string, never>
 
 export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityDatasetsLogic']),
     props({} as AIObservabilityDatasetsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<DatasetFilters>, merge: boolean = true, debounce: boolean = true) => ({
