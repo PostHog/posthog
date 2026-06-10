@@ -573,6 +573,85 @@ export const CreatedViaEnumApi = {
  * * `Resend` - Resend
  * * `PgAnalyze` - PgAnalyze
  * * `WorkOS` - WorkOS
+ * * `AmazonS3` - AmazonS3
+ * * `GoogleCloudStorage` - GoogleCloudStorage
+ * * `Databricks` - Databricks
+ * * `Dynamics365` - Dynamics365
+ * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+ * * `Db2` - Db2
+ * * `Heap` - Heap
+ * * `AdobeAnalytics` - AdobeAnalytics
+ * * `Matomo` - Matomo
+ * * `Optimizely` - Optimizely
+ * * `Adyen` - Adyen
+ * * `GoCardless` - GoCardless
+ * * `Mollie` - Mollie
+ * * `CheckoutCom` - CheckoutCom
+ * * `Branch` - Branch
+ * * `Criteo` - Criteo
+ * * `Outbrain` - Outbrain
+ * * `Taboola` - Taboola
+ * * `AdRoll` - AdRoll
+ * * `DisplayVideo360` - DisplayVideo360
+ * * `GoogleAdManager` - GoogleAdManager
+ * * `CampaignManager360` - CampaignManager360
+ * * `SearchAds360` - SearchAds360
+ * * `AdobeCommerce` - AdobeCommerce
+ * * `AmazonSellingPartner` - AmazonSellingPartner
+ * * `Ebay` - Ebay
+ * * `Commercetools` - Commercetools
+ * * `LightspeedRetail` - LightspeedRetail
+ * * `ShipStation` - ShipStation
+ * * `ConstantContact` - ConstantContact
+ * * `Mailgun` - Mailgun
+ * * `Eloqua` - Eloqua
+ * * `Sailthru` - Sailthru
+ * * `Ortto` - Ortto
+ * * `Attentive` - Attentive
+ * * `Kustomer` - Kustomer
+ * * `Dixa` - Dixa
+ * * `Gladly` - Gladly
+ * * `Qualtrics` - Qualtrics
+ * * `Delighted` - Delighted
+ * * `AzureDevOps` - AzureDevOps
+ * * `Rollbar` - Rollbar
+ * * `Opsgenie` - Opsgenie
+ * * `IncidentIo` - IncidentIo
+ * * `Pingdom` - Pingdom
+ * * `Cloudflare` - Cloudflare
+ * * `CosmosDB` - CosmosDB
+ * * `PlanetScale` - PlanetScale
+ * * `SapHana` - SapHana
+ * * `Rippling` - Rippling
+ * * `HiBob` - HiBob
+ * * `Personio` - Personio
+ * * `Deel` - Deel
+ * * `AdpWorkforceNow` - AdpWorkforceNow
+ * * `Paylocity` - Paylocity
+ * * `Gusto` - Gusto
+ * * `CultureAmp` - CultureAmp
+ * * `Lattice` - Lattice
+ * * `SageIntacct` - SageIntacct
+ * * `FreshBooks` - FreshBooks
+ * * `Expensify` - Expensify
+ * * `Ramp` - Ramp
+ * * `Brex` - Brex
+ * * `Coupa` - Coupa
+ * * `SapConcur` - SapConcur
+ * * `Apollo` - Apollo
+ * * `Crunchbase` - Crunchbase
+ * * `ZoomInfo` - ZoomInfo
+ * * `Clari` - Clari
+ * * `Chorus` - Chorus
+ * * `Coda` - Coda
+ * * `Guru` - Guru
+ * * `Dropbox` - Dropbox
+ * * `Docusign` - Docusign
+ * * `PandaDoc` - PandaDoc
+ * * `SapErp` - SapErp
+ * * `SapSuccessFactors` - SapSuccessFactors
+ * * `OracleEbs` - OracleEbs
+ * * `OracleFusion` - OracleFusion
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -726,6 +805,85 @@ export const ExternalDataSourceTypeEnumApi = {
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
     WorkOS: 'WorkOS',
+    AmazonS3: 'AmazonS3',
+    GoogleCloudStorage: 'GoogleCloudStorage',
+    Databricks: 'Databricks',
+    Dynamics365: 'Dynamics365',
+    SalesforceMarketingCloud: 'SalesforceMarketingCloud',
+    Db2: 'Db2',
+    Heap: 'Heap',
+    AdobeAnalytics: 'AdobeAnalytics',
+    Matomo: 'Matomo',
+    Optimizely: 'Optimizely',
+    Adyen: 'Adyen',
+    GoCardless: 'GoCardless',
+    Mollie: 'Mollie',
+    CheckoutCom: 'CheckoutCom',
+    Branch: 'Branch',
+    Criteo: 'Criteo',
+    Outbrain: 'Outbrain',
+    Taboola: 'Taboola',
+    AdRoll: 'AdRoll',
+    DisplayVideo360: 'DisplayVideo360',
+    GoogleAdManager: 'GoogleAdManager',
+    CampaignManager360: 'CampaignManager360',
+    SearchAds360: 'SearchAds360',
+    AdobeCommerce: 'AdobeCommerce',
+    AmazonSellingPartner: 'AmazonSellingPartner',
+    Ebay: 'Ebay',
+    Commercetools: 'Commercetools',
+    LightspeedRetail: 'LightspeedRetail',
+    ShipStation: 'ShipStation',
+    ConstantContact: 'ConstantContact',
+    Mailgun: 'Mailgun',
+    Eloqua: 'Eloqua',
+    Sailthru: 'Sailthru',
+    Ortto: 'Ortto',
+    Attentive: 'Attentive',
+    Kustomer: 'Kustomer',
+    Dixa: 'Dixa',
+    Gladly: 'Gladly',
+    Qualtrics: 'Qualtrics',
+    Delighted: 'Delighted',
+    AzureDevOps: 'AzureDevOps',
+    Rollbar: 'Rollbar',
+    Opsgenie: 'Opsgenie',
+    IncidentIo: 'IncidentIo',
+    Pingdom: 'Pingdom',
+    Cloudflare: 'Cloudflare',
+    CosmosDB: 'CosmosDB',
+    PlanetScale: 'PlanetScale',
+    SapHana: 'SapHana',
+    Rippling: 'Rippling',
+    HiBob: 'HiBob',
+    Personio: 'Personio',
+    Deel: 'Deel',
+    AdpWorkforceNow: 'AdpWorkforceNow',
+    Paylocity: 'Paylocity',
+    Gusto: 'Gusto',
+    CultureAmp: 'CultureAmp',
+    Lattice: 'Lattice',
+    SageIntacct: 'SageIntacct',
+    FreshBooks: 'FreshBooks',
+    Expensify: 'Expensify',
+    Ramp: 'Ramp',
+    Brex: 'Brex',
+    Coupa: 'Coupa',
+    SapConcur: 'SapConcur',
+    Apollo: 'Apollo',
+    Crunchbase: 'Crunchbase',
+    ZoomInfo: 'ZoomInfo',
+    Clari: 'Clari',
+    Chorus: 'Chorus',
+    Coda: 'Coda',
+    Guru: 'Guru',
+    Dropbox: 'Dropbox',
+    Docusign: 'Docusign',
+    PandaDoc: 'PandaDoc',
+    SapErp: 'SapErp',
+    SapSuccessFactors: 'SapSuccessFactors',
+    OracleEbs: 'OracleEbs',
+    OracleFusion: 'OracleFusion',
     Custom: 'Custom',
 } as const
 
@@ -973,6 +1131,85 @@ export interface ExternalDataSourceCreateApi {
      * * `Resend` - Resend
      * * `PgAnalyze` - PgAnalyze
      * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1283,6 +1520,85 @@ export interface DatabaseSchemaRequestApi {
      * * `Resend` - Resend
      * * `PgAnalyze` - PgAnalyze
      * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }

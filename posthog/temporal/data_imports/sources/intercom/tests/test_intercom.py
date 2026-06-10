@@ -6,6 +6,7 @@ from unittest import mock
 
 from requests import Request, Response
 from requests.adapters import HTTPAdapter
+from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -268,6 +269,62 @@ class TestSubstreamGenerators:
 
         assert [p["id"] for p in parts] == ["p1", "p2", "p3"]
         assert {p["conversation_id"] for p in parts} == {"c1", "c2"}
+
+    def test_conversation_parts_skips_404_parent(self):
+        # A conversation listed by search can be deleted/merged before we fetch
+        # its detail — Intercom 404s. Skip it instead of failing the whole sync.
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}, {"id": "c2"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=404, text="Not Found"),
+            _make_response({"conversation_parts": {"conversation_parts": [{"id": "p3"}]}}),
+        ]
+
+        parts = list(_conversation_parts_generator(mock_session, "updated_at", None))
+
+        assert [p["id"] for p in parts] == ["p3"]
+        assert {p["conversation_id"] for p in parts} == {"c2"}
+
+    def test_conversation_parts_reraises_non_404(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=500, text="Server Error"),
+        ]
+
+        with pytest.raises(HTTPError):
+            list(_conversation_parts_generator(mock_session, "updated_at", None))
+
+    def test_company_segments_skips_404_parent(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=404, text="Not Found"),
+            _make_response({"data": [{"id": "s2"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["s2"]
+        assert segments[0]["company_id"] == "co2"
+
+    def test_company_segments_reraises_non_404(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=500, text="Server Error"),
+        ]
+
+        with pytest.raises(HTTPError):
+            list(_company_segments_generator(mock_session))
 
     def test_company_segments_injects_company_id(self):
         mock_session = mock.MagicMock()

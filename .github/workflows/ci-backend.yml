@@ -418,6 +418,8 @@ jobs:
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # DIAGNOSTIC (do not merge): N parallel copies of the hang-prone bucket.
                   HANG_HUNT_COPIES: '15'
+                  # Kill switch — drop comma-separated products from the matrix; empty = run all.
+                  SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
