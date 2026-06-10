@@ -1286,17 +1286,37 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     return False
 
 
-def get_instance_available_sso_providers() -> dict[str, bool]:
+def is_github_login_restricted() -> bool:
+    """
+    GitHub login is "restricted" when a whitelist of eligible emails/domains is configured. The
+    GitHub OAuth credentials may be set purely to support PostHog Code GitHub profile linking, in
+    which case the `auth_allowed` pipeline step rejects everyone outside the whitelist with
+    `AuthForbidden` — so GitHub should not be offered as a primary login provider to all visitors.
+    """
+    return bool(
+        getattr(settings, "SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS", None)
+        or getattr(settings, "SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS", None)
+    )
+
+
+def get_instance_available_sso_providers(*, for_login: bool = False) -> dict[str, bool]:
     """
     Returns a dictionary containing final determination to which SSO providers are available.
     SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
     Validates configuration settings and license validity (if applicable).
+
+    Pass `for_login=True` to get the providers that should be offered as primary login buttons; this
+    drops GitHub when its login is restricted to a whitelist, so non-eligible users aren't sent down
+    a dead-end OAuth flow. The default (config-only) view is what gates the profile-linking flow.
     """
     output: dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
     }
+
+    if for_login and output["github"] and is_github_login_restricted():
+        output["github"] = False
 
     # Get license information
     bypass_license: bool = is_cloud() or settings.DEMO

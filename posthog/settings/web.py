@@ -275,6 +275,17 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
 SOCIAL_AUTH_GITHUB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
+# GitHub OAuth doubles as the identity provider for PostHog Code GitHub profile linking, so the
+# key/secret can be configured even when GitHub is not meant to be a primary login provider. When a
+# whitelist is set, the `auth_allowed` pipeline step rejects non-eligible users with `AuthForbidden`;
+# we read it here both so social-core actually enforces it and so we can avoid surfacing the GitHub
+# login button to users who would only hit that dead-end (see get_instance_available_sso_providers).
+SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS: list[str] = [
+    email.strip() for email in os.getenv("SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS", "").split(",") if email.strip()
+]
+SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS: list[str] = [
+    domain.strip() for domain in os.getenv("SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS", "").split(",") if domain.strip()
+]
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")

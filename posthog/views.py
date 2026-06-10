@@ -201,7 +201,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "realm": get_instance_realm(),
         "region": get_instance_region(),
         "available_social_auth_providers": _traced(
-            "preflight.available_social_auth_providers", get_instance_available_sso_providers
+            "preflight.available_social_auth_providers", get_instance_available_sso_providers, for_login=True
         ),
         "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
         "email_service_available": in_cloud

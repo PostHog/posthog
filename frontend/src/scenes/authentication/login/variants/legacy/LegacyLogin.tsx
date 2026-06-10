@@ -63,6 +63,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+    social_login_forbidden:
+        "This account isn't eligible to log in with that provider. Please log in with the method you originally signed up with, such as your email and password or Google.",
 }
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'

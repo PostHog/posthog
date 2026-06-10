@@ -28,7 +28,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Histogram
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthForbidden
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -1094,6 +1094,11 @@ class SocialAuthExceptionMiddleware:
                 "sso_enforced",
             ):
                 return redirect(f"/login?error_code={error}")
+
+        # Handle AuthForbidden (e.g. GitHub login restricted to a whitelist) with an actionable
+        # message — the social-core default ("Your credentials aren't allowed") leaves the user stuck.
+        if isinstance(exception, AuthForbidden):
+            return redirect("/login?error_code=social_login_forbidden")
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):

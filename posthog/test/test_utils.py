@@ -12,7 +12,7 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -33,6 +33,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
+    get_instance_available_sso_providers,
     get_ip_address,
     get_js_url,
     get_self_capture_team_id,
@@ -832,6 +833,30 @@ class TestGetShortUserAgent(TestCase):
         result = get_short_user_agent(request)
         self.assertIn("Chrome 135.0.6789", result)
         self.assertNotIn("1234", result)
+
+
+class TestInstanceAvailableSSOProviders(TestCase):
+    @override_settings(
+        SOCIAL_AUTH_GITHUB_KEY="key",
+        SOCIAL_AUTH_GITHUB_SECRET="secret",
+        SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS=[],
+        SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS=[],
+    )
+    def test_github_offered_for_login_when_configured_and_unrestricted(self):
+        assert get_instance_available_sso_providers()["github"] is True
+        assert get_instance_available_sso_providers(for_login=True)["github"] is True
+
+    @override_settings(
+        SOCIAL_AUTH_GITHUB_KEY="key",
+        SOCIAL_AUTH_GITHUB_SECRET="secret",
+        SOCIAL_AUTH_GITHUB_WHITELISTED_EMAILS=[],
+        SOCIAL_AUTH_GITHUB_WHITELISTED_DOMAINS=["posthog.com"],
+    )
+    def test_github_hidden_from_login_when_whitelist_restricts_it(self):
+        # Still "available" for the profile-linking flow / SSO enforcement checks...
+        assert get_instance_available_sso_providers()["github"] is True
+        # ...but not offered as a primary login button.
+        assert get_instance_available_sso_providers(for_login=True)["github"] is False
 
 
 class TestFlatten(TestCase):
