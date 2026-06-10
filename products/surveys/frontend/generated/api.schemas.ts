@@ -1200,6 +1200,10 @@ export interface SurveyAppearanceSchemaApi {
     placeholder?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+    allowGoBack?: boolean
+    /** Optional override for the back button label. Defaults to 'Back'. */
+    backButtonText?: string
     widgetType?: WidgetTypeEnumApi
     widgetSelector?: string
     widgetLabel?: string
