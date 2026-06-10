@@ -2,7 +2,7 @@ import { type ReactElement, useMemo } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
+import { Legend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
 
 import { buildLifecycleChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
 
@@ -49,11 +49,19 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
         )
     }
 
+    // The chart box gets its width from a plain block (`w-full`) and an explicit height — not from
+    // ChartLegend's `flex-1`/`self-stretch` slot, which can resolve to 0 at mount in the MCP iframe,
+    // leaving the canvas measured at 0 and unpainted. Funnels/trends render the chart this way too.
     return (
-        <ChartLegend show={showLegend} items={legendItems} position="top">
+        <div className="w-full">
+            {showLegend && legendItems.length > 0 && (
+                <div className="mb-2">
+                    <Legend items={legendItems} orientation="horizontal" align="center" />
+                </div>
+            )}
             <div className="flex flex-col w-full h-[400px]">
                 <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
             </div>
-        </ChartLegend>
+        </div>
     )
 }

@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 
 import { CHART_THEME, lifecycleColor } from '@posthog/mcp-ui'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
+import { Legend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
 
 import {
     buildTrendsLifecycleConfig,
@@ -45,14 +45,15 @@ function LifecycleChartDemo({
     const config = buildTrendsLifecycleConfig({ isStacked })
     const legendItems = legendItemsFromSeries(series, CHART_THEME)
     return (
-        <ChartLegend show items={legendItems} position="top">
+        <div className="flex flex-col gap-2">
+            <Legend items={legendItems} orientation="horizontal" align="center" />
             {/* Fixed pixel size, not width:100% — the chart sizes its canvas off a ResizeObserver, which
                 measures 0 for a percentage width at mount in the headless snapshot runner and draws nothing. */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 320 }}>
                 <TimeSeriesBarChart series={series} labels={LABELS} theme={CHART_THEME} config={config} />
             </div>
-        </ChartLegend>
+        </div>
     )
 }
 
