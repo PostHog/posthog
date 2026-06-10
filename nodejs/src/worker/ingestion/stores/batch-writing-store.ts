@@ -1,6 +1,18 @@
 import { FlushResult } from '../persons/persons-store'
 
+export interface BatchWritingStoreFlushStats {
+    dirtyEntryCount: number
+    referencedBatchCount: number
+    cacheEntryCount: number
+}
+
 export interface BatchWritingStore {
+    /*
+     * Returns a point-in-time summary of entries that would be captured by
+     * flush(), plus the batch IDs that currently reference those dirty entries.
+     */
+    getFlushStats(): BatchWritingStoreFlushStats
+
     /*
      * Flushes all batch data that needs to be written
      * Returns Kafka messages that need to be sent

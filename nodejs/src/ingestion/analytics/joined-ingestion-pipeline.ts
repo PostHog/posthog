@@ -262,11 +262,12 @@ export function createJoinedIngestionPipeline<
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                 .pipe(createFlushEventFiltersBatchAppMetricsStep()),
-        // Batch stores (personsStore, groupStore) are singletons that don't support
-        // concurrent batches yet — they accumulate state across events and flush once.
-        // The Rust consumer's per-worker Semaphore caps in-flight batches at the
-        // same value (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as
-        // HTTP 503s in `ingestion_api_batch_capacity_rejections_total`.
+        // Batch stores are singleton persistent caches, but each batch receives a
+        // batch-bound view so entries can be reference-counted and released after
+        // that batch's flush lifecycle completes. The Rust consumer's per-worker
+        // Semaphore caps in-flight batches at the same value
+        // (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as HTTP 503s
+        // in `ingestion_api_batch_capacity_rejections_total`.
         { concurrentBatches }
     )
 }

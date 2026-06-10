@@ -439,6 +439,17 @@ describe('BatchWritingGroupStore', () => {
             expect(() => groupStore.releaseBatch(999)).not.toThrow()
         })
 
+        it('reports dirty entries and referenced batches in flush stats', async () => {
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
+
+            expect(groupStore.getFlushStats()).toEqual({
+                dirtyEntryCount: 1,
+                referencedBatchCount: 2,
+                cacheEntryCount: 1,
+            })
+        })
+
         it('removes clean entries from cache after flush and release', async () => {
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 

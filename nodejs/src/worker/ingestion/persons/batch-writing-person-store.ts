@@ -15,7 +15,7 @@ import {
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
-import { BatchWritingStore } from '../stores/batch-writing-store'
+import { BatchWritingStore, BatchWritingStoreFlushStats } from '../stores/batch-writing-store'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -179,6 +179,38 @@ class BatchWritingPersonsCache {
 
     getUpdateCacheEntries(): IterableIterator<[string, PersonUpdate | null]> {
         return this.personUpdateCache.entries()
+    }
+
+    getFlushStats(): BatchWritingStoreFlushStats {
+        const dirtyPersonKeys = new Set<string>()
+        for (const [personKey, update] of this.personUpdateCache.entries()) {
+            if (update?.needs_write) {
+                dirtyPersonKeys.add(personKey)
+            }
+        }
+
+        const referencedBatchIds = new Set<number>()
+        for (const [batchId, distinctKeys] of this.batchDistinctKeys.entries()) {
+            for (const distinctKey of distinctKeys) {
+                const personId = this.distinctIdToPersonId.get(distinctKey)
+                if (!personId) {
+                    continue
+                }
+
+                const separatorIndex = distinctKey.indexOf(':')
+                const teamId = distinctKey.slice(0, separatorIndex)
+                if (dirtyPersonKeys.has(`${teamId}:${personId}`)) {
+                    referencedBatchIds.add(batchId)
+                    break
+                }
+            }
+        }
+
+        return {
+            dirtyEntryCount: dirtyPersonKeys.size,
+            referencedBatchCount: referencedBatchIds.size,
+            cacheEntryCount: this.personUpdateCache.size,
+        }
     }
 
     getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
@@ -714,6 +746,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
             throw error
         }
+    }
+
+    getFlushStats(): BatchWritingStoreFlushStats {
+        return this.personCache.getFlushStats()
     }
 
     /**

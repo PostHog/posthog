@@ -66,7 +66,7 @@ export interface PersonsStoreTransactionForBatch {
  * Created once per batch in the BeforeBatch hook and flows into element values
  * via batchContext, eliminating batchId? from individual step method signatures.
  *
- * Excludes releaseBatch (takes an explicit batchId — use the underlying store directly)
+ * Excludes root lifecycle helpers that need the underlying singleton store directly,
  * but retains flush/shutdown so callers can flush buffered writes after processing.
  */
 export type PersonsStoreForBatch = Omit<
@@ -82,6 +82,7 @@ export type PersonsStoreForBatch = Omit<
     | 'prefetchPersons'
     | 'processPersonlessDistinctIdsBatch'
     | 'releaseBatch'
+    | 'getFlushStats'
     | 'inTransaction'
 > & {
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null>

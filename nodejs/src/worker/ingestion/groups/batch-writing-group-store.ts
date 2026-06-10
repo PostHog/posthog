@@ -12,6 +12,7 @@ import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store'
+import { BatchWritingStoreFlushStats } from '../stores/batch-writing-store'
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { CacheMetrics, GroupStore } from './group-store.interface'
 import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
@@ -108,6 +109,31 @@ class GroupCache {
 
     entries(): IterableIterator<[string, GroupUpdate | null]> {
         return this.cache.entries()
+    }
+
+    getFlushStats(): BatchWritingStoreFlushStats {
+        const dirtyGroupKeys = new Set<string>()
+        for (const [groupKey, update] of this.cache.entries()) {
+            if (update?.needsWrite) {
+                dirtyGroupKeys.add(groupKey)
+            }
+        }
+
+        const referencedBatchIds = new Set<number>()
+        for (const [batchId, groupKeys] of this.batchGroupKeys.entries()) {
+            for (const groupKey of groupKeys) {
+                if (dirtyGroupKeys.has(groupKey)) {
+                    referencedBatchIds.add(batchId)
+                    break
+                }
+            }
+        }
+
+        return {
+            dirtyEntryCount: dirtyGroupKeys.size,
+            referencedBatchCount: referencedBatchIds.size,
+            cacheEntryCount: this.cache.size,
+        }
     }
 
     /**
@@ -320,6 +346,10 @@ export class BatchWritingGroupStore implements GroupStore {
             })
             throw error
         }
+    }
+
+    getFlushStats(): BatchWritingStoreFlushStats {
+        return this.groupCache.getFlushStats()
     }
 
     private async processGroupUpdate(update: GroupUpdate, distinctId: string): Promise<void> {

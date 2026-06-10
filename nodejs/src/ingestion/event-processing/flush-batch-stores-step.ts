@@ -3,6 +3,17 @@ import { logger } from '../../utils/logger'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { BatchWritingStore } from '../../worker/ingestion/stores/batch-writing-store'
+import {
+    batchStoreFlushCacheEntriesHistogram,
+    batchStoreFlushDirtyEntriesHistogram,
+    batchStoreFlushKafkaMessagesHistogram,
+    batchStoreFlushLatencyHistogram,
+    batchStoreFlushOperationsCounter,
+    batchStoreFlushReferencedBatchesHistogram,
+    batchStoreFlushResultRecordsHistogram,
+    batchStoreFlushTriggerBatchSizeHistogram,
+} from '../../worker/ingestion/stores/metrics'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { AfterBatchStep } from '../pipelines/batching-pipeline'
 import { ok } from '../pipelines/results'
@@ -12,6 +23,8 @@ export interface FlushBatchStoresStepConfig {
     groupStore: BatchWritingGroupStore
     outputs: PersonOutputs
 }
+
+type BatchStoreName = 'person' | 'group'
 
 /**
  * AfterBatch hook that flushes person and group stores and returns
@@ -41,17 +54,26 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
     const { personsStore, groupStore, outputs } = config
 
     return async function flushBatchStoresStep(input) {
+        batchStoreFlushTriggerBatchSizeHistogram.observe(input.elements.length)
+
         try {
             // Flush both stores in parallel (DB operations, still blocking).
             // Stores own their own metric-emission lifecycle (periodic timer
             // started in their constructors, drained by shutdown()), so this
             // step no longer touches reset/reportBatch — caches persist across
             // batches by design under concurrentBatches > 1.
-            const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
+            const [groupResults, personsStoreMessages] = await Promise.all([
+                flushStore('group', groupStore),
+                flushStore('person', personsStore),
+            ])
+
+            const personStoreKafkaMessageCount = countFlushResultMessages(personsStoreMessages)
 
             logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
                 batchSize: input.elements.length,
                 personStoreMessageCount: personsStoreMessages.length,
+                personStoreKafkaMessageCount,
+                groupStoreMessageCount: groupResults.length,
             })
 
             // Create Kafka produce promises for all person/group store updates
@@ -72,6 +94,33 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             groupStore.releaseBatch(input.batchId)
         }
     }
+}
+
+async function flushStore(store: BatchStoreName, batchWritingStore: BatchWritingStore): Promise<FlushResult[]> {
+    const flushStats = batchWritingStore.getFlushStats()
+    batchStoreFlushDirtyEntriesHistogram.observe({ store }, flushStats.dirtyEntryCount)
+    batchStoreFlushReferencedBatchesHistogram.observe({ store }, flushStats.referencedBatchCount)
+    batchStoreFlushCacheEntriesHistogram.observe({ store }, flushStats.cacheEntryCount)
+
+    const flushStartTime = performance.now()
+    try {
+        const flushResults = await batchWritingStore.flush()
+        const latencySeconds = (performance.now() - flushStartTime) / 1000
+        batchStoreFlushLatencyHistogram.observe({ store, outcome: 'success' }, latencySeconds)
+        batchStoreFlushOperationsCounter.inc({ store, outcome: 'success' })
+        batchStoreFlushResultRecordsHistogram.observe({ store }, flushResults.length)
+        batchStoreFlushKafkaMessagesHistogram.observe({ store }, countFlushResultMessages(flushResults))
+        return flushResults
+    } catch (error) {
+        const latencySeconds = (performance.now() - flushStartTime) / 1000
+        batchStoreFlushLatencyHistogram.observe({ store, outcome: 'error' }, latencySeconds)
+        batchStoreFlushOperationsCounter.inc({ store, outcome: 'error' })
+        throw error
+    }
+}
+
+function countFlushResultMessages(flushResults: FlushResult[]): number {
+    return flushResults.reduce((count, record) => count + record.messages.length, 0)
 }
 
 /**

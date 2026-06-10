@@ -3131,6 +3131,19 @@ describe('BatchWritingPersonStore', () => {
             expect(() => personStore.releaseBatch(999)).not.toThrow()
         })
 
+        it('reports dirty entries and referenced batches in flush stats', () => {
+            const personUpdate = { ...fromInternalPerson(person, 'user-a'), needs_write: true }
+
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', personUpdate, 0)
+            personStore.setCachedPersonForUpdate(teamId, 'user-a', { ...personUpdate }, 1)
+
+            expect(personStore.getFlushStats()).toEqual({
+                dirtyEntryCount: 1,
+                referencedBatchCount: 2,
+                cacheEntryCount: 1,
+            })
+        })
+
         it('evicts check cache and distinctId mapping after single batch is released', () => {
             personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
             personStore.setCachedPersonForUpdate(teamId, 'user-a', fromInternalPerson(person, 'user-a'), 0)

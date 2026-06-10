@@ -7,7 +7,7 @@ import { FlushResult } from '../persons/persons-store'
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { CacheMetrics, GroupStore } from './group-store.interface'
 
-export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch'> & {
+export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch' | 'getFlushStats'> & {
     upsertGroup(
         teamId: TeamId,
         projectId: ProjectId,
