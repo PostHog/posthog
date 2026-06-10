@@ -4,7 +4,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
+import { humanizeBatchExportDescription, humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
@@ -168,7 +168,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: false,
-                        description: `${humanizeBatchExportName(service)} batch export`,
+                        description: humanizeBatchExportDescription(service),
                     })
                 )
             },

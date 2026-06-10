@@ -19,6 +19,18 @@ export const humanizeBatchExportName = (service: BatchExportService['type']): st
     }
 }
 
+// TODO: move this to DestinationDefinition so all destination config is in a single place
+export const humanizeBatchExportDescription = (service: BatchExportService['type']): string => {
+    switch (service) {
+        case 'AwsS3':
+            return 'Batch export data to an AWS S3 bucket'
+        case 'S3Compatible':
+            return 'Batch export data to an S3-compatible destination'
+        default:
+            return `${humanizeBatchExportName(service)} batch export`
+    }
+}
+
 export const normalizeBatchExportService = (service: string): BatchExportService['type'] => {
     return (
         BATCH_EXPORT_SERVICE_NAMES.find((s) => s.toLowerCase() === service.toLowerCase()) ??
