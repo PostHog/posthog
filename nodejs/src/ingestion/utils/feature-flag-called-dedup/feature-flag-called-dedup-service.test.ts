@@ -266,6 +266,18 @@ describe('RedisFeatureFlagCalledDedupService', () => {
             expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
         })
 
+        it('fails open when the key disappears between SET and GET', async () => {
+            // The pipeline is not atomic: the key existed at SET time (NX
+            // lost) but expired or was evicted before the GET. No claim
+            // present means no evidence of a duplicate.
+            const { service } = createService([
+                [null, null],
+                [null, null],
+            ])
+
+            expect(await service.claimKeys([{ key: 'key-1', claimId: 'uuid-1' }])).toEqual([true])
+        })
+
         it('fails open when acquiring a client fails', async () => {
             const pool = {
                 acquire: jest.fn().mockRejectedValue(new Error('pool exhausted')),

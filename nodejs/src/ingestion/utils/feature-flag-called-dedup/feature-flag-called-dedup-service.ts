@@ -46,7 +46,7 @@ export function parseFeatureFlagCalledDedupConfig(
         logger.warn('INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS is "*", disabling dedup')
         parsedMode = 'disabled'
     }
-    if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    if (parsedMode !== 'disabled' && (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0)) {
         // An invalid TTL would make every SET ... EX command error, silently
         // disabling dedup behind a stream of Redis errors.
         logger.warn('Invalid INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS, falling back to disabled', {
@@ -209,22 +209,30 @@ export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedu
                 featureFlagCalledDedupRedisOpsTotal.labels('error').inc()
                 return failOpen
             }
-            featureFlagCalledDedupRedisOpsTotal.labels('success').inc()
             // SET ... NX replies 'OK' when the key was set (claimed) and null
             // when it already existed; the paired GET then tells us whether
             // the existing claim is this event's own (a redelivery). Any
             // per-command error fails open.
-            return claims.map((claim, index) => {
+            let hadCommandError = false
+            const passes = claims.map((claim, index) => {
                 const [setError, setValue] = results[index * 2]
                 const [getError, getValue] = results[index * 2 + 1]
+                if (setError !== null || getError !== null) {
+                    hadCommandError = true
+                }
                 if (setError !== null || setValue === 'OK') {
                     return true
                 }
                 if (getError !== null) {
                     return true
                 }
-                return getValue === claim.claimId
+                // A pipeline is not atomic: the key can expire or be evicted
+                // between the SET and the GET. No claim present means no
+                // evidence of a duplicate, so fail open.
+                return getValue === null || getValue === claim.claimId
             })
+            featureFlagCalledDedupRedisOpsTotal.labels(hadCommandError ? 'partial_error' : 'success').inc()
+            return passes
         } catch (error) {
             logger.warn('Redis error in feature flag called dedup claim, failing open', { error })
             featureFlagCalledDedupRedisOpsTotal.labels('error').inc()

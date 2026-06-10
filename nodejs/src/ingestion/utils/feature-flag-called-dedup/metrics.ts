@@ -9,7 +9,7 @@ export const featureFlagCalledDedupEventsTotal = new Counter({
 export const featureFlagCalledDedupRedisOpsTotal = new Counter({
     name: 'ingestion_feature_flag_called_dedup_redis_ops_total',
     help: 'Redis operations by the feature flag called dedup service',
-    labelNames: ['result'], // 'success' | 'error'
+    labelNames: ['result'], // 'success' | 'partial_error' | 'error'
 })
 
 export const featureFlagCalledDedupRedisLatency = new Histogram({
