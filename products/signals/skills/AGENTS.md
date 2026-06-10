@@ -73,6 +73,18 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   se are the error-tracking scout's territory.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
+- `signals-scout-conversations/` — human-voice + flow watcher for Conversations
+  (support tickets). Watches the ticket stream for inbound bursts where distinct
+  customers converge on the same complaint (the earliest human-voice detector of a
+  product break), intake channels with real history going silent (widget / email /
+  Slack / Teams / GitHub integration breakage), response-pipeline stalls (aging
+  unread customer messages, SLA breaches, stuck-new pile-ups), and AI-escalation
+  regressions via `escalation_reason` clustering. Its discriminators are
+  distinct-customer convergence on inbound and flow asymmetry (intake or response
+  halting while the other side continues); volume tracking traffic is baseline.
+  Strict no-PII posture over ticket content; read-only — it never triages tickets.
+  Exceptions per se are the error-tracking scout's territory; survey responses are
+  the surveys scout's.
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
   Reads the `sessions` table for per-channel volume diverging from
   seasonality-aligned baselines (same 24h window 7/14 days back), attribution
