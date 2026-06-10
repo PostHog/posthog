@@ -233,7 +233,10 @@ async def validate_schema_and_update_table(
                                 break
                         
                         if not table_created:
-                            logger.debug(f"Found {existing_tables_count} existing tables, but all are actively used by other schemas. Creating a new table.")
+                            logger.debug(
+                                f"Found {existing_tables_count} existing tables, but all are actively used "
+                                "by other schemas. Creating a new table."
+                            )
 
                     if not table_created:
                         logger.debug(f"Creating table for schema: {str(schema_id)}")

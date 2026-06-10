@@ -330,7 +330,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def delete_table(self):
         if self.table is not None:
             # Prevent deleting S3 data and soft-deleting the table if another active schema shares it
-            other_schemas = ExternalDataSchema.objects.filter(table_id=self.table_id).exclude(id=self.id).exclude(deleted=True)
+            other_schemas = (
+                ExternalDataSchema.objects.filter(table_id=self.table_id)
+                .exclude(id=self.id)
+                .exclude(deleted=True)
+            )
             if not other_schemas.exists():
                 try:
                     client = get_s3_client()
