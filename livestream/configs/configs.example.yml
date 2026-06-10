@@ -25,8 +25,6 @@ jwt:
     # Previous secrets still accepted for verification during key rotation
     secret_fallbacks:
         - '<previous secret key>'
-postgres:
-    url: 'postgres://postgres:postgres@localhost:5432/postgres'
 cors_allow_origins:
     - "https://example.com"
     - "https://sub.example.com"

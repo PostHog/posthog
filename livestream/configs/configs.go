@@ -12,10 +12,6 @@ type MMDBConfig struct {
 	Path string
 }
 
-type PostgresConfig struct {
-	URL string
-}
-
 type JWTConfig struct {
 	Secret string
 	// Previous secrets still accepted for verification (never used for signing),
@@ -65,7 +61,6 @@ type Config struct {
 	Consumers        ConsumersConfig `mapstructure:"consumers"`
 	Parallelism      int             `mapstructure:"parallelism"`
 	CORSAllowOrigins []string        `mapstructure:"cors_allow_origins"`
-	Postgres         PostgresConfig
 	JWT              JWTConfig
 	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
 	Redis            RedisConfig
@@ -131,9 +126,6 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.notification.session_timeout_ms")    // LIVESTREAM_CONSUMERS_NOTIFICATION_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.notification.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_NOTIFICATION_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.notification.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_NOTIFICATION_MAX_POLL_INTERVAL_MS
-
-	// Postgres settings
-	_ = viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL
 
 	// JWT settings
 	_ = viper.BindEnv("jwt.secret")           // LIVESTREAM_JWT_SECRET
