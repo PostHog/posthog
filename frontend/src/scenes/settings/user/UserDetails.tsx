@@ -10,6 +10,8 @@ export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
     const { cancelEmailChangeRequest } = useActions(userLogic)
 
+    const ssoEnforced = !!user?.has_sso_enforcement
+
     return (
         <Form
             logic={userLogic}
@@ -43,9 +45,14 @@ export function UserDetails(): JSX.Element {
                     className="ph-ignore-input"
                     data-attr="settings-update-email"
                     placeholder="email@yourcompany.com"
-                    disabled={userLoading}
+                    disabled={userLoading || ssoEnforced}
                 />
             </LemonField>
+            {ssoEnforced && (
+                <div className="text-secondary text-xs">
+                    You can't change your email because your organization enforces SSO on your email's domain.
+                </div>
+            )}
             {user?.pending_email && (
                 <div className="flex flex-row gap-2">
                     <div className="text-danger text-xs font-medium mt-1.25">

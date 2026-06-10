@@ -3,10 +3,53 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
+        ),
+    session_id: zod.string().describe('Session recording id to return observations for.'),
+})
+
+/**
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ */
+export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay observation.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EnvironmentVisionQuotaRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * CRUD for Replay Vision scanners.
@@ -20,20 +63,28 @@ export const VisionScannersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod.string().optional().describe('Filter to scanners created by the given user IDs (comma-separated).'),
     emits_signals: zod.boolean().optional().describe('Filter to scanners that emit Signals.'),
-    enabled: zod.boolean().optional().describe('Filter to enabled vs disabled scanners.'),
+    enabled: zod
+        .string()
+        .optional()
+        .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
         .optional()
-        .describe('Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.'),
-    scanner_type: zod
-        .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
-        .optional()
         .describe(
-            'Filter by scanner type (monitor, classifier, scorer, summarizer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
         ),
+    scanner_type: zod
+        .string()
+        .optional()
+        .describe('Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Case-insensitive substring match across name, description, and the prompt in scanner_config.'),
 })
 
 /**
@@ -69,7 +120,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
     scanner_config: zod
         .unknown()
         .describe(
-            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+            'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
         ),
     query: zod
         .unknown()
@@ -157,7 +208,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+            'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
         ),
     query: zod
         .unknown()
@@ -251,21 +302,24 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
     session_id: zod.string().optional().describe('Filter to observations of a specific session recording.'),
-    status: zod
-        .enum(['failed', 'ineligible', 'pending', 'running', 'succeeded'])
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
         .optional()
         .describe(
-            'Filter by observation status.\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed\n* `ineligible` - Ineligible'
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
     triggered_by: zod
-        .enum(['on_demand', 'schedule'])
+        .string()
         .optional()
-        .describe(
-            'Filter by trigger source (schedule or on_demand).\n\n* `schedule` - Schedule\n* `on_demand` - On demand'
-        ),
+        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
 })
 
 /**
@@ -280,3 +334,35 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
         ),
     scanner_id: zod.string(),
 })
+
+/**
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
+ */
+export const VisionScannersEstimateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const visionScannersEstimateCreateBodySamplingRateDefault = 1
+export const visionScannersEstimateCreateBodySamplingRateMin = 0
+export const visionScannersEstimateCreateBodySamplingRateMax = 1
+
+export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
+    .object({
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings.'
+            ),
+        sampling_rate: zod
+            .number()
+            .min(visionScannersEstimateCreateBodySamplingRateMin)
+            .max(visionScannersEstimateCreateBodySamplingRateMax)
+            .default(visionScannersEstimateCreateBodySamplingRateDefault)
+            .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+    })
+    .describe('Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.')

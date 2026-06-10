@@ -31,7 +31,7 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == (
-            "https://graph.facebook.com/v21.0/123451234512345/events",
+            "https://graph.facebook.com/v25.0/123451234512345/events",
             {
                 "method": "POST",
                 "headers": {

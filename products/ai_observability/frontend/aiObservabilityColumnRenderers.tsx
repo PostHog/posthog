@@ -23,10 +23,11 @@ import { EventData, useAIData } from './hooks/useAIData'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { normalizeMessages, parseJSONPreview } from './utils'
+import { parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {

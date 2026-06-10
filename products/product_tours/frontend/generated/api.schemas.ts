@@ -9,8 +9,8 @@
  */
 /**
  * * `server` - Server
- * `client` - Client
- * `all` - All
+ * * `client` - Client
+ * * `all` - All
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
@@ -28,7 +28,7 @@ export const BlankEnumApi = {
 
 /**
  * * `distinct_id` - User ID (default)
- * `device_id` - Device ID
+ * * `device_id` - Device ID
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
@@ -57,28 +57,28 @@ export interface MinimalFeatureFlagApi {
      */
     version?: number | null
     /** Specifies where this feature flag should be evaluated
-
-  * `server` - Server
-  * `client` - Client
-  * `all` - All */
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
-
-  * `distinct_id` - User ID (default)
-  * `device_id` - Device ID */
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -165,7 +165,7 @@ export interface PaginatedProductTourListApi {
 
 /**
  * * `app` - app
- * `toolbar` - toolbar
+ * * `toolbar` - toolbar
  */
 export type ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi =
     (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi]
@@ -199,9 +199,9 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     readonly updated_at: string
     archived?: boolean
     /** Where the tour was created/updated from
-
-  * `app` - app
-  * `toolbar` - toolbar */
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 
@@ -229,9 +229,9 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     readonly updated_at?: string
     archived?: boolean
     /** Where the tour was created/updated from
-
-  * `app` - app
-  * `toolbar` - toolbar */
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 

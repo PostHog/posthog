@@ -1,0 +1,43 @@
+# OTel parts format: `{role, parts: [...]}`. text parts become content,
+# tool_call parts become tool_calls, and each tool_call_response part spawns its
+# own follow-up tool message.
+#
+# `if_empty: ~` drops the primary only when followups exist, so a message whose
+# parts produce nothing at all still emits one empty-content message (legacy parity).
+
+id: otel
+
+rules:
+    - on:
+          role: { is: string }
+          parts: { is: array }
+      emit:
+          # Keep top-level metadata (e.g. `finish_reason`) by omitting only role/parts.
+          spread:
+              omit:
+                  from: $
+                  keys: [role, parts]
+          content:
+              select:
+                  from: $.parts
+                  where: { type: text }
+                  pluck: content
+                  if_empty: ~
+          toolCalls:
+              select:
+                  from: $.parts
+                  where: { type: tool_call }
+                  pluck:
+                      id: $.id
+                      name: $.name
+                      args: $.arguments
+      followups:
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: tool_call_response }
+            each:
+                role: tool
+                toolCallId: $.id
+                content:
+                    stringify: $.result

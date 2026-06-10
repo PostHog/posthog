@@ -104,10 +104,12 @@ async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalS
         return EvalSignalSummary.model_validate(data)
 
     return await call_llm(
+        team_id=inputs.team_id,
         system_prompt=SUMMARIZE_EVAL_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         thinking=True,
+        stage="eval_signal_summary",
     )
 
 

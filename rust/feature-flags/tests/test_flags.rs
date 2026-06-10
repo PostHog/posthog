@@ -421,10 +421,14 @@ async fn it_rejects_missing_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "not_authenticated");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "No API token provided. Please include a valid API token in your request."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 
@@ -442,10 +446,14 @@ async fn it_rejects_invalid_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "authentication_failed");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "The provided API key is invalid or has expired. Please check your API key and try again."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 

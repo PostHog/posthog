@@ -25,6 +25,7 @@ import { IconChevronDown } from '@posthog/icons'
 
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import {
     AllowedProperties,
     DataWarehousePopoverField,
@@ -145,7 +146,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
 
     const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps } = props
     return (
-        <span className="relative inline-flex max-w-full min-w-0">
+        <span className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
             {buildTriggerButton({
                 value,
                 renderValue,

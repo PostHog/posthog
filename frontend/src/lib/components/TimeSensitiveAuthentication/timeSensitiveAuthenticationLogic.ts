@@ -12,7 +12,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { PrecheckResponseType } from 'scenes/authentication/loginLogic'
+import { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { modalInterruptionTrackingLogic } from './modalInterruptionTrackingLogic'

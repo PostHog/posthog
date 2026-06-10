@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
 
+import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { type ChartTheme, type TooltipContext } from 'lib/hog-charts'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

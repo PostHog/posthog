@@ -118,6 +118,7 @@ export function NavTabChat({
                         </label>
                         <Link
                             to={urls.ai()}
+                            data-attr="nav-chat-new"
                             buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
                             tooltip="New chat"
                         >
@@ -178,6 +179,7 @@ export function NavTabChat({
                                                                                     to={AiChatListItem.getHref(
                                                                                         conversation.id
                                                                                     )}
+                                                                                    data-attr="nav-chat-history-conversation"
                                                                                     buttonProps={{
                                                                                         active:
                                                                                             conversation.id ===

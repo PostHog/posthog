@@ -82,11 +82,11 @@ and disabled when a custom job is created for the same level.
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-    JSONExtractString(properties, '$ai_clustering_level') as level,
-    JSONExtractString(properties, '$ai_window_start') as window_start,
-    JSONExtractString(properties, '$ai_window_end') as window_end,
-    JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
+    properties.$ai_clustering_run_id as run_id,
+    properties.$ai_clustering_level as level,
+    properties.$ai_window_start as window_start,
+    properties.$ai_window_end as window_end,
+    toInt(properties.$ai_total_items_analyzed) as total_items,
     timestamp
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
@@ -100,18 +100,18 @@ LIMIT 10
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-    JSONExtractString(properties, '$ai_clustering_level') as level,
-    JSONExtractString(properties, '$ai_clustering_job_id') as job_id,
-    JSONExtractString(properties, '$ai_clustering_job_name') as job_name,
-    JSONExtractString(properties, '$ai_window_start') as window_start,
-    JSONExtractString(properties, '$ai_window_end') as window_end,
-    JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
-    JSONExtractRaw(properties, '$ai_clusters') as clusters,
-    JSONExtractRaw(properties, '$ai_clustering_params') as params
+    properties.$ai_clustering_run_id as run_id,
+    properties.$ai_clustering_level as level,
+    properties.$ai_clustering_job_id as job_id,
+    properties.$ai_clustering_job_name as job_name,
+    properties.$ai_window_start as window_start,
+    properties.$ai_window_end as window_end,
+    toInt(properties.$ai_total_items_analyzed) as total_items,
+    properties.$ai_clusters as clusters,
+    properties.$ai_clustering_params as params
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
-    AND JSONExtractString(properties, '$ai_clustering_run_id') = '<run_id>'
+    AND properties.$ai_clustering_run_id = '<run_id>'
 LIMIT 1
 ```
 
@@ -128,7 +128,7 @@ For trace-level clusters, compute cost/latency/token metrics:
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_trace_id') as trace_id,
+    properties.$ai_trace_id as trace_id,
     sum(toFloat(properties.$ai_total_cost_usd)) as total_cost,
     max(toFloat(properties.$ai_latency)) as latency,
     sum(toInt(properties.$ai_input_tokens)) as input_tokens,
@@ -138,7 +138,7 @@ FROM events
 WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND JSONExtractString(properties, '$ai_trace_id') IN ('<trace_id_1>', '<trace_id_2>', ...)
+    AND properties.$ai_trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
 GROUP BY trace_id
 ```
 
@@ -157,7 +157,7 @@ FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND toString(uuid) IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
+    AND uuid IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
 ```
 
 ### Step 4 — Drill into specific traces
