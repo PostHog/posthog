@@ -166,6 +166,43 @@ export const ToolConfigSchema = z
                 message: 'response.include and response.exclude are mutually exclusive',
             })
             .optional(),
+        /**
+         * Opt the tool into the typed-confirm two-tool paradigm. Codegen
+         * emits TWO tools per YAML entry that declares this block:
+         *
+         *   - `<name>-prepare` — signs the validated args + user identity into
+         *     a hash and returns a result instructing the model to surface the
+         *     confirmation prompt to the user.
+         *   - `<name>-execute` — takes the hash plus the literal string the
+         *     user typed, validates both (single-use, TTL-bounded), then runs
+         *     the underlying action with the original args.
+         *
+         * Use for destructive or security-sensitive actions an LLM should
+         * never perform unattended (org-wide settings, key revocation,
+         * bulk deletes). The security guarantee is weaker than client-
+         * rendered elicitation because the LLM controls the `confirmation`
+         * argument — but strictly stronger than a single destructive tool.
+         */
+        confirmed_action: z
+            .object({
+                /**
+                 * Prompt text shown to the user. Supports `{paramName}`
+                 * placeholders interpolated from the validated tool args
+                 * at runtime.
+                 *
+                 * Example: `"About to enable enforce 2FA on organization {orgId}. Reply 'confirm' to proceed."`
+                 */
+                message: z.string(),
+                /**
+                 * Short human-readable label for the action ("enable 2FA",
+                 * "delete project"). Surfaced in refusal messages when the
+                 * confirmation fails so the user sees what was refused.
+                 * Defaults to the tool's title if omitted.
+                 */
+                action_label: z.string().optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict()
     .refine(
