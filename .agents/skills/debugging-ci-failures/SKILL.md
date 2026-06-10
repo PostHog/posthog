@@ -137,7 +137,7 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 | Class               | Repro guidance                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------ |
 | code regression     | `hogli test path/to/test.py::TestClass::test_method` or `hogli test <file.test.ts>`  |
-| flaky test          | Hand off to the `fixing-flaky-tests` skill (N-run reproduction + validation loop).   |
+| flaky test          | Hand off to the `fixing-flaky-tests` skill.                                          |
 | lint                | Use the failing formatter/linter on touched files, e.g. `hogli format:python`.       |
 | typecheck           | Run the failing checker, e.g. `pnpm --filter=@posthog/frontend typescript:check`.    |
 | snapshot / visual   | Run the specific Playwright or Storybook workflow; read `playwright-test` if needed. |

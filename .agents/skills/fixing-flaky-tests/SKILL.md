@@ -69,7 +69,9 @@ level that reproduces it; that level is your validation environment for step 6.
 1. **Single run**: `hogli test <path>::<test>` — confirms the test runs at all.
 2. **Repetition loop** (default N=20): catches probabilistic flakes.
 3. **CI-like conditions**: CI runs Jest sharded with `--maxWorkers=2 --forceExit`
-   on contended runners. Run the test alongside its shard neighbors:
+   on contended runners (flags live in `frontend/package.json`'s `test` script and
+   `.github/workflows/ci-frontend.yml` — check there if these drift). Run the test
+   alongside its shard neighbors:
 
    ```bash
    pnpm --filter=@posthog/frontend jest <test_file> <neighbor_file> --maxWorkers=2 --forceExit
@@ -96,6 +98,15 @@ for i in $(seq 1 $N); do
 done
 echo "$PASS passed, $FAIL failed out of $N"
 ```
+
+Two cost notes for the loop:
+
+- While reproducing, `break` after the first failure — one captured failure log is
+  enough. Complete all N runs only when measuring the failure rate or validating
+  in step 6.
+- The `pnpm --filter=@posthog/frontend jest` script runs `pnpm build:products`
+  before every invocation. Inside a loop, build once, then iterate with
+  `pnpm --filter=@posthog/frontend exec jest ...`, which skips the rebuild.
 
 **If nothing reproduces after the full ladder**, the flake is CI-environment-specific.
 Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so
@@ -125,8 +136,9 @@ PostHog-specific patterns:
   `toFinishAllListeners()` timeout, not a network error. Look for `[MSW] Unhandled`
   in the CI log and add the missing `useMocks` entry.
 - **`toFinishAllListeners()` timeouts**: waits for ALL kea listener promises across
-  ALL mounted logics (3s default). Any connected logic with a pending loader blocks
-  it. Fix the pending work; do not raise the timeout.
+  ALL mounted logics (3s default — `LISTENER_FINISH_WAIT_TIMEOUT` in
+  `kea-test-utils`). Any connected logic with a pending loader blocks it. Fix the
+  pending work; do not raise the timeout.
 - **Mock URL mismatch**: `mocksToHandlers` strips trailing slashes, but query params,
   `@current`-style segments, and `:param` patterns must match the real request URL.
   Compare against the `[MSW] Unhandled` line.
