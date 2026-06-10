@@ -1138,8 +1138,12 @@ function buildConfirmedActionFactories(args: {
         if (!__guard.ok) {
             return __guard.result as never
         }
+        // Replace, do NOT merge: only signed fields are authorized. Any
+        // base-schema field the model slipped into the execute call
+        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
+        // would otherwise survive into the downstream API body.
         // eslint-disable-next-line no-param-reassign
-        params = { ...params, ...__guard.verifiedArgs } as typeof params
+        params = { ...__guard.verifiedArgs } as typeof params
 ${originalHandlerBody}`
 
     const prepareBody = `{

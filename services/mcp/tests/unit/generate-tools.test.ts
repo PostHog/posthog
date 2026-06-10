@@ -1656,6 +1656,25 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).toContain("method: 'PATCH'")
     })
 
+    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
+        // The generated handler must not preserve incoming params alongside
+        // verifiedArgs — only the signed payload is authorized. A merge
+        // would let the model slip an unsigned base-schema field (e.g. an
+        // extra 'name') into the downstream API body without it ever being
+        // shown to the user at prepare time.
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
+        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+    })
+
     it('uses the tool title as the fallback action_label when none is set', () => {
         const config: ToolConfig = {
             ...makeConfirmedConfig(),
