@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
 
 
@@ -417,3 +417,63 @@ class TestTicketCreatedEventSignal(BaseTest):
 
         assert ticket.id is not None
         mock_capture.assert_called_once()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestEmailReplySignalGuard(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="signal0test1",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+        self.email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            email_config=self.config,
+            widget_session_id="",
+            distinct_id="customer@external.com",
+            email_from="customer@external.com",
+            email_subject="Help",
+        )
+
+    def test_from_email_comment_does_not_create_outbox(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="Inbound team reply via email",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False, "from_email": True},
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 0
+
+    def test_agent_reply_without_from_email_creates_outbox(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="In-app agent reply",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 1
+
+    def test_customer_comment_does_not_create_outbox(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="Customer follow-up",
+            item_context={"author_type": "customer", "is_private": False, "from_email": True},
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 0
