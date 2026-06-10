@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import { performQuery } from '~/queries/query'
-import { EventsQuery } from '~/queries/schema/schema-general'
+import { EventsQuery, EventsQueryResponse } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
@@ -14,13 +14,13 @@ import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 // Filter evaluation cost is unchanged — both phases evaluate the same WHERE clause. The win is on
 // per-scanned-row projection cost during deep scans for sparse filters. See sessionEventsDataLogic
 // for the same window-bounded `uuid IN (...)` pattern applied elsewhere.
-export async function performWideEventsQueryInTwoPhases(intent: EventsQuery): Promise<any> {
+export async function performWideEventsQueryInTwoPhases(intent: EventsQuery): Promise<EventsQueryResponse> {
     const phaseOne: EventsQuery = {
         ...intent,
         select: ['uuid', 'timestamp'],
     }
     const phaseOneResponse = await performQuery(phaseOne)
-    const phaseOneResults = (phaseOneResponse?.results ?? []) as Array<[string, string]>
+    const phaseOneResults = phaseOneResponse.results as Array<[string, string]>
     if (phaseOneResults.length === 0) {
         return phaseOneResponse
     }
