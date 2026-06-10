@@ -39,6 +39,7 @@ from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
 )
+from posthog.temporal.common.exception_signing import make_exception_signer
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
@@ -559,6 +560,15 @@ class Command(BaseCommand):
         health_server: HealthCheckServer | None = None
 
         tag_queries(kind="temporal")
+
+        # Sign every $exception captured in this worker process so downstream consumers can
+        # verify it genuinely came from our backend (the ingest key is public). Registered
+        # here — once per worker process, before any capture — so it applies to all task
+        # queues; posthoganalytics re-reads before_send on each capture. No-op when unset.
+        if settings.TEMPORAL_EXCEPTION_SIGNING_SECRET:
+            import posthoganalytics
+
+            posthoganalytics.before_send = make_exception_signer(settings.TEMPORAL_EXCEPTION_SIGNING_SECRET)
 
         # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
         # Without the OTel plugin on the worker, every span emitted from an activity is a root span

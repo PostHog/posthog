@@ -17,6 +17,12 @@ TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONV
 TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
 TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
 
+# Shared HMAC secret used to sign $exception events captured by temporal workers, so a
+# downstream consumer can verify the exception genuinely originated from our backend (and
+# wasn't forged against the public ingest key). When unset, signing is disabled. Applies to
+# every temporal worker, not a single product.
+TEMPORAL_EXCEPTION_SIGNING_SECRET: str = os.getenv("TEMPORAL_EXCEPTION_SIGNING_SECRET", "")
+
 
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
