@@ -4,10 +4,11 @@ from unittest.mock import patch
 from rest_framework import exceptions
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.message_routing import MessageRoutingService
+from products.posthog_ai.backend.message_routing import MessageRoutingService, SandboxCommandError
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.services.agent_command import CommandResult
 
 ROUTING = "products.posthog_ai.backend.message_routing"
 
@@ -262,16 +263,27 @@ class TestHandleSandboxCancel(APIBaseTest):
     def test_cancel_delegates_to_command_path(self):
         task, run = self._task_with_run(TaskRun.Status.IN_PROGRESS)
 
-        def _mark_cancelled(target_run):
-            TaskRun.objects.filter(id=target_run.id).update(status=TaskRun.Status.CANCELLED)
-
-        with patch(f"{ROUTING}.send_cancel", side_effect=_mark_cancelled) as m_cancel:
+        with patch(f"{ROUTING}.send_cancel", return_value=CommandResult(success=True, status_code=200)) as m_cancel:
             result = self._service().cancel()
 
+        # The command is delivered; the run stays live until the agent acts on it,
+        # so the response reports the current (not yet terminal) status.
         assert result["task_id"] == str(task.id)
         assert result["run_id"] == str(run.id)
-        assert result["run_status"] == TaskRun.Status.CANCELLED
+        assert result["run_status"] == TaskRun.Status.IN_PROGRESS
         m_cancel.assert_called_once()
+
+    def test_cancel_delivery_failure_raises_502(self):
+        self._task_with_run(TaskRun.Status.IN_PROGRESS)
+
+        with patch(
+            f"{ROUTING}.send_cancel",
+            return_value=CommandResult(success=False, status_code=0, error="connection refused"),
+        ):
+            with self.assertRaises(SandboxCommandError) as ctx:
+                self._service().cancel()
+
+        assert ctx.exception.status_code == 502
 
     def test_cancel_terminal_run_is_idempotent(self):
         task, run = self._task_with_run(TaskRun.Status.COMPLETED)
