@@ -1733,33 +1733,29 @@ def route_posthog_code_event_to_relevant_region(
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # ---- message events: short-circuit to workflow start ----
-        # The handler stays fast: a tagged thread that's opted in dispatches
-        # immediately, and the workflow runs the classifier (LLM + Slack
-        # thread-history fetch) under Temporal's retry policy. No user
-        # resolution, no scopes, no approval — the originating ``app_mention``
-        # already cleared those gates to create the mapping; if they were
-        # revoked since, the workflow's downstream Slack calls surface it.
+        # ---- message-only: mapping + feature flag gate ----
+        # Decides whether a ``message`` event enters the shared pipeline at all.
+        # A thread we don't own (or one whose org hasn't opted in) is dropped
+        # here so we never pay for user resolution downstream.
+        untagged_followup_mapping: SlackThreadTaskMapping | None = None
         if event_type == "message":
-            mapping = _resolve_untagged_followup_mapping(
+            untagged_followup_mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
                 channel=channel_str,
                 thread_ts=thread_ts_str,
                 slack_team_id=slack_team_id,
             )
-            if mapping is None:
+            if untagged_followup_mapping is None:
                 return ROUTE_HANDLED_LOCALLY
-            return _start_mention_workflow(
-                event,
-                mapping.integration,
-                slack_team_id,
-                event_id,
-                posthog_user=None,
-                untagged_followup=True,
-            )
 
         # =====================================================================
-        # app_mention-only: full pipeline (resolve user, scopes, approval, dispatch)
+        # From here on, both event types run the same body. The user-facing
+        # side effects (failure reply, picker hint, scope notice, approval
+        # prompt) and the rules command shortcut are mention-only — for
+        # untagged followups the same gates apply but the failure path is a
+        # silent return. The originating ``app_mention`` already cleared all of
+        # these gates to create the mapping; if anything changed since, we drop
+        # without spamming the thread.
         # =====================================================================
 
         resolution = resolve_user_for_workspace(
@@ -1770,6 +1766,15 @@ def route_posthog_code_event_to_relevant_region(
         )
 
         if resolution.user is None:
+            if untagged_followup_mapping is not None:
+                logger.info(
+                    "posthog_code_thread_message_unknown_user",
+                    slack_team_id=slack_team_id,
+                    channel=channel_str,
+                    thread_ts=thread_ts_str,
+                    slack_user_id=slack_user_id_str,
+                )
+                return ROUTE_HANDLED_LOCALLY
             # Skip the failure reply in an unapproved externally-shared channel —
             # the channel hasn't opted in yet, so a public "Sorry, I couldn't
             # find <email>" post would leak the integration's existence to
@@ -1794,22 +1799,43 @@ def route_posthog_code_event_to_relevant_region(
         candidates = resolution.candidates
         target = resolution.integration
 
-        if _parse_rules_command(event.get("text", "")) is not None:
+        # Rules command is meaningful only when the user actually typed
+        # ``@PostHog`` — an untagged thread reply can never be a rules command.
+        if untagged_followup_mapping is None and _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
+        # A tagged-thread ``message`` is bound to its mapping's integration —
+        # the mapping was the user's last explicit choice in this thread, so no
+        # picker hint applies.
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
-        if mention_target is None:
+        if untagged_followup_mapping is not None:
+            mention_target = untagged_followup_mapping.integration
+        elif mention_target is None:
             _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
             return ROUTE_HANDLED_LOCALLY
 
         slack = SlackIntegration(mention_target)
         missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
         if missing:
+            if untagged_followup_mapping is not None:
+                logger.info(
+                    "posthog_code_thread_message_missing_scopes",
+                    slack_team_id=slack_team_id,
+                    integration_id=mention_target.id,
+                )
+                return ROUTE_HANDLED_LOCALLY
             _notify_missing_slack_scopes(slack, event, missing)
             return ROUTE_HANDLED_LOCALLY
 
         channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
         if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
+            if untagged_followup_mapping is not None:
+                logger.info(
+                    "posthog_code_thread_message_channel_unapproved",
+                    slack_team_id=slack_team_id,
+                    channel=channel_id,
+                )
+                return ROUTE_HANDLED_LOCALLY
             _post_channel_approval_prompt(slack, mention_target, event)
             return ROUTE_HANDLED_LOCALLY
 
@@ -1819,6 +1845,7 @@ def route_posthog_code_event_to_relevant_region(
             slack_team_id,
             event_id,
             posthog_user=posthog_user,
+            untagged_followup=untagged_followup_mapping is not None,
         )
 
     # link_shared (unfurl) works with either integration kind.

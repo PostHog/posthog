@@ -50,6 +50,20 @@ class TestRouteThreadMessage(TestCase):
             real_name="Alice Example",
             refreshed_at=timezone.now(),
         )
+        # Bob participates in the thread (default ``_make_event`` user). Seed
+        # him as a real PostHog user with team access so the user-resolution
+        # gate passes for happy-path tests; the silent-drop test deliberately
+        # uses a different unknown user id.
+        self.bob = User.objects.create(email="bob@example.com", distinct_id="user-2")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.bob)
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U_BOB",
+            email="bob@example.com",
+            display_name="Bob",
+            real_name="Bob Example",
+            refreshed_at=timezone.now(),
+        )
 
         self.task = self.Task.objects.create(
             team=self.team,
@@ -178,40 +192,112 @@ class TestRouteThreadMessage(TestCase):
         mock_resolve.assert_not_called()
         mock_start.assert_not_called()
 
-    # --- Workflow handoff --------------------------------------------------
+    # --- User-resolution gate ---------------------------------------------
+
+    def test_unknown_user_dropped_silently(self):
+        """An untagged thread message from a Slack user we can't resolve drops
+        silently — unlike the mention path, no failure reply is posted, because
+        per-observer notices would spam the thread on every message."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        event = self._make_event(user="U_UNKNOWN")
+        with (
+            patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = self._route(event)
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_failure.assert_not_called()
+        mock_start.assert_not_called()
+
+    # --- Scope + approval gates ------------------------------------------
 
     @override_settings(DEBUG=False)
-    def test_tagged_message_starts_workflow_without_classifier_or_user_resolution(self):
-        """The handler must not call the classifier, must not collect thread
-        history, and must not resolve the PostHog user — all of that moved
-        into the mention workflow. The handler's only job is to start the
-        workflow with ``untagged_followup=True`` and ``posthog_user=None``."""
+    def test_missing_scopes_dropped_silently(self):
+        """Scopes can only be missing if they were revoked after the mapping
+        was created. Drop silently rather than reposting the notice on every
+        message."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         with (
-            patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
-            patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure,
+            patch(
+                "products.slack_app.backend.api.SlackIntegration.missing_scopes", return_value=frozenset({"chat:write"})
+            ),
+            patch("products.slack_app.backend.api._notify_missing_slack_scopes") as mock_notify,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = self._route(self._make_event())
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_notify.assert_not_called()
+        mock_start.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    def test_unapproved_ext_shared_channel_dropped_silently(self):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        with (
+            patch("products.slack_app.backend.api._channel_is_approved", return_value=False),
+            patch("products.slack_app.backend.api._post_channel_approval_prompt") as mock_prompt,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = route_posthog_code_event_to_relevant_region(
+                request, self._make_event(), "T_SLACK", is_ext_shared_channel=True
+            )
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_prompt.assert_not_called()
+        mock_start.assert_not_called()
+
+    # --- Rules command not invoked for untagged --------------------------
+
+    @override_settings(DEBUG=False)
+    def test_rules_command_text_does_not_trigger_command_workflow(self):
+        """A rules-shaped message in an untagged thread (no @mention) must not
+        kick off the command workflow — the user never tagged us. It should
+        flow through to the regular mention workflow with
+        ``untagged_followup=True`` so the classifier in the workflow can drop
+        it as off-topic."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        rules_text = '@PostHog rules add "use the helper" org/repo'
+        with (
+            patch("products.slack_app.backend.api._start_command_workflow") as mock_command,
             patch(
                 "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
             ) as mock_start,
         ):
-            result = self._route(self._make_event())
+            result = self._route(self._make_event(text=rules_text))
         assert result == ROUTE_HANDLED_LOCALLY
-        mock_resolve.assert_not_called()
-        mock_failure.assert_not_called()
+        mock_command.assert_not_called()
+        mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+    # --- Workflow handoff (happy path) -----------------------------------
+
+    @override_settings(DEBUG=False)
+    def test_tagged_message_starts_workflow_with_resolved_user_and_untagged_flag(self):
+        """Happy path: the handler runs the same gates as a mention but on
+        success starts the workflow with ``untagged_followup=True`` and the
+        resolved PostHog user. The classifier and thread-history fetch happen
+        inside the workflow."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        with patch(
+            "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+        ) as mock_start:
+            result = self._route(self._make_event(user="U_ALICE"))
+        assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_called_once()
         kwargs = mock_start.call_args.kwargs
-        assert kwargs["posthog_user"] is None
+        assert kwargs["posthog_user"].id == self.user.id
         assert kwargs["untagged_followup"] is True
 
     # --- Symmetry with the app_mention path -------------------------------
 
     @override_settings(DEBUG=False)
     def test_app_mention_and_tagged_message_both_reach_mention_workflow(self):
-        """An ``app_mention`` and a tagged-thread ``message`` both end at
-        ``_start_mention_workflow``; only the ``untagged_followup`` kwarg and
-        ``posthog_user`` differ (mentions resolve up front, untagged followups
-        defer resolution to the workflow)."""
+        """Both event types end at ``_start_mention_workflow`` with the user
+        resolved; only the ``untagged_followup`` kwarg differs."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         mention_event = {
@@ -233,4 +319,4 @@ class TestRouteThreadMessage(TestCase):
         assert first.kwargs.get("untagged_followup", False) is False
         assert first.kwargs["posthog_user"].id == self.user.id
         assert second.kwargs["untagged_followup"] is True
-        assert second.kwargs["posthog_user"] is None
+        assert second.kwargs["posthog_user"].id == self.user.id
