@@ -94,6 +94,7 @@ the row lists both.
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
+| mailgun          | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
@@ -253,7 +254,6 @@ doesn't conflict with concurrent PRs.
 - lattice
 - lever
 - lightspeed_retail
-- mailgun
 - marketo
 - matomo
 - microsoft_teams

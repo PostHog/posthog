@@ -791,7 +791,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailgunSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
