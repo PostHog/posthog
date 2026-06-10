@@ -9,7 +9,6 @@ from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import has_tasks_access
 
 logger = get_logger(__name__)
@@ -132,6 +131,8 @@ def _post_pr_opened_notification_once(
     pr_url: str,
     task_url: str | None,
 ) -> None:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
     if _is_pr_opened_notified(task_run, pr_url):
         return
 
