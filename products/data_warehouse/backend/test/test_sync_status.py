@@ -103,6 +103,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert warning.table_name == "stripe_charge"
         assert warning.schema_name == "Charge"
         assert warning.source_type == ExternalDataSourceType.STRIPE
+        assert warning.source_id == str(self.source.id)
         assert warning.status == str(status)
         assert "stripe_charge" in warning.message
 
@@ -128,6 +129,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert warnings[0].status == str(ExternalDataSchema.Status.RUNNING)
+        assert warnings[0].source_id == str(self.source.id)
         assert "more than twice" in warnings[0].message
 
     def test_no_warning_when_running_at_exact_threshold(self) -> None:
@@ -157,8 +159,57 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert "paused" in warnings[0].message.lower()
+        assert warnings[0].source_id == str(self.source.id)
         # status must be consistent with the "paused" message, not the raw schema status (Completed).
         assert warnings[0].status == ExternalDataSchema.Status.PAUSED
+
+    def test_paused_but_fresh_does_not_imply_staleness(self) -> None:
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            should_sync=False,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(minutes=36),
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+        message = warnings[0].message
+        assert warnings[0].status == ExternalDataSchema.Status.PAUSED
+        assert "paused" in message.lower()
+        assert "current as of" in message
+        assert "won't update" in message
+        assert "reflect the last successful sync" not in message
+
+    def test_paused_and_stale_reflects_last_sync(self) -> None:
+        self._make_schema(
+            status=ExternalDataSchema.Status.PAUSED,
+            should_sync=False,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=20),
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+        assert "reflect the last successful sync" in warnings[0].message
+
+    def test_paused_and_never_synced(self) -> None:
+        self._make_schema(
+            status=ExternalDataSchema.Status.PAUSED,
+            should_sync=False,
+            last_synced_at=None,
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+        assert "hasn't completed a sync yet" in warnings[0].message
+
+    def test_warning_when_completed_but_stale(self) -> None:
+        self._make_schema(
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=6),
+            last_synced_at=self.now - timedelta(hours=13),
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert len(warnings) == 1
+        assert warnings[0].status == ExternalDataSchema.Status.COMPLETED
+        assert "out of date" in warnings[0].message
 
     def test_uses_preloaded_schemas_when_available(self) -> None:
         """If `_active_external_data_schemas` is set on the table, it's used directly without a DB query."""

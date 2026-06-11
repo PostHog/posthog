@@ -11,7 +11,7 @@ import hashlib
 from typing import Any, Optional, cast
 
 import pytest
-from posthog.test.base import BaseTest, MemoryLeakTestMixin
+from posthog.test.base import BaseTest, MemoryLeakTestMixin, no_memory_leak_check
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -63,13 +63,20 @@ class _SharedParserSnapshotExtension(AmberSnapshotExtension):
 
     @classmethod
     def get_snapshot_name(cls, *, test_location: Any, index: Any = 0) -> str:
+        # Strip `parameterized.expand`'s `_<idx>` / `_<idx>_<name>` suffix so
+        # `test_foo_0_case_a` keys the same snapshot as the un-parametrized
+        # `test_foo`. The `_assert_ast` snapshot key is the SOURCE STRING via
+        # `_snapshot_key(src)` — so a parameterized variant carrying the same
+        # `src` should reuse the same snapshot regardless of method-name
+        # decoration.
+        base_method = re.sub(r"_\d+(?:_[A-Za-z0-9_]+)?$", "", test_location.methodname)
         if isinstance(index, str):
             index_suffix = f"[{index}]"
         elif index:
             index_suffix = f".{index}"
         else:
             index_suffix = ""
-        return f"{test_location.methodname}{index_suffix}"
+        return f"{base_method}{index_suffix}"
 
 
 def _snapshot_key(src: str) -> str:
@@ -366,7 +373,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
 
         def test_byte_order_mark_does_not_break_parse(self):
-            # A file saved with a leading UTF-8 byte-order mark still parses.
+            # A file saved with a leading UTF-8 byte-order mark still parses, AND the BOM is zero-width to cpp's
+            # ANTLR lexer: every char offset is reckoned from the char AFTER the BOM. `_assert_ast` pins the exact
+            # span (via the cross-backend snapshot) so a parser that counts the BOM as 1 char (rust's natural
+            # `byte_to_char_index` behaviour, before the leading-BOM adjustment) fails here.
+            self._assert_ast("﻿let x := 1", "program")
             self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
 
         def test_booleans(self):
@@ -2812,6 +2823,35 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                # A non-first CTE whose column-form expression begins with a paren group
+                # followed by an operator tail. The CTE-list disambiguation must look past
+                # the paren group to the top-level `AS <ident>` alias; an early version of
+                # the rust parser stopped at the matching `)` and mis-parsed the remainder
+                # as the enclosing SELECT's paren.
+                ("operator_tail_after_paren_group", "WITH 5 AS a, 2 AS b, (a - b) * 10 AS c SELECT c", ["a", "b", "c"]),
+                ("single_paren_then_operator", "WITH 1 AS a, (a) + 1 AS c SELECT c", ["a", "c"]),
+                ("both_ctes_paren_led", "WITH (a - b) AS c, (c) * 2 AS d SELECT d", ["c", "d"]),
+                ("scalar_subquery_in_expression", "WITH 1 AS a, (SELECT 2) + 1 AS c SELECT c", ["a", "c"]),
+                (
+                    "paren_then_property_access",
+                    "WITH x AS (SELECT 1 AS n), (x.n) * 2 AS y SELECT y FROM x",
+                    ["x", "y"],
+                ),
+                # Disambiguation that must be preserved: an alias directly after the paren
+                # group is still a CTE, and a trailing-comma paren main query (no alias)
+                # must terminate the CTE list rather than be swallowed as a CTE.
+                ("immediate_alias_after_paren", "WITH 1 AS a, (a) AS c SELECT c", ["a", "c"]),
+                ("immediate_alias_after_subquery", "WITH 1 AS a, (SELECT 2) AS c SELECT c", ["a", "c"]),
+                ("trailing_comma_paren_main_query", "WITH 1 AS a, (SELECT 2)", ["a"]),
+            ]
+        )
+        def test_paren_led_cte_disambiguation(self, _name: str, query: str, expected_ctes: list[str]):
+            node = cast(ast.SelectQuery, self._select(query))
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(sorted(node.ctes.keys()), sorted(expected_ctes))
+
         def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
             # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`, so `JoinExpr.__post_init__` raises `ValueError` on every backend. rust-py writes `join_type` post-construction (via `chain_join`), so `PyEmitter::set_field` re-fires `__post_init__` and restores the original exception — surfacing the same `ValueError` the json backends raise from `cls(**kwargs)`.
             q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
@@ -4837,6 +4877,16 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "select")
 
+        def test_limit_by_then_limit_offset_position_stops_before_outer_offset(self):
+            # `selectStmt: ... limitByClause? (limitAndOffsetClause | offsetOnlyClause)?`
+            # `limitAndOffsetClause` lists compact (no OFFSET) before verbose (with OFFSET),
+            # so ANTLR ALL(*) picks compact for the trailing `LIMIT n` after limit-by — the
+            # `OFFSET m` belongs to the outer `selectSetStmt`'s `limitAndOffsetClauseOptional`,
+            # and the inner SelectQuery's source span stops at the LIMIT, not the OFFSET.
+            # Pinned so a regression that greedily eats OFFSET inside selectStmt — extending
+            # the SelectQuery end past the trailing OFFSET — fails here.
+            self._assert_ast("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3", "select")
+
         def test_zero_arg_lambda_as_clause_body(self):
             # After `,`, a clause-keyword + `()->` is a lambda clause body; bare `()` makes the keyword a column.
             cases = (
@@ -4877,6 +4927,59 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             for src in cases:
                 self._assert_ast(src, "select")
+
+        @parameterized.expand(
+            [
+                # `tableExpr: LPAREN valuesClause RPAREN` — the ValuesQuery node spans the
+                # inner `VALUES (...)` (cpp's valuesClause ctx), not the stripped outer
+                # parens. Pinned with positions so a regression that drops the span (or
+                # wraps the outer parens) fails here on rust / rust-py.
+                ("no_alias", "SELECT * FROM (VALUES (1, 'a'))"),
+                ("alias_with_columns", "SELECT * FROM (VALUES (1, 'a')) AS v(id, name)"),
+                (
+                    "multi_row_tuples",
+                    "SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))",
+                ),
+            ]
+        )
+        def test_values_clause_in_from_carries_positions(self, _name: str, src: str) -> None:
+            self._assert_ast(src, "select")
+
+        @no_memory_leak_check  # re-clears positions per run (allocates); correctness pin, runs once
+        def test_internal_parse_emits_no_positions(self):
+            # `parse_expr(..., start=None)` is cpp's `is_internal` mode: a synthetic
+            # fragment (e.g. an injected database `ExpressionField`) has no meaningful
+            # source span, so cpp gates off every `addPositionInfo` and every node is
+            # position-less. All backends must match — a backend that emits spans here
+            # diverges from cpp on the many queries that join through person overrides.
+            src = "if(not(empty(override.distinct_id)), override.person_id, event_person_id)"
+            internal = parse_expr(src, start=None, backend=backend)
+            positioned = parse_expr(src, start=0, backend=backend)
+            self.assertEqual(internal, clear_locations(positioned))
+            self.assertIsNone(internal.start)
+            self.assertIsNone(internal.end)
+
+        @parameterized.expand(
+            [
+                # `parse_full_template_string` returns the result of the body splitter — a multi-chunk
+                # `concat(...)` or a single chunk. cpp positions by chunk count: the multi-chunk wrapper
+                # spans the whole `F'…'` input (rule ctx), but a single-chunk shortcut keeps the inner
+                # element's own span (literal text or substitution expr). Both shapes pinned so a
+                # regression that wraps unconditionally (clobbering the single-chunk span) — or that
+                # drops the multi-chunk wrap — fails here.
+                # multi-chunk → outer span (0..len(src))
+                ("multi_arraymap_bang", "Hello, {arrayMap(a -> a, [1, 2, 3])}!"),
+                ("multi_lib_version", "v={event.properties.$lib_version}"),
+                ("multi_typescript_arraymap", "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"),
+                # single literal → wrap_literal_chunk span (body_offset..body_end)
+                ("single_literal_hello", "hello"),
+                # single substitution → inner expr span (only the placeholder body)
+                ("single_substitution_field", "{x}"),
+                ("single_substitution_bool", "{true}"),
+            ]
+        )
+        def test_template_string_top_level_carries_outer_span(self, _name: str, src: str) -> None:
+            self._assert_ast(src, "template")
 
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.

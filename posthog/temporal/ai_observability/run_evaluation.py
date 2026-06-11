@@ -5,15 +5,17 @@ from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, model_validator
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
@@ -527,13 +529,16 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
 
 
 @temporalio.activity.defn
-async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
+@posthoganalytics.scoped()
+def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
-    from django.utils import timezone
+    return _execute_llm_judge_activity(inputs)
 
+
+def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     evaluation = inputs.evaluation
     event_data = inputs.event_data
 
@@ -589,7 +594,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
                 return key
             # Active key exists but is invalid - fail, don't fall back to trial
             raise ApplicationError(
-                f"Your API key is {key.state}. Please fix or replace it.",
+                f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
                 {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                 non_retryable=True,
             )
@@ -611,7 +616,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
-                    f"Your API key is {key.state}. Please fix or replace it.",
+                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
                     {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                     non_retryable=True,
                 )
@@ -642,7 +647,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
         provider_key_id = model_configuration.get("provider_key_id")
 
         if provider_key_id:
-            provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
+            provider_key = _get_provider_key_by_id(provider_key_id)
         else:
             # Using PostHog key — enforce trial model allowlist and quota
             if model not in TRIAL_MODEL_IDS:
@@ -651,13 +656,13 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
                     {"error_type": "model_not_allowed", "model": model},
                     non_retryable=True,
                 )
-            await database_sync_to_async(_check_trial_quota)()
+            _check_trial_quota()
             provider_key = None
     else:
         # TODO(llma): Remove after migration completes - legacy evals without model_configuration
         provider = "openai"
         model = DEFAULT_JUDGE_MODEL
-        provider_key = await database_sync_to_async(_get_legacy_provider_key)()
+        provider_key = _get_legacy_provider_key()
 
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
@@ -1060,7 +1065,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 
         event_timestamp = datetime.now(UTC)
 
-        resp = capture_internal(
+        capture_result = capture_internal_routed(
             token=team.api_token,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
@@ -1069,7 +1074,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             properties=properties,
             process_person_profile=True,
         )
-        resp.raise_for_status()
+        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

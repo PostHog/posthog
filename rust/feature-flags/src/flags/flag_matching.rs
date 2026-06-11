@@ -1025,6 +1025,7 @@ impl FeatureFlagMatcher {
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        Some(&self.flag_evaluation_state.flag_evaluation_results),
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1292,6 +1293,7 @@ impl FeatureFlagMatcher {
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
+        let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1411,6 +1413,22 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
+
+            // OutOfRolloutBound means the condition's property filters (if any) already
+            // matched and only the rollout check failed, so re-evaluating later groups
+            // can't change the outcome.
+            if early_exit_enabled
+                && !is_match
+                && reason == FeatureFlagMatchReason::OutOfRolloutBound
+            {
+                return Ok(FeatureFlagMatch {
+                    matches: false,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(index),
+                    payload: None,
+                });
+            }
 
             // Update highest_match and highest_index
             let (new_highest_match, new_highest_index) = self

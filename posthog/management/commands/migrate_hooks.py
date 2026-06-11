@@ -1,9 +1,10 @@
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_workers
 from posthog.settings.ee import EE_AVAILABLE
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = False):
@@ -11,8 +12,8 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
         print("This command is only available in PostHog EE")  # noqa: T201
         return
 
-    from ee.api.hooks import create_zapier_hog_function
-    from ee.models.hook import Hook
+    from products.cdp.backend.api.hooks import create_zapier_hog_function
+    from products.cdp.backend.models.hook import Hook
 
     if hook_ids and team_ids:
         print("Please provide either hook_ids or team_ids, not both")  # noqa: T201

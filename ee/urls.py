@@ -13,6 +13,8 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
+from products.cdp.backend.api import hooks
+
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
@@ -21,28 +23,16 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import (
-    authentication,
-    billing,
-    conversation,
-    core_memory,
-    dashboard_collaborator,
-    hooks,
-    license,
-    sentry_stats,
-    subscription,
-)
+from .api import authentication, billing, conversation, core_memory, license, sentry_stats, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environment_dashboards_router,
         environments_router,
-        legacy_project_dashboards_router,
         organizations_router,
-        register_grandfathered_environment_nested_viewset,
+        register_legacy_dual_route_team_nested_viewset,
         router as root_router,
     )
 
@@ -63,22 +53,9 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
-    environment_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "environment_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
-    legacy_project_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "project_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
-
-    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
+    _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )
     env_subscriptions_router.register(

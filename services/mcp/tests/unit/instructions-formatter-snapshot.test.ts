@@ -13,12 +13,17 @@ const STATIC_GROUP_TYPES: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
     { group_type: 'project', group_type_index: 1, name_singular: null, name_plural: null },
 ]
+// Includes query-* (collapsed into the single `query` domain) so the snapshots
+// mirror production, where `tools` is the full set and `queryTools` is the
+// parallel catalog projection.
 const STATIC_TOOLS = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'query-funnel', category: 'Query wrappers' },
+    { name: 'query-trends', category: 'Query wrappers' },
 ]
 const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
@@ -36,7 +41,8 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
-    featureFlags: { 'mcp-feedback-tool': true },
+    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    renderUiEnabled: true,
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -47,21 +53,9 @@ const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
 // package.json). Otherwise the markdown formatter would reflow the snapshot on
 // commit and drift from what `formatPrompt` produces, breaking the test.
 describe('InstructionsFormatter prompt snapshots', () => {
-    it('matches the v1 (legacy) prompt', async () => {
+    it('matches the tools-mode prompt', async () => {
         const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildV1Instructions()
-        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-v1-instructions.txt'))
-    })
-
-    it('matches the v1 (legacy) prompt with metadata appended', async () => {
-        const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildV1Instructions(STATIC_METADATA)
-        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-v1-instructions-with-metadata.txt'))
-    })
-
-    it('matches the v2 (tools-mode) prompt', async () => {
-        const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildV2Instructions(STATIC_CTX)
+        const rendered = formatter.buildToolsInstructions(STATIC_CTX)
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions.txt'))
     })
 

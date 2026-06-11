@@ -16,6 +16,8 @@ export interface ExperimentsConfig {
     default_cuped_enabled: boolean
     default_cuped_lookback_days: number | null
     default_minimum_detectable_effect: number
+    default_sequential_testing_enabled: boolean
+    default_sequential_tuning_parameter: number | null
 }
 
 export const experimentsConfigLogic = kea<experimentsConfigLogicType>([

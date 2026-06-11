@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -40,6 +40,10 @@ export const userInterviewTopicsCreateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax = 400
 
+export const userInterviewTopicsCreateBodyInviteSubjectMax = 255
+
+export const userInterviewTopicsCreateBodyInviteMessageMax = 1000
+
 export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeEmailsItemMax))
@@ -58,6 +62,20 @@ export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Ordered list of questions the voice agent should work through during the interview.'),
+    invite_subject: zod
+        .string()
+        .max(userInterviewTopicsCreateBodyInviteSubjectMax)
+        .optional()
+        .describe(
+            'Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.'
+        ),
+    invite_message: zod
+        .string()
+        .max(userInterviewTopicsCreateBodyInviteMessageMax)
+        .optional()
+        .describe(
+            'Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.'
+        ),
 })
 
 /**
@@ -88,6 +106,10 @@ export const userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax = 400
 
+export const userInterviewTopicsPartialUpdateBodyInviteSubjectMax = 255
+
+export const userInterviewTopicsPartialUpdateBodyInviteMessageMax = 1000
+
 export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax))
@@ -106,6 +128,20 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Ordered list of questions the voice agent should work through during the interview.'),
+    invite_subject: zod
+        .string()
+        .max(userInterviewTopicsPartialUpdateBodyInviteSubjectMax)
+        .optional()
+        .describe(
+            'Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.'
+        ),
+    invite_message: zod
+        .string()
+        .max(userInterviewTopicsPartialUpdateBodyInviteMessageMax)
+        .optional()
+        .describe(
+            'Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.'
+        ),
 })
 
 /**
@@ -199,7 +235,9 @@ export const UserInterviewTopicsSendInvitesCreateBody = /* @__PURE__ */ zod.obje
         .string()
         .max(userInterviewTopicsSendInvitesCreateBodySubjectMax)
         .optional()
-        .describe('Override the default email subject line. Defaults to a friendly prompt referencing the topic.'),
+        .describe(
+            "Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default."
+        ),
     reply_to: zod
         .email()
         .optional()
@@ -355,6 +393,12 @@ export const UserInterviewsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const UserInterviewsListQueryParams = /* @__PURE__ */ zod.object({
+    classifications: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     topic: zod.string().optional(),
@@ -367,6 +411,29 @@ export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const UserInterviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax = 254
+
+export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    interviewee_emails: zod.array(zod.string().max(userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax)).optional(),
+    summary: zod.string().optional(),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('* `abandoned` - Abandoned\n* `off-topic` - Off-topic'))
+        .optional()
+        .describe(
+            'Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta.'
+        ),
+    audio: zod.url().optional(),
 })
 
 /**
@@ -401,6 +468,13 @@ export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('* `abandoned` - Abandoned\n* `off-topic` - Off-topic'))
+        .min(1)
+        .optional()
+        .describe(
+            'Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.'
+        ),
     limit: zod
         .number()
         .min(1)

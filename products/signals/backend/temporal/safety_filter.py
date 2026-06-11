@@ -1,13 +1,18 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from pydantic import BaseModel, Field, model_validator
 from temporalio import activity
 
+from posthog.event_usage import groups
+from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.facade.api import _telemetry_props_from_extra
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
 
 logger = structlog.get_logger(__name__)
@@ -102,6 +107,17 @@ Respond with valid JSON only:
 @dataclass
 class SafetyFilterInput:
     description: str
+    # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
+    # field existed must still deserialize on a new worker; missing => gateway key owner's team.
+    team_id: int | None = None
+    # Source identity and metadata, carried through purely so the blocked-signal lifecycle event
+    # can attribute which signal was dropped (for scout signals `extra` holds run_id, task_run_id,
+    # finding_id, skill_name, etc.). Optional for the same backward-compatibility reason as team_id.
+    source_product: str | None = None
+    source_type: str | None = None
+    source_id: str | None = None
+    weight: float | None = None
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -111,16 +127,18 @@ class SafetyFilterOutput:
     explanation: Optional[str]
 
 
-async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
+async def safety_filter(team_id: int | None, description: str) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
         return SafetyFilterJudgeResponse.model_validate(data)
 
     try:
         return await call_llm(
+            team_id=team_id,
             system_prompt=SAFETY_FILTER_PROMPT,
             user_prompt=description,
             validate=validate,
+            stage="safety_filter",
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(
@@ -130,15 +148,48 @@ async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
         )
 
 
+async def _capture_signal_blocked_event(input: SafetyFilterInput, result: SafetyFilterJudgeResponse) -> None:
+    """Emit a lifecycle event so blocked signals are trackable alongside the existing log line."""
+    if input.team_id is None:
+        return
+    try:
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        posthoganalytics.capture(
+            event="signal_blocked_by_safety_filter",
+            distinct_id=str(team.uuid),
+            properties={
+                # Flattened scalars only (truncated, nested lists/dicts dropped) — `extra`
+                # nests customer-derived content that must not leak into product analytics.
+                # Core keys win on conflict, same as signal_emitted / signal_emission_started.
+                **_telemetry_props_from_extra(input.extra),
+                "threat_type": result.threat_type,
+                "explanation": result.explanation,
+                "source_product": input.source_product,
+                "source_type": input.source_type,
+                "source_id": input.source_id,
+                "weight": input.weight,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception as e:
+        # Swallow the exception, to avoid breaking the flow over a failed analytics event
+        posthoganalytics.capture_exception(e)
+        logger.exception("Failed to capture signal_blocked_by_safety_filter event", team_id=input.team_id)
+
+
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
-        result = await safety_filter(input.description)
+        result = await safety_filter(input.team_id, input.description)
     except Exception:
         logger.exception("Failed to run safety filter")
         raise
+
+    if not result.safe:
+        await _capture_signal_blocked_event(input, result)
 
     return SafetyFilterOutput(
         safe=result.safe,

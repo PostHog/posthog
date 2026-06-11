@@ -23,6 +23,7 @@ from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
@@ -138,6 +139,13 @@ def _get_insert_settings(team_id: int) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
+            # shards by then — not sitting in the initiator's async distribution queue, where they
+            # become visible to readers only minutes later. We set this per-insert rather than
+            # relying on the cluster's global default, which is not guaranteed to be synchronous.
+            # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
+            # for version compatibility.
+            "insert_distributed_sync": 1,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
@@ -312,12 +320,17 @@ class LazyComputationTable(StrEnum):
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
     CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
+    MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
     WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -327,6 +340,7 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
     LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
+    LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
 }
 
 
@@ -985,7 +999,7 @@ class LazyComputationExecutor:
 
 def ensure_precomputed(
     team: Team,
-    insert_query: str,
+    insert_query: str | ast.SelectQuery,
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
@@ -1014,8 +1028,9 @@ def ensure_precomputed(
 
     Args:
         team: The team to create lazy-computed data for
-        insert_query: A SELECT query string with placeholders. Use {time_window_min}
-                      and {time_window_max} for time filtering.
+        insert_query: A SELECT query, either a string template with {time_window_min} /
+                      {time_window_max} placeholders, or a prebuilt SelectQuery AST using
+                      ast.Placeholder nodes for those names.
         time_range_start: Start of the overall time range (inclusive)
         time_range_end: End of the overall time range (exclusive)
         ttl_seconds: How long before the data expires. Either:
@@ -1082,8 +1097,7 @@ def ensure_precomputed(
         "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
         **caller_sentinels,
     }
-    parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
-    assert isinstance(parsed_for_hash, ast.SelectQuery)
+    parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
     query_info = QueryInfo(
         query=parsed_for_hash,
@@ -1115,10 +1129,25 @@ def ensure_precomputed(
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
+def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:
+    """Resolve an insert query into a SelectQuery AST with its placeholders filled.
+
+    String callers (web analytics, experiments) carry `{time_window_min/max}` as text; AST callers
+    (conversion goals) carry `ast.Placeholder` nodes. `parse_select` substitutes placeholders via the
+    same `replace_placeholders`, so both inputs resolve identically.
+    """
+    if isinstance(insert_query, str):
+        resolved: ast.Expr = parse_select(insert_query, placeholders=placeholders)
+    else:
+        resolved = replace_placeholders(insert_query, placeholders)
+    assert isinstance(resolved, ast.SelectQuery)
+    return resolved
+
+
 def _build_manual_insert_sql(
     team: Team,
     job: PreaggregationJob,
-    insert_query: str,
+    insert_query: str | ast.SelectQuery,
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
@@ -1141,9 +1170,8 @@ def _build_manual_insert_sql(
         "time_window_max": ast.Constant(value=job.time_range_end),
     }
 
-    # Parse the query with all placeholders — returns a fresh AST we can mutate
-    query = parse_select(insert_query, placeholders=all_placeholders)
-    assert isinstance(query, ast.SelectQuery)
+    # Resolve the query with all placeholders — returns a fresh AST we can mutate
+    query = _resolve_insert_query(insert_query, all_placeholders)
     assert query.select is not None, "SelectQuery must have select expressions"
 
     # Add team_id as the first column

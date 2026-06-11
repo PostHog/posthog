@@ -19,18 +19,17 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
-from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
 from products.logs.backend.alert_state_machine import (
@@ -154,9 +153,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         default=100,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
     )
     first_enabled_at = serializers.DateTimeField(
         read_only=True,
@@ -580,7 +579,7 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(
@@ -786,7 +785,6 @@ def _fill_empty_buckets(
     return result
 
 
-@extend_schema(tags=["logs"])
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
@@ -1184,30 +1182,3 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         self._track("logs alert deleted", instance)
         super().perform_destroy(instance)
-
-
-@mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)
-def handle_logs_alert_activity(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    user,
-    was_impersonated=False,
-    **kwargs,
-):
-    instance = after_update or before_update
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=instance.name,
-        ),
-    )

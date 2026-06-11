@@ -1,11 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,7 +15,7 @@ import { Breadcrumb } from '~/types'
 
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
@@ -44,16 +43,12 @@ return result`
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
-    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key(
-        (props) =>
-            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
-    ),
+    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
     connect(() => ({
         values: [
@@ -680,17 +675,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationProviderKeyIssue: [
             (s) => [s.evaluation, s.providerKeys],
             (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
-                const providerKeyId = evaluation?.model_configuration?.provider_key_id
-                if (!providerKeyId) {
-                    return null
-                }
-
-                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
-                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
-                    return null
-                }
-
-                return providerKey
+                return getUnhealthyProviderKey(providerKeys, evaluation?.model_configuration?.provider_key_id)
             },
         ],
 
@@ -797,7 +782,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props }) => ({
         '/ai-evals/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'

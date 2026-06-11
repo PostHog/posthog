@@ -511,6 +511,65 @@ def _row_counts_from_conn(
         return {}
 
 
+def _rls_active_from_conn(
+    connection: psycopg.Connection,
+    schema: str | None,
+    names: list[str] | None,
+) -> dict[str, bool]:
+    """Per-table map of whether row-level security is active for the connecting role.
+
+    Runs even with no schema/names selected: `row_security_active` is a cheap catalog lookup, so
+    there's no cost reason to skip it on the full-table-list view — and that view (the source setup
+    picker) is exactly where the warning needs to show.
+
+    One set-based catalog query rather than a per-table function call, so an odd relation (a view, a
+    foreign table, one dropped mid-discovery) is simply absent from the result instead of erroring
+    the whole batch and dropping every table's warning. Returns only the tables it could resolve;
+    callers treat a missing key as "no warning".
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 30)  # 30 secs
+                )
+            )
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            # (source schema, source table) -> the display name used as the schema key elsewhere.
+            display_by_source = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            wanted = sql.SQL(", ").join(
+                sql.SQL("({}, {})").format(sql.Literal(schema_name), sql.Literal(table_name))
+                for schema_name, table_name in display_by_source
+            )
+            # relkind r/p only: RLS is meaningless on views/foreign tables, and row_security_active
+            # is never called on them so a discovered view can't error the query.
+            query = sql.SQL("""
+                SELECT n.nspname, c.relname, row_security_active(c.oid)
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN (VALUES {wanted}) AS want(schema_name, table_name)
+                    ON n.nspname::text = want.schema_name AND c.relname::text = want.table_name
+                WHERE c.relkind IN ('r', 'p')
+            """).format(wanted=wanted)
+
+            cursor.execute(query)
+            result: dict[str, bool] = {}
+            for nspname, relname, rls_active in cursor.fetchall():
+                display_name = display_by_source.get((nspname, relname))
+                if display_name is not None:
+                    result[display_name] = bool(rls_active)
+            return result
+    except Exception as e:
+        capture_exception(e)
+        return {}
+
+
 def get_postgres_row_count(
     host: str,
     port: int,
@@ -997,9 +1056,12 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
-        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-        cursor.execute(query_with_explain)
-        rows = cursor.fetchall()
+        # Debug-only and best-effort: a query may use syntax the source DB rejects (e.g.
+        # TABLESAMPLE on CockroachDB). Savepoint so a failure doesn't poison the transaction.
+        with cursor.connection.transaction(savepoint_name="explain_query"):
+            query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+            cursor.execute(query_with_explain)
+            rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
         for row in rows:
@@ -1007,7 +1069,6 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
-        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
@@ -1146,10 +1207,13 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             ) as subquery
         """).format(inner_query)
 
-        _explain_query(cursor, query, logger)
-        logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
-        row = cursor.fetchone()
+        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Savepoint
+        # so a failure falls back to DEFAULT_CHUNK_SIZE without poisoning the transaction.
+        with cursor.connection.transaction(savepoint_name="table_chunk_size"):
+            _explain_query(cursor, query, logger)
+            logger.debug(f"Running query: {query.as_string()}")
+            cursor.execute(query)
+            row = cursor.fetchone()
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
@@ -1168,6 +1232,25 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
+
+
+def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> bool:
+    """Whether row-level security is active for the connecting role on this table."""
+    try:
+        query = sql.SQL("""
+            SELECT row_security_active(c.oid)
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = {schema} AND c.relname = {table}
+        """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        cursor.execute(query)
+        row = cursor.fetchone()
+        return bool(row and row[0])
+    except psycopg.errors.QueryCanceled:
+        raise
+    except Exception as e:
+        logger.debug(f"_role_subject_to_rls: Error: {e}", exc_info=e)
+        return False
 
 
 def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
@@ -1760,6 +1843,14 @@ def postgres_source(
                             logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                     if rows_to_sync is None:
                         rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+
+                    if _role_subject_to_rls(cursor, schema, table_name, logger):
+                        logger.warning(
+                            f"Row-level security is active for the sync role on {schema}.{table_name} "
+                            f"(rows visible to this sync: {rows_to_sync}). Grant the role BYPASSRLS "
+                            f"or a permissive policy if it should see all rows."
+                        )
+
                     logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
@@ -1860,7 +1951,9 @@ def postgres_source(
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
                 try:
-                    with connection.cursor() as setup_cursor:
+                    # Use psycopg.Cursor directly to bypass cursor_factory (which may be
+                    # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
+                    with psycopg.Cursor(connection) as setup_cursor:
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)

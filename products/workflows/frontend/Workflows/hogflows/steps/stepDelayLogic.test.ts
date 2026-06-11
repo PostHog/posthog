@@ -20,7 +20,7 @@ describe('stepDelayLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
 
         sdLogic = stepDelayLogic({ workflowLogicProps: wfLogic.props })

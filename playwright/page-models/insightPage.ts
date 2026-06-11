@@ -23,6 +23,9 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
+    readonly personsModal: Locator
+    readonly personsModalViewEventsButton: Locator
+
     readonly trends: TrendsInsight
     readonly funnels: FunnelsInsight
     readonly retention: RetentionInsight
@@ -39,6 +42,9 @@ export class InsightPage {
         this.cancelButton = page.getByTestId('insight-cancel-edit-button')
         this.topBarName = page.getByTestId('scene-name')
         this.activeTab = page.locator('.LemonTabs__tab--active')
+
+        this.personsModal = page.getByTestId('persons-modal')
+        this.personsModalViewEventsButton = page.getByTestId('person-modal-view-events')
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
@@ -92,11 +98,15 @@ export class InsightPage {
     async save(): Promise<void> {
         const originalUrl = this.page.url()
         const originalPathname = new URL(originalUrl).pathname
+
+        // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
+        await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
+
         const saveRequestPromise = this.page.waitForResponse(
             (response) =>
                 /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
                 ['POST', 'PATCH'].includes(response.request().method()),
-            { timeout: 60000 }
+            { timeout: 30000 }
         )
 
         await this.saveButton.click()

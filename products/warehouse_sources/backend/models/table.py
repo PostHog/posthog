@@ -2,13 +2,12 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
 from django.db import models
 from django.db.models import Q
 
-import chdb
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
@@ -94,14 +93,29 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
 
-class DataWarehouseTableManager(models.Manager):
-    def get_queryset(self):
-        return (
+class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
+    def queryable(self) -> "DataWarehouseTableQuerySet":
+        # A table you can actually query: not soft-deleted, and not orphaned by a soft-deleted source.
+        return self.exclude(deleted=True).exclude(external_data_source__deleted=True)
+
+
+# `Manager.from_queryset(...)` can't be used as a base class here because it also overrides
+# `get_queryset()` — mypy/django-stubs can't model that dynamic base. Wire the queryset class in
+# manually instead so `objects.queryable()` and the eager-loading `get_queryset()` both work.
+class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
+    _queryset_class = DataWarehouseTableQuerySet
+
+    def get_queryset(self) -> DataWarehouseTableQuerySet:
+        return cast(
+            DataWarehouseTableQuerySet,
             super()
             .get_queryset()
             .select_related("created_by", "external_data_source")
-            .prefetch_related("externaldataschema_set")
+            .prefetch_related("externaldataschema_set"),
         )
+
+    def queryable(self) -> DataWarehouseTableQuerySet:
+        return self.get_queryset().queryable()
 
 
 class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
@@ -111,7 +125,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     objects = DataWarehouseTableManager()
 
     # Use if it's certain externaldataschemas aren't needed
-    raw_objects = models.Manager()
+    raw_objects = DataWarehouseTableQuerySet.as_manager()
 
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
@@ -205,6 +219,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
+        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
+
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
@@ -332,6 +348,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
+
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,

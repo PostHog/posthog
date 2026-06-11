@@ -16,9 +16,9 @@ class ProductConfig:
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
-    # Tag emitted $ai_generation events with $ai_billable=true so the PHAI
-    # daily aggregator (posthog/tasks/usage_report.py) rolls them into the
-    # customer team's AI credits bucket.
+    # Tag emitted $ai_generation events with $ai_billable=true so the usage reporter
+    # (posthog/tasks/usage_report.py) rolls them into the customer team's credit bucket
+    # for this product's ai_product (e.g. PostHog AI credits, or signals credits).
     billable: bool = False
 
 
@@ -41,6 +41,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
+        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
@@ -71,6 +72,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
+                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.4",
@@ -141,7 +143,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "signals": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
-        allow_api_keys=False,
+        allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
+        allow_api_keys=True,
+        billable=False,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,

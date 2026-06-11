@@ -10,10 +10,11 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 
 
-def format_matrix(matrix: list[list[str]]) -> str:
+def format_matrix(matrix: list[list[Any]]) -> str:
+    # Coerce cells: a None (or non-str) cell would make "|".join raise and crash the build.
     lines: list[str] = []
     for row in matrix:
-        lines.append("|".join(row))
+        lines.append("|".join("" if cell is None else str(cell) for cell in row))
 
     return "\n".join(lines).strip()
 

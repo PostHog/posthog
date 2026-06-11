@@ -10,9 +10,10 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 
-use ingestion_consumer::router::MessageRouter;
+use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::{HttpTransport, TransportError};
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
 fn make_message(
     token: &str,
@@ -369,7 +370,7 @@ async fn transport_parallelizes_across_different_workers() {
 }
 
 #[tokio::test]
-async fn router_and_transport_end_to_end() {
+async fn dispatcher_and_transport_end_to_end() {
     // Start 2 mock workers
     let received_1 = Arc::new(Mutex::new(Vec::new()));
     let received_2 = Arc::new(Mutex::new(Vec::new()));
@@ -377,7 +378,20 @@ async fn router_and_transport_end_to_end() {
     let (url_2, _h2) = start_mock_worker(received_2.clone()).await;
 
     let worker_urls = [url_1.clone(), url_2.clone()];
-    let router = MessageRouter::new(worker_urls.len());
+    let registry = Arc::new(WorkerRegistry::new(
+        &worker_urls,
+        WorkerRegistryConfig {
+            probe_interval: Duration::from_secs(60),
+            dead_declaration: Duration::from_secs(60),
+            passive_window: Duration::from_secs(30),
+            passive_error_threshold: 0.5,
+            passive_min_samples: 1000,
+            degraded_hold: Duration::from_secs(10),
+            min_state_duration: Duration::ZERO,
+            probe_failure_threshold: 2,
+        },
+    ));
+    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
     let transport = Arc::new(HttpTransport::new(
         Duration::from_secs(5),
         0,
@@ -386,7 +400,7 @@ async fn router_and_transport_end_to_end() {
         1,
     ));
 
-    // Create messages for multiple distinct_ids
+    // Create messages for multiple distinct_ids — user-1 appears twice
     let messages = vec![
         make_message("tok", "user-1", 0, r#"{"event":"a"}"#),
         make_message("tok", "user-2", 1, r#"{"event":"b"}"#),
@@ -394,16 +408,24 @@ async fn router_and_transport_end_to_end() {
         make_message("tok", "user-3", 3, r#"{"event":"d"}"#),
     ];
 
-    // Route
-    let groups = router.route_batch(messages);
+    let sub_batches = dispatcher.assign(messages);
 
     // Scatter to workers
     let mut handles = Vec::new();
-    for (worker_idx, sub_batch) in groups {
+    for sub_batch in sub_batches {
         let t = transport.clone();
-        let url = worker_urls[worker_idx].clone();
+        let url = worker_urls[sub_batch.worker_idx].clone();
+        let routing_keys = sub_batch.routing_keys.clone();
+        let worker_idx = sub_batch.worker_idx;
+        let message_count = sub_batch.messages.len();
+        let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
-            t.send_batch(&url, "batch-e2e", sub_batch).await.unwrap()
+            let result = t
+                .send_batch(&url, "batch-e2e", sub_batch.messages)
+                .await
+                .unwrap();
+            d.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
+            result
         }));
     }
 
@@ -412,10 +434,9 @@ async fn router_and_transport_end_to_end() {
     for h in handles {
         total_accepted += h.await.unwrap();
     }
-
     assert_eq!(total_accepted, 4);
 
-    // Verify all messages for the same distinct_id landed on the same worker
+    // user-1 messages (offsets 0 and 2) must have landed on the same worker
     let batches_1 = received_1.lock().unwrap();
     let batches_2 = received_2.lock().unwrap();
 
@@ -426,7 +447,6 @@ async fn router_and_transport_end_to_end() {
         .collect();
     assert_eq!(all_messages.len(), 4);
 
-    // user-1 messages (offsets 0, 2) must be on the same worker
     let user1_workers: Vec<usize> = all_messages
         .iter()
         .filter(|m| m.headers.get("distinct_id").map(|s| s.as_str()) == Some("user-1"))
