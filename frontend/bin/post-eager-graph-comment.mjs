@@ -138,6 +138,25 @@ try {
 }
 
 const anyFailure = report.roots.some((r) => r.overBudget || r.forbiddenHits.length > 0) || report.errors?.length > 0
+
+// A comment on every PR teaches people to ignore it — stay silent unless something
+// actually moved (or there is a failure to explain). An existing comment from an
+// earlier significant push is still updated so it never shows stale numbers.
+const SIGNIFICANT_CHANGE_PERCENT = 2
+const maxChangePercent = Math.max(
+    0,
+    ...report.roots.map((r) => {
+        const base = baseBytes[r.root]
+        return base ? (Math.abs(r.bytes - base) / base) * 100 : 0
+    })
+)
+if (!anyFailure && maxChangePercent < SIGNIFICANT_CHANGE_PERCENT && !existing) {
+    console.info(
+        `Largest eager graph change is ${maxChangePercent.toFixed(2)}% (< ${SIGNIFICANT_CHANGE_PERCENT}%) and no budget/forbidden failures — not posting a comment.`
+    )
+    process.exit(0)
+}
+
 const lines = [
     MARKER,
     `## ${anyFailure ? '❌' : '🕸️'} Eager graph`,
