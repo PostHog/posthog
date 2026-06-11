@@ -512,7 +512,12 @@ describe('clustersLogic', () => {
 
             it('returns the most recent run timestamp', () => {
                 logic.actions.loadClusteringRunsSuccess([
-                    { runId: 'first-run', windowEnd: '2025-01-08', label: 'First Run', timestamp: '2025-01-08T10:00:00Z' },
+                    {
+                        runId: 'first-run',
+                        windowEnd: '2025-01-08',
+                        label: 'First Run',
+                        timestamp: '2025-01-08T10:00:00Z',
+                    },
                     { runId: 'second-run', windowEnd: '2025-01-01', label: 'Second Run' },
                 ])
                 expect(logic.values.latestRunTimestamp).toBe('2025-01-08T10:00:00Z')
