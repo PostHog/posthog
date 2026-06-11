@@ -1172,6 +1172,36 @@ class TestPrinter(BaseTest):
             == prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse")[0]
         )
 
+    def _print_shadowed_alias_query(self) -> str:
+        # Two aliases share the name `a`: the outer one is a property read, the inner one is `event`. The inner
+        # `WHERE a = 'v'` must compare the inner alias — never the outer query's property.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+            ),
+        )
+        parsed = parse_select(
+            "SELECT properties.file_type AS a FROM events WHERE event IN (SELECT event AS a FROM events WHERE a = 'v')"
+        )
+        printed, _ = prepare_and_print_ast(parsed, context, dialect="clickhouse")
+        return printed
+
+    def test_property_alias_shadowed_in_subquery_is_not_rebound(self):
+        printed = self._print_shadowed_alias_query()
+        inner = printed.split("SELECT", 2)[2]
+        assert "properties_group_custom" not in inner, f"inner alias rebound to the outer property:\n{printed}"
+        assert "equals(a," in inner, f"expected the inner comparison to stay on the inner alias:\n{printed}"
+
+    def test_materialized_property_alias_shadowed_in_subquery_is_not_rebound(self):
+        with materialized("events", "file_type"):
+            printed = self._print_shadowed_alias_query()
+        inner = printed.split("SELECT", 2)[2]
+        assert "file_type" not in inner, f"inner alias rebound to the outer materialized property:\n{printed}"
+        assert "equals(a," in inner, f"expected the inner comparison to stay on the inner alias:\n{printed}"
+
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
         self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")

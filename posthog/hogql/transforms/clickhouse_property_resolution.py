@@ -409,46 +409,51 @@ class ClickHousePropertyResolver(CloningVisitor):
         # The AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
-        # Per-SELECT map of column alias → its lowered property read, so a comparison that references the alias
-        # (`SELECT properties.x AS a ... WHERE a = 'v'`) can find the property behind `a` and still be optimized.
-        self._alias_scopes: list[dict[str, ast.JSONFieldAccess]] = []
+        # Identity set of the table types in scope for the SELECT currently being visited (its FROM/JOIN chain,
+        # including the layers behind alias/virtual wrappers). Guards the comparison rewrites: a rewrite reads a real
+        # table column, which is only printable when that table is in the current FROM. A property read that an earlier
+        # transform moved behind a subquery (events predicate pushdown) must decline instead.
+        self._tables_in_scope: list[set[int]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        scope: dict[str, ast.JSONFieldAccess] = {}
-        for column in node.select or []:
-            if isinstance(column, ast.Alias):
-                inner = column.expr
-                while isinstance(inner, ast.Alias):  # the resolver may nest a hidden alias under the user's `AS x`
-                    inner = inner.expr
-                if isinstance(inner, ast.JSONFieldAccess):
-                    scope[column.alias] = inner
-        self._alias_scopes.append(scope)
+        scope: set[int] = set()
+        join: ast.JoinExpr | None = node.select_from
+        while join is not None:
+            table_type: ast.Type | None = join.table.type if join.table is not None else None
+            while table_type is not None:
+                scope.add(id(table_type))
+                table_type = getattr(table_type, "table_type", None)
+            join = join.next_join
+        self._tables_in_scope.append(scope)
         try:
             return super().visit_select_query(node)
         finally:
-            self._alias_scopes.pop()
+            self._tables_in_scope.pop()
 
-    def _resolve_alias_to_property(self, expr: ast.Expr) -> ast.JSONFieldAccess | None:
-        """A `Field` reference to a select-column alias over a lowered property read, resolved to that read, or None."""
-        if not (isinstance(expr, ast.Field) and isinstance(expr.type, ast.FieldAliasType)):
-            return None
-        for scope in reversed(self._alias_scopes):
-            resolved = scope.get(expr.type.alias)
-            if resolved is not None:
-                return resolved
-        return None
+    def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
+        """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
+        if not self._tables_in_scope:
+            # A bare fragment (within_non_hogql_query) has no SELECT scope, and no transform that could move a read
+            # behind a subquery runs on fragments — treat it as in scope.
+            return True
+        scope = self._tables_in_scope[-1]
+        table_type: ast.Type | None = field_type.table_type
+        while table_type is not None:
+            if id(table_type) in scope:
+                return True
+            table_type = getattr(table_type, "table_type", None)
+        return False
 
     def _lowered_property_operand(self, expr: ast.Expr) -> ast.JSONFieldAccess | None:
         """The lowered `properties.$x` behind a comparison operand, or None.
 
-        After lowering, such an operand is a `JSONFieldAccess` (often wrapped in an `Alias`). A bare `Field` that instead
-        *references* a select-column alias over one (`... WHERE a = 'v'`) is looked up in the scope map.
+        After lowering, such an operand is a `JSONFieldAccess` (often wrapped in an `Alias`).
         """
         if isinstance(expr, ast.Alias):
             expr = expr.expr
         if isinstance(expr, ast.JSONFieldAccess):
             return expr
-        return self._resolve_alias_to_property(expr)
+        return None
 
     def _single_key_property(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
         """The (blob `FieldType`, property name) of a single-key property operand, or None.
@@ -462,11 +467,21 @@ class ClickHousePropertyResolver(CloningVisitor):
             if field_type is not None:
                 return field_type, str(node.keys[0])
 
-        # Fallback for a property buried inside a cast: a boolean/numeric property gets wrapped by the swapper (e.g.
-        # `toBool(transform(toString(...)))`) and aliased, so the `JSONFieldAccess` isn't the bare operand. Detect the
-        # property from the operand's resolved `PropertyType` instead; the optimizer then drops the cast wrapper.
+        # The operand can also carry the property on its resolved type rather than as a bare `JSONFieldAccess`: a
+        # reference to a select alias over a property read (`SELECT properties.x AS a ... WHERE a = 'v'`) resolves
+        # through the alias wrapper to the original `PropertyType`, and a boolean/numeric property gets wrapped by the
+        # swapper in a cast (`toBool(transform(toString(...)))`) with the `PropertyType` underneath. Read the property
+        # identity off the type — that is the resolver's own binding, so a shadowing alias of the same name can never
+        # be confused with it (its type points at whatever it actually aliases). Skip joined-subquery properties
+        # (lowering skips them too: they print as `alias.field`) and properties whose table is not in the current
+        # FROM (a transform moved the read behind a subquery; the bare column would be out of scope).
         prop_type = resolve_field_type(expr)
-        if isinstance(prop_type, ast.PropertyType) and len(prop_type.chain) == 1:
+        if (
+            isinstance(prop_type, ast.PropertyType)
+            and len(prop_type.chain) == 1
+            and prop_type.joined_subquery is None
+            and self._property_table_in_scope(prop_type.field_type)
+        ):
             return prop_type.field_type, str(prop_type.chain[0])
         return None
 

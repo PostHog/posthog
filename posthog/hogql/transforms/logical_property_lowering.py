@@ -38,22 +38,10 @@ class LogicalPropertyLowering(CloningVisitor):
         lowered = self._lower_property_field(node)
         return lowered if lowered is not None else super().visit_field(node)
 
-    def visit_alias(self, node: ast.Alias) -> ast.Alias:
-        # A property read is often wrapped in a hidden alias (`properties.x AS x`). That alias node holds the
-        # `PropertyType` in two places: on the inner field, and again inside its own `FieldAliasType` wrapper. Lowering
-        # the inner field fixes the first; if we leave the wrapper pointing at the old `PropertyType`, later code that
-        # unwraps the alias still sees "this is a property" and sends the operand back into the property-handling path we
-        # just bypassed. So repoint the wrapper at the lowered value type. This is type bookkeeping only — printing uses
-        # `expr` and `alias`, never the wrapper's inner type, so the output is unchanged.
-        lowered = super().visit_alias(node)
-        if (
-            isinstance(lowered.expr, ast.JSONFieldAccess)
-            and lowered.expr.type is not None
-            and isinstance(lowered.type, ast.FieldAliasType)
-            and isinstance(lowered.type.type, ast.PropertyType)
-        ):
-            lowered.type = ast.FieldAliasType(alias=lowered.type.alias, type=lowered.expr.type)
-        return lowered
+    # Note on aliases: an alias over a property read keeps its `FieldAliasType` wrapping the original `PropertyType`.
+    # That is the resolver's binding — a reference to the alias carries the same type object — and it is how a later
+    # pass tells "alias over property `x`" apart from a shadowing alias of the same name. Only the lowered node itself
+    # gets a plain value type below.
 
     def _lower_property_field(self, node: ast.Field) -> ast.JSONFieldAccess | None:
         property_type = node.type
