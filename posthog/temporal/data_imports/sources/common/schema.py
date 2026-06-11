@@ -61,8 +61,10 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     Enables every discovered table and picks a sync type per table: ``incremental`` when the
     source supports it and a tracking column exists (cheapest ongoing sync), else ``append``
     when supported, else ``full_refresh``. Never defaults to ``cdc`` — that needs Postgres
-    prerequisites and explicit opt-in. Webhook-only tables are left disabled because they
-    require a separate webhook-registration step that a one-shot create can't perform.
+    prerequisites and explicit opt-in. Webhook-only tables start disabled because webhook
+    registration needs the created source; the setup flow attempts it right after creation
+    and, on success, switches webhook-capable tables to the webhook sync method. These
+    polling defaults are also the fallback when that registration fails.
     """
     schemas: list[dict] = []
     for source_schema in source_schemas:

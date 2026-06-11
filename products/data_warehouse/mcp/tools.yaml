@@ -102,9 +102,14 @@ tools:
         description: >
             Connect an external data source and start importing it into queryable warehouse tables in a single call.
             Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental
-            where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. Use this
-            for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your
-            own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type
+            where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For
+            webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key
+            in the response — on success webhook-capable tables sync in real time (including webhook-only tables like
+            Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and
+            webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values
+            and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe),
+            CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases
+            (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type
             with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: for OAuth sources
             pass the integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass
             {'credential_id': '<uuid>'} referencing credentials the user stored via the

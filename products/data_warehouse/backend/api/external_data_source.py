@@ -72,6 +72,7 @@ from products.data_warehouse.backend.data_load.service import (
     is_cdc_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
+    sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
@@ -1017,6 +1018,40 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+
+
+class SourceSetupWebhookSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text=(
+            "Whether the webhook was registered with the external service. When true, webhook-capable tables "
+            "(including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the "
+            "polling sync defaults and webhook-only tables stay disabled."
+        )
+    )
+    webhook_url = serializers.CharField(
+        allow_null=True, help_text="The PostHog endpoint the external service delivers events to."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="Why webhook registration failed (e.g. the credentials lack webhook permissions)."
+    )
+    pending_inputs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Webhook input names the user still needs to provide (e.g. a signing secret the external API did not "
+            "return on create). Submit them via the update_webhook_inputs endpoint."
+        ),
+    )
+
+
+class SourceSetupResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the created external data source.")
+    webhook = SourceSetupWebhookSerializer(
+        required=False,
+        help_text=(
+            "Outcome of automatic webhook registration. Only present for sources that support webhooks "
+            "(e.g. Stripe) and have webhook-capable tables."
+        ),
     )
 
 
@@ -2039,15 +2074,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ]
         return Response(status=status.HTTP_200_OK, data=data)
 
-    @extend_schema(request=SourceSetupSerializer, responses=ExternalDataSourceSerializers)
+    @extend_schema(request=SourceSetupSerializer, responses={201: SourceSetupResponseSerializer})
     @action(methods=["POST"], detail=False)
     def setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """One-shot data warehouse source setup.
 
         Validate credentials, discover available tables, enable them all with sensible sync defaults
         (incremental where supported, else append, else full refresh), and create the source in a single
-        call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
-        use the lower-level `database_schema` + `create` flow instead.
+        call — the caller never has to assemble a `schemas` array. For sources that support webhooks
+        (e.g. Stripe), a webhook is auto-registered after creation: on success webhook-capable tables
+        switch to real-time webhook sync (unlocking webhook-only tables); on failure the polling
+        defaults stay in place. For fine-grained table/sync control, use the lower-level
+        `database_schema` + `create` flow instead.
         """
         # No database context needed here (unlike the read serializer), and skipping it avoids building
         # the HogQL Database on this hot path.
@@ -2117,7 +2155,91 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if credential is not None and response.status_code == status.HTTP_201_CREATED:
             credential.delete()
+
+        if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
+            webhook_result = self._auto_register_webhook(
+                source, source_config, str(response.data["id"]), source_schemas
+            )
+            if webhook_result is not None:
+                response.data["webhook"] = webhook_result
         return response
+
+    def _auto_register_webhook(
+        self,
+        source: WebhookSource,
+        source_config: Config,
+        source_id: str,
+        source_schemas: list[SourceSchema],
+    ) -> dict | None:
+        """Best-effort webhook auto-registration for one-shot setup.
+
+        The source was just created with polling sync defaults (webhook-only tables disabled). If the
+        source supports webhook auto-creation and the credentials allow it, register the webhook and
+        switch every webhook-capable table to the webhook sync method — unlocking webhook-only tables.
+        Failure never breaks setup: the polling defaults stay in place and webhook-only tables remain
+        disabled, exactly as if the source didn't support webhooks.
+        """
+        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks}
+        if not webhook_capable or source.webhook_template is None:
+            return None
+
+        instance = ExternalDataSource.objects.get(pk=source_id, team_id=self.team_id)
+        eligible_schemas = list(
+            ExternalDataSchema.objects.filter(source=instance, team_id=self.team_id, name__in=webhook_capable).exclude(
+                deleted=True
+            )
+        )
+        if not eligible_schemas:
+            return None
+
+        def failure(error: str | None) -> dict:
+            return {"success": False, "webhook_url": None, "error": error, "pending_inputs": []}
+
+        try:
+            hog_fn_result = get_or_create_webhook_hog_function(
+                team=self.team,
+                source=source,
+                source_id=str(instance.pk),
+                eligible_schemas=eligible_schemas,
+            )
+            if hog_fn_result.error or hog_fn_result.hog_function is None:
+                return failure(hog_fn_result.error)
+
+            registration = create_and_register_webhook(source, source_config, hog_fn_result, self.team_id)
+        except Exception as e:
+            capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
+            return failure(str(e))
+
+        if not registration.success:
+            # The external registration failed (e.g. credentials can't create webhooks), so the
+            # handler would never receive events — remove it and keep the polling defaults.
+            hog_function = hog_fn_result.hog_function
+            hog_function.deleted = True
+            hog_function.enabled = False
+            hog_function.save(update_fields=["deleted", "enabled"])
+            return failure(registration.error)
+
+        for schema in eligible_schemas:
+            newly_enabled = not schema.should_sync
+            schema.sync_type = ExternalDataSchema.SyncType.WEBHOOK
+            schema.should_sync = True
+            schema.save(update_fields=["sync_type", "should_sync"])
+            if newly_enabled:
+                # Webhook-only tables were created disabled, so no sync schedule exists yet. The
+                # schedule still matters for webhook schemas: it ingests the buffered webhook events.
+                try:
+                    sync_external_data_job_workflow(schema, create=True)
+                except Exception as e:
+                    logger.exception(
+                        "Could not create sync schedule for webhook schema", exc_info=e, schema_id=str(schema.id)
+                    )
+
+        return {
+            "success": True,
+            "webhook_url": registration.webhook_url,
+            "error": None,
+            "pending_inputs": list(registration.pending_inputs),
+        }
 
     def _validate_source_config_and_credentials(
         self,

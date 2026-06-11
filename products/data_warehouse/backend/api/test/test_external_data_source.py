@@ -31,7 +31,7 @@ from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.sources.common.base import FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
@@ -8485,6 +8485,137 @@ class TestExternalDataSourceSetup(APIBaseTest):
         synced = schemas.filter(should_sync=True)
         assert synced.exists()
         assert all(s.sync_type in ("incremental", "append", "full_refresh") for s in synced)
+
+    def _create_stripe_webhook_template(self):
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+        return HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            description="Receive Stripe webhook events for data warehouse ingestion",
+            code="// test code",
+            code_language="hog",
+            inputs_schema=[
+                {
+                    "type": "string",
+                    "key": "signing_secret",
+                    "label": "Signing secret",
+                    "required": False,
+                    "secret": True,
+                },
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True, "hidden": True},
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "hidden": True},
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+    def _setup_stripe(self):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "prefix": "stripe_webhook_test",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_123"}),
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_auto_registers_webhook_and_switches_capable_tables(
+        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is True
+        assert "/public/webhooks/dwh/" in data["webhook"]["webhook_url"]
+        assert data["webhook"]["error"] is None
+        assert data["webhook"]["pending_inputs"] == []
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        # Webhook-only tables (no list API) are unlocked by the registered webhook...
+        webhook_only = schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME)
+        assert webhook_only.should_sync is True
+        assert webhook_only.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+        # ...and dual-capability tables switch from polling to real-time webhook sync.
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.should_sync is True
+        assert customer.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
+        assert hog_function.enabled is True
+        assert hog_function.inputs["source_id"]["value"] == data["id"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=False, error="This API key lacks webhook permissions"),
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_falls_back_to_polling_when_webhook_registration_fails(
+        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is False
+        assert "lacks webhook permissions" in data["webhook"]["error"]
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        # Webhook-only tables have no polling fallback, so they stay disabled...
+        webhook_only = schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME)
+        assert webhook_only.should_sync is False
+        # ...while dual-capability tables keep their polling sync defaults.
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.should_sync is True
+        assert customer.sync_type in ("incremental", "append", "full_refresh")
+        # The orphaned handler is removed so nothing dangles.
+        assert not HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook", deleted=False).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_keeps_polling_defaults_when_webhook_template_missing(
+        self, _mock_validate, mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is False
+        assert "sync_hog_function_templates" in data["webhook"]["error"]
+        mock_create_webhook.assert_not_called()
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        assert schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME).should_sync is False
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.sync_type in ("incremental", "append", "full_refresh")
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

@@ -1885,6 +1885,30 @@ export interface SourceSetupApi {
     description?: string | null
 }
 
+export interface SourceSetupWebhookApi {
+    /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+    success: boolean
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /**
+     * Why webhook registration failed (e.g. the credentials lack webhook permissions).
+     * @nullable
+     */
+    error: string | null
+    /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+    pending_inputs: string[]
+}
+
+export interface SourceSetupResponseApi {
+    /** ID of the created external data source. */
+    id: string
+    /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
+    webhook?: SourceSetupWebhookApi
+}
+
 /**
  * Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.
  */

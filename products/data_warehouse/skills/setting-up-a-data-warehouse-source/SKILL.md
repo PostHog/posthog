@@ -74,8 +74,13 @@ Notes specific to this path:
 
 - **All discovered tables are enabled.** That's intended (incremental defaults keep ongoing cost low), but flag row
   counts for very large tables and offer the advanced flow if the user wants to sync only a subset.
-- **Webhook-only tables are left disabled** (they need the separate webhook-registration step — see Step 6). CDC is
-  never chosen automatically; use the advanced flow + CDC steps for near-real-time Postgres.
+- **Webhooks are auto-registered** for sources that support them (currently Stripe). Check the `webhook` key in the
+  setup response: on success, webhook-capable tables sync in real time and webhook-only tables (e.g. Stripe Discount)
+  are enabled too; on failure (e.g. the API key can't create webhooks), tables keep the polling defaults and
+  webhook-only tables stay disabled — relay the `webhook.error` to the user and offer Step 6 to register manually.
+  If `webhook.pending_inputs` is non-empty, collect those values and submit via
+  `external-data-sources-update-webhook-inputs-create`. CDC is never chosen automatically; use the advanced flow +
+  CDC steps for near-real-time Postgres.
 - Inline credentials in `payload` still work for headless/automation, but prefer the connect-link handoff above.
 
 ## Advanced: hand-pick tables (three-step flow)

@@ -105,10 +105,7 @@ const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend
     source_type: ExternalDataSourceTypeSchema,
 })
 
-const dataWarehouseSourceSetup = (): ToolBase<
-    typeof DataWarehouseSourceSetupSchema,
-    Schemas.ExternalDataSourceSerializers
-> => ({
+const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSchema, Schemas.SourceSetupResponse> => ({
     name: 'data-warehouse-source-setup',
     schema: DataWarehouseSourceSetupSchema,
     handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
@@ -126,7 +123,7 @@ const dataWarehouseSourceSetup = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
+        const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
             body,

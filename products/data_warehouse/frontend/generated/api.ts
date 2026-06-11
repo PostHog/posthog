@@ -62,6 +62,7 @@ import type {
     SourceCredentialApi,
     SourceCredentialCreateApi,
     SourceSetupApi,
+    SourceSetupResponseApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -1183,15 +1184,18 @@ export const getExternalDataSourcesSetupCreateUrl = (projectId: string) => {
  *
  * Validate credentials, discover available tables, enable them all with sensible sync defaults
  * (incremental where supported, else append, else full refresh), and create the source in a single
- * call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
- * use the lower-level `database_schema` + `create` flow instead.
+ * call — the caller never has to assemble a `schemas` array. For sources that support webhooks
+ * (e.g. Stripe), a webhook is auto-registered after creation: on success webhook-capable tables
+ * switch to real-time webhook sync (unlocking webhook-only tables); on failure the polling
+ * defaults stay in place. For fine-grained table/sync control, use the lower-level
+ * `database_schema` + `create` flow instead.
  */
 export const externalDataSourcesSetupCreate = async (
     projectId: string,
     sourceSetupApi: SourceSetupApi,
     options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesSetupCreateUrl(projectId), {
+): Promise<SourceSetupResponseApi> => {
+    return apiMutator<SourceSetupResponseApi>(getExternalDataSourcesSetupCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
