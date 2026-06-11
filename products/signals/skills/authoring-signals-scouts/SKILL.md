@@ -8,7 +8,8 @@ description: >
   write a brand-new scout from scratch for a specific use case (a custom event, a
   product surface no canonical scout covers). Covers the scout SKILL.md anatomy, the
   emit contract, the dedupe + scratchpad-memory conventions, the per-team skills-store
-  path vs the canonical in-repo path, and the dry-run-first test loop. Trigger on
+  path vs the canonical in-repo path, and the emit-and-inspect test loop (with dry-run as an
+  optional safety net). Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>".
 metadata:
@@ -124,22 +125,34 @@ skill body. Tune with `posthog:signals-scout-config-update` (find the `id` via
 - `run_interval_minutes` — 10 to 43200. Default 60 (hourly). Slow a chatty or expensive
   scout by raising this.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
-- `emit` — **`false` = dry-run**: the scout runs and logs its reasoning but writes nothing
-  to the inbox. **New and freshly-edited scouts should run dry-run first.**
+- `emit` — defaults to **`true`**: the scout writes its findings straight to the inbox. The
+  standard flow is to make a scout and let it emit — seeing what actually lands is the
+  fastest way to calibrate it. Set **`emit=false` (dry-run)** only when you want to be extra
+  careful: the scout still runs and logs its reasoning but writes nothing to the inbox.
+  Reach for dry-run on a scout you expect to be chatty, expensive, or high-stakes; for most
+  scouts, just emitting and watching the inbox is the better loop.
 
 ## Test loop
 
-You can't force a synchronous run as a user — scouts fire on their schedule. The feedback
-loop is **dry-run + inspect**:
+You can't force a synchronous run as a user — scouts fire on their schedule. The standard
+loop is **emit + inspect**: ship the scout live, let it emit, and calibrate against what
+actually lands.
 
-1. Ship the scout with `emit=false` and a short `run_interval_minutes` so it fires soon.
-2. After a tick, read what it did: `posthog:signals-scout-runs-list` (run summaries),
-   `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable
-   memory it wrote). In dry-run, runs show what it _would_ have emitted.
+1. Ship the scout (the default `emit=true`) with a short `run_interval_minutes` so it fires
+   soon.
+2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
+   emitted), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full
+   reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 3. Refine the body — tighten the discriminator, add disqualifiers for whatever it
    false-positived on, fix the emit calibration.
-4. When the dry-run findings look right, flip `emit=true`. Restore the interval to
-   something sustainable (hourly+).
+4. Once it's landing the right findings, restore the interval to something sustainable
+   (hourly+).
+
+**Want to be extra careful?** Set `emit=false` to dry-run first — the scout runs and logs
+what it _would_ have emitted (visible via `-runs-list` / `-runs-retrieve`) without writing to
+the inbox. Inspect, refine, then flip `emit=true`. Worth it for a scout you expect to be
+chatty, expensive, or high-stakes; otherwise just emitting and watching the inbox is the
+faster path to a calibrated scout.
 
 Repo contributors get a faster loop — `hogli sync:skill` and the harness's local run path;
 see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md).
