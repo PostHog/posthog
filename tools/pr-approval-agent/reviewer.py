@@ -204,8 +204,12 @@ REVIEWER_SYSTEM = textwrap.dedent(
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
-    def __init__(self, repo_root: Path, *, verbose: bool = False):
+    def __init__(self, repo_root: Path, *, explore_root: Path | None = None, verbose: bool = False):
         self.repo_root = repo_root
+        # Where the agent's Read/Grep/Glob look. For stacked PRs this is a
+        # worktree at the PR head so imports from not-yet-merged parent PRs
+        # resolve (see review_pr._pr_head_worktree). Falls back to repo_root.
+        self.explore_root = explore_root or repo_root
         self.verbose = verbose
 
     def review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
@@ -224,7 +228,18 @@ class Reviewer:
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
-            cwd=str(self.repo_root),
+            cwd=str(self.explore_root),
+            # SECURITY: explore_root holds PR-authored content (a worktree at
+            # the PR head for stacked PRs). With the default (None) the SDK
+            # loads filesystem settings from cwd like the CLI does — including
+            # .claude/settings.json hooks (arbitrary command execution) and
+            # CLAUDE.md (injected as instructions). A PR could ship either.
+            # [] is SDK isolation mode: no filesystem settings, no hooks, no
+            # CLAUDE.md autoload. The agent can still Read those files, but as
+            # untrusted content under the anti-injection notice, never as
+            # configuration. This is the guardrail that makes pointing cwd at
+            # PR-controlled files safe.
+            setting_sources=[],
             max_turns=3 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
@@ -318,8 +333,14 @@ class Reviewer:
             print(f"\033[2m    {name} {json.dumps(inp)[:100]}\033[0m", flush=True)
 
     def _write_diff_file(self, pr: PRData) -> Path:
-        """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        diff_path = self.repo_root / ".pr-review-diff.patch"
+        """Write the PR diff to a temp file so the LLM can Read it on demand.
+
+        Written into explore_root so the agent (whose cwd is explore_root)
+        can read it by relative path. The diff itself is always computed from
+        base_sha...head_sha in the main repo, so it shows only this PR's
+        changes even when explore_root is a worktree at the full-stack head.
+        """
+        diff_path = self.explore_root / ".pr-review-diff.patch"
         result = subprocess.run(
             ["git", "diff", f"{pr.base_sha}...{pr.head_sha}"],
             capture_output=True,
@@ -380,6 +401,19 @@ class Reviewer:
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
 
+        # Stacked PRs target a parent branch, not master. The working tree is
+        # the PR head, so it already contains code from not-yet-merged parent
+        # PRs — that's why Read/Grep/Glob resolve symbols that aren't in the
+        # diff. Tell the agent so it doesn't flag those as missing.
+        stack_note = ""
+        if pr.base_ref != "master":
+            stack_note = (
+                f"\nStacked PR: this targets `{pr.base_ref}`, not master. The working tree reflects the "
+                "codebase as it will look after the whole stack lands, so symbols defined in parent PRs "
+                "resolve via Read/Grep/Glob even though they're absent from the diff below. Review only the "
+                "diff's changes; do not flag imports or references that resolve in the tree as missing."
+            )
+
         file_list = "\n".join(
             f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" + (" [NEW]" if f.get("status") == "A" else "")
             for f in pr.files
@@ -401,6 +435,7 @@ class Reviewer:
             {chr(10).join(gate_lines)}
             Gate verdict: {gate_verdict}
             {constraint}
+            {stack_note}
 
             The full diff is at: {diff_path}
             Read this file to review the changes, then submit your verdict.

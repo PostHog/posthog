@@ -2,7 +2,7 @@ name: PR Approval Agent
 
 on:
     pull_request:
-        types: [labeled, ready_for_review, synchronize]
+        types: [labeled, ready_for_review, synchronize, edited]
 
 permissions:
     contents: read
@@ -19,7 +19,7 @@ jobs:
         # Triggers: explicit `stamphog` label, ready_for_review with the
         # label already present, or `synchronize` where decide-delta
         # asked for re-review (or itself failed — fail closed for safety).
-        needs: [decide-delta, dismiss]
+        needs: [decide-delta, dismiss, dismiss-on-retarget]
         if: >-
             always()
             && !github.event.pull_request.draft
@@ -28,6 +28,7 @@ jobs:
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
               || needs.decide-delta.outputs.run_review == 'true'
               || needs.decide-delta.result == 'failure'
+              || (github.event.action == 'edited' && github.event.changes.base != null && contains(github.event.pull_request.labels.*.name, 'stamphog'))
             )
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -172,8 +173,19 @@ jobs:
                   filter: blob:none
                   fetch-depth: 0
 
-            - name: Fetch PR head
-              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
+            - name: Fetch PR head and base
+              # base.ref is author-controlled, so it goes through an env var
+              # (never interpolated into the command). A stacked PR's base is
+              # its parent branch, which the master checkout doesn't fetch;
+              # dismiss_check needs it to classify merge commits. Best-effort —
+              # a missing base just fails the merge check closed to re-review.
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_REF_NAME: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --filter=blob:none origin "pull/${PR_NUMBER}/head"
+                  git fetch --filter=blob:none origin "$BASE_REF_NAME" || true
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -258,5 +270,51 @@ jobs:
                       [ -z "$id" ] && continue
                       gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
                         -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-review running automatically." \
+                        -f event=DISMISS
+                  done
+
+    # A base-branch retarget changes the effective diff without a push, so no
+    # `synchronize` fires and the decide-delta/dismiss path above never runs.
+    # This is the normal Graphite flow: when a stack's parent PR merges, the
+    # child is retargeted from the parent branch onto master, and its diff is
+    # recomputed against a different base. Under the master ruleset
+    # (dismiss_stale_reviews_on_push=false), a prior bot approval would
+    # silently carry onto that new surface — and a malicious retarget could
+    # exploit the same gap. Dismiss the stale approval here; the review job
+    # re-runs (gated on the label) against the new base. This job is ordered
+    # before review via `needs`, so it can't dismiss the fresh approval the
+    # re-review is about to post.
+    dismiss-on-retarget:
+        if: >-
+            github.event.action == 'edited'
+            && github.event.changes.base != null
+            && !github.event.pull_request.draft
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            # The dismissal loop below mirrors the `dismiss` job's. Neither job
+            # checks out the repo, so factoring it into a shared script would
+            # force a checkout into both — more cost than the duplication saves.
+            # If you change the bot-approval selection (the github-actions[bot]
+            # + APPROVED filter), update both jobs in lockstep.
+            - name: Dismiss stale bot approvals on base change
+              env:
+                  # Same identity (github-actions[bot]) that posted the approval.
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  mapfile -t REVIEW_IDS < <(
+                      gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                  )
+
+                  for id in "${REVIEW_IDS[@]}"; do
+                      [ -z "$id" ] && continue
+                      gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
+                        -f message="Base branch retargeted — stamphog approval dismissed; re-review runs automatically if the label is present." \
                         -f event=DISMISS
                   done

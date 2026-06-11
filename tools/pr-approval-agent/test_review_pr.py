@@ -10,12 +10,13 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import reviewer as reviewer_mod  # noqa: E402
 import review_pr  # noqa: E402
 from github import PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
 
 
-def _fake_pr(head_sha: str) -> PRData:
+def _fake_pr(head_sha: str, base_ref: str = "master") -> PRData:
     return PRData(
         number=1,
         repo="PostHog/posthog",
@@ -25,6 +26,7 @@ def _fake_pr(head_sha: str) -> PRData:
         mergeable_state="clean",
         author="alice",
         labels=[],
+        base_ref=base_ref,
         base_sha="def456",
         head_sha=head_sha,
         files=[],
@@ -88,3 +90,86 @@ def test_backend_failure_yields_error_except_when_gates_deny(
     if expected_final == "ERROR":
         assert pipeline.reviewer_output is not None
         assert pipeline.reviewer_output["verdict"] == "ERROR"
+
+
+class _FakeCompleted:
+    def __init__(self, returncode: int, stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On success the context manager yields the worktree path and removes it on exit."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=42, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is not None
+        assert "pr-review-42-" in explore_root.name
+        add = next(c for c in calls if "add" in c)
+        assert "--detach" in add and "cafe123" in add
+
+    # Cleanup ran with --force after the block exited.
+    remove = next(c for c in calls if "remove" in c)
+    assert "--force" in remove
+
+
+def test_pr_head_worktree_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If worktree creation fails, yield None (review from master) and skip removal."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        return _FakeCompleted(1, stderr="fatal: invalid reference")
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="deadbeef")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is None
+
+    # No worktree was created, so none is removed.
+    assert not any("remove" in c for c in calls)
+
+
+def test_reviewer_explore_root_defaults_to_repo_root() -> None:
+    from pathlib import Path
+
+    repo = Path("/repo")
+    assert reviewer_mod.Reviewer(repo).explore_root == repo
+    other = Path("/tmp/wt")
+    assert reviewer_mod.Reviewer(repo, explore_root=other).explore_root == other
+
+
+@pytest.mark.parametrize(
+    "base_ref, expect_stack_note",
+    [
+        ("master", False),
+        ("query-validations", True),
+    ],
+)
+def test_reviewer_prompt_stack_note(base_ref: str, expect_stack_note: bool) -> None:
+    """A stacked PR (base != master) gets a note telling the agent that
+    parent-PR symbols resolve in the tree and aren't missing."""
+    from pathlib import Path
+
+    reviewer = reviewer_mod.Reviewer(Path("/repo"))
+    pr = _fake_pr(head_sha="abc123", base_ref=base_ref)
+    classification = {"tier": "T1-agent", "t1_subclass": "T1b-small", "breadth": "single-area", "commit_type": "feat"}
+    gate_context = {"gate_verdict": "PENDING", "gates": []}
+
+    prompt = reviewer._build_review_prompt(pr, classification, gate_context, Path("/tmp/diff.patch"))
+
+    assert ("Stacked PR" in prompt) is expect_stack_note
+    if expect_stack_note:
+        assert base_ref in prompt

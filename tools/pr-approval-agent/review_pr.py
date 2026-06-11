@@ -22,7 +22,11 @@ Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 
 import json
 import time
+import uuid
 import argparse
+import tempfile
+import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -341,9 +345,55 @@ class Pipeline:
             return True, f"T0 auto-approve: {summary}"
         return True, summary
 
+    @contextmanager
+    def _pr_head_worktree(self):
+        """Yield a detached worktree at the PR head, or None on failure.
+
+        The agent's filesystem tools need to see the codebase as it will look
+        after the PR lands. For a stacked PR that includes code from parent
+        PRs that aren't on the base branch yet — without it, those parents'
+        symbols look like broken imports and the reviewer false-refuses. The
+        main checkout stays master (the workflow hardcodes that so a PR can't
+        swap the review script), so the worktree is the only place the head
+        tree is materialized. Cleaned up on exit; falls back to None (review
+        from master) if creation fails.
+
+        SECURITY: the worktree is PR-authored content. The agent is isolated
+        from it as *configuration* by setting_sources=[] in Reviewer — see the
+        note there. It still reads the files as untrusted *content*, which is
+        the whole point of a review.
+        """
+        worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
+        created = False
+        try:
+            result = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(worktree_dir), self.pr.head_sha],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=REPO_ROOT,
+            )
+            if result.returncode == 0:
+                created = True
+                print(_dim(f"  Exploring PR head in worktree: {worktree_dir}"))
+            else:
+                print(_warn(f"Worktree creation failed, reviewing from master: {result.stderr.strip()}"))
+        except subprocess.TimeoutExpired:
+            print(_warn("Worktree creation timed out, reviewing from master"))
+
+        try:
+            yield worktree_dir if created else None
+        finally:
+            if created:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree_dir)],
+                    capture_output=True,
+                    timeout=30,
+                    cwd=REPO_ROOT,
+                )
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
-        reviewer = Reviewer(REPO_ROOT, verbose=self.verbose)
 
         gate_context = {
             "gate_verdict": gate_verdict,
@@ -353,41 +403,43 @@ class Pipeline:
         print(_dim("  Calling reviewer..."))
         max_retries = 3
         reviewer_unavailable = False
-        for attempt in range(max_retries):
-            try:
-                self.reviewer_output = reviewer.review(
-                    self.pr,
-                    self.classification,
-                    gate_context,
-                )
-                break
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    wait = 2 ** (attempt + 1)
-                    print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
-                    print(_dim(f"  Retrying in {wait}s..."))
-                    time.sleep(wait)
-                else:
-                    print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
-                    print(
-                        _warn(
-                            "  This is an LLM backend failure (credentials, credit, or outage), "
-                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                            "secret (or local ANTHROPIC_API_KEY)."
-                        )
+        with self._pr_head_worktree() as explore_root:
+            reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+            for attempt in range(max_retries):
+                try:
+                    self.reviewer_output = reviewer.review(
+                        self.pr,
+                        self.classification,
+                        gate_context,
                     )
-                    reviewer_unavailable = True
-                    self.reviewer_output = {
-                        "verdict": "ERROR",
-                        "reasoning": (
-                            "The review agent couldn't reach its LLM backend — an infrastructure "
-                            "or credentials issue, not a problem with this PR. The `stamphog` label "
-                            "has been kept; the review retries automatically on the next push, or "
-                            "re-apply the label once the backend recovers."
-                        ),
-                        "risk": "unknown",
-                        "issues": [str(e)],
-                    }
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        wait = 2 ** (attempt + 1)
+                        print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
+                        print(_dim(f"  Retrying in {wait}s..."))
+                        time.sleep(wait)
+                    else:
+                        print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                        print(
+                            _warn(
+                                "  This is an LLM backend failure (credentials, credit, or outage), "
+                                "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                                "secret (or local ANTHROPIC_API_KEY)."
+                            )
+                        )
+                        reviewer_unavailable = True
+                        self.reviewer_output = {
+                            "verdict": "ERROR",
+                            "reasoning": (
+                                "The review agent couldn't reach its LLM backend — an infrastructure "
+                                "or credentials issue, not a problem with this PR. The `stamphog` label "
+                                "has been kept; the review retries automatically on the next push, or "
+                                "re-apply the label once the backend recovers."
+                            ),
+                            "risk": "unknown",
+                            "issues": [str(e)],
+                        }
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")
