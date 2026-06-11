@@ -27,7 +27,6 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
-    GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
@@ -133,9 +132,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
-        setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
-        switchToMixedTargeting: true,
-        setMixedGroupTypeIndex: (mixedGroupTypeIndex: number) => ({ mixedGroupTypeIndex }),
         setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
         setDraggedGroup: (draggedGroup: FeatureFlagGroupType | null) => ({ draggedGroup }),
     }),
@@ -259,22 +255,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
                 return { ...state, early_exit: earlyExit }
             },
-            switchToMixedTargeting: (state) => {
-                if (!state) {
-                    return state
-                }
-                const previousGlobal = state.aggregation_group_type_index
-                return {
-                    ...state,
-                    aggregation_group_type_index: null,
-                    // Each condition inherits the global aggregation type as its
-                    // per-condition value, so properties remain valid
-                    groups: state.groups.map((group) => ({
-                        ...group,
-                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
-                    })) as FeatureFlagGroupTypeWithSortKey[],
-                }
-            },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
                 if (!state) {
                     return state
@@ -385,19 +365,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     state.includes(`condition-${sortKey}`) ? state : [...state, `condition-${sortKey}`],
             },
         ],
-        isMixedTargeting: [
-            false as boolean,
-            {
-                setIsMixedTargeting: (_, { isMixedTargeting }) => isMixedTargeting,
-                switchToMixedTargeting: () => true,
-            },
-        ],
-        mixedGroupTypeIndex: [
-            0 as number,
-            {
-                setMixedGroupTypeIndex: (_, { mixedGroupTypeIndex }) => mixedGroupTypeIndex,
-            },
-        ],
         isAnyItemDragging: [
             false as boolean,
             {
@@ -502,9 +469,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newOpenConditions.length !== values.openConditions.length) {
                 actions.setOpenConditions(newOpenConditions)
             }
-        },
-        switchToMixedTargeting: () => {
-            actions.calculateBlastRadius()
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
@@ -785,24 +749,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return filterGroups?.flatMap((g) => g.properties ?? []) ?? []
             },
         ],
-        hasMixedAggregations: [
-            (s) => [s.filterGroups],
-            (filterGroups: FeatureFlagGroupType[]) => {
-                const aggregations = filterGroups.map((g) => g.aggregation_group_type_index ?? null)
-                return aggregations.length > 1 && !aggregations.every((a) => a === aggregations[0])
-            },
-        ],
-        defaultMixedGroupTypeIndex: [
-            (s) => [s.filterGroups, s.groupTypes],
-            (filterGroups: FeatureFlagGroupType[], groupTypes: Map<GroupTypeIndex, GroupType>) => {
-                const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
-                return (
-                    filterGroups.find((g) => g.aggregation_group_type_index != null)?.aggregation_group_type_index ??
-                    groupTypeValues[0]?.group_type_index ??
-                    0
-                )
-            },
-        ],
     }),
     propsChanged(({ props, values, actions }) => {
         // Compare only the fields that affect release conditions and blast radius,
@@ -837,11 +783,5 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         if (values.filters.groups.length === 1 && values.filters.groups[0]?.sort_key) {
             actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
         }
-
-        // Initialize mixed targeting state from existing filter groups
-        if (values.hasMixedAggregations) {
-            actions.setIsMixedTargeting(true)
-        }
-        actions.setMixedGroupTypeIndex(values.defaultMixedGroupTypeIndex)
     }),
 ])
