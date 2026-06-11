@@ -25,11 +25,10 @@ const GATEWAYS = [
 ]
 
 const BOUND_CREDENTIALS = {
-    personal_api_keys: [
+    project_secret_api_keys: [
         {
             id: 'k1',
             label: 'Reports bot',
-            user: { id: 1, first_name: 'Bob', email: 'bob@posthog.com' },
             last_used_at: '2024-07-08T09:00:00Z',
         },
     ],

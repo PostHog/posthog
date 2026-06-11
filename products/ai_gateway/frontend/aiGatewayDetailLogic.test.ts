@@ -28,7 +28,7 @@ describe('aiGatewayDetailLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockList.mockResolvedValue({ results: [{ id: 'g1', slug: 'default' }] } as any)
-        mockCredentials.mockResolvedValue({ personal_api_keys: [], oauth_applications: [] } as any)
+        mockCredentials.mockResolvedValue({ project_secret_api_keys: [], oauth_applications: [] } as any)
         jest.spyOn(api, 'query').mockResolvedValue({ results: [[10, 100, 200, 1.5]] } as any)
         initKeaTests()
         logic = aiGatewayDetailLogic({ slug: 'default' })

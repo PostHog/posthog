@@ -6,10 +6,9 @@ from rest_framework import status
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.utils import generate_random_token_secret, hash_key_value
 
 from products.ai_gateway.backend.api import GatewayManagementPermission
 
@@ -27,22 +26,22 @@ class TestGatewayAPI(APIBaseTest):
     def _gateway(self, slug: str = DEFAULT_GATEWAY_SLUG) -> Gateway:
         return Gateway.objects.for_team(self.team.id).get(slug=slug)
 
-    def _bind_key(self, gateway: Gateway, label: str = "key") -> PersonalAPIKey:
-        return PersonalAPIKey.objects.create(
+    def _bind_key(self, gateway: Gateway, label: str = "key", team: Team | None = None) -> ProjectSecretAPIKey:
+        return ProjectSecretAPIKey.objects.create(
             label=label,
-            user=self.user,
-            secure_value=hash_key_value(generate_random_token_personal()),
+            team=team or self.team,
+            secure_value=hash_key_value(generate_random_token_secret()),
             scopes=["llm_gateway:read"],
             gateway=gateway,
         )
 
     def _unbound_key(
-        self, label: str = "unbound", scopes: list[str] | None = None, user: User | None = None
-    ) -> PersonalAPIKey:
-        return PersonalAPIKey.objects.create(
+        self, label: str = "unbound", scopes: list[str] | None = None, team: Team | None = None
+    ) -> ProjectSecretAPIKey:
+        return ProjectSecretAPIKey.objects.create(
             label=label,
-            user=user or self.user,
-            secure_value=hash_key_value(generate_random_token_personal()),
+            team=team or self.team,
+            secure_value=hash_key_value(generate_random_token_secret()),
             scopes=["llm_gateway:read"] if scopes is None else scopes,
         )
 
@@ -100,6 +99,16 @@ class TestGatewayAPI(APIBaseTest):
         response = self.client.delete(self._url(f"{gateway.id}/"))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Gateway.objects.for_team(self.team.id).exists())
+
+    def test_delete_gateway_with_bound_credential_returns_409(self):
+        # The credential gateway FK is PROTECT, so a gateway can't be deleted while a
+        # credential still routes through it — unassign first.
+        self.client.post(self._url(), {"slug": "busy"})
+        gateway = self._gateway("busy")
+        self._bind_key(gateway, "still-here")
+        response = self.client.delete(self._url(f"{gateway.id}/"))
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(Gateway.objects.for_team(self.team.id).filter(slug="busy").exists())
 
     def test_gateways_isolated_per_team(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -189,23 +198,23 @@ class TestGatewayAPI(APIBaseTest):
         response = self.client.get(self._url(f"{gateway.id}/credentials/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         body = response.json()
-        self.assertEqual([k["id"] for k in body["personal_api_keys"]], [str(key.id)])
-        self.assertEqual(body["personal_api_keys"][0]["label"], "reports-bot")
+        self.assertEqual([k["id"] for k in body["project_secret_api_keys"]], [str(key.id)])
+        self.assertEqual(body["project_secret_api_keys"][0]["label"], "reports-bot")
         self.assertEqual(body["oauth_applications"], [])
 
-    def test_assignable_credentials_lists_only_own_unbound_scoped_keys(self):
+    def test_assignable_credentials_lists_unbound_scoped_keys(self):
         mine = self._unbound_key("mine")
         self._unbound_key("no-scope", scopes=["feature_flag:read"])  # excluded: wrong scope
         self._bind_key(self._gateway(), "already-bound")  # excluded: bound to a gateway
-        other = User.objects.create_and_join(self.organization, "other@example.com", "pw")
-        self._unbound_key("theirs", user=other)  # excluded: not the requesting user's
+        other_team = Team.objects.create(organization=self.organization, name="other-project")
+        self._unbound_key("other-project-key", team=other_team)  # excluded: another project's key
 
         response = self.client.get(self._url("assignable_credentials/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual([k["label"] for k in response.json()], ["mine"])
         self.assertEqual(response.json()[0]["id"], str(mine.id))
 
-    def test_assign_credential_binds_own_unbound_key(self):
+    def test_assign_credential_binds_unbound_key(self):
         gateway = self._gateway()
         key = self._unbound_key("mine")
         response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
@@ -213,10 +222,10 @@ class TestGatewayAPI(APIBaseTest):
         key.refresh_from_db()
         self.assertEqual(key.gateway_id, gateway.id)
 
-    def test_assign_credential_rejects_other_users_key(self):
+    def test_assign_credential_rejects_key_from_another_project(self):
         gateway = self._gateway()
-        other = User.objects.create_and_join(self.organization, "other2@example.com", "pw")
-        key = self._unbound_key("theirs", user=other)
+        other_team = Team.objects.create(organization=self.organization, name="other-project")
+        key = self._unbound_key("elsewhere", team=other_team)
         response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         key.refresh_from_db()
@@ -228,23 +237,23 @@ class TestGatewayAPI(APIBaseTest):
         response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_member_can_assign_own_key(self):
-        # Assigning your own key only touches that key, so it's member-level.
+    def test_member_cannot_assign_credential(self):
+        # Project secret keys are team-owned, so binding one is an admin operation.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         gateway = self._gateway()
         key = self._unbound_key("mine")
         response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         key.refresh_from_db()
-        self.assertEqual(key.gateway_id, gateway.id)
+        self.assertIsNone(key.gateway_id)
 
     def test_unassign_credential_unbinds_key_from_gateway(self):
         gateway = self._gateway()
         key = self._bind_key(gateway, "remove-me")
         response = self.client.post(
             self._url(f"{gateway.id}/unassign_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+            {"credential_type": "project_secret_api_key", "credential_id": str(key.id)},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         key.refresh_from_db()
@@ -257,38 +266,21 @@ class TestGatewayAPI(APIBaseTest):
         key = self._bind_key(other_gateway, "elsewhere")
         response = self.client.post(
             self._url(f"{gateway.id}/unassign_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+            {"credential_type": "project_secret_api_key", "credential_id": str(key.id)},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         key.refresh_from_db()
         self.assertEqual(key.gateway_id, other_gateway.id)
 
-    def test_member_can_unassign_own_key_but_not_another_members(self):
+    def test_member_cannot_unassign_credential(self):
         gateway = self._gateway()
-        own = self._bind_key(gateway, "mine")
-        other = User.objects.create_and_join(self.organization, "other3@example.com", "pw")
-        theirs = PersonalAPIKey.objects.create(
-            label="theirs",
-            user=other,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=["llm_gateway:read"],
-            gateway=gateway,
-        )
+        key = self._bind_key(gateway, "bound")
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-
-        # Own key → allowed.
         response = self.client.post(
             self._url(f"{gateway.id}/unassign_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(own.id)},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-        # Another member's key → forbidden for a non-admin.
-        response = self.client.post(
-            self._url(f"{gateway.id}/unassign_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(theirs.id)},
+            {"credential_type": "project_secret_api_key", "credential_id": str(key.id)},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        theirs.refresh_from_db()
-        self.assertEqual(theirs.gateway_id, gateway.id)
+        key.refresh_from_db()
+        self.assertEqual(key.gateway_id, gateway.id)

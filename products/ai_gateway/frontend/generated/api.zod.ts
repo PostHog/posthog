@@ -44,29 +44,26 @@ export const GatewaysPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Assign one of your own unassigned personal API keys to this gateway.
+ * Assign one of the team's unassigned project secret keys to this gateway (admin-only).
 
-An unbound key has no team boundary, so only its owner may assign it — hence
-the user filter (unlike bind_credential, which moves the team's already-bound keys).
+The key must belong to the gateway's canonical team, so a key from another
+project can't be attributed here.
  */
 export const GatewaysAssignCredentialCreateBody = /* @__PURE__ */ zod.object({
     credential_id: zod
         .string()
-        .describe('Id of one of your own unassigned personal API keys to assign to this gateway.'),
+        .describe("Id of one of the team's unassigned project secret keys to assign to this gateway."),
 })
 
 /**
- * Remove a credential from this gateway, leaving it unassigned.
-
-You can remove your own personal key; removing anyone else's key (or an OAuth
-application) is admin-only, like the cross-gateway move.
+ * Remove a credential from this gateway, leaving it unassigned (admin-only).
  */
 export const GatewaysUnassignCredentialCreateBody = /* @__PURE__ */ zod.object({
     credential_type: zod
-        .enum(['personal_api_key', 'oauth_application'])
-        .describe('\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application')
+        .enum(['project_secret_api_key', 'oauth_application'])
+        .describe('\* `project_secret_api_key` - project_secret_api_key\n\* `oauth_application` - oauth_application')
         .describe(
-            'Which kind of credential to reassign.\n\n\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application'
+            'Which kind of credential to unassign.\n\n\* `project_secret_api_key` - project_secret_api_key\n\* `oauth_application` - oauth_application'
         ),
-    credential_id: zod.string().describe('Id of the credential to reassign to this gateway.'),
+    credential_id: zod.string().describe('Id of the credential to unassign from this gateway.'),
 })

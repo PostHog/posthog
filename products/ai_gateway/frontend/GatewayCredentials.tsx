@@ -4,7 +4,6 @@ import { combineUrl } from 'kea-router'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, Spinner } from '@posthog/lemon-ui'
 
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
 import { aiGatewayLogic, CredentialType } from './aiGatewayLogic'
@@ -20,11 +19,11 @@ export const profileUser = (
     email: user?.email,
 })
 
-// Deep-link to the personal API key settings, opening the create modal pre-filled
-// with the llm_gateway:read scope (the `preset` param is read by personalAPIKeysLogic).
-export const CREATE_KEY_URL = combineUrl(urls.settings('user-api-keys'), { preset: 'llm_gateway' }).url
+// Deep-link to the project secret key settings, opening the create modal pre-filled
+// with the llm_gateway:read scope (the `preset` param is read by projectSecretAPIKeysLogic).
+export const CREATE_KEY_URL = combineUrl(urls.settings('environment-secret-api-keys'), { preset: 'llm_gateway' }).url
 
-// Buttons to attribute a key to this gateway: assign one of your existing
+// Buttons to attribute a key to this gateway: assign one of the team's existing
 // unassigned keys, or create a new one pre-scoped for the gateway.
 function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
     const { assignableCredentials } = useValues(aiGatewayLogic)
@@ -43,7 +42,7 @@ function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
                     size="small"
                     disabledReason={
                         !assignableCredentials.length
-                            ? 'You have no unassigned personal API keys with the LLM gateway scope'
+                            ? 'This project has no unassigned project secret keys with the LLM gateway scope'
                             : undefined
                     }
                 >
@@ -51,7 +50,7 @@ function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
                 </LemonButton>
             </LemonMenu>
             <LemonButton type="secondary" size="small" icon={<IconPlus />} to={CREATE_KEY_URL}>
-                Create personal API key
+                Create project secret key
             </LemonButton>
         </div>
     )
@@ -81,7 +80,7 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
         />
     )
 
-    if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
+    if (!credentials.project_secret_api_keys.length && !credentials.oauth_applications.length) {
         return (
             <div className="flex items-center gap-3 px-4 py-2">
                 <span className="text-secondary">No keys attribute usage to this gateway yet.</span>
@@ -92,14 +91,13 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
 
     return (
         <div className="flex flex-col gap-1 px-4 py-2">
-            {credentials.personal_api_keys.map((key) => (
+            {credentials.project_secret_api_keys.map((key) => (
                 <div key={key.id} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                        <ProfilePicture user={profileUser(key.user)} size="sm" />
                         <span>{key.label}</span>
-                        <span className="text-secondary">personal API key</span>
+                        <span className="text-secondary">project secret key</span>
                     </div>
-                    {removeButton('personal_api_key', key.id)}
+                    {removeButton('project_secret_api_key', key.id)}
                 </div>
             ))}
             {credentials.oauth_applications.map((app) => (

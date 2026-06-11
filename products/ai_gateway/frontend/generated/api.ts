@@ -11,12 +11,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AssignCredentialApi,
     AssignableCredentialApi,
-    BindCredentialApi,
     GatewayApi,
     GatewayBoundCredentialsApi,
     GatewaysListParams,
     PaginatedGatewayListApi,
     PatchedGatewayApi,
+    UnassignCredentialApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -143,10 +143,10 @@ export const getGatewaysAssignCredentialCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Assign one of your own unassigned personal API keys to this gateway.
+ * Assign one of the team's unassigned project secret keys to this gateway (admin-only).
 
-An unbound key has no team boundary, so only its owner may assign it — hence
-the user filter (unlike bind_credential, which moves the team's already-bound keys).
+The key must belong to the gateway's canonical team, so a key from another
+project can't be attributed here.
  */
 export const gatewaysAssignCredentialCreate = async (
     projectId: string,
@@ -167,7 +167,7 @@ export const getGatewaysCredentialsRetrieveUrl = (projectId: string, id: string)
 }
 
 /**
- * List the personal API keys and OAuth applications that attribute usage to this gateway.
+ * List the project secret keys and OAuth applications that attribute usage to this gateway.
  */
 export const gatewaysCredentialsRetrieve = async (
     projectId: string,
@@ -185,22 +185,19 @@ export const getGatewaysUnassignCredentialCreateUrl = (projectId: string, id: st
 }
 
 /**
- * Remove a credential from this gateway, leaving it unassigned.
-
-You can remove your own personal key; removing anyone else's key (or an OAuth
-application) is admin-only, like the cross-gateway move.
+ * Remove a credential from this gateway, leaving it unassigned (admin-only).
  */
 export const gatewaysUnassignCredentialCreate = async (
     projectId: string,
     id: string,
-    bindCredentialApi: BindCredentialApi,
+    unassignCredentialApi: UnassignCredentialApi,
     options?: RequestInit
 ): Promise<GatewayApi> => {
     return apiMutator<GatewayApi>(getGatewaysUnassignCredentialCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bindCredentialApi),
+        body: JSON.stringify(unassignCredentialApi),
     })
 }
 
@@ -209,7 +206,7 @@ export const getGatewaysAssignableCredentialsListUrl = (projectId: string) => {
 }
 
 /**
- * Your personal API keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet.
+ * The team's project secret keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet.
  */
 export const gatewaysAssignableCredentialsList = async (
     projectId: string,

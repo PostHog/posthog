@@ -127,7 +127,7 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
     // Dispatch is namespaced by slug as a path prefix: <host>/g/<slug>/v1/<shape> (ai-gateway #80).
     // The slug rides the path, so stock SDKs reach it with only a base-URL change.
     const gatewayBase = `${preflight.ai_gateway_url.replace(/\/$/, '')}/g/${gateway.slug}`
-    const key = '<phx_ personal API key assigned to this gateway>'
+    const key = '<phs_ project secret key assigned to this gateway>'
 
     // provider → language → snippet. The OpenAI SDK appends "chat/completions" to base + "/v1";
     // the Anthropic SDK appends "/v1/messages" to the gateway base.
@@ -162,7 +162,7 @@ client.chat.completions.create(
             curl: {
                 language: Language.Bash,
                 code: `curl ${gatewayBase}/v1/chat/completions \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+  -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-5-mini",
@@ -202,7 +202,7 @@ client.messages.create(
             curl: {
                 language: Language.Bash,
                 code: `curl ${gatewayBase}/v1/messages \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+  -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "claude-sonnet-4.6",

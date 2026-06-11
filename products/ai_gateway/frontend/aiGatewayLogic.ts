@@ -26,7 +26,7 @@ const SLUG_PATTERN = /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/
 // `null` = modal closed, `'new'` = creating, a string id = renaming that gateway.
 export type EditingGatewayId = string | 'new' | null
 
-export type CredentialType = 'personal_api_key' | 'oauth_application'
+export type CredentialType = 'project_secret_api_key' | 'oauth_application'
 
 export interface GatewayFormValues {
     slug: string
@@ -72,7 +72,7 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
         assignableCredentials: [
             [] as AssignableCredentialApi[],
             {
-                // The requesting user's own llm_gateway:read keys not yet assigned to a gateway.
+                // The team's llm_gateway:read project secret keys not yet assigned to a gateway.
                 loadAssignableCredentials: async () =>
                     await gatewaysAssignableCredentialsList(String(values.currentTeamId)),
             },

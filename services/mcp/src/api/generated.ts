@@ -7878,12 +7878,12 @@ export namespace Schemas {
     }
 
     export interface AssignCredential {
-      /** Id of one of your own unassigned personal API keys to assign to this gateway. */
+      /** Id of one of the team's unassigned project secret keys to assign to this gateway. */
       credential_id: string;
     }
 
     export interface AssignableCredential {
-      /** Personal API key id. */
+      /** Project secret API key id. */
       readonly id: string;
       /** The key's human-readable label. */
       readonly label: string;
@@ -9939,28 +9939,6 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
-    /**
-     * * `personal_api_key` - personal_api_key
-    * `oauth_application` - oauth_application
-     */
-    export type CredentialTypeEnum = typeof CredentialTypeEnum[keyof typeof CredentialTypeEnum];
-
-
-    export const CredentialTypeEnum = {
-      PersonalApiKey: 'personal_api_key',
-      OauthApplication: 'oauth_application',
-    } as const;
-
-    export interface BindCredential {
-      /** Which kind of credential to reassign.
-
-      * `personal_api_key` - personal_api_key
-      * `oauth_application` - oauth_application */
-      credential_type: CredentialTypeEnum;
-      /** Id of the credential to reassign to this gateway. */
-      credential_id: string;
-    }
-
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -9999,13 +9977,11 @@ export namespace Schemas {
       readonly client_id: string;
     }
 
-    export interface BoundPersonalAPIKey {
-      /** Personal API key id. */
+    export interface BoundProjectSecretAPIKey {
+      /** Project secret API key id. */
       readonly id: string;
       /** The key's human-readable label. */
       readonly label: string;
-      /** The user the personal API key belongs to. */
-      readonly user: UserBasic;
       /**
          * When the key was last used, if ever.
          * @nullable
@@ -12348,6 +12324,18 @@ export namespace Schemas {
       /** @maxLength 500 */
       access_secret: string;
     }
+
+    /**
+     * * `project_secret_api_key` - project_secret_api_key
+    * `oauth_application` - oauth_application
+     */
+    export type CredentialTypeEnum = typeof CredentialTypeEnum[keyof typeof CredentialTypeEnum];
+
+
+    export const CredentialTypeEnum = {
+      ProjectSecretApiKey: 'project_secret_api_key',
+      OauthApplication: 'oauth_application',
+    } as const;
 
     export interface CurrentMapping {
       /** A utm_source value already mapped to an integration */
@@ -18645,13 +18633,13 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
-      /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+      /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
       readonly bound_credentials_count: number;
     }
 
     export interface GatewayBoundCredentials {
-      /** Personal API keys bound to this gateway. */
-      readonly personal_api_keys: readonly BoundPersonalAPIKey[];
+      /** Project secret keys bound to this gateway. */
+      readonly project_secret_api_keys: readonly BoundProjectSecretAPIKey[];
       /** OAuth applications bound to this gateway. */
       readonly oauth_applications: readonly BoundOAuthApplication[];
     }
@@ -29982,7 +29970,7 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic | null;
-      /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+      /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
       readonly bound_credentials_count?: number;
     }
 
@@ -41054,6 +41042,16 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    export interface UnassignCredential {
+      /** Which kind of credential to unassign.
+
+      * `project_secret_api_key` - project_secret_api_key
+      * `oauth_application` - oauth_application */
+      credential_type: CredentialTypeEnum;
+      /** Id of the credential to unassign from this gateway. */
+      credential_id: string;
     }
 
     export interface UpdateTextTileRequest {

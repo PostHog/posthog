@@ -73,7 +73,7 @@ export interface GatewayApi {
     /** @nullable */
     readonly updated_at: string | null
     readonly created_by: UserBasicApi | null
-    /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+    /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
     readonly bound_credentials_count: number
 }
 
@@ -97,22 +97,20 @@ export interface PatchedGatewayApi {
     /** @nullable */
     readonly updated_at?: string | null
     readonly created_by?: UserBasicApi | null
-    /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+    /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
     readonly bound_credentials_count?: number
 }
 
 export interface AssignCredentialApi {
-    /** Id of one of your own unassigned personal API keys to assign to this gateway. */
+    /** Id of one of the team's unassigned project secret keys to assign to this gateway. */
     credential_id: string
 }
 
-export interface BoundPersonalAPIKeyApi {
-    /** Personal API key id. */
+export interface BoundProjectSecretAPIKeyApi {
+    /** Project secret API key id. */
     readonly id: string
     /** The key's human-readable label. */
     readonly label: string
-    /** The user the personal API key belongs to. */
-    readonly user: UserBasicApi
     /**
      * When the key was last used, if ever.
      * @nullable
@@ -130,35 +128,35 @@ export interface BoundOAuthApplicationApi {
 }
 
 export interface GatewayBoundCredentialsApi {
-    /** Personal API keys bound to this gateway. */
-    readonly personal_api_keys: readonly BoundPersonalAPIKeyApi[]
+    /** Project secret keys bound to this gateway. */
+    readonly project_secret_api_keys: readonly BoundProjectSecretAPIKeyApi[]
     /** OAuth applications bound to this gateway. */
     readonly oauth_applications: readonly BoundOAuthApplicationApi[]
 }
 
 /**
- * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
  * `oauth_application` - oauth_application
  */
 export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
 
 export const CredentialTypeEnumApi = {
-    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
     OauthApplication: 'oauth_application',
 } as const
 
-export interface BindCredentialApi {
-    /** Which kind of credential to reassign.
+export interface UnassignCredentialApi {
+    /** Which kind of credential to unassign.
 
-  * `personal_api_key` - personal_api_key
+  * `project_secret_api_key` - project_secret_api_key
   * `oauth_application` - oauth_application */
     credential_type: CredentialTypeEnumApi
-    /** Id of the credential to reassign to this gateway. */
+    /** Id of the credential to unassign from this gateway. */
     credential_id: string
 }
 
 export interface AssignableCredentialApi {
-    /** Personal API key id. */
+    /** Project secret API key id. */
     readonly id: string
     /** The key's human-readable label. */
     readonly label: string

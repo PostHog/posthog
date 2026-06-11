@@ -1,10 +1,11 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, QuerySet
+from django.db.models.deletion import ProtectedError
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,15 +19,21 @@ from posthog.event_usage import report_user_action
 from posthog.models.gateway import Gateway, validate_gateway_slug
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-_CREDENTIAL_TYPE_PERSONAL_API_KEY = "personal_api_key"
+_CREDENTIAL_TYPE_PROJECT_SECRET_API_KEY = "project_secret_api_key"
 _CREDENTIAL_TYPE_OAUTH_APPLICATION = "oauth_application"
 # The literal scope the gateway requires — wildcards don't subsume it (RFC #1103).
 _GATEWAY_SCOPE = "llm_gateway:read"
+
+
+class GatewayHasBoundCredentialsError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Unassign the credentials bound to this gateway before deleting it."
+    default_code = "gateway_has_bound_credentials"
 
 
 def _canonical_team(team: Team) -> Team:
@@ -53,10 +60,10 @@ class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     gateway, so resolve the parent and check there — matching the resource's owner.
     """
 
-    # These touch only the requesting user's own key (re-checked per-key in the
-    # action), so they're member-level — unlike the admin-gated gateway mutations
-    # and the cross-gateway credential move.
-    member_level_actions = {"assignable_credentials", "assign_credential", "unassign_credential"}
+    # Listing the team's assignable keys is a read any member can do; binding,
+    # unbinding, and the gateway mutations manage shared team resources, so they're
+    # admin-only (project secret keys are team-owned, not per-user).
+    member_level_actions = {"assignable_credentials"}
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         canonical = _canonical_team(view.team)  # type: ignore[attr-defined]
@@ -90,7 +97,7 @@ class GatewaySerializer(serializers.ModelSerializer):
     # Null for auto-provisioned and backfilled gateways, which have no creating user.
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     bound_credentials_count = serializers.SerializerMethodField(
-        help_text="Number of personal API keys and OAuth applications that attribute usage to this gateway."
+        help_text="Number of project secret keys and OAuth applications that attribute usage to this gateway."
     )
 
     class Meta:
@@ -101,11 +108,11 @@ class GatewaySerializer(serializers.ModelSerializer):
     def get_bound_credentials_count(self, gateway: Gateway) -> int:
         # Prefer the annotation added in list/retrieve; fall back to a count for
         # freshly created/updated instances that were never annotated.
-        pak = getattr(gateway, "personal_api_key_count", None)
+        secret_keys = getattr(gateway, "project_secret_api_key_count", None)
         oauth = getattr(gateway, "oauth_application_count", None)
-        if pak is None or oauth is None:
-            return gateway.personal_api_keys.count() + gateway.oauth_applications.count()
-        return pak + oauth
+        if secret_keys is None or oauth is None:
+            return gateway.project_secret_api_keys.count() + gateway.oauth_applications.count()
+        return secret_keys + oauth
 
     def validate_slug(self, value: str) -> str:
         value = (value or "").strip()
@@ -128,10 +135,9 @@ class GatewaySerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class BoundPersonalAPIKeySerializer(serializers.Serializer):
-    id = serializers.CharField(read_only=True, help_text="Personal API key id.")
+class BoundProjectSecretAPIKeySerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True, help_text="Project secret API key id.")
     label = serializers.CharField(read_only=True, help_text="The key's human-readable label.")  # type: ignore[assignment]
-    user = UserBasicSerializer(read_only=True, help_text="The user the personal API key belongs to.")
     last_used_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the key was last used, if ever."
     )
@@ -144,24 +150,24 @@ class BoundOAuthApplicationSerializer(serializers.Serializer):
 
 
 class GatewayBoundCredentialsSerializer(serializers.Serializer):
-    personal_api_keys = BoundPersonalAPIKeySerializer(
-        many=True, read_only=True, help_text="Personal API keys bound to this gateway."
+    project_secret_api_keys = BoundProjectSecretAPIKeySerializer(
+        many=True, read_only=True, help_text="Project secret keys bound to this gateway."
     )
     oauth_applications = BoundOAuthApplicationSerializer(
         many=True, read_only=True, help_text="OAuth applications bound to this gateway."
     )
 
 
-class BindCredentialSerializer(serializers.Serializer):
+class UnassignCredentialSerializer(serializers.Serializer):
     credential_type = serializers.ChoiceField(
-        choices=[_CREDENTIAL_TYPE_PERSONAL_API_KEY, _CREDENTIAL_TYPE_OAUTH_APPLICATION],
-        help_text="Which kind of credential to reassign.",
+        choices=[_CREDENTIAL_TYPE_PROJECT_SECRET_API_KEY, _CREDENTIAL_TYPE_OAUTH_APPLICATION],
+        help_text="Which kind of credential to unassign.",
     )
-    credential_id = serializers.CharField(help_text="Id of the credential to reassign to this gateway.")
+    credential_id = serializers.CharField(help_text="Id of the credential to unassign from this gateway.")
 
 
 class AssignableCredentialSerializer(serializers.Serializer):
-    id = serializers.CharField(read_only=True, help_text="Personal API key id.")
+    id = serializers.CharField(read_only=True, help_text="Project secret API key id.")
     label = serializers.CharField(read_only=True, help_text="The key's human-readable label.")  # type: ignore[assignment]
     last_used_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the key was last used, if ever."
@@ -170,7 +176,7 @@ class AssignableCredentialSerializer(serializers.Serializer):
 
 class AssignCredentialSerializer(serializers.Serializer):
     credential_id = serializers.CharField(
-        help_text="Id of one of your own unassigned personal API keys to assign to this gateway."
+        help_text="Id of one of the team's unassigned project secret keys to assign to this gateway."
     )
 
 
@@ -196,7 +202,7 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             Gateway.objects.for_team(self.team_id)
             .select_related("created_by")
             .annotate(
-                personal_api_key_count=Count("personal_api_keys", distinct=True),
+                project_secret_api_key_count=Count("project_secret_api_keys", distinct=True),
                 oauth_application_count=Count("oauth_applications", distinct=True),
             )
             .order_by("slug")
@@ -213,7 +219,12 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     def perform_destroy(self, instance: Gateway) -> None:
         gateway_id, slug = str(instance.id), instance.slug
-        instance.delete()
+        try:
+            instance.delete()
+        except ProtectedError:
+            # The credential gateway FKs are PROTECT: a gateway can't be deleted while
+            # credentials still route through it. Surface a 409 so the caller unbinds first.
+            raise GatewayHasBoundCredentialsError()
         report_user_action(
             self.request.user,
             "gateway deleted",
@@ -224,49 +235,32 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @extend_schema(responses=GatewayBoundCredentialsSerializer)
     @action(detail=True, methods=["get"])
     def credentials(self, request: Request, **kwargs: object) -> Response:
-        """List the personal API keys and OAuth applications that attribute usage to this gateway."""
+        """List the project secret keys and OAuth applications that attribute usage to this gateway."""
         gateway = self.get_object()
         payload = {
-            "personal_api_keys": gateway.personal_api_keys.select_related("user").order_by("label"),
+            "project_secret_api_keys": gateway.project_secret_api_keys.order_by("label"),
             "oauth_applications": gateway.oauth_applications.order_by("name"),
         }
         return Response(GatewayBoundCredentialsSerializer(payload).data)
 
-    def _is_project_admin(self) -> bool:
-        level = self.user_permissions.team(_canonical_team(self.team)).effective_membership_level
-        return level is not None and level >= OrganizationMembership.Level.ADMIN
-
-    @extend_schema(request=BindCredentialSerializer, responses=GatewaySerializer)
+    @extend_schema(request=UnassignCredentialSerializer, responses=GatewaySerializer)
     @action(detail=True, methods=["post"], url_path="unassign_credential")
     def unassign_credential(self, request: Request, **kwargs: object) -> Response:
-        """Remove a credential from this gateway, leaving it unassigned.
-
-        You can remove your own personal key; removing anyone else's key (or an OAuth
-        application) is admin-only, like the cross-gateway move."""
+        """Remove a credential from this gateway, leaving it unassigned (admin-only)."""
         gateway = self.get_object()
-        serializer = BindCredentialSerializer(data=request.data)
+        serializer = UnassignCredentialSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         credential_type = serializer.validated_data["credential_type"]
         credential_id = serializer.validated_data["credential_id"]
 
         # Scoped to credentials bound to THIS gateway — that's the authorization boundary.
-        if credential_type == _CREDENTIAL_TYPE_PERSONAL_API_KEY:
-            credential = PersonalAPIKey.objects.filter(  # nosemgrep: idor-lookup-without-user
-                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
-                gateway_id=gateway.id,
-            ).first()
-            owns = credential is not None and credential.user_id == request.user.id
-        else:
-            credential = OAuthApplication.objects.filter(  # nosemgrep: idor-lookup-without-user
-                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
-                gateway_id=gateway.id,
-            ).first()
-            owns = False  # OAuth apps are org-managed; no per-user self-service path.
-
+        model = ProjectSecretAPIKey if credential_type == _CREDENTIAL_TYPE_PROJECT_SECRET_API_KEY else OAuthApplication
+        credential = model.objects.filter(  # nosemgrep: idor-lookup-without-user
+            pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+            gateway_id=gateway.id,
+        ).first()
         if credential is None:
             raise ValidationError({"credential_id": "Credential not found, or not assigned to this gateway."})
-        if not owns and not self._is_project_admin():
-            raise PermissionDenied("Only project admins can remove another member's key.")
 
         credential.gateway = None
         credential.save(update_fields=["gateway"])
@@ -282,33 +276,36 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @extend_schema(responses=AssignableCredentialSerializer(many=True))
     @action(detail=False, methods=["get"], pagination_class=None)
     def assignable_credentials(self, request: Request, **kwargs: object) -> Response:
-        """Your personal API keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet."""
-        keys = PersonalAPIKey.objects.filter(
-            user=request.user, gateway__isnull=True, scopes__contains=[_GATEWAY_SCOPE]
+        """The team's project secret keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet."""
+        keys = ProjectSecretAPIKey.objects.filter(
+            team=_canonical_team(self.team), gateway__isnull=True, scopes__contains=[_GATEWAY_SCOPE]
         ).order_by("label")
         return Response(AssignableCredentialSerializer(keys, many=True).data)
 
     @extend_schema(request=AssignCredentialSerializer, responses=GatewaySerializer)
     @action(detail=True, methods=["post"], url_path="assign_credential")
     def assign_credential(self, request: Request, **kwargs: object) -> Response:
-        """Assign one of your own unassigned personal API keys to this gateway.
+        """Assign one of the team's unassigned project secret keys to this gateway (admin-only).
 
-        An unbound key has no team boundary, so only its owner may assign it — hence
-        the user filter (unlike bind_credential, which moves the team's already-bound keys)."""
+        The key must belong to the gateway's canonical team, so a key from another
+        project can't be attributed here."""
         gateway = self.get_object()
         serializer = AssignCredentialSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         credential_id = serializer.validated_data["credential_id"]
 
-        key = PersonalAPIKey.objects.filter(
-            pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
-            user=request.user,
+        key = ProjectSecretAPIKey.objects.filter(
+            pk=credential_id,
+            team=_canonical_team(self.team),
             gateway__isnull=True,
             scopes__contains=[_GATEWAY_SCOPE],
         ).first()
         if key is None:
             raise ValidationError(
-                {"credential_id": "Key not found, not yours, already assigned, or missing the llm_gateway:read scope."}
+                {
+                    "credential_id": "Key not found, not on this project, already assigned, "
+                    "or missing the llm_gateway:read scope."
+                }
             )
 
         key.gateway = gateway

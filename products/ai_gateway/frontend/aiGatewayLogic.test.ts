@@ -101,13 +101,13 @@ describe('aiGatewayLogic', () => {
 
     it('loads a gateway’s bound credentials keyed by id', async () => {
         mockCredentials.mockResolvedValue({
-            personal_api_keys: [{ id: 'k1', label: 'bot', user: {}, last_used_at: null }],
+            project_secret_api_keys: [{ id: 'k1', label: 'bot', last_used_at: null }],
             oauth_applications: [],
         } as any)
         await expectLogic(logic, () => logic.actions.loadCredentials({ gatewayId: 'g1' })).toDispatchActions([
             'loadCredentialsSuccess',
         ])
         expect(mockCredentials).toHaveBeenCalledWith(expect.any(String), 'g1')
-        expect(logic.values.credentialsByGateway['g1'].personal_api_keys[0].id).toEqual('k1')
+        expect(logic.values.credentialsByGateway['g1'].project_secret_api_keys[0].id).toEqual('k1')
     })
 })
