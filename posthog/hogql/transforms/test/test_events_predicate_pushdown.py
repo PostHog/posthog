@@ -834,12 +834,11 @@ class TestEventsSubexprHoister(BaseTest):
         assert hoister.blocked is False
 
     def test_direct_column_is_projected_under_its_database_name(self):
-        # A direct column is hoisted under its database name, but the outer occurrence keeps its original type and
-        # resolves against the subquery alias by name; the printer derives its nullability from the real events
-        # column, so a non-nullable value stays unwrapped and usable as a join key.
+        # A direct column is hoisted under its database name and the outer occurrence reads the subquery column;
+        # the printer resolves its nullability through the subquery column type, so it stays a usable join key.
         hoister, rewritten, subquery_ref = self._run("SELECT event FROM events")
         assert "event" in hoister.projections
-        assert self._references_subquery(rewritten[0], subquery_ref) is False
+        assert self._references_subquery(rewritten[0], subquery_ref) is True
 
     def test_property_is_projected_under_its_dunder_name(self):
         # The name is `<blob column>__<key>`, so reads off different blobs never collide on a bare key.
