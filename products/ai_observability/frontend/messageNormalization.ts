@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { mergeRecipes, RecipeNormalizer, RunOutcome, StoredRecipe } from './normalizer'
 import { CompatMessage } from './types'
 
-export type NormalizedConversation = RunOutcome
+export type NormalizationResult = RunOutcome
 
 // Constructed once: the constructor compiles and sorts every recipe, so per-call
 // construction would be wasteful.
@@ -24,16 +24,8 @@ export function normalizeMessage(input: unknown, defaultRole: string): CompatMes
     return recipeNormalizer.normalizeMessage(input, defaultRole).messages
 }
 
-export function normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
-    return normalizeConversation(input, defaultRole, { tools }).messages
-}
-
-export function normalizeConversation(
-    input: unknown,
-    defaultRole: string,
-    opts: { tools?: unknown } = {}
-): NormalizedConversation {
-    return recipeNormalizer.normalizeMessages(input, defaultRole, opts.tools)
+export function normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): NormalizationResult {
+    return recipeNormalizer.normalizeMessages(input, defaultRole, tools)
 }
 
 export function captureNormalizationFailure(input: unknown): void {

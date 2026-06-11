@@ -568,7 +568,13 @@ describe('reportTraceNormalizationFailures', () => {
         id: 'trace-1',
         createdAt: '2024-01-01T00:00:00Z',
         distinctId: 'user-1',
-        events: events.map((e, i) => ({ id: `event-${i}`, event: '$ai_generation', properties: {}, ...e })),
+        events: events.map((e, i) => ({
+            id: `event-${i}`,
+            event: '$ai_generation',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+            ...e,
+        })),
     })
 
     it('captures both unrecognized sides of a generation', () => {

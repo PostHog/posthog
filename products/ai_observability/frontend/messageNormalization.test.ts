@@ -1,11 +1,6 @@
 import posthog from 'posthog-js'
 
-import {
-    captureNormalizationFailure,
-    normalizeConversation,
-    normalizeMessage,
-    normalizeMessages,
-} from './messageNormalization'
+import { captureNormalizationFailure, normalizeMessage, normalizeMessages } from './messageNormalization'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 
@@ -23,31 +18,31 @@ describe('messageNormalization', () => {
 
         it('normalizeMessages prepends an available-tools pseudo-message when tools are passed', () => {
             const result = normalizeMessages({ role: 'user', content: 'hi' }, 'user', [{ name: 'search' }])
-            expect(result[0]).toEqual({ role: 'available tools', content: '', tools: [{ name: 'search' }] })
+            expect(result.messages[0]).toEqual({ role: 'available tools', content: '', tools: [{ name: 'search' }] })
         })
 
         it('normalizeMessages carries no message for nullish/scalar input', () => {
-            expect(normalizeMessages(null, 'user')).toEqual([])
-            expect(normalizeMessages(42, 'user')).toEqual([])
+            expect(normalizeMessages(null, 'user').messages).toEqual([])
+            expect(normalizeMessages(42, 'user').messages).toEqual([])
         })
     })
 
-    describe('normalizeConversation', () => {
+    describe('normalizeMessages recognition', () => {
         it('reports a recognized conversation alongside its messages', () => {
-            expect(normalizeConversation({ role: 'assistant', content: 'hi' }, 'user')).toEqual({
+            expect(normalizeMessages({ role: 'assistant', content: 'hi' }, 'user')).toEqual({
                 messages: [{ role: 'assistant', content: 'hi' }],
                 recognized: true,
             })
         })
 
         it('reports opaque state as unrecognized and salvages it', () => {
-            const result = normalizeConversation({ file_path: 'src/index.ts' }, 'user')
+            const result = normalizeMessages({ file_path: 'src/index.ts' }, 'user')
             expect(result.recognized).toBe(false)
             expect(result.messages).toHaveLength(1)
         })
 
         it("never captures — reporting a failure is the caller's decision", () => {
-            normalizeConversation({ file_path: 'src/index.ts' }, 'user')
+            normalizeMessages({ file_path: 'src/index.ts' }, 'user')
             expect(capture).not.toHaveBeenCalled()
         })
     })

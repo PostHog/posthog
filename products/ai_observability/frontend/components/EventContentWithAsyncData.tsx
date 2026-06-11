@@ -5,7 +5,7 @@ import {
     ConversationMessagesDisplay,
 } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
-import { normalizeConversation, normalizeMessage } from '../messageNormalization'
+import { normalizeMessage, normalizeMessages } from '../messageNormalization'
 import { AIDataLoading } from './AIDataLoading'
 import { JSONValueDisplay } from './JSONValueDisplay'
 
@@ -70,21 +70,27 @@ export function EventContentConversation({
         return indices
     }, [input, tools, generationEventId])
 
-    const inputConversation = normalizeConversation(input, 'user', { tools })
-    const outputConversation = normalizeConversation(output, 'assistant')
+    const { recognized: inputRecognized, messages: inputMessages } = React.useMemo(
+        () => normalizeMessages(input, 'user', tools),
+        [input, tools]
+    )
+    const { recognized: outputRecognized, messages: outputMessages } = React.useMemo(
+        () => normalizeMessages(output, 'assistant'),
+        [output]
+    )
 
     if (isLoading) {
         return <AIDataLoading variant="block" />
     }
 
-    if (!inputConversation.recognized || !outputConversation.recognized) {
+    if (!inputRecognized || !outputRecognized) {
         return <JsonInputOutput input={input} output={output} errorData={errorData} raisedError={raisedError} />
     }
 
     return (
         <ConversationMessagesDisplay
-            inputNormalized={inputConversation.messages}
-            outputNormalized={outputConversation.messages}
+            inputNormalized={inputMessages}
+            outputNormalized={outputMessages}
             inputSourceIndices={inputSourceIndices}
             errorData={errorData}
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}

@@ -1392,8 +1392,8 @@ function EventContentDisplay({
         return <></>
     }
 
-    const inputMessages = normalizeMessages(input, 'user')
-    const outputMessages = normalizeMessages(output, 'assistant')
+    const inputMessages = normalizeMessages(input, 'user').messages
+    const outputMessages = normalizeMessages(output, 'assistant').messages
 
     if (inputMessages.length > 0 || outputMessages.length > 0) {
         return (

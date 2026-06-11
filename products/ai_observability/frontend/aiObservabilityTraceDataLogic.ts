@@ -24,7 +24,7 @@ import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDa
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { captureNormalizationFailure, normalizeConversation, normalizeMessages } from './messageNormalization'
+import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -177,10 +177,10 @@ export function reportTraceNormalizationFailures(trace: LLMTrace): void {
         }
         const input = event.properties.$ai_input
         const output = event.properties.$ai_output_choices ?? event.properties.$ai_output
-        if (!normalizeConversation(input, 'user', { tools: event.properties.$ai_tools }).recognized) {
+        if (!normalizeMessages(input, 'user', event.properties.$ai_tools).recognized) {
             captureNormalizationFailure(input)
         }
-        if (!normalizeConversation(output, 'assistant').recognized) {
+        if (!normalizeMessages(output, 'assistant').recognized) {
             captureNormalizationFailure(output)
         }
     }
