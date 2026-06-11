@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, IconStack } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,7 +22,7 @@ import { ClusteringJobsPanel } from './ClusteringJobsPanel'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
-import { NOISE_CLUSTER_ID } from './constants'
+import { NOISE_CLUSTER_ID, STALE_RUN_THRESHOLD_DAYS } from './constants'
 import { EvaluationFilterBar } from './EvaluationFilterBar'
 import { Cluster, ClusteringLevel, getJobIdFromRunId } from './types'
 
@@ -45,6 +45,7 @@ export function ClustersView(): JSX.Element {
         propertyFilters,
         shouldFilterTestAccounts,
         propertyFilteredItemIdsLoading,
+        latestRunAgeDays,
     } = useValues(clustersLogic)
     const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
         useActions(clustersLogic)
@@ -77,6 +78,10 @@ export function ClustersView(): JSX.Element {
     // the page, then it gets replaced by the actual data a moment later.
     const showEmptyState = !clusteringRunsLoading && clusteringRuns.length === 0
     const isLoadingData = clusteringRunsLoading || currentRunLoading
+
+    // A run exists but the most recent one is older than expected — runs should land ~daily.
+    // Tell the user the data is stale instead of silently presenting an old run as current.
+    const showStaleNotice = latestRunAgeDays !== null && latestRunAgeDays >= STALE_RUN_THRESHOLD_DAYS
 
     if (showEmptyState) {
         return (
@@ -158,6 +163,13 @@ export function ClustersView(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            {showStaleNotice && (
+                <LemonBanner type="info">
+                    {`Clusters were last generated ${latestRunAgeDays} days ago. A fresh run hasn't landed yet — ` +
+                        'showing the most recent results. Check back soon for an update.'}
+                </LemonBanner>
+            )}
+
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">

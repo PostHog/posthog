@@ -114,6 +114,24 @@ def _get_ai_observability_workflow_config() -> AIObservabilityWorkflowConfig:
         )
 
 
+def _get_teams_with_enabled_clustering_jobs(team_ids: list[int]) -> set[int]:
+    """Return the subset of ``team_ids`` that have at least one enabled ClusteringJob.
+
+    These are teams that have opted into clustering (every team starts with default
+    enabled jobs), so they should always be processed rather than left to the random
+    sample — otherwise an opted-in team can go days without a fresh run and its
+    clusters page goes empty once the last run ages out of the read window.
+    """
+    if not team_ids:
+        return set()
+
+    from products.ai_observability.backend.models.clustering_job import ClusteringJob
+
+    return set(
+        ClusteringJob.objects.filter(team_id__in=team_ids, enabled=True).values_list("team_id", flat=True).distinct()
+    )
+
+
 # Activity timeout for team discovery. Must exceed the underlying ClickHouse
 # query's max_execution_time (5 min in CH_AI_OBSERVABILITY_SETTINGS) plus retry
 # overhead so the activity doesn't get killed before the fallback path runs.
@@ -164,7 +182,12 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput) -> list[
             sample_size = math.ceil(len(remaining) * sample_percentage)
             sampled = random.sample(remaining, min(sample_size, len(remaining)))
 
-            result = sorted((guaranteed | set(sampled)) - skip)
+            # Always include teams that have opted into clustering (enabled ClusteringJob),
+            # regardless of the random sample, so their runs refresh deterministically every
+            # day rather than depending on whether they happened to be sampled this run.
+            opted_in = await asyncio.to_thread(_get_teams_with_enabled_clustering_jobs, remaining)
+
+            result = sorted((guaranteed | set(sampled) | opted_in) - skip)
 
             logger.info(
                 "Team discovery completed",
@@ -173,6 +196,7 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput) -> list[
                 ai_event_teams_count=len(ai_event_teams),
                 remaining_count=len(remaining),
                 sampled_count=len(sampled),
+                opted_in_count=len(opted_in),
                 total_count=len(result),
                 sample_percentage=sample_percentage,
             )

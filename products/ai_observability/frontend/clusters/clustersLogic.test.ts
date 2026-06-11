@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
@@ -495,6 +497,28 @@ describe('clustersLogic', () => {
 
             it('returns null when no runs available', () => {
                 expect(logic.values.effectiveRunId).toBe(null)
+            })
+        })
+
+        describe('latestRunAgeDays', () => {
+            it('is null when there are no runs', () => {
+                expect(logic.values.latestRunAgeDays).toBe(null)
+            })
+
+            it('is null when the latest run carries no timestamp', () => {
+                logic.actions.loadClusteringRunsSuccess([
+                    { runId: 'first-run', windowEnd: '2025-01-08', label: 'First Run' },
+                ])
+                expect(logic.values.latestRunAgeDays).toBe(null)
+            })
+
+            it('reports whole days since the most recent run', () => {
+                const threeDaysAgo = dayjs().subtract(3, 'day').toISOString()
+                logic.actions.loadClusteringRunsSuccess([
+                    { runId: 'first-run', windowEnd: '2025-01-08', label: 'First Run', timestamp: threeDaysAgo },
+                    { runId: 'second-run', windowEnd: '2025-01-01', label: 'Second Run' },
+                ])
+                expect(logic.values.latestRunAgeDays).toBe(3)
             })
         })
 

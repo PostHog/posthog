@@ -99,6 +99,7 @@ export interface ClusteringRunOption {
     runId: string
     windowEnd: string
     label: string // Formatted date for display
+    timestamp?: string // Raw event timestamp — used to detect a stale most-recent run
 }
 
 // Summary from $ai_trace_summary or $ai_generation_summary events — or, for
