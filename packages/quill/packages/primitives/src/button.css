@@ -386,11 +386,9 @@
         transition: color 150ms ease;
     }
 
-    /* Loading is busy, not unavailable — skip the dimmed disabled look. */
-    .quill-button[data-loading]:disabled {
-        opacity: 1;
-    }
-
+    /* Loading is busy, not unavailable: the button is focusable-while-disabled
+       (aria-disabled, no native disabled attribute), so the dimmed :disabled
+       look never applies — full-strength visuals under the spinner. */
     .quill-button[data-loading] > :not(.quill-spinner) {
         opacity: 0;
         transition: opacity 150ms ease;

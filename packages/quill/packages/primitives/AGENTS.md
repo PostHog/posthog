@@ -834,5 +834,5 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
 7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
 8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
-9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it disables the button (guarding double-submission) and overlays a spinner without changing the button's width
+9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it blocks activation (guarding double-submission) and overlays a spinner without changing the button's width, while staying focusable for screen readers (`aria-disabled` + `aria-busy`, not the native `disabled` attribute)
 10. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting

@@ -79,6 +79,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-loading={loading || undefined}
                 aria-busy={loading || undefined}
                 disabled={disabled || loading}
+                // While loading, stay focusable: Base UI then renders aria-disabled instead of
+                // the native disabled attribute, keeping the button in the tab order so screen
+                // readers can reach it and announce busy. Activation stays blocked.
+                focusableWhenDisabled={loading ? true : undefined}
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
             >
