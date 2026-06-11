@@ -105,6 +105,7 @@ the row lists both.
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
+| pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
@@ -270,7 +271,6 @@ doesn't conflict with concurrent PRs.
 - outbrain
 - outreach
 - pagerduty
-- pandadoc
 - pardot
 - paylocity
 - paypal

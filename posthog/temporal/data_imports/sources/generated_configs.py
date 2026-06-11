@@ -937,7 +937,7 @@ class PagerDutySourceConfig(config.Config):
 
 @config.config
 class PandaDocSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
