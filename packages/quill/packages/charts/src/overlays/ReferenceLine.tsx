@@ -2,11 +2,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-
-// Goal/alert/marker label badge — a fixed dark pill (tooltip-like) so it always reads as a
-// marker against the plot, independent of theme and of the surface-styled tooltip.
-const REFERENCE_LABEL_BG = '#1d2330'
-const REFERENCE_LABEL_COLOR = '#ffffff'
+import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -306,10 +302,11 @@ function ReferenceLineView({
     label: string | undefined
     labelStyle: React.CSSProperties
 }): React.ReactElement {
+    const { theme } = useChartLayout()
     const resolvedLabelStyle: React.CSSProperties = {
         ...labelStyle,
-        backgroundColor: REFERENCE_LABEL_BG,
-        color: REFERENCE_LABEL_COLOR,
+        backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
+        color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
     }
     return (
         <>

@@ -66,18 +66,6 @@ describe('ReferenceLine', () => {
             expect(getByText('Target')).toBeTruthy()
         })
 
-        it('styles the label badge as a fixed dark pill, regardless of theme', () => {
-            const ctx = makeOverlayContext(CONTEXT.scales, {
-                dimensions: DIMENSIONS,
-                labels: ['Mon', 'Tue', 'Wed'],
-                theme: { colors: ['#000'], tooltipBackground: 'rgb(250, 250, 250)', tooltipColor: 'rgb(0, 0, 0)' },
-            })
-            const label = renderInChart(<ReferenceLine value={50} label="T" />, ctx).getByText('T') as HTMLDivElement
-            // Independent of the (surface-styled) tooltip colors above.
-            expect(label.style.backgroundColor).toBe('rgb(29, 35, 48)') // #1d2330
-            expect(label.style.color).toBe('rgb(255, 255, 255)')
-        })
-
         it('anchors the label at the start when labelPosition="start"', () => {
             const { getByText } = renderInChart(<ReferenceLine value={50} label="T" labelPosition="start" />)
             const label = getByText('T') as HTMLDivElement
