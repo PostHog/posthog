@@ -29,6 +29,7 @@ tools:
         description: >
             Get a single field note by id, including the full element context (selector, element chain, inferred
             selectors, attributes) needed to locate the element in code.
+        feature_flag: field-notes
     field-notes-list:
         operation: field_notes_list
         enabled: true
@@ -60,9 +61,23 @@ tools:
                 - screenshot_url
                 - created_at
                 - created_by
+        feature_flag: field-notes
     field-notes-partial-update:
         operation: field_notes_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - field_note:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update field note
+        description: >
+            Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or
+            `dismissed`, and optionally add a `resolution` note describing what changed. Send only the fields you want
+            to change.
+        feature_flag: field-notes
     field-notes-update:
         operation: field_notes_update
         enabled: false

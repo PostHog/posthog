@@ -2761,7 +2761,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "field-notes"
     },
     "field-notes-list": {
         "description": "List UI field notes a user made with the PostHog toolbar on their own site. Each field note is feedback pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter by `field_note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.",
@@ -2775,7 +2776,23 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "field-notes"
+    },
+    "field-notes-partial-update": {
+        "description": "Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or `dismissed`, and optionally add a `resolution` note describing what changed. Send only the fields you want to change.",
+        "category": "Field notes",
+        "feature": "field_notes",
+        "summary": "Update field note",
+        "title": "Update field note",
+        "required_scopes": ["field_note:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "field-notes"
     },
     "file-download-batch-exports-cancel-create": {
         "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
