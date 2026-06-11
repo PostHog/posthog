@@ -18,6 +18,9 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 # A pathological filter must not be able to hang the estimate request.
 _ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
 
+# Interactive saves get a tighter budget and fail soft; the batch refresher can afford the full cap.
+ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS = 10
+
 # The estimate always projects a calendar month from a fixed 30-day lookback.
 ESTIMATE_WINDOW_DAYS = 30
 
@@ -32,7 +35,9 @@ class ScannerVolumeEstimate:
     effective_window_days: int
 
 
-def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> ScannerVolumeEstimate:
+def estimate_scanner_session_volume(
+    *, team: Team, query: RecordingsQuery, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation verbatim and wraps it in a
@@ -82,7 +87,7 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
         query=combined_query,
         team=team,
         query_type="ReplayVisionScannerEstimateQuery",
-        settings=HogQLGlobalSettings(max_execution_time=_ESTIMATE_MAX_EXECUTION_TIME_SECONDS),
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0
@@ -99,12 +104,22 @@ def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate:
     return round(estimate.matched_sessions / estimate.effective_window_days * ESTIMATE_WINDOW_DAYS * sampling_rate)
 
 
-def refresh_scanner_estimate(scanner: ReplayScanner) -> None:
+def refresh_scanner_estimate(
+    scanner: ReplayScanner, *, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
-    estimate = estimate_scanner_session_volume(team=scanner.team, query=scanner.recordings_query())
-    scanner.estimated_monthly_observations = project_monthly_observations(estimate, scanner.sampling_rate)
-    scanner.estimated_at = timezone.now()
-    scanner.save(update_fields=["estimated_monthly_observations", "estimated_at"])
+    estimate = estimate_scanner_session_volume(
+        team=scanner.team, query=scanner.recordings_query(), max_execution_seconds=max_execution_seconds
+    )
+    projection = project_monthly_observations(estimate, scanner.sampling_rate)
+    estimated_at = timezone.now()
+    # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
+    updated = ReplayScanner.objects.filter(
+        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate
+    ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
+    if updated:
+        scanner.estimated_monthly_observations = projection
+        scanner.estimated_at = estimated_at
 
 
 def _clamp_window_days(earliest: object) -> int:

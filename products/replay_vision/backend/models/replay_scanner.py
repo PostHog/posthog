@@ -114,13 +114,19 @@ class ReplayScanner(UUIDModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
+            track_enabled = "enabled" in update_fields
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
-        if self.pk and relevant:
+            track_enabled = True
+        if self.pk and (relevant or track_enabled):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
-                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
+                    type(self)
+                    .objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .only("scanner_version", "enabled", *relevant)
+                    .first()
                 )
                 if old is not None:
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
@@ -128,7 +134,9 @@ class ReplayScanner(UUIDModel):
                     if changed:
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
-                    if changed & self._ESTIMATE_FIELDS:
+                    # Re-enabling resurfaces a possibly long-stale estimate in the quota sum, so it invalidates too.
+                    reenabled = track_enabled and self.enabled and not old.enabled
+                    if (changed & self._ESTIMATE_FIELDS) or reenabled:
                         self.estimated_at = None
                         extra_fields.append("estimated_at")
                     if update_fields is not None and extra_fields:

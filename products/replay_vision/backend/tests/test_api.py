@@ -620,6 +620,7 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
             ("query_change", {"query": {"kind": "RecordingsQuery", "operand": "AND"}}, True),
             ("rename_only", {"name": "renamed"}, False),
             ("sampling_rate_unchanged", {"sampling_rate": 1.0}, False),
+            ("disable", {"enabled": False}, False),
         ]
     )
     def test_update_refreshes_only_on_volume_affecting_changes(
@@ -635,6 +636,18 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
+
+    def test_reenabling_refreshes_a_stale_estimate(self) -> None:
+        scanner = self._create_scanner(enabled=False)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=10, estimated_at=timezone.now() - timedelta(days=30)
+        )
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": True}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.mock_refresh_estimate.assert_called_once()
 
     def test_update_backfills_a_never_computed_estimate(self) -> None:
         scanner = self._create_scanner()

@@ -49,6 +49,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
+    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -69,9 +70,9 @@ logger = structlog.get_logger(__name__)
 
 
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
-    # The estimate is advisory — never fail a scanner save over it.
+    # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
-        refresh_scanner_estimate(scanner)
+        refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 

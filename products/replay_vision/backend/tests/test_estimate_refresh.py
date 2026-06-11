@@ -113,6 +113,21 @@ class TestRefreshScannerEstimate:
         scanner.refresh_from_db()
         assert scanner.scanner_version == original_version
 
+    def test_discards_result_when_config_changed_mid_flight(self) -> None:
+        scanner = _make_scanner(sampling_rate=1.0)
+
+        def edit_then_estimate(**_: Any) -> ScannerVolumeEstimate:
+            ReplayScanner.objects.filter(pk=scanner.pk).update(sampling_rate=0.5)
+            return ScannerVolumeEstimate(matched_sessions=60, effective_window_days=30)
+
+        with patch(_ESTIMATE_QUERY, side_effect=edit_then_estimate):
+            refresh_scanner_estimate(scanner)
+
+        scanner.refresh_from_db()
+        # The estimate was computed against the pre-edit config, so the filtered write must not land.
+        assert scanner.estimated_monthly_observations is None
+        assert scanner.estimated_at is None
+
 
 @pytest.mark.django_db(transaction=True)
 class TestEstimateInvalidationOnSave:
@@ -137,6 +152,25 @@ class TestEstimateInvalidationOnSave:
         assert (scanner.estimated_at is None) == expect_stale
         # The last computed value sticks around until the refresher recomputes it.
         assert scanner.estimated_monthly_observations == 10
+
+    @pytest.mark.parametrize(
+        "initial_enabled, new_enabled, expect_stale",
+        [
+            (False, True, True),  # re-enable resurfaces the estimate in the quota sum → refresh needed
+            (True, False, False),  # disabling keeps the last estimate for display
+            (True, True, False),  # no transition
+        ],
+    )
+    def test_enabled_transitions(self, initial_enabled: bool, new_enabled: bool, expect_stale: bool) -> None:
+        scanner = _make_scanner(enabled=initial_enabled)
+        _set_estimate(scanner, 10, hours_ago=1)
+        scanner.refresh_from_db()
+
+        scanner.enabled = new_enabled
+        scanner.save(update_fields=["enabled"])
+
+        scanner.refresh_from_db()
+        assert (scanner.estimated_at is None) == expect_stale
 
 
 @pytest.mark.django_db(transaction=True)
