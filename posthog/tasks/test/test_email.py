@@ -590,6 +590,31 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
 
+    def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        # Before 10:00 UTC the digest day is still the previous calendar date.
+        with freeze_time("2024-05-15 09:59:00"):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert (
+            MockEmailMessage.call_args.kwargs["campaign_key"]
+            == f"external_data_failure_digest_{self.team.pk}_2024-05-14"
+        )
+
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

@@ -27,11 +27,12 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
 def send_external_data_failure_digest_catchup() -> None:
     """Flush sync failures the one-email-per-day block swallowed.
 
-    Runs daily just after the date-keyed campaign block resets. Any team whose
-    schemas failed in the last 24 hours and are still failing gets a fresh
-    digest — this guarantees every error is eventually communicated, including
-    schemas paused by a non-retryable error that will never fail again to
-    re-trigger the inline notification path.
+    Runs daily just after the digest day rolls over (10:15 UTC, see
+    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC) and the date-keyed campaign
+    block resets. Any team whose schemas failed in the last 24 hours and are
+    still failing gets a fresh digest — this guarantees every error is
+    eventually communicated, including schemas paused by a non-retryable error
+    that will never fail again to re-trigger the inline notification path.
     """
     team_ids = get_team_ids_with_recent_sync_failures()
     for team_id in team_ids:

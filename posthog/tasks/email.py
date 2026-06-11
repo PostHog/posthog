@@ -608,20 +608,27 @@ def send_batch_export_run_failure(
     message.send()
 
 
+# The digest "day" rolls over at this hour UTC rather than midnight, so the daily
+# block resets — and the catch-up email lands — during waking hours for US and EU,
+# right alongside the 09:30 UTC CDP destinations digest. The catch-up cron in
+# scheduled.py is anchored to this constant.
+EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
+
+
 def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]]) -> None:
     """Email a per-team digest of failing external data source syncs.
 
     Called inline from the sync failure path rather than as a task. The
-    MessagingRecord campaign key embeds the date, capping delivery at one
-    email per team per day — repeat calls the same day are per-recipient no-ops.
+    MessagingRecord campaign key embeds the digest day, capping delivery at one
+    email per team per digest day — repeat calls the same day are no-ops.
     """
     if not is_email_available(with_absolute_urls=True):
         return
 
-    # UTC date, not date.today() — the daily catch-up cron is anchored to this key
-    # resetting at midnight UTC, and date.today() follows the OS timezone.
-    today = timezone.now().date().strftime("%Y-%m-%d")
-    campaign_key = f"external_data_failure_digest_{team_id}_{today}"
+    # Shift the clock back so the date in the key changes at the boundary hour
+    # (UTC-anchored — date.today() would follow the OS timezone instead).
+    digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
+    campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
 
     # Every job in a failure burst schedules its own delayed digest task; the first
     # one to send wins. Bail before the recipient/permission queries and render —
