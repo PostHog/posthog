@@ -267,3 +267,42 @@ The fallback card handles all seven shapes — every operation either returns a 
 ---
 
 <!-- Add new TODOs below, in the same format. -->
+
+## Scene-enriched workflows (contextual insight editing)
+
+**Dropped/deferred in:** `03_RICH_UI.md` § 3.3 (Example A — "the contextual-edit flow is dead"; the sandbox proxy renders no scene affordances).
+**Status:** open.
+**Owner:** _unassigned_.
+**Added:** 2026-06-10.
+
+### What we lost
+
+The LangGraph runtime supports scene-coupled workflows: scenes register contextual Max tools via `useMaxTool` (insight editor in `InsightPageHeader.tsx`, plus surveys, experiments, web analytics), and the agent's output applies back into the **open scene** rather than just rendering inline in the thread. The flagship is insight editing:
+
+1. On the insight editor, the contextual edit tool registers; `Thread.tsx` passes `isEditingInsight={editInsightToolRegistered}` + the active tab/scene into `VisualizationArtifact` (the LangGraph proxy over the atomic `VisualizationWidget`).
+2. When the agent edits the open insight, the artifact proxy **collapses** the inline visualization (the result lives in the editor, not the thread) and renders `InsightSuggestionButton`, which reads `suggestedQuery` / `previousQuery` from `insightLogic` and offers apply / revert of the agent's suggested query in the editor itself.
+
+Under the sandbox runtime both halves are gone: the runtime has no contextual tool registration (context attachments are flat typed references the agent reads on demand), and the sandbox proxy `CreateInsightWidget` renders the atomic `VisualizationWidget` without any scene affordances. The agent can still _update_ an insight via `insight-update`, but the result renders as a detached inline artifact — it never flows into the editor the user is looking at, and there's no apply / revert affordance. The same gap applies to every other `useMaxTool` surface (survey wizard, experiment summaries, web analytics), though some scene push-flows survived because they live in the widgets, not the tools (`ErrorTrackingFiltersWidget` still applies filters to the active error-tracking scene; `RecordingsWidget` keeps the accept-filters bar).
+
+### What needs to land
+
+Two halves, separable:
+
+1. **Agent awareness of the open scene.** Attach the active insight (short_id + current query) as context when the panel opens on the editor, with an instruction to prefer `insight-update` on that insight over creating new ones. The `AttachedContext` plumbing already exists; this is a new attachment type + prompt line.
+2. **Routing results back into the scene.** When a completed `insight-update` (or `insight-create` initiated from the editor) targets the insight currently open, the sandbox proxy (`CreateInsightWidget`) should route the new query into the editor's suggestion flow (`insightLogic.setSuggestedQuery`) and collapse the inline render — restoring the apply / revert UX instead of inventing a new one. The extractor already surfaces `short_id`, so detecting "this tool call targets the open insight" is a comparison against `insightSceneLogic` state.
+
+Recommend shipping (2) first scoped to the insight editor — it reuses the entire existing suggestion UI — then (1) to make the agent actually target the open insight, then evaluate which other `useMaxTool` surfaces matter by usage.
+
+### Acceptance criteria
+
+- Asking Max to change the insight you're viewing produces the suggestion apply / revert flow in the editor, not a detached inline artifact or an unrelated new saved insight.
+- Inline visualization collapses while the suggestion is pending in the editor, matching today's LangGraph behavior.
+- Creating a fresh insight from a non-editor scene is unaffected (still renders inline / saved).
+- Behavior parity is covered by evals (agent picks `insight-update` on the attached insight) and a frontend test on the proxy's scene routing.
+
+### Cross-references
+
+- `03_RICH_UI.md` § 3.3 (Example A — contextual-edit drop) and § 4.2 (insight rows).
+- `01_CONTEXT.md` § 3 (sandbox attachment model).
+- `frontend/src/scenes/max/messages/adapters/CreateInsightWidget.tsx` (sandbox proxy; renders `VisualizationWidget` with no scene affordances).
+- The "Insight editor → Max 'fix this query' trigger" item above — same surface, complementary direction (UI → agent vs agent → UI).

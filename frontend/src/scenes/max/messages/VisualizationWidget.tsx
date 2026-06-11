@@ -1,6 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -12,9 +11,6 @@ import {
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -28,63 +24,58 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageStatus } from '../maxLogic'
 import { visualizationTypeToQuery } from '../utils'
 import { MessageTemplate } from './MessageTemplate'
 
-interface VisualizationArtifactAnswerProps {
-    message: ArtifactMessage & { status?: MessageStatus }
-    content: VisualizationArtifactContent
-    status?: MessageStatus
-    isEditingInsight: boolean
-    activeTabId?: string | null
-    activeSceneId?: string | null
-}
-
-function InsightSuggestionButton(): JSX.Element {
-    const { insight } = useValues(insightSceneLogic)
-    const insightProps = { dashboardItemId: insight?.short_id }
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
-
-    return (
-        <>
-            {suggestedQuery && (
-                <LemonButton
-                    onClick={() => {
-                        if (previousQuery) {
-                            onRejectSuggestedInsight()
-                        } else {
-                            onReapplySuggestedInsight()
-                        }
-                    }}
-                    sideIcon={previousQuery ? <IconCollapse /> : <IconExpand />}
-                    size="xsmall"
-                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
-                />
-            )}
-        </>
-    )
-}
-
 const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
-export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
-    message,
+export interface VisualizationWidgetProps {
+    content: VisualizationArtifactContent
+    /** Href for the "Open as insight" CTA; null/undefined hides the button. */
+    openUrl?: string | null
+    /** Tooltip for the CTA. */
+    openTooltip?: string
+    /** Controlled collapse state; omit for uncontrolled (starts expanded). */
+    isCollapsed?: boolean
+    onCollapsedChange?: (isCollapsed: boolean) => void
+    /** Extra buttons rendered in the actions row before the CTA. */
+    extraActions?: React.ReactNode
+}
+
+/** Resolves the "Open as insight" CTA target for a visualization artifact. */
+export function getArtifactOpenTarget(
+    envelope: ArtifactMessage,
+    content: VisualizationArtifactContent
+): { url: string | null; tooltip: string } {
+    if (envelope.source === ArtifactSource.Insight) {
+        return { url: urls.insightView(envelope.artifact_id as InsightShortId), tooltip: 'Open insight' }
+    }
+    const query = visualizationTypeToQuery(content)
+    return {
+        url: query ? urls.insightNew({ query: query as InsightVizNode | DataVisualizationNode }) : null,
+        tooltip: 'Open as new insight',
+    }
+}
+
+/**
+ * Atomic, runtime-agnostic visualization renderer. Runtime-specific behavior (scene coupling,
+ * status gating, suggestion flows) belongs in the proxy renderers that compose this widget.
+ */
+export const VisualizationWidget = React.memo(function VisualizationWidget({
     content,
-    status,
-    isEditingInsight,
-    activeTabId,
-    activeSceneId,
-}: VisualizationArtifactAnswerProps): JSX.Element | null {
-    const isSavedInsight = message.source === ArtifactSource.Insight
-
+    openUrl,
+    openTooltip = 'Open as new insight',
+    isCollapsed: controlledCollapsed,
+    onCollapsedChange,
+    extraActions,
+}: VisualizationWidgetProps): JSX.Element {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-
-    useLayoutEffect(() => {
-        setIsCollapsed(isEditingInsight)
-    }, [isEditingInsight])
+    const [internalCollapsed, setInternalCollapsed] = useState(false)
+    const isCollapsed = controlledCollapsed ?? internalCollapsed
+    const setCollapsed = (next: boolean): void => {
+        setInternalCollapsed(next)
+        onCollapsedChange?.(next)
+    }
 
     // Build query from either artifact content or inline visualization message
     const query = useMemo(() => {
@@ -93,10 +84,6 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
 
     // Get the raw query for height calculation
     const rawQuery = content.query
-
-    if (status !== 'completed') {
-        return null
-    }
 
     if (!query) {
         return (
@@ -142,25 +129,19 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     </h5>
                 )}
                 <div className="flex items-center gap-1.5">
-                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && <InsightSuggestionButton />}
-                    {!isEditingInsight && (
+                    {extraActions}
+                    {openUrl && (
                         <LemonButton
-                            to={
-                                isSavedInsight
-                                    ? urls.insightView(message.artifact_id as InsightShortId)
-                                    : urls.insightNew({
-                                          query: query as InsightVizNode | DataVisualizationNode,
-                                      })
-                            }
+                            to={openUrl}
                             targetBlank
                             icon={<IconOpenInNew />}
                             size="xsmall"
-                            tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}
+                            tooltip={openTooltip}
                         />
                     )}
                     <LemonButton
                         icon={isCollapsed ? <IconEye /> : <IconHide />}
-                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        onClick={() => setCollapsed(!isCollapsed)}
                         size="xsmall"
                         className="-m-1 shrink"
                         tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
