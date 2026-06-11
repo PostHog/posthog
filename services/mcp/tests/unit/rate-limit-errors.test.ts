@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiClient } from '@/api/client'
+import { ApiClient, type Result } from '@/api/client'
 import { handleToolError, parseRetryAfterSeconds, PostHogApiError, PostHogRateLimitError } from '@/lib/errors'
 
 const captureException = vi.fn()
@@ -66,49 +66,100 @@ describe('outbound 429 handling', () => {
     })
 
     describe('ApiClient on 429', () => {
-        const stub429 = (headers?: Record<string, string>): ReturnType<typeof vi.fn> => {
-            const mockFetch = vi
-                .fn()
-                .mockResolvedValue(
-                    new Response(JSON.stringify({ detail: 'Request was throttled.' }), { status: 429, headers })
-                )
+        const build429 = (headers?: Record<string, string>): Response =>
+            new Response(JSON.stringify({ detail: 'Request was throttled.' }), { status: 429, headers })
+
+        const stubFetch = (...responses: Response[]): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn()
+            for (const response of responses) {
+                mockFetch.mockResolvedValueOnce(response)
+            }
+            // Persistent 429 once the scripted responses run out.
+            mockFetch.mockImplementation(() => Promise.resolve(build429({ 'Retry-After': '1' })))
             vi.stubGlobal('fetch', mockFetch)
             return mockFetch
         }
 
         const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
 
-        it('fails immediately with PostHogRateLimitError carrying Retry-After', async () => {
-            const mockFetch = stub429({ 'Retry-After': '12' })
-
-            const result = await buildClient().users().me()
-
+        const expectRateLimitFailure = (result: Result<unknown>): PostHogRateLimitError => {
             expect(result.success).toBe(false)
             if (result.success) {
                 throw new Error('expected failure')
             }
             expect(result.error).toBeInstanceOf(PostHogRateLimitError)
-            const rateLimitError = result.error as PostHogRateLimitError
-            expect(rateLimitError.retryAfterSeconds).toBe(12)
-            expect(rateLimitError.message).toContain('Retry after 12 seconds')
+            return result.error as PostHogRateLimitError
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('retries after the Retry-After delay and succeeds', async () => {
+            const mockFetch = stubFetch(build429({ 'Retry-After': '5' }), new Response('{}', { status: 200 }))
+
+            const resultPromise = buildClient().users().me()
+            await vi.advanceTimersByTimeAsync(5000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('falls back to jittered backoff when Retry-After is missing', async () => {
+            const mockFetch = stubFetch(build429(), new Response('{}', { status: 200 }))
+
+            const resultPromise = buildClient().users().me()
+            // Jittered first-retry delay falls in [1000, 2000]ms.
+            await vi.advanceTimersByTimeAsync(2000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('returns PostHogRateLimitError after exhausting retries', async () => {
+            const mockFetch = stubFetch()
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const rateLimitError = expectRateLimitFailure(await resultPromise)
+
+            expect(rateLimitError.retryAfterSeconds).toBe(1)
+            expect(rateLimitError.message).toContain('Retry after 1 seconds')
+            expect(mockFetch).toHaveBeenCalledTimes(4)
+        })
+
+        it('fails fast without sleeping when Retry-After exceeds the wait budget', async () => {
+            const mockFetch = stubFetch(build429({ 'Retry-After': '3600' }))
+
+            const rateLimitError = expectRateLimitFailure(await buildClient().users().me())
+
+            expect(rateLimitError.retryAfterSeconds).toBe(3600)
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
-        it('treats a missing Retry-After header as unknown', async () => {
-            const mockFetch = stub429()
+        it('stops retrying once cumulative waits exhaust the budget', async () => {
+            // 12s + 12s sleeps spend 24s of the 30s budget; the third 12s wait
+            // exceeds the remaining 6s, so the client gives up after 3 attempts.
+            const persistent429 = (): Promise<Response> => Promise.resolve(build429({ 'Retry-After': '12' }))
+            const mockFetch = vi.fn().mockImplementation(persistent429)
+            vi.stubGlobal('fetch', mockFetch)
 
-            const result = await buildClient().users().me()
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const rateLimitError = expectRateLimitFailure(await resultPromise)
 
-            expect(result.success).toBe(false)
-            if (result.success) {
-                throw new Error('expected failure')
-            }
-            expect((result.error as PostHogRateLimitError).retryAfterSeconds).toBeNull()
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(rateLimitError.retryAfterSeconds).toBe(12)
+            expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
         it('propagates the error through ApiClient.request()', async () => {
-            stub429({ 'Retry-After': '30' })
+            stubFetch(build429({ 'Retry-After': '3600' }))
 
             await expect(buildClient().request({ method: 'GET', path: '/api/users/@me/' })).rejects.toBeInstanceOf(
                 PostHogRateLimitError
