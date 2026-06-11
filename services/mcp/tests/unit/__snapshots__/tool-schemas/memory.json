@@ -1,0 +1,120 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "operation": {
+            "description": "The memory operation to perform. The `action` field selects the operation.",
+            "oneOf": [
+                {
+                    "properties": {
+                        "action": {
+                            "const": "create",
+                            "type": "string"
+                        },
+                        "contents": {
+                            "description": "The content of the memory to store.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "metadata": {
+                            "additionalProperties": {},
+                            "description": "Optional metadata tags for building a taxonomy over time, e.g. {\"type\": \"preference\"}.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["action", "contents"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action": {
+                            "const": "query",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "default": 10,
+                            "description": "Maximum number of memories to return.",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "metadata_filter": {
+                            "additionalProperties": {},
+                            "description": "Filter by exact metadata key/value pairs, e.g. {\"type\": \"preference\"}.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "query_text": {
+                            "description": "Natural-language search text; memories are ranked by semantic similarity.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "user_only": {
+                            "default": true,
+                            "description": "Search only the current user's memories (true) or all of the team's memories (false).",
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["action", "query_text"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action": {
+                            "const": "update",
+                            "type": "string"
+                        },
+                        "contents": {
+                            "description": "New content for the memory.",
+                            "type": "string"
+                        },
+                        "memory_id": {
+                            "description": "The ID of the memory to update.",
+                            "type": "string"
+                        },
+                        "metadata": {
+                            "additionalProperties": {},
+                            "description": "New metadata for the memory (replaces the existing metadata).",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["action", "memory_id"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action": {
+                            "const": "delete",
+                            "type": "string"
+                        },
+                        "memory_id_to_delete": {
+                            "description": "The ID of the memory to delete.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["action", "memory_id_to_delete"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "action": {
+                            "const": "list_metadata_keys",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["action"],
+                    "type": "object"
+                }
+            ]
+        }
+    },
+    "required": ["operation"],
+    "type": "object"
+}

@@ -249,6 +249,125 @@
             },
             "required": ["insightId"]
         },
+        "MemorySchema": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "const": "create"
+                                },
+                                "contents": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "The content of the memory to store."
+                                },
+                                "metadata": {
+                                    "description": "Optional metadata tags for building a taxonomy over time, e.g. {\"type\": \"preference\"}.",
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                }
+                            },
+                            "required": ["action", "contents"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "const": "query"
+                                },
+                                "query_text": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Natural-language search text; memories are ranked by semantic similarity."
+                                },
+                                "metadata_filter": {
+                                    "description": "Filter by exact metadata key/value pairs, e.g. {\"type\": \"preference\"}.",
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                },
+                                "user_only": {
+                                    "default": true,
+                                    "description": "Search only the current user's memories (true) or all of the team's memories (false).",
+                                    "type": "boolean"
+                                },
+                                "limit": {
+                                    "default": 10,
+                                    "description": "Maximum number of memories to return.",
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100
+                                }
+                            },
+                            "required": ["action", "query_text"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "const": "update"
+                                },
+                                "memory_id": {
+                                    "type": "string",
+                                    "description": "The ID of the memory to update."
+                                },
+                                "contents": {
+                                    "description": "New content for the memory.",
+                                    "type": "string"
+                                },
+                                "metadata": {
+                                    "description": "New metadata for the memory (replaces the existing metadata).",
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                }
+                            },
+                            "required": ["action", "memory_id"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "const": "delete"
+                                },
+                                "memory_id_to_delete": {
+                                    "type": "string",
+                                    "description": "The ID of the memory to delete."
+                                }
+                            },
+                            "required": ["action", "memory_id_to_delete"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "const": "list_metadata_keys"
+                                }
+                            },
+                            "required": ["action"]
+                        }
+                    ],
+                    "description": "The memory operation to perform. The `action` field selects the operation."
+                }
+            },
+            "required": ["operation"]
+        },
         "OrganizationSetActiveSchema": {
             "type": "object",
             "properties": {

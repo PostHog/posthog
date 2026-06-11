@@ -1,5 +1,5 @@
 import json
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db import transaction
 
@@ -13,8 +13,12 @@ from posthog.sync import database_sync_to_async
 
 from products.posthog_ai.backend.models import AgentMemory
 
+from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 EMBEDDING_MODEL = "text-embedding-3-small-1536"
 
@@ -91,25 +95,20 @@ class MemoryResult(BaseModel):
     distance: float
 
 
-class ManageMemoriesTool(MaxTool):
-    name: Literal["manage_memories"] = "manage_memories"
-    description: str = MANAGE_MEMORIES_TOOL_PROMPT
-    args_schema: type[BaseModel] = ManageMemoriesToolArgs
+class _ManageMemoriesOperations:
+    """Shared create/query/update/delete/list-metadata operations over ``AgentMemory``.
 
-    async def _arun_impl(
-        self,
-        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs,
-    ) -> tuple[str, dict[str, Any]]:
-        if isinstance(args, CreateMemoryArgs):
-            return await self._create_memory(args.contents, args.metadata)
-        elif isinstance(args, QueryMemoryArgs):
-            return await self._query_memories(args.query_text, args.metadata_filter, args.user_only, args.limit)
-        elif isinstance(args, UpdateMemoryArgs):
-            return await self._update_memory(args.memory_id, args.contents, args.metadata)
-        elif isinstance(args, DeleteMemoryArgs):
-            return await self._delete_memory(args.memory_id_to_delete)
-        elif isinstance(args, ListMetadataKeysArgs):
-            return await self._list_metadata_keys()
+    Mixed into both ``ManageMemoriesTool`` (Max's LangChain graph) and ``ManageMemoriesMCPTool``
+    (the ``mcp_tools`` invoke endpoint used by MCP callers such as PostHog Code cloud agents),
+    so the memory logic is defined exactly once. Each operation returns a ``(content, artifact)``
+    tuple; MCP callers surface only the human-readable ``content`` string.
+
+    Relies on ``_team``/``_user`` being set by the concrete tool's ``__init__``.
+    """
+
+    if TYPE_CHECKING:
+        _team: Team
+        _user: User
 
     async def _create_memory(self, contents: str, metadata: dict | None) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
@@ -313,3 +312,53 @@ class ManageMemoriesTool(MaxTool):
             f"Available metadata keys across all memories: {', '.join(keys)}",
             {"keys": keys},
         )
+
+
+class ManageMemoriesTool(_ManageMemoriesOperations, MaxTool):
+    name: Literal["manage_memories"] = "manage_memories"
+    description: str = MANAGE_MEMORIES_TOOL_PROMPT
+    args_schema: type[BaseModel] = ManageMemoriesToolArgs
+
+    async def _arun_impl(
+        self,
+        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | ListMetadataKeysArgs,
+    ) -> tuple[str, dict[str, Any]]:
+        if isinstance(args, CreateMemoryArgs):
+            return await self._create_memory(args.contents, args.metadata)
+        elif isinstance(args, QueryMemoryArgs):
+            return await self._query_memories(args.query_text, args.metadata_filter, args.user_only, args.limit)
+        elif isinstance(args, UpdateMemoryArgs):
+            return await self._update_memory(args.memory_id, args.contents, args.metadata)
+        elif isinstance(args, DeleteMemoryArgs):
+            return await self._delete_memory(args.memory_id_to_delete)
+        elif isinstance(args, ListMetadataKeysArgs):
+            return await self._list_metadata_keys()
+
+
+@mcp_tool_registry.register(scopes=["business_knowledge:read", "business_knowledge:write"])
+class ManageMemoriesMCPTool(_ManageMemoriesOperations, MCPTool[ManageMemoriesToolArgs]):
+    """MCP version of ``ManageMemoriesTool``.
+
+    Exposes the same persistent-memory operations to MCP callers (e.g. PostHog Code cloud
+    agents) through the ``mcp_tools`` invoke endpoint, without LangChain state or artifact
+    creation. Dispatches on the discriminated ``action`` and returns only the content string.
+    """
+
+    name = "manage_memories"
+    args_schema = ManageMemoriesToolArgs
+
+    async def execute(self, args: ManageMemoriesToolArgs) -> str:
+        action = args.args
+        if isinstance(action, CreateMemoryArgs):
+            content, _ = await self._create_memory(action.contents, action.metadata)
+        elif isinstance(action, QueryMemoryArgs):
+            content, _ = await self._query_memories(
+                action.query_text, action.metadata_filter, action.user_only, action.limit
+            )
+        elif isinstance(action, UpdateMemoryArgs):
+            content, _ = await self._update_memory(action.memory_id, action.contents, action.metadata)
+        elif isinstance(action, DeleteMemoryArgs):
+            content, _ = await self._delete_memory(action.memory_id_to_delete)
+        else:
+            content, _ = await self._list_metadata_keys()
+        return content

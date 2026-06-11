@@ -25,6 +25,7 @@ import {
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
     externalDataSyncLogs,
+    memory,
     readDataSchema,
     readDataWarehouseSchema,
 } from './posthogAiTools'
@@ -83,6 +84,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // PostHog AI tools
     'execute-sql': executeSql,
+    memory: memory,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
 

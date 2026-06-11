@@ -8,11 +8,13 @@ from asgiref.sync import sync_to_async
 from products.posthog_ai.backend.models import AgentMemory
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.mcp_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.manage_memories import (
     CreateMemoryArgs,
     DeleteMemoryArgs,
     ListMetadataKeysArgs,
+    ManageMemoriesMCPTool,
     ManageMemoriesTool,
     ManageMemoriesToolArgs,
     QueryMemoryArgs,
@@ -251,3 +253,61 @@ class TestManageMemoriesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(artifact["results"]), 2)
         self.assertEqual(artifact["results"][0]["memory_id"], "mem-1")
         self.assertEqual(artifact["results"][1]["memory_id"], "mem-2")
+
+
+class TestManageMemoriesMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
+    """The MCP-invocable version exposed to MCP callers (e.g. PostHog Code cloud agents)."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        self.tool = ManageMemoriesMCPTool(team=self.team, user=self.user)
+
+    def test_registered_in_mcp_tool_registry_with_scopes(self):
+        self.assertIn("manage_memories", mcp_tool_registry.get_names())
+        self.assertEqual(
+            mcp_tool_registry.get_scopes("manage_memories"),
+            ["business_knowledge:read", "business_knowledge:write"],
+        )
+        # The registry hands back our MCP tool, constructed with the request's team/user.
+        tool = mcp_tool_registry.get("manage_memories", team=self.team, user=self.user)
+        self.assertIsInstance(tool, ManageMemoriesMCPTool)
+
+    async def test_execute_create_persists_memory(self):
+        with patch.object(AgentMemory, "embed"):
+            content = await self.tool.execute(
+                ManageMemoriesToolArgs(
+                    args=CreateMemoryArgs(action="create", contents="MCP memory content", metadata={"type": "mcp"})
+                )
+            )
+
+        self.assertIn("Memory created successfully", content)
+        memory = await sync_to_async(AgentMemory.objects.get)(team=self.team, contents="MCP memory content")
+        self.assertEqual(memory.metadata["type"], "mcp")
+        self.assertEqual(memory.user_id, self.user.id)
+
+    async def test_execute_list_metadata_keys(self):
+        @sync_to_async
+        def create_memory():
+            return AgentMemory.objects.create(
+                team=self.team, user=self.user, contents="m", metadata={"type": "fact", "source": "user"}
+            )
+
+        await create_memory()
+        content = await self.tool.execute(ManageMemoriesToolArgs(args=ListMetadataKeysArgs(action="list_metadata_keys")))
+        self.assertIn("Available metadata keys", content)
+        self.assertIn("source", content)
+        self.assertIn("type", content)
+
+    async def test_execute_query_returns_content_string(self):
+        mock_result = MagicMock()
+        mock_result.results = [("mem-1", "First memory content", '{"type": "test"}', 0.1)]
+
+        with patch("ee.hogai.tools.manage_memories.execute_hogql_query", return_value=mock_result):
+            content = await self.tool.execute(
+                ManageMemoriesToolArgs(args=QueryMemoryArgs(action="query", query_text="test query"))
+            )
+
+        self.assertIn("Found 1 relevant memories", content)
+        self.assertIn("First memory content", content)

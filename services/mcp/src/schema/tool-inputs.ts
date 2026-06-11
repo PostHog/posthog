@@ -381,3 +381,58 @@ export function validateDistinctIdPersonIdExclusive(
         })
     }
 }
+
+const MemoryCreateArgsSchema = z.object({
+    action: z.literal('create'),
+    contents: z.string().min(1).describe('The content of the memory to store.'),
+    metadata: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('Optional metadata tags for building a taxonomy over time, e.g. {"type": "preference"}.'),
+})
+
+const MemoryQueryArgsSchema = z.object({
+    action: z.literal('query'),
+    query_text: z.string().min(1).describe('Natural-language search text; memories are ranked by semantic similarity.'),
+    metadata_filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('Filter by exact metadata key/value pairs, e.g. {"type": "preference"}.'),
+    user_only: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Search only the current user's memories (true) or all of the team's memories (false)."),
+    limit: z.number().int().min(1).max(100).optional().default(10).describe('Maximum number of memories to return.'),
+})
+
+const MemoryUpdateArgsSchema = z.object({
+    action: z.literal('update'),
+    memory_id: z.string().describe('The ID of the memory to update.'),
+    contents: z.string().optional().describe('New content for the memory.'),
+    metadata: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('New metadata for the memory (replaces the existing metadata).'),
+})
+
+const MemoryDeleteArgsSchema = z.object({
+    action: z.literal('delete'),
+    memory_id_to_delete: z.string().describe('The ID of the memory to delete.'),
+})
+
+const MemoryListMetadataKeysArgsSchema = z.object({
+    action: z.literal('list_metadata_keys'),
+})
+
+export const MemorySchema = z.object({
+    operation: z
+        .discriminatedUnion('action', [
+            MemoryCreateArgsSchema,
+            MemoryQueryArgsSchema,
+            MemoryUpdateArgsSchema,
+            MemoryDeleteArgsSchema,
+            MemoryListMetadataKeysArgsSchema,
+        ])
+        .describe('The memory operation to perform. The `action` field selects the operation.'),
+})

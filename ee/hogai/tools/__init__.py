@@ -15,6 +15,7 @@ _TOOL_MODULES: dict[str, str] = {
     "ExecuteSQLTool": ".execute_sql.tool",
     "ListDataTool": ".list_data",
     "ManageMemoriesTool": ".manage_memories",
+    "ManageMemoriesMCPTool": ".manage_memories",
     "ReadDataTool": ".read_data",
     "ReadDataWarehouseSchemaMCPTool": ".read_data_warehouse_schema.mcp_tool",
     "ReadTaxonomyMCPTool": ".read_taxonomy.mcp_tool",
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
     from .execute_sql.mcp_tool import ExecuteSQLMCPTool as ExecuteSQLMCPTool
     from .execute_sql.tool import ExecuteSQLTool as ExecuteSQLTool
     from .list_data import ListDataTool as ListDataTool
+    from .manage_memories import ManageMemoriesMCPTool as ManageMemoriesMCPTool
     from .manage_memories import ManageMemoriesTool as ManageMemoriesTool
     from .read_data import ReadDataTool as ReadDataTool
     from .read_data_warehouse_schema.mcp_tool import ReadDataWarehouseSchemaMCPTool as ReadDataWarehouseSchemaMCPTool
