@@ -2121,23 +2121,6 @@ export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
 }
 
-export function validateJson(value: string): boolean {
-    try {
-        JSON.parse(value)
-        return true
-    } catch {
-        return false
-    }
-}
-
-export function tryJsonParse(value: string, fallback?: any): any {
-    try {
-        return JSON.parse(value)
-    } catch {
-        return fallback
-    }
-}
-
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
