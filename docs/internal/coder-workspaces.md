@@ -127,6 +127,8 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 
 Region selection is available for `devbox:start` via `--region` (`us-east-1` or `eu-central-1`, default `us-east-1`). The region is set once at creation and cannot be changed. Workspaces in `eu-central-1` get an `-eu` name suffix (e.g. `devbox-alice-eu`). `devbox:list` and `devbox:status` show which region a workspace is in.
 
+`devbox:start --region X` targets that region's default box directly — it resumes the box if it already exists, or creates it alongside boxes you may have in other regions. A bare `devbox:start` (no `--region`) resumes your existing box regardless of your saved region preference; if that box is in a different region than your preference, it prints the exact `--region` command to create one there instead. When you have multiple devboxes, resolution falls back to a default in another region rather than failing, which also unblocks `stop` and `ssh` when your saved preference doesn't match your existing box.
+
 `devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a mutable workspace parameter (`auto_start_app`), so it stays in effect for future starts until flipped with `--no-start-app`. The flag is applied at creation or when starting a stopped devbox; on a running or transitioning devbox it is not applied (hogli prints a note) — re-run it once the devbox is stopped. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
 
 Runtime commands assume setup is already complete.
