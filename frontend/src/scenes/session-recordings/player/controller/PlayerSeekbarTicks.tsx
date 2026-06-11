@@ -11,7 +11,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     InspectorListItem,

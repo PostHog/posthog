@@ -3,11 +3,10 @@ import posthog from 'posthog-js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { zeroPad } from 'lib/utils/numbers'
 
-import { ActionType, DateMappingOption, EventType, IntervalType, TimeUnitType } from '~/types'
+import { DateMappingOption, IntervalType, TimeUnitType } from '~/types'
 
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { getAppContext } from './utils/getAppContext'
-import { getPrimaryPropertyForEvent } from './utils/primaryEventProperty'
 import { UnexpectedNeverError } from './utils/typeChecks'
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -323,82 +322,6 @@ export function isEmail(string: string, options?: { requireTLD?: boolean }): boo
         ? /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
         : /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
-}
-
-export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
-    shortForm: boolean = false
-): string {
-    if (event.event === '$autocapture') {
-        return autoCaptureEventToDescription(event, shortForm)
-    }
-    // For events with a taxonomy-default primary property (e.g. `$pageview` -> `$pathname`,
-    // `$screen` -> `$screen_name`, `$feature_flag_called` -> `$feature_flag`), use the property's
-    // value as the description so consumers (notebooks, save-as-action, funnel labels, ...) get
-    // useful context instead of the bare event name. Returns the event name when the property
-    // isn't present on the event so callers always get something to display.
-    const primaryKey = getPrimaryPropertyForEvent(event.event)
-    if (primaryKey) {
-        const value = event.properties[primaryKey]
-        if (value != null && value !== '') {
-            return String(value)
-        }
-    }
-    return event.event
-}
-
-// $event_type to verb map
-export const eventTypeToVerb: { [key: string]: string } = {
-    click: 'clicked',
-    change: 'changed',
-    submit: 'submitted',
-    touch: 'touched a',
-    value_changed: 'changed value in',
-    toggle: 'toggled',
-    menu_action: 'pressed menu',
-    swipe: 'swiped',
-    pinch: 'pinched',
-    pan: 'panned',
-    rotation: 'rotated',
-    long_press: 'long pressed',
-    scroll: 'scrolled in',
-}
-
-export function autoCaptureEventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
-    shortForm: boolean = false
-): string {
-    if (event.event !== '$autocapture') {
-        return event.event
-    }
-
-    const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
-
-    const getTag = (): string => {
-        if (event.elements?.[0]?.tag_name === 'a') {
-            return 'link'
-        } else if (event.elements?.[0]?.tag_name === 'img') {
-            return 'image'
-        }
-        return event.elements?.[0]?.tag_name ?? 'element'
-    }
-
-    const getValue = (): string | null => {
-        if (event.properties.$el_text) {
-            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
-        } else if (event.elements?.[0]?.text) {
-            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
-        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
-            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
-        }
-        return null
-    }
-
-    if (shortForm) {
-        return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
-    }
-    const value = getValue()
-    return [getVerb(), getTag(), value].filter((x) => x).join(' ')
 }
 
 export function determineDifferenceType(
@@ -1015,13 +938,6 @@ export function floorMsToClosestSecond(ms: number): number {
 
 export function ceilMsToClosestSecond(ms: number): number {
     return Math.ceil(ms / 1000) * 1000
-}
-
-export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
-    const id = parseInt(String(actionId))
-    return allActions
-        .filter((a) => a.id === id)
-        .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

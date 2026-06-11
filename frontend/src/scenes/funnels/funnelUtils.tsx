@@ -1,6 +1,7 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { autoCaptureEventToDescription, humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { clamp, percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
