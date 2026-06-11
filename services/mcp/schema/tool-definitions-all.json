@@ -6969,7 +6969,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (the design JSON for PostHog's visual email editor — full schema in the designing-email-templates skill). The server renders the sent email from the design, and the template opens as editable blocks in the editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. To the user, call it the template's design. After creating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+        "description": "Save an email template to the workflows library. Provide name and content.email with subject, a plain-text fallback, and design (design JSON for PostHog's visual email editor — schema in the designing-email-templates skill); the server renders the sent email from it. Liquid personalization works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the user.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
