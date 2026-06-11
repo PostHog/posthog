@@ -77,6 +77,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         setVisibleRowRange,
         toggleExpandSpan,
+        setSort,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
@@ -179,6 +180,15 @@ function TracingSceneContents(): JSX.Element {
                         onVisibleRowRangeChange={setVisibleRowRange}
                         expandedSpanIds={expandedSpanIds}
                         onToggleExpand={toggleExpandSpan}
+                        orderBy={filters.orderBy}
+                        orderDirection={filters.orderDirection}
+                        onSort={(column) =>
+                            // Click an active column to flip direction; a new column starts at DESC.
+                            setSort(
+                                column,
+                                column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
+                            )
+                        }
                         emptyState={
                             <div className="flex flex-col items-center gap-1">
                                 <span>No spans found</span>

@@ -342,6 +342,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 time_range=time_range_tuple,
                 mcp_trace_id=data.get("mcp_trace_id") or None,
                 finding_id=data.get("finding_id") or None,
+                tags=data.get("tags") or None,
             )
         except InvalidEmitError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -571,6 +572,22 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
 
 
+def _skill_descriptions_for(team_id: int, skill_names: list[str]) -> dict[str, str]:
+    """Map each scout `skill_name` to the latest `LLMSkill.description` on the team.
+
+    One query for the whole config list — feeds the serializer's `description` field so
+    callers get a quick steer on each scout without loading the full skill body. Skills the
+    team no longer has simply drop out of the map (serializer falls back to "").
+    """
+    names = list(set(skill_names))
+    if not names:
+        return {}
+    rows = LLMSkill.objects.filter(team_id=team_id, name__in=names, is_latest=True, deleted=False).values_list(
+        "name", "description"
+    )
+    return dict(rows)
+
+
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, and tune each scout's schedule, enablement, and
     emit posture.
@@ -614,8 +631,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # is idempotent, cheap (one indexed query, rows created only for brand-new skills),
         # and creates nothing the coordinator wouldn't create on its next tick anyway.
         register_missing_configs(team_id)
-        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name")
-        return Response(SignalScoutConfigSerializer(configs, many=True).data)
+        configs = list(SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name"))
+        descriptions = _skill_descriptions_for(team_id, [c.skill_name for c in configs])
+        serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_descriptions": descriptions})
+        return Response(serializer.data)
 
     @extend_schema(
         request=SignalScoutConfigCreateSerializer,
@@ -668,8 +687,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if not config.enabled and update.validated_data.get("enabled"):
                 save_kwargs["enabled_by"] = request.user
             config = update.save(**save_kwargs)
+        descriptions = _skill_descriptions_for(team_id, [config.skill_name])
         return Response(
-            SignalScoutConfigSerializer(config).data,
+            SignalScoutConfigSerializer(config, context={"skill_descriptions": descriptions}).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
@@ -688,8 +708,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_config_update",
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
         config_id = _parse_run_id_or_404(kwargs)
-        config = SignalScoutConfig.objects.unscoped().filter(team_id=_canonical_team_id(self), id=config_id).first()
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
         serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
@@ -699,4 +720,5 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not config.enabled and serializer.validated_data.get("enabled"):
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
-        return Response(SignalScoutConfigSerializer(instance).data)
+        descriptions = _skill_descriptions_for(team_id, [instance.skill_name])
+        return Response(SignalScoutConfigSerializer(instance, context={"skill_descriptions": descriptions}).data)
