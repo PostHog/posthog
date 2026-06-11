@@ -1219,8 +1219,8 @@ def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
 
 def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
     """Return insights that reference this cohort in their query filters or breakdown."""
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Insight.objects.filter(
             team_id=cohort.team_id,
             deleted=False,
@@ -1239,8 +1239,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
             team__project_id=cohort.team.project_id,
             deleted=False,
@@ -1676,7 +1676,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         flag_ids = [flag.id for flag in get_flags_using_cohort(cohort)]
         flags_qs = uac.filter_queryset_by_access_level(
-            FeatureFlag.objects.filter(id__in=flag_ids), include_all_if_admin=True
+            # nosemgrep: idor-lookup-without-team (flag_ids are already team-scoped via get_flags_using_cohort)
+            FeatureFlag.objects.filter(id__in=flag_ids),
+            include_all_if_admin=True,
         ).order_by("id")
         flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_qs]
 
