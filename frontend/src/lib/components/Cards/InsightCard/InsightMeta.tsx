@@ -507,11 +507,7 @@ export function InsightMeta({
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={removeFromDashboard}
-                                                fullWidth
-                                            >
+                                            <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                                 Remove from dashboard
                                             </LemonButton>
                                         )}
