@@ -1,5 +1,5 @@
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/typeChecks'
 
 import { isEmptyJSONStructure, parsePartialJSON, safeStringify } from '../utils'
 

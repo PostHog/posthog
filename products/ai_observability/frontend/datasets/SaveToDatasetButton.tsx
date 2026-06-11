@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/typeChecks'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, DatasetItem } from '~/types'

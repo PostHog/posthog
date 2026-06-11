@@ -18,17 +18,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import {
-    UnexpectedNeverError,
-    getDefaultInterval,
-    isNotNil,
-    isValidRelativeOrAbsoluteDate,
-    objectsEqual,
-} from 'lib/utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { UnexpectedNeverError, isNotNil } from 'lib/utils/typeChecks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'

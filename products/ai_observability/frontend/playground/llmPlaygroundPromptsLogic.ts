@@ -5,7 +5,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isObject, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
+import { isObject } from 'lib/utils/typeChecks'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
