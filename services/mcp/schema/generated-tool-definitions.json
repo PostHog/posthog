@@ -5025,7 +5025,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, offer to use `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -5095,7 +5095,7 @@
         }
     },
     "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear.",
+        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session summaries",
@@ -5109,7 +5109,7 @@
         }
     },
     "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.",
+        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session summary",
@@ -5122,8 +5122,22 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config",
+        "title": "Create a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
