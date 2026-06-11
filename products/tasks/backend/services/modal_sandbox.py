@@ -27,6 +27,15 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+)
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
     BASH_ENV_SCRIPT,
@@ -57,15 +66,6 @@ from products.tasks.backend.services.sandbox import (
     build_agent_runtime_env_prefix,
     redact_sandbox_command,
     wait_for_health_check,
-)
-from products.tasks.backend.temporal.exceptions import (
-    SandboxCleanupError,
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    SandboxProvisionError,
-    SandboxTimeoutError,
-    SnapshotCreationError,
 )
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
@@ -362,6 +362,9 @@ class ModalSandbox(SandboxBase):
 
             if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
                 create_kwargs["secrets"] = secrets
@@ -805,7 +808,8 @@ class ModalSandbox(SandboxBase):
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
-            image = self._sandbox.snapshot_filesystem()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
 
             snapshot_id = image.object_id
 
