@@ -15,8 +15,8 @@ describe('heatmapApiPath', () => {
 
     it.each([
         // in-app requests must pin the team the page was loaded for, not the user's global current project
-        ['in-app', 42, '', '/api/environments/42/heatmaps/'],
-        ['in-app', 42, 'events/', '/api/environments/42/heatmaps/events/'],
+        ['in-app', 42, '', '/api/projects/42/heatmaps/'],
+        ['in-app', 42, 'events/', '/api/projects/42/heatmaps/events/'],
         // the toolbar has no app context and keeps the legacy unscoped route
         ['toolbar', 42, '', '/api/heatmap/'],
         ['toolbar', 42, 'events/', '/api/heatmap/events/'],

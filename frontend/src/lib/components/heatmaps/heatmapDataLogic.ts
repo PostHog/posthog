@@ -69,7 +69,7 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
         // instead. The app context team is also set on export renders (team_for_public_context).
         const teamId = getAppContext()?.current_team?.id
         if (teamId != null) {
-            return `/api/environments/${teamId}/heatmaps/${endpoint}`
+            return `/api/projects/${teamId}/heatmaps/${endpoint}`
         }
     }
     return `/api/heatmap/${endpoint}`
