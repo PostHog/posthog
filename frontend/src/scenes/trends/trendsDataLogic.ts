@@ -87,6 +87,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'enabledIntervals',
                 'breakdownFilter',
                 'showValuesOnSeries',
+                'showPercentagesOnSeries',
                 'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
