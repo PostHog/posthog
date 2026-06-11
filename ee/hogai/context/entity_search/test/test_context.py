@@ -418,8 +418,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert len(entities) == 1
         assert entities[0]["type"] == "feature_flag"
         assert entities[0]["extra_fields"]["key"] == "my-flag"
-        # A fresh flag with no usage data is active, and status is surfaced for the model to read
-        assert entities[0]["extra_fields"]["status"] == "active"
+        # A fresh flag with no usage data is enabled (status uses the tool's vocabulary, not "active")
+        assert entities[0]["extra_fields"]["status"] == "enabled"
         assert entities[0]["extra_fields"]["active"] is True
 
         # Status shows up as a column in the formatted output (assert the rendered boolean, since

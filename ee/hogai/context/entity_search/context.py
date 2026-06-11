@@ -26,7 +26,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
+from products.feature_flags.backend.flag_status import (
+    FeatureFlagStatus,
+    FeatureFlagStatusChecker,
+    filter_flags_by_active_param,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
@@ -410,9 +414,15 @@ class EntitySearchContext:
         all_entities: list[dict[str, Any]] = []
         for flag in flags:
             status, _ = FeatureFlagStatusChecker(feature_flag=flag).get_status()
-            # The checker reports ACTIVE for disabled flags (it skips staleness for them); show
-            # "disabled" instead so the status column matches the stale/enabled/disabled vocabulary.
-            display_status = status.value if flag.active else "disabled"
+            # Map to the tool's stale/enabled/disabled vocabulary. The checker reports ACTIVE for
+            # disabled flags (it skips staleness for them) and "active" isn't a value the tool
+            # exposes, so derive the label from `active` + STALE instead of using status.value.
+            if not flag.active:
+                display_status = "disabled"
+            elif status == FeatureFlagStatus.STALE:
+                display_status = "stale"
+            else:
+                display_status = "enabled"
             all_entities.append(
                 {
                     "type": "feature_flag",
