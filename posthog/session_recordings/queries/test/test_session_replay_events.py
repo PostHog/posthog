@@ -368,9 +368,10 @@ class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
         assert SessionReplayEvents().exists(session_id, self.team) is True
         assert SessionReplayEvents().get_metadata(session_id, self.team) is not None
 
-    def test_excludes_session_seeded_far_before_its_ids_embedded_time(self) -> None:
+    def test_finds_session_seeded_far_before_its_ids_embedded_time_via_unbounded_fallback(self) -> None:
         # A recording whose events predate the session id's embedded timestamp by more
-        # than the clock-skew slack is outside the derived scan window.
+        # than the clock-skew slack misses the derived scan window; the lookup retries
+        # unbounded so the recording is still found, just on the slower path.
         session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id = _uuidv7_session_id_for(session_start)
         produce_replay_summary(
@@ -382,5 +383,25 @@ class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
             retention_period_days=30,
         )
 
-        assert not SessionReplayEvents().exists(session_id, self.team)
-        assert SessionReplayEvents().get_metadata(session_id, self.team) is None
+        assert SessionReplayEvents().exists(session_id, self.team)
+        assert SessionReplayEvents().get_metadata(session_id, self.team) is not None
+
+    def test_batch_with_mixed_id_formats_finds_all_sessions(self) -> None:
+        # One uuidv7 id and one custom id in the same batch: the unparseable id
+        # disables the bound for the whole batch, so both stay findable.
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        uuid_id = _uuidv7_session_id_for(session_start)
+        custom_id = "my-custom-session-id"
+        for session_id in (uuid_id, custom_id):
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=session_start,
+                last_timestamp=session_start,
+                distinct_id="u1",
+                retention_period_days=30,
+            )
+
+        found = SessionReplayEvents()._find_with_timestamps([uuid_id, custom_id], self.team)
+
+        assert {session_id for session_id, _, _, _ in found} == {uuid_id, custom_id}
