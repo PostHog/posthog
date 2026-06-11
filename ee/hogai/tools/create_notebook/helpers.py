@@ -5,7 +5,10 @@ from typing import Any
 from django.db.models import F
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
+
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notebooks.backend import markdown_collab
 from products.notebooks.backend.models import Notebook
@@ -23,6 +26,10 @@ class ArtifactStatus(Enum):
     CREATED = "created"
     UPDATED = "updated"
     FAILED_TO_UPDATE = "failed_to_update"
+
+
+class NotebookEditNotAllowedError(Exception):
+    """The user lacks editor access on the saved notebook this artifact would overwrite."""
 
 
 MARKDOWN_NOTEBOOK_NODE_ID = "markdown-notebook-v2"
@@ -111,8 +118,17 @@ async def save_notebook_to_db(
 
     If a Notebook with the artifact's short_id already exists, update its content.
     Otherwise, create a new Notebook.
+
+    Raises NotebookEditNotAllowedError when a notebook exists and the user does not
+    have editor access to it — Max acts on the user's behalf and must not overwrite
+    notebooks the user couldn't edit themselves.
     """
     existing_notebook = await Notebook.objects.filter(team=team, short_id=artifact.short_id).afirst()
+    if existing_notebook and not await _acan_user_edit_notebook(team, user, existing_notebook):
+        raise NotebookEditNotAllowedError(
+            f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
+        )
+
     if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
         previous_content = existing_notebook.content
         next_content = _build_markdown_notebook_doc(markdown_content, previous_content)
@@ -184,3 +200,11 @@ async def save_notebook_to_db(
 
 async def notebook_exists_for_artifact(team: Team, short_id: str) -> bool:
     return await Notebook.objects.filter(team=team, short_id=short_id).aexists()
+
+
+async def _acan_user_edit_notebook(team: Team, user: User, notebook: Notebook) -> bool:
+    def check() -> bool:
+        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+        return bool(access_control.check_access_level_for_object(notebook, "editor"))
+
+    return await sync_to_async(check)()

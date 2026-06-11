@@ -11,7 +11,7 @@ from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
-from ee.hogai.tools.create_notebook.helpers import save_notebook_to_db
+from ee.hogai.tools.create_notebook.helpers import NotebookEditNotAllowedError, save_notebook_to_db
 
 
 def _find_ph_query_nodes(doc: dict) -> list[dict]:
@@ -243,3 +243,44 @@ class TestSaveNotebookToDb(BaseTest):
         notebook.refresh_from_db()
         self.assertEqual(notebook.version, original_version + 1)
         mock_publish.assert_awaited_once_with(self.team.id, str(parent.short_id), original_version + 1)
+
+    def test_save_rejected_without_editor_access_on_existing_notebook(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models import OrganizationMembership, User
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        creator = User.objects.create_and_join(self.organization, "notebook-owner@posthog.com", None)
+        parent = self._create_notebook_parent("nacc")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Protected title",
+            created_by=creator,
+            last_modified_by=creator,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="notebook", resource_id=str(notebook.id), access_level="viewer"
+        )
+
+        with self.assertRaises(NotebookEditNotAllowedError):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Overwritten title",
+                state_messages=[],
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Protected title")
