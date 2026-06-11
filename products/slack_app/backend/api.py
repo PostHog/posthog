@@ -1801,6 +1801,7 @@ def route_posthog_code_event_to_relevant_region(
         # filtered by access, so requiring the mapping integration to be in it
         # closes the gap where the message author belongs to a different org
         # connected to the same workspace than the thread owner did.
+        mention_target = target or (candidates[0] if len(candidates) == 1 else None)
         if untagged_followup_mapping is not None:
             if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
                 logger.info(
@@ -1813,11 +1814,9 @@ def route_posthog_code_event_to_relevant_region(
                 )
                 return ROUTE_HANDLED_LOCALLY
             mention_target = untagged_followup_mapping.integration
-        else:
-            mention_target = target or (candidates[0] if len(candidates) == 1 else None)
-            if mention_target is None:
-                _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
-                return ROUTE_HANDLED_LOCALLY
+        elif mention_target is None:
+            _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+            return ROUTE_HANDLED_LOCALLY
 
         slack = SlackIntegration(mention_target)
         missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
