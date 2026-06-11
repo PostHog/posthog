@@ -12,7 +12,10 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import { GENERATED_TOOLS as FF_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
+
+const BK_FEATURE_FLAG = 'product-business-knowledge'
 
 describe('Business knowledge sources', { concurrent: false }, () => {
     let context: Context
@@ -23,6 +26,28 @@ describe('Business knowledge sources', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+
+        // The BK API is gated behind the product-business-knowledge flag — ensure it's active.
+        const listFlags = FF_TOOLS['feature-flag-get-all']!()
+        const updateFlag = FF_TOOLS['update-feature-flag']!()
+        const createFlag = FF_TOOLS['create-feature-flag']!()
+
+        const flagsResult = await listFlags.handler(context, { search: BK_FEATURE_FLAG })
+        const flags = (flagsResult as any).results ?? []
+        const flag = flags.find((f: any) => f.key === BK_FEATURE_FLAG)
+
+        if (flag && !flag.active) {
+            await updateFlag.handler(context, { id: flag.id, active: true })
+        } else if (!flag) {
+            await createFlag.handler(context, {
+                key: BK_FEATURE_FLAG,
+                name: 'Business knowledge',
+                active: true,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+            })
+        }
     })
 
     afterAll(async () => {
