@@ -485,9 +485,12 @@
 
     &--compact:not(.Notebook--canvas) {
         .NotebookEditor,
-        .Notebook__markdown-v2,
-        .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+        .Notebook__markdown-v2 {
             max-width: 50rem;
+        }
+
+        .Notebook__markdown-v2 {
+            --markdown-notebook-canvas-max-width: 50rem;
         }
     }
 
@@ -634,14 +637,15 @@
 }
 
 .Notebook__markdown-v2 {
+    // Notebook provides its own width constraint; let the canvas fill it. Overriding the
+    // variable (not the canvas rule) keeps the debug toolbar's right-edge calc in sync,
+    // so the code icon hugs the first text block's right edge at any viewport width.
+    --markdown-notebook-canvas-max-width: 100%;
+
     flex: 1;
     width: 100%;
     min-width: 0;
     margin: 0 auto;
-
-    .MarkdownNotebook__canvas {
-        max-width: none;
-    }
 }
 
 body:has(.Notebook--markdown-v2),
