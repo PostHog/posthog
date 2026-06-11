@@ -15,6 +15,10 @@ The job writes scored links to its own ClickHouse tables (keyed by job_id, 30-da
 It never writes to the person store: merges are irreversible, links stay reversible and
 analytics-only.
 
+Environment restrictions: the job processes internal PostHog data that only exists on
+Cloud US (team 2). It is not registered on Cloud EU, and on Cloud US it only accepts the
+allowed internal teams; local, dev, and self-hosted environments are unrestricted.
+
 Known limitations:
 - Merges older than `identity_lookback_days` before the window are not visible, so a
   long-dormant merged distinct_id that reactivates in-window is classified as an orphan.
@@ -112,6 +116,25 @@ DEVICE_DAYS_TABLE = IDENTITY_MATCHING_DEVICE_DAYS_TABLE
 PERSON_TIMELINE_TABLE = IDENTITY_MATCHING_PERSON_TIMELINE_TABLE
 CANDIDATE_PAIRS_TABLE = IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE
 LINKS_TABLE = IDENTITY_MATCHING_LINKS_TABLE
+
+# Internal-only data-safety guardrails: the training data lives in the PostHog Cloud US
+# internal project (team 2). The job is not registered on Cloud EU at all, and on Cloud US
+# it refuses to process any other team. Local, dev, and self-hosted are unrestricted.
+PROD_US_ALLOWED_TEAM_IDS: frozenset[int] = frozenset({2})
+
+
+def is_identity_matching_registered() -> bool:
+    return settings.CLOUD_DEPLOYMENT != "EU"
+
+
+def validate_team_allowed(team_id: int) -> None:
+    if settings.CLOUD_DEPLOYMENT == "EU":
+        raise dagster.Failure("Identity matching does not run on PostHog Cloud EU")
+    if settings.CLOUD_DEPLOYMENT == "US" and team_id not in PROD_US_ALLOWED_TEAM_IDS:
+        raise dagster.Failure(
+            f"On PostHog Cloud US identity matching may only process teams "
+            f"{sorted(PROD_US_ALLOWED_TEAM_IDS)}, got team {team_id}"
+        )
 
 
 class IdentityMatchingConfig(dagster.Config):
@@ -370,6 +393,7 @@ def setup_tables(
     config: IdentityMatchingConfig,
 ) -> MatchingRun:
     """Create the job's tables on all hosts and seed the run state."""
+    validate_team_allowed(config.team_id)
     for table in ALL_TABLES:
         cluster.map_all_hosts(table.create).result()
     run = MatchingRun(job_id=context.run.run_id, config=config)
@@ -753,7 +777,7 @@ def build_candidate_pairs(
             p.orphan_is_webview,
             p.device_type_complement,
             p.days_overlap,
-            dateDiff('second', a_tot.a_first, o_tot.o_last),
+            dateDiff('second', o_tot.o_last, a_tot.a_first),
             p.avg_path_jaccard,
             o_tot.o_paid,
             a_tot.a_paid,

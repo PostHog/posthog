@@ -3,11 +3,15 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+from unittest.mock import patch
+
 import dagster
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 
+from products.growth.dags import identity_matching
 from products.growth.dags.identity_matching import (
     CANDIDATE_PAIRS,
     DEVICE_DAYS,
@@ -17,6 +21,8 @@ from products.growth.dags.identity_matching import (
     RULES_MODEL_VERSION,
     IdentityMatchingConfig,
     identity_matching_job,
+    is_identity_matching_registered,
+    validate_team_allowed,
 )
 
 TEAM_ID = 99
@@ -248,3 +254,33 @@ def test_logreg_skips_without_labels(cluster: ClickhouseCluster) -> None:
         return count
 
     assert cluster.any_host(get_logreg_link_count).result() == 0
+
+
+@pytest.mark.parametrize(
+    "cloud_deployment,team_id,allowed",
+    [
+        (None, 999, True),
+        ("LOCAL", 999, True),
+        ("DEV", 999, True),
+        ("US", 2, True),
+        ("US", 999, False),
+        ("EU", 2, False),
+        ("EU", 999, False),
+    ],
+)
+def test_team_guard_per_environment(cloud_deployment: str | None, team_id: int, allowed: bool) -> None:
+    with patch.object(identity_matching.settings, "CLOUD_DEPLOYMENT", cloud_deployment):
+        if allowed:
+            validate_team_allowed(team_id)
+        else:
+            with pytest.raises(dagster.Failure):
+                validate_team_allowed(team_id)
+
+
+@pytest.mark.parametrize(
+    "cloud_deployment,registered",
+    [(None, True), ("LOCAL", True), ("DEV", True), ("US", True), ("EU", False)],
+)
+def test_job_registration_per_environment(cloud_deployment: str | None, registered: bool) -> None:
+    with patch.object(identity_matching.settings, "CLOUD_DEPLOYMENT", cloud_deployment):
+        assert is_identity_matching_registered() is registered

@@ -4,15 +4,20 @@ from products.growth.dags import github_sdk_versions, identity_matching, oauth, 
 
 from . import loggers, resources
 
+jobs = [
+    oauth.oauth_clear_expired_oauth_tokens_job,
+    github_sdk_versions.cache_github_sdk_versions_job,
+    user_product_list.populate_user_product_list_job,
+    user_product_list.sync_colleagues_products_monthly_job,
+    user_product_list.sync_cross_sell_products_monthly_job,
+]
+# Identity matching processes internal PostHog data that only exists on Cloud US (team 2),
+# so the job is not registered on Cloud EU.
+if identity_matching.is_identity_matching_registered():
+    jobs.append(identity_matching.identity_matching_job)
+
 defs = dagster.Definitions(
-    jobs=[
-        oauth.oauth_clear_expired_oauth_tokens_job,
-        github_sdk_versions.cache_github_sdk_versions_job,
-        identity_matching.identity_matching_job,
-        user_product_list.populate_user_product_list_job,
-        user_product_list.sync_colleagues_products_monthly_job,
-        user_product_list.sync_cross_sell_products_monthly_job,
-    ],
+    jobs=jobs,
     schedules=[
         oauth.oauth_clear_expired_oauth_tokens_schedule,
         github_sdk_versions.cache_github_sdk_versions_schedule,
