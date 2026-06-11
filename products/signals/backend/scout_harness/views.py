@@ -662,7 +662,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"skill_name": "No skill with this name exists on this project. Author the skill first."}
             )
         tunables = {key: value for key, value in serializer.validated_data.items() if key != "skill_name"}
-        config, created = SignalScoutConfig.all_teams.get_or_create(
+        # `team_id` stays in the kwargs: `get_or_create` builds the created row from
+        # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
+        config, created = SignalScoutConfig.objects.for_team(team_id).get_or_create(
             team_id=team_id,
             skill_name=skill_name,
             defaults={
