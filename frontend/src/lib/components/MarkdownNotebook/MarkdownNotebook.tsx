@@ -167,6 +167,7 @@ import {
     MarkdownNotebookCaretPosition,
     RemoteCaretOverlay,
     RemoteNotebookCaret,
+    getFocusedBlockCaretPosition,
     getMarkdownNotebookCaretPosition,
 } from './remoteCarets'
 import { renderNode } from './renderNode'
@@ -2107,8 +2108,16 @@ export function MarkdownNotebook({
                 )
             }
             updateSelectedComponentBlocksFromSelection()
+            // Non-text blocks (queries, dividers, comments…) never produce a text caret, so
+            // fall back to the focused block — collaborators still see who is on it.
             onCaretChange?.(
-                getMarkdownNotebookCaretPosition(window.getSelection(), notebookElement, documentRef.current.nodes)
+                getMarkdownNotebookCaretPosition(window.getSelection(), notebookElement, documentRef.current.nodes) ??
+                    getFocusedBlockCaretPosition(
+                        window.document.activeElement,
+                        notebookElement,
+                        documentRef.current.nodes,
+                        blockRefs.current
+                    )
             )
         }
 
@@ -2121,6 +2130,9 @@ export function MarkdownNotebook({
         }
 
         window.document.addEventListener('selectionchange', handleDocumentSelectionChange)
+        // Focusing a non-editable block (component shell, divider, comment) doesn't fire
+        // selectionchange, so focus moves must also refresh the reported caret.
+        window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
         window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
@@ -2129,6 +2141,7 @@ export function MarkdownNotebook({
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
+            window.document.removeEventListener('focusin', handleDocumentSelectionChange)
             window.document.removeEventListener('mousedown', handleDocumentPointerStart, true)
             window.document.removeEventListener('pointerdown', handleDocumentPointerStart, true)
             window.document.removeEventListener('touchstart', handleDocumentPointerStart, true)

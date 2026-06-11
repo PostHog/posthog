@@ -1,5 +1,5 @@
 import { getListItemRefKey } from './listModel'
-import { resolveRemoteCaretLayout } from './remoteCarets'
+import { getFocusedBlockCaretPosition, resolveRemoteCaretLayout } from './remoteCarets'
 import { NotebookBlockNode } from './types'
 
 describe('remoteCarets', () => {
@@ -86,10 +86,64 @@ describe('remoteCarets', () => {
         expect(layout).toMatchObject({ top: 30, left: 24 })
     })
 
-    it('renders block-level carets when no offset is provided (tables)', () => {
+    it('resolves offset-less positions to a block outline with the element size', () => {
         const nodes = [paragraph('p1', 'hello')]
         const element = makeElement('hello', { top: 200, left: 16 })
         const layout = resolveRemoteCaretLayout({ nodeIndex: 0 }, nodes, { p1: element }, {}, container)
-        expect(layout).toMatchObject({ top: 200, left: 16 })
+        expect(layout).toMatchObject({ top: 200, left: 16, width: 100, height: 20 })
+    })
+
+    it('resolves component positions to a block outline even when an offset sneaks in', () => {
+        const nodes: NotebookBlockNode[] = [{ id: 'c1', type: 'component', tagName: 'Query', props: {} }]
+        const element = makeElement('rendered query text', { top: 300, left: 16 })
+        const layout = resolveRemoteCaretLayout({ nodeIndex: 0, offset: 4 }, nodes, { c1: element }, {}, container)
+        expect(layout).toMatchObject({ top: 300, left: 16, width: 100, height: 20 })
+    })
+
+    describe('getFocusedBlockCaretPosition', () => {
+        function makeBlocks(): {
+            root: HTMLElement
+            componentElement: HTMLElement
+            innerButton: HTMLElement
+            nodes: NotebookBlockNode[]
+            blockRefs: Record<string, HTMLElement | null>
+        } {
+            const root = document.createElement('div')
+            const paragraphElement = document.createElement('div')
+            const componentElement = document.createElement('div')
+            const innerButton = document.createElement('button')
+            componentElement.appendChild(innerButton)
+            root.appendChild(paragraphElement)
+            root.appendChild(componentElement)
+            const nodes: NotebookBlockNode[] = [
+                paragraph('p1', 'hello'),
+                { id: 'c1', type: 'component', tagName: 'Query', props: {} },
+            ]
+            return {
+                root,
+                componentElement,
+                innerButton,
+                nodes,
+                blockRefs: { p1: paragraphElement, c1: componentElement },
+            }
+        }
+
+        it('maps a focused block element to its node index', () => {
+            const { root, componentElement, nodes, blockRefs } = makeBlocks()
+            expect(getFocusedBlockCaretPosition(componentElement, root, nodes, blockRefs)).toEqual({ nodeIndex: 1 })
+        })
+
+        it('maps focus inside a block (e.g. a button in a query shell) to the block', () => {
+            const { root, innerButton, nodes, blockRefs } = makeBlocks()
+            expect(getFocusedBlockCaretPosition(innerButton, root, nodes, blockRefs)).toEqual({ nodeIndex: 1 })
+        })
+
+        it('returns null for focus outside the notebook or outside any block', () => {
+            const { root, nodes, blockRefs } = makeBlocks()
+            const outsideElement = document.createElement('div')
+            expect(getFocusedBlockCaretPosition(outsideElement, root, nodes, blockRefs)).toBeNull()
+            expect(getFocusedBlockCaretPosition(root, root, nodes, blockRefs)).toBeNull()
+            expect(getFocusedBlockCaretPosition(null, root, nodes, blockRefs)).toBeNull()
+        })
     })
 })

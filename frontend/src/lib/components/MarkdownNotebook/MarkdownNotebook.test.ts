@@ -1440,6 +1440,22 @@ Repeated block`),
         nowSpy.mockRestore()
     })
 
+    it('reports a block-level caret when a component block is focused', () => {
+        const onCaretChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '# Title\n\n<Query query={{"kind":"DataTableNode"}} />',
+                onCaretChange,
+            })
+        )
+        const componentShell = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+        expect(componentShell).toBeInstanceOf(HTMLElement)
+
+        componentShell.focus()
+
+        expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
+    })
+
     it('keeps undoing only local edits after a remote merge arrives', () => {
         const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
         const onChange = jest.fn()

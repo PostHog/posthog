@@ -18,7 +18,11 @@ import { NotebookBlockNode } from './types'
  */
 export type MarkdownNotebookCaretPosition = {
     nodeIndex: number
-    /** Offset in the plain text of the focused editable element, in UTF-16 code units. */
+    /**
+     * Offset in the plain text of the focused editable element, in UTF-16 code units.
+     * Absent for block-level positions (components, tables): the user is "on" the
+     * block without a text caret, and receivers render an outline instead of a caret.
+     */
     offset?: number
     /** Set when the caret is inside a list block: the focused item's index. */
     listItemIndex?: number
@@ -54,10 +58,36 @@ export function getMarkdownNotebookCaretPosition(
     return { nodeIndex, offset: request.start }
 }
 
+/**
+ * When the focused element isn't a text caret host (a selected component, a focused
+ * divider/comment chip, anything inside a query block), report the containing block
+ * as a block-level position so collaborators can see who is on it.
+ */
+export function getFocusedBlockCaretPosition(
+    activeElement: Element | null,
+    rootElement: HTMLElement,
+    nodes: NotebookBlockNode[],
+    blockRefs: Record<string, HTMLElement | null>
+): MarkdownNotebookCaretPosition | null {
+    if (!activeElement || !rootElement.contains(activeElement)) {
+        return null
+    }
+
+    for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+        const element = blockRefs[nodes[nodeIndex].id]
+        if (element && (element === activeElement || element.contains(activeElement))) {
+            return { nodeIndex }
+        }
+    }
+    return null
+}
+
 export type RemoteCaretLayout = {
     top: number
     left: number
     height: number
+    /** Set for block-level positions: render an outline of this width instead of a caret bar. */
+    width?: number
 }
 
 export function resolveRemoteCaretLayout(
@@ -84,19 +114,29 @@ export function resolveRemoteCaretLayout(
     }
 
     const containerRect = containerElement.getBoundingClientRect()
-    let rect: DOMRect | null = null
-    if (position.offset !== undefined) {
-        const textLength = element.textContent?.length ?? 0
-        const clampedOffset = Math.max(0, Math.min(position.offset, textLength))
-        const target = findTextPosition(element, clampedOffset)
-        try {
-            const range = window.document.createRange()
-            range.setStart(target.node, target.offset)
-            range.setEnd(target.node, target.offset)
-            rect = getSelectionClientRect(range)
-        } catch {
-            rect = null
+
+    // Components never host a text caret, so any position on one is block-level.
+    if (position.offset === undefined || node.type === 'component') {
+        const blockRect = element.getBoundingClientRect()
+        return {
+            top: blockRect.top - containerRect.top,
+            left: blockRect.left - containerRect.left,
+            height: blockRect.height,
+            width: blockRect.width,
         }
+    }
+
+    let rect: DOMRect | null = null
+    const textLength = element.textContent?.length ?? 0
+    const clampedOffset = Math.max(0, Math.min(position.offset, textLength))
+    const target = findTextPosition(element, clampedOffset)
+    try {
+        const range = window.document.createRange()
+        range.setStart(target.node, target.offset)
+        range.setEnd(target.node, target.offset)
+        rect = getSelectionClientRect(range)
+    } catch {
+        rect = null
     }
 
     const height = rect?.height || getElementLineHeight(element)
@@ -167,6 +207,26 @@ export function RemoteCaretOverlay({
                 const layout = layouts[caret.clientId]
                 if (!layout) {
                     return null
+                }
+                if (layout.width !== undefined) {
+                    // Block-level presence: the user is on a component/table, not at a text offset.
+                    return (
+                        <div
+                            key={caret.clientId}
+                            className="MarkdownNotebook__remote-block"
+                            style={
+                                {
+                                    top: layout.top,
+                                    left: layout.left,
+                                    width: layout.width,
+                                    height: layout.height,
+                                    '--remote-presence-color': caret.color,
+                                } as React.CSSProperties
+                            }
+                        >
+                            <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
+                        </div>
+                    )
                 }
                 return (
                     <div

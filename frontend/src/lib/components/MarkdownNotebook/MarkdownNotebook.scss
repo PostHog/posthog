@@ -92,6 +92,36 @@
     }
 }
 
+.MarkdownNotebook__remote-block {
+    position: absolute;
+    pointer-events: none;
+    border: 2px solid color-mix(in oklab, var(--remote-presence-color, currentColor) 70%, transparent);
+    border-radius: 0.25rem;
+    transition:
+        top 120ms ease-out,
+        left 120ms ease-out,
+        width 120ms ease-out,
+        height 120ms ease-out;
+
+    .MarkdownNotebook__remote-caret-flag {
+        position: absolute;
+        bottom: 100%;
+        left: -2px;
+        max-width: 12rem;
+        padding: 1px 6px;
+        overflow: hidden;
+        font-size: 0.7rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--white);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        user-select: none;
+        background: var(--remote-presence-color, currentColor);
+        border-radius: 3px 3px 3px 0;
+    }
+}
+
 .MarkdownNotebook__debug-toolbar {
     position: absolute;
 
