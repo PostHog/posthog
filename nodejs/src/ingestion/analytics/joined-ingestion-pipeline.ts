@@ -31,6 +31,7 @@ import {
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
+import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
@@ -191,7 +192,14 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, IngestionBatchContext, TContext, OverflowOutput | AsyncOutput>(
+    return newBatchingPipeline<
+        TInput,
+        EmitEventStepOutput,
+        TContext,
+        IngestionBatchContext,
+        TContext,
+        OverflowOutput | AsyncOutput
+    >(
         (beforeBatch) =>
             beforeBatch
                 .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))

@@ -10,7 +10,7 @@ import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-fo
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
@@ -47,7 +47,7 @@ export interface EventSubpipelineConfig {
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder

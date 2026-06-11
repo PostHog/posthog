@@ -91,7 +91,8 @@ describe('emit-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value).toBeUndefined()
+                    expect(result.value.ingested).toHaveLength(1)
+                    expect(result.value.ingested).toEqual(result.sideEffects)
                 }
                 expect(result.sideEffects).toHaveLength(1)
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
@@ -101,8 +102,12 @@ describe('emit-event-step', () => {
                     teamId: mockProcessedEvent.team_id,
                 })
 
-                // Execute the side effect to test metric increment
-                await result.sideEffects[0]
+                // The ingested promise resolves with the event info once acked
+                await expect(result.sideEffects[0]).resolves.toEqual({
+                    capturedAt: mockHeaders.now,
+                    topic: mockMessage.topic,
+                    partition: mockMessage.partition,
+                })
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
             } finally {
                 jest.useRealTimers()
@@ -119,13 +124,10 @@ describe('emit-event-step', () => {
             const result = await step(input)
 
             expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
             expect(result.sideEffects).toHaveLength(1)
 
-            // Execute the side effect to test error handling
-            await result.sideEffects[0]
+            // The event was not ingested, so the promise resolves with null
+            await expect(result.sideEffects[0]).resolves.toBeNull()
 
             expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
                 eventUuid: 'test-uuid',

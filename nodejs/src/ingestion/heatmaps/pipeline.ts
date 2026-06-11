@@ -25,6 +25,7 @@ import {
 } from '../event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -73,7 +74,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         promiseScheduler,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, EventFiltersBatchContext, TContext>(
+    return newBatchingPipeline<TInput, EmitEventStepOutput, TContext, EventFiltersBatchContext, TContext>(
         (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
