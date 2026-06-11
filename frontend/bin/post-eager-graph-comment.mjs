@@ -49,10 +49,10 @@ const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'))
 function formatBytes(bytes) {
     const abs = Math.abs(bytes)
     if (abs >= 1024 * 1024) {
-        return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+        return `${(bytes / 1024 / 1024).toFixed(2)} MiB`
     }
     if (abs >= 1024) {
-        return `${(bytes / 1024).toFixed(1)} kB`
+        return `${(bytes / 1024).toFixed(1)} KiB`
     }
     return `${bytes} B`
 }

@@ -32,14 +32,14 @@ const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // master 2026-06-11: 14.59 MB / 749 files (post #62923)
+        // master 2026-06-11: 14.59 MiB / 749 files (post #62923)
         budgetBytes: 17_000_000,
         forbidden: ['node_modules/monaco-editor/'],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // master 2026-06-11: 55.51 MB / 8,325 files (ratchet down once #62957 / #62967 land)
+        // master 2026-06-11: 55.51 MiB / 8,325 files (ratchet down once #62957 / #62967 land)
         budgetBytes: 64_000_000,
         forbidden: [],
     },
@@ -62,9 +62,9 @@ function assertReport(reportFilePath) {
     for (const r of reportToAssert.roots) {
         if (r.overBudget) {
             fail(
-                `Eager graph for '${r.root}' is ${formatMB(r.bytes)}, over the ${formatMB(r.budgetBytes)} budget.\n` +
+                `Eager graph for '${r.root}' is ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
                     `Largest files in the closure:\n` +
-                    r.largest.map(({ file, bytes }) => `   ${formatMB(bytes).padStart(9)}  ${file}`).join('\n') +
+                    r.largest.map(({ file, bytes }) => `   ${formatMiB(bytes).padStart(9)}  ${file}`).join('\n') +
                     `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                     `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
             )
@@ -76,7 +76,7 @@ function assertReport(reportFilePath) {
             )
         }
         if (!process.exitCode) {
-            console.info(`✅ ${r.label}: ${formatMB(r.bytes)} within ${formatMB(r.budgetBytes)}`)
+            console.info(`✅ ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
 }
@@ -91,8 +91,8 @@ if (assertReportIndex !== -1) {
     process.exit(process.exitCode ?? 0)
 }
 
-function formatMB(bytes) {
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+function formatMiB(bytes) {
+    return `${(bytes / 1024 / 1024).toFixed(2)} MiB`
 }
 
 function eagerClosure(inputs, root) {
@@ -154,33 +154,35 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
         .slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
-    const status = overBudget ? '❌' : '✅'
+    const forbiddenHits = []
+    for (const forbiddenSubstr of forbidden) {
+        const hit = [...seen].find((f) => f.includes(forbiddenSubstr))
+        if (hit) {
+            forbiddenHits.push({ module: forbiddenSubstr, chain: chainTo(parentOf, hit) })
+        }
+    }
+
+    const status = overBudget || forbiddenHits.length > 0 ? '❌' : '✅'
     console.info(`${status} ${label}`)
     console.info(`   root: ${root}`)
-    console.info(`   eager closure: ${seen.size} files, ${formatMB(totalBytes)} (budget ${formatMB(budgetBytes)})`)
-    summaryLines.push(`| ${status} \`${root}\` | ${formatMB(totalBytes)} | ${formatMB(budgetBytes)} | ${seen.size} |`)
+    console.info(`   eager closure: ${seen.size} files, ${formatMiB(totalBytes)} (budget ${formatMiB(budgetBytes)})`)
+    summaryLines.push(`| ${status} \`${root}\` | ${formatMiB(totalBytes)} | ${formatMiB(budgetBytes)} | ${seen.size} |`)
 
     if (overBudget) {
         fail(
-            `Eager graph for '${root}' is ${formatMB(totalBytes)}, over the ${formatMB(budgetBytes)} budget.\n` +
+            `Eager graph for '${root}' is ${formatMiB(totalBytes)}, over the ${formatMiB(budgetBytes)} budget.\n` +
                 `Something newly reachable through static imports is inflating it. Largest files in the closure:\n` +
-                largest.map(([f, b]) => `   ${formatMB(b).padStart(9)}  ${f}`).join('\n') +
+                largest.map(([f, b]) => `   ${formatMiB(b).padStart(10)}  ${f}`).join('\n') +
                 `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                 `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
         )
     }
 
-    const forbiddenHits = []
-    for (const forbiddenSubstr of forbidden) {
-        const hit = [...seen].find((f) => f.includes(forbiddenSubstr))
-        if (hit) {
-            const chain = chainTo(parentOf, hit)
-            forbiddenHits.push({ module: forbiddenSubstr, chain })
-            fail(
-                `'${forbiddenSubstr}' is statically reachable from '${root}' — it must stay behind a dynamic import.\n` +
-                    `Import chain:\n   ${chain.join('\n   -> ')}`
-            )
-        }
+    for (const hit of forbiddenHits) {
+        fail(
+            `'${hit.module}' is statically reachable from '${root}' — it must stay behind a dynamic import.\n` +
+                `Import chain:\n   ${hit.chain.join('\n   -> ')}`
+        )
     }
 
     report.roots.push({
