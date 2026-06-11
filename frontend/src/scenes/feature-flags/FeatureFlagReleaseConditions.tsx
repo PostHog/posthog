@@ -46,6 +46,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({
@@ -67,7 +68,7 @@ function PropertyValueComponent({
         return <></>
     }
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const isDistinctId = property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+    const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>

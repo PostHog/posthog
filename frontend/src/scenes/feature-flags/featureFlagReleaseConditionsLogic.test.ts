@@ -1307,8 +1307,7 @@ describe('the feature flag release conditions logic', () => {
                         {
                             results: {
                                 'distinct-1': { name: 'alice@example.com' },
-                                // No display name resolved → name echoes the distinct id.
-                                'distinct-2': { name: 'distinct-2' },
+                                // distinct-2 has no matching person, so it's absent from results.
                             },
                         },
                     ],
@@ -1332,6 +1331,93 @@ describe('the feature flag release conditions logic', () => {
             // Unresolved ids and unknown ids both fall back to the raw distinct id.
             expect(logic.values.getDistinctIdName('distinct-2')).toBe('distinct-2')
             expect(logic.values.getDistinctIdName('never-requested')).toBe('never-requested')
+        })
+
+        it('resolves a scalar distinct_id value', async () => {
+            logic?.unmount()
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [
+                        200,
+                        { results: { 'distinct-1': { name: 'alice@example.com' } } },
+                    ],
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-scalar',
+                filters: distinctIdFilters('distinct-1'),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+
+            expect(logic.values.distinctIds).toEqual(['distinct-1'])
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
+        })
+
+        it('falls back to raw ids when the persons request fails', async () => {
+            logic?.unmount()
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [500, {}],
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-error',
+                filters: distinctIdFilters(['distinct-1', 'distinct-2']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                .toMatchValues({
+                    distinctIdNameCache: { 'distinct-1': 'distinct-1', 'distinct-2': 'distinct-2' },
+                })
+
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
+        })
+
+        it('resolves names when a distinct_id filter is added to a mounted flag', async () => {
+            logic?.unmount()
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [
+                        200,
+                        { results: { 'distinct-1': { name: 'alice@example.com' } } },
+                    ],
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-edit',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 100, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateConditionSet(0, undefined, [
+                    {
+                        key: 'distinct_id',
+                        type: PropertyFilterType.Person,
+                        value: ['distinct-1'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ])
+            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
         })
 
         it('does not fetch names when there are no distinct_id filters', async () => {

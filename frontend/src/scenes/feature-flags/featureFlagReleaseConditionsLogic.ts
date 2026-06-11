@@ -36,6 +36,14 @@ import {
 
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
+// A property filter targets people by their raw distinct id.
+export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
+    return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+}
+
+// Server caps batch_by_distinct_ids per request; chunk client-side so every id resolves.
+const DISTINCT_ID_BATCH_SIZE = 200
+
 // Helper function to move a condition set to a new index
 function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] {
     const updatedGroups = [...groups]
@@ -661,7 +669,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
             const fallbackMapping = Object.fromEntries(uncachedIds.map((id) => [id, id]))
             try {
-                const personsByDistinctId = await api.persons.getByDistinctIds(uncachedIds)
+                const personsByDistinctId: Record<string, { name?: string }> = {}
+                for (let i = 0; i < uncachedIds.length; i += DISTINCT_ID_BATCH_SIZE) {
+                    const chunk = uncachedIds.slice(i, i + DISTINCT_ID_BATCH_SIZE)
+                    Object.assign(personsByDistinctId, await api.persons.getByDistinctIds(chunk))
+                }
                 const mapping: Record<string, string> = {}
                 uncachedIds.forEach((id) => {
                     const name = personsByDistinctId[id]?.name
@@ -831,7 +843,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 filterGroups?.flatMap(
                     (group: FeatureFlagGroupType) =>
                         group.properties?.flatMap((property: AnyPropertyFilter) => {
-                            if (property.type !== PropertyFilterType.Person || property.key !== 'distinct_id') {
+                            if (!isDistinctIdFilter(property)) {
                                 return []
                             }
                             if (Array.isArray(property.value)) {

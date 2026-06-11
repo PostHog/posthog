@@ -20,7 +20,7 @@ import {
 
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
-import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { featureFlagReleaseConditionsLogic, isDistinctIdFilter } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
@@ -54,7 +54,7 @@ function PropertyValueDisplay({
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
     const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
-    const isDistinctId = property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+    const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>

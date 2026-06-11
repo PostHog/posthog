@@ -80,6 +80,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -111,7 +112,7 @@ type MatchByOption = {
 function summarizeProperties(
     properties: AnyPropertyFilter[],
     aggregationTargetName: string,
-    getDistinctIdName?: (distinctId: string) => string
+    getDistinctIdName: (distinctId: string) => string
 ): string {
     if (!properties || properties.length === 0) {
         // Capitalize first letter of aggregation target name
@@ -133,12 +134,12 @@ function summarizeProperties(
             property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
                 ? ((property as any).group_key_names ?? {})
                 : {}
-        const isDistinctId = property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+        const isDistinctId = isDistinctIdFilter(property)
         // Resolve a single raw value to its display name: server-provided group name,
         // frontend-fetched person name, or the raw value as fallback.
         const resolveValue = (raw: unknown): string => {
             const strVal = String(raw)
-            if (isDistinctId && getDistinctIdName) {
+            if (isDistinctId) {
                 return getDistinctIdName(strVal)
             }
             return groupKeyNames[strVal] || strVal
