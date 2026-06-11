@@ -87,6 +87,7 @@ class TestToolbarAnnotationsAPI(APIBaseTest):
             ("selector", 4096),
             ("element_text", 2048),
             ("element_chain", 20000),
+            ("screenshot_url", 2048),
         ]
     )
     def test_create_rejects_oversized_field(self, field: str, limit: int):

@@ -154,6 +154,7 @@ export interface ToolbarAnnotationApi {
     viewport?: ToolbarAnnotationApiViewport
     /**
      * URL of an uploaded screenshot captured with the annotation.
+     * @maxLength 2048
      * @nullable
      */
     screenshot_url?: string | null
@@ -249,6 +250,7 @@ export interface PatchedToolbarAnnotationApi {
     viewport?: PatchedToolbarAnnotationApiViewport
     /**
      * URL of an uploaded screenshot captured with the annotation.
+     * @maxLength 2048
      * @nullable
      */
     screenshot_url?: string | null

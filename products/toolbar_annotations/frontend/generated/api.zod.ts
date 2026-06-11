@@ -27,6 +27,8 @@ export const toolbarAnnotationsCreateBodyElementTextMax = 2048
 
 export const toolbarAnnotationsCreateBodyElementChainMax = 20000
 
+export const toolbarAnnotationsCreateBodyScreenshotUrlMax = 2048
+
 export const ToolbarAnnotationsCreateBody = /* @__PURE__ */ zod.object({
     comment: zod
         .string()
@@ -79,7 +81,11 @@ export const ToolbarAnnotationsCreateBody = /* @__PURE__ */ zod.object({
         })
         .nullish()
         .describe('Viewport size when the annotation was made, as {width, height}.'),
-    screenshot_url: zod.string().nullish().describe('URL of an uploaded screenshot captured with the annotation.'),
+    screenshot_url: zod
+        .string()
+        .max(toolbarAnnotationsCreateBodyScreenshotUrlMax)
+        .nullish()
+        .describe('URL of an uploaded screenshot captured with the annotation.'),
 })
 
 /**
@@ -99,6 +105,8 @@ export const toolbarAnnotationsUpdateBodySelectorMax = 4096
 export const toolbarAnnotationsUpdateBodyElementTextMax = 2048
 
 export const toolbarAnnotationsUpdateBodyElementChainMax = 20000
+
+export const toolbarAnnotationsUpdateBodyScreenshotUrlMax = 2048
 
 export const ToolbarAnnotationsUpdateBody = /* @__PURE__ */ zod.object({
     comment: zod
@@ -152,7 +160,11 @@ export const ToolbarAnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         })
         .nullish()
         .describe('Viewport size when the annotation was made, as {width, height}.'),
-    screenshot_url: zod.string().nullish().describe('URL of an uploaded screenshot captured with the annotation.'),
+    screenshot_url: zod
+        .string()
+        .max(toolbarAnnotationsUpdateBodyScreenshotUrlMax)
+        .nullish()
+        .describe('URL of an uploaded screenshot captured with the annotation.'),
 })
 
 /**
@@ -172,6 +184,8 @@ export const toolbarAnnotationsPartialUpdateBodySelectorMax = 4096
 export const toolbarAnnotationsPartialUpdateBodyElementTextMax = 2048
 
 export const toolbarAnnotationsPartialUpdateBodyElementChainMax = 20000
+
+export const toolbarAnnotationsPartialUpdateBodyScreenshotUrlMax = 2048
 
 export const ToolbarAnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     comment: zod
@@ -233,5 +247,9 @@ export const ToolbarAnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         })
         .nullish()
         .describe('Viewport size when the annotation was made, as {width, height}.'),
-    screenshot_url: zod.string().nullish().describe('URL of an uploaded screenshot captured with the annotation.'),
+    screenshot_url: zod
+        .string()
+        .max(toolbarAnnotationsPartialUpdateBodyScreenshotUrlMax)
+        .nullish()
+        .describe('URL of an uploaded screenshot captured with the annotation.'),
 })

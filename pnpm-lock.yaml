@@ -3577,6 +3577,8 @@ importers:
 
   products/toolbar: {}
 
+  products/toolbar_annotations: {}
+
   products/tracing:
     dependencies:
       '@posthog/icons':

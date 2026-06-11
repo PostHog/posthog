@@ -27975,6 +27975,7 @@ export namespace Schemas {
       viewport?: ToolbarAnnotationViewport;
       /**
          * URL of an uploaded screenshot captured with the annotation.
+         * @maxLength 2048
          * @nullable
          */
       screenshot_url?: string | null;
@@ -34372,6 +34373,7 @@ export namespace Schemas {
       viewport?: PatchedToolbarAnnotationViewport;
       /**
          * URL of an uploaded screenshot captured with the annotation.
+         * @maxLength 2048
          * @nullable
          */
       screenshot_url?: string | null;

@@ -74,6 +74,13 @@ class ToolbarAnnotationSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.",
     )
+    screenshot_url = serializers.CharField(
+        max_length=2048,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="URL of an uploaded screenshot captured with the annotation.",
+    )
     element_context = ElementContextField(
         required=False, help_text="Structured element metadata (inferred selectors, attributes, component hints)."
     )
