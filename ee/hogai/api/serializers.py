@@ -22,6 +22,7 @@ _conversation_fields = [
     "id",
     "status",
     "title",
+    "topic",
     "user",
     "created_at",
     "updated_at",

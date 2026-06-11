@@ -37,6 +37,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import (
+    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+)
 from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
@@ -82,11 +85,6 @@ COMPRESSION_EXTENSIONS = {
     "brotli": "br",
     "zstd": "zst",
     "lz4": "lz4",
-}
-
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
 }
 
 LOGGER = get_write_only_logger(__name__)

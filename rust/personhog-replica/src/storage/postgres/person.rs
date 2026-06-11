@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -306,9 +306,22 @@ impl PersonLookup for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.bulk_replica_pool.clone();
-        let chunks: Vec<Vec<String>> = distinct_ids
+        // Drive from the supplied distinct IDs via UNNEST and probe the
+        // (team_id, distinct_id) index, rather than `d.distinct_id = ANY($2)`
+        // with the team predicate parked on `posthog_person`. The latter lets
+        // the planner start from every person in the team and hash-join, which
+        // is catastrophic for large teams. Deduplicate the input first so
+        // UNNEST emits one row per distinct ID; the response below still
+        // mirrors the caller's original list, repeats included.
+        let mut seen: HashSet<&str> = HashSet::with_capacity(distinct_ids.len());
+        let unique_ids: Vec<&str> = distinct_ids
+            .iter()
+            .map(|d| d.as_str())
+            .filter(|&d| seen.insert(d))
+            .collect();
+        let chunks: Vec<Vec<String>> = unique_ids
             .chunks(self.bulk_chunk_size)
-            .map(|c| c.to_vec())
+            .map(|c| c.iter().map(|&s| s.to_string()).collect())
             .collect();
         common_metrics::histogram(
             DB_BULK_CHUNKS,
@@ -334,9 +347,11 @@ impl PersonLookup for PostgresStorage {
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
                                d.distinct_id as "distinct_id!"
-                        FROM posthog_person p
-                        INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
-                        WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
+                        FROM UNNEST($2::text[]) AS batch(distinct_id)
+                        INNER JOIN posthog_persondistinctid d
+                            ON d.team_id = $1 AND d.distinct_id = batch.distinct_id
+                        INNER JOIN posthog_person p
+                            ON p.id = d.person_id AND p.team_id = d.team_id
                         "#,
                         team_id as i32,
                         &chunk,

@@ -678,7 +678,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_terminal_run_unauthorized_user_returns_true_with_resolver_feedback(self, mock_slack_cls, mock_resolve):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -740,7 +740,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert mapping.task_run_id == self.task_run.id
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_unauthorized_actor_returns_true_with_resolver_feedback(self, mock_slack_cls, mock_resolve):
         self._create_mapping(mentioning_user="U_ALICE")
@@ -757,7 +757,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_followup_authorized_prefixes_actor_name(
         self, mock_slack_cls, mock_resolve, mock_send, mock_token
@@ -791,7 +791,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_followup_falls_back_to_email_when_no_full_name(
         self, mock_slack_cls, mock_resolve, mock_send, mock_token
@@ -807,7 +807,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         mock_send.assert_called_once_with(self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90)
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
+    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_followup_unmapped_user_delegates_feedback_to_resolver(self, mock_slack_cls, mock_resolve):
         # A second Slack user who can't be resolved to a PostHog member of this team
@@ -827,7 +827,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_terminal_run_resume_prefixes_actor_name(
         self, mock_slack_cls, mock_resolve, mock_execute_workflow
