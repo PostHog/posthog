@@ -7,11 +7,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.posthog_code_slack_mention import (
-    PostHogCodeSlackMentionWorkflowInputs,
-    classify_message_is_agent_directed,
-    classify_untagged_followup_activity,
-)
+from posthog.temporal.ai.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app import classify_message_is_agent_directed, classify_untagged_followup_activity
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -65,7 +62,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         kicking off any further work would be wrong."""
         self.mapping.delete()
         with patch(
-            "posthog.temporal.ai.posthog_code_slack_mention.classify_message_is_agent_directed"
+            "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed"
         ) as mock_classify:
             assert self._call() is False
         mock_classify.assert_not_called()
@@ -74,7 +71,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         with (
             patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
             patch(
-                "posthog.temporal.ai.posthog_code_slack_mention.classify_message_is_agent_directed",
+                "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=True,
             ) as mock_classify,
         ):
@@ -87,7 +84,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         with (
             patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
             patch(
-                "posthog.temporal.ai.posthog_code_slack_mention.classify_message_is_agent_directed",
+                "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=False,
             ),
         ):
@@ -102,7 +99,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
                 side_effect=RuntimeError("slack hiccup"),
             ),
             patch(
-                "posthog.temporal.ai.posthog_code_slack_mention.classify_message_is_agent_directed",
+                "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=True,
             ) as mock_classify,
         ):
@@ -117,7 +114,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
     work."""
 
     def test_emoji_only_dropped_without_llm(self):
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
+        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
             assert classify_message_is_agent_directed(":thumbsup: :tada:", "do thing", []) is False
         mock_client.assert_not_called()
 
@@ -135,7 +132,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
                 ]
             },
         )()
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
+        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.return_value = fake_response
             result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug", [])
         assert result is True
@@ -154,7 +151,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
                 ]
             },
         )()
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
+        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.return_value = fake_response
             result = classify_message_is_agent_directed("nice work team, going to lunch now", "fix the bug", [])
         assert result is False
@@ -162,7 +159,7 @@ class TestClassifyMessageIsAgentDirected(TestCase):
     def test_haiku_failure_defaults_to_drop(self):
         """Conservative default: a false positive interrupts the agent on
         every chit-chat reply; a false negative just means the user re-tags."""
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
+        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
             mock_client.return_value.chat.completions.create.side_effect = RuntimeError("boom")
             result = classify_message_is_agent_directed("Please also check the auth flow on safari", "fix the bug", [])
         assert result is False
