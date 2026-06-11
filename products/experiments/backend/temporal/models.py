@@ -10,6 +10,9 @@ OUTCOME_ERROR = "error"
 OUTCOME_SKIPPED = "skipped"
 ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERROR, OUTCOME_SKIPPED)
 
+# Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
+MAX_CANARY_DETAIL_LENGTH = 1000
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:

@@ -61,6 +61,7 @@ from products.experiments.backend.temporal.metric_resolution import (
 )
 from products.experiments.backend.temporal.models import (
     ALL_OUTCOMES,
+    MAX_CANARY_DETAIL_LENGTH,
     OUTCOME_DIVERGENCE,
     OUTCOME_ERROR,
     OUTCOME_PASS,
@@ -92,8 +93,6 @@ ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio")
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
 MIN_EXPERIMENT_RUNTIME = timedelta(days=2)
-
-_MAX_DETAIL_LENGTH = 1000
 
 _CANARY_RUNS: tuple[tuple[str, PrecomputationMode], ...] = (
     ("a", PrecomputationMode.PRECOMPUTED),
@@ -341,7 +340,7 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
         try:
             metric = build_metric(metric_dict)
         except Exception as e:
-            return _skipped(f"metric definition not parseable: {str(e)[:_MAX_DETAIL_LENGTH]}")
+            return _skipped(f"metric definition not parseable: {str(e)[:MAX_CANARY_DETAIL_LENGTH]}")
 
         canary_id = uuid.uuid4().hex[:12]
         runs: list[CanaryRunSnapshot] = []
@@ -357,6 +356,7 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
                     metric_uuid=target.metric_uuid,
                     run_label=label,
                     query_id=query_id,
+                    exc_info=True,
                 )
                 raise
 
@@ -438,7 +438,12 @@ def _send_slack_alert(divergent: list[CanaryMetricResult], counts: dict[str, int
         response.raise_for_status()
     except requests.RequestException as e:
         # Not re-raised: the divergence is already in the error log and the Prometheus gauges.
-        logger.warning("experiment_precompute_canary_slack_failed", error=str(e))
+        # str(e) would include the request URL, i.e. the webhook secret — log only safe fields.
+        logger.warning(
+            "experiment_precompute_canary_slack_failed",
+            error_type=type(e).__name__,
+            status_code=getattr(e.response, "status_code", None),
+        )
 
 
 def report_canary_results_sync(report: CanaryReportInputs) -> None:

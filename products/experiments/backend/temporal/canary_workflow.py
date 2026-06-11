@@ -14,6 +14,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.models import (
         CANARY_WORKFLOW_NAME,
+        MAX_CANARY_DETAIL_LENGTH,
         OUTCOME_ERROR,
         OUTCOME_SKIPPED,
         CanaryMetricResult,
@@ -74,7 +75,9 @@ class ExperimentPrecomputeCanaryWorkflow(PostHogWorkflow):
                 )
             except Exception as e:
                 # Query failures are monitoring signal, not a reason to abandon the remaining metrics.
-                result = CanaryMetricResult(target=target, outcome=OUTCOME_ERROR, detail=str(e)[:1000])
+                result = CanaryMetricResult(
+                    target=target, outcome=OUTCOME_ERROR, detail=str(e)[:MAX_CANARY_DETAIL_LENGTH]
+                )
             results.append(result)
 
         await temporalio.workflow.execute_activity(
