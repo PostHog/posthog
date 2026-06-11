@@ -47,7 +47,7 @@ let payload := {
 }
 
 if (inputs.debug) {
-  print('Request', url, payload)
+  print('Request', url, payload.method, payload.body)
 }
 
 let res := fetch(url, payload);
@@ -56,7 +56,10 @@ if (inputs.debug) {
   print('Response', res.status, res.body);
 }
 if (res.status >= 400) {
-    throw Error(f'Error from api.trophy.so (status {res.status}): {res.body}')
+    if (inputs.debug) {
+        print('Error body', res.body);
+    }
+    throw Error(f'Error from api.trophy.so (status {res.status})')
 }
 """.strip(),
     inputs_schema=[
@@ -141,8 +144,8 @@ if (res.status >= 400) {
         {
             "key": "debug",
             "type": "boolean",
-            "label": "Log responses",
-            "description": "Logs the response of http calls for debugging.",
+            "label": "Debug logging",
+            "description": "Logs request URL, method, body, and response details for debugging. Auth headers are redacted.",
             "secret": False,
             "required": False,
             "default": False,

@@ -97,25 +97,25 @@ class TestTemplateTrophy(BaseHogFunctionTemplateTest):
             )
         )
 
-        expected_payload = {
-            "headers": {"Content-Type": "application/json", "X-API-KEY": "test_api_key"},
-            "body": {
-                "value": 1,
-                "user": {
-                    "id": "user_123",
-                    "email": "test@example.com",
-                },
+        expected_body = {
+            "value": 1,
+            "user": {
+                "id": "user_123",
+                "email": "test@example.com",
             },
-            "method": "POST",
         }
 
         assert self.get_mock_fetch_calls()[0] == (
             "https://api.trophy.so/v1/metrics/test_metric/event",
-            expected_payload,
+            {
+                "headers": {"Content-Type": "application/json", "X-API-KEY": "test_api_key"},
+                "body": expected_body,
+                "method": "POST",
+            },
         )
 
         assert self.get_mock_print_calls() == [
-            ("Request", "https://api.trophy.so/v1/metrics/test_metric/event", expected_payload),
+            ("Request", "https://api.trophy.so/v1/metrics/test_metric/event", "POST", expected_body),
             ("Response", 200, {}),
         ]
 
@@ -124,3 +124,11 @@ class TestTemplateTrophy(BaseHogFunctionTemplateTest):
         with self.assertRaises(UncaughtHogVMException) as ctx:
             self.run_function(inputs=self._default_inputs())
         assert "Error from api.trophy.so (status 400)" in str(ctx.exception)
+        assert "Bad request" not in str(ctx.exception)
+
+    def test_raises_on_bad_status_with_debug_prints_body(self):
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "Bad request"}}  # type: ignore
+        with self.assertRaises(UncaughtHogVMException):
+            self.run_function(inputs=self._default_inputs(debug=True))
+        print_calls = self.get_mock_print_calls()
+        assert ("Error body", {"error": "Bad request"}) in print_calls
