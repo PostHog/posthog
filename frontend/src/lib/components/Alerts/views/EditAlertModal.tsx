@@ -105,6 +105,7 @@ export function EditAlertModal({
         simulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
+        hogqlAlertPreview,
     } = useValues(formLogic)
     const {
         deleteAlert,
@@ -267,7 +268,10 @@ export function EditAlertModal({
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
                                         funnelStepCount={funnelSource?.series?.length ?? 0}
-                                        anomalyDetectionEnabled={anomalyDetectionEnabled && !isFunnelInsight}
+                                        hogqlPreview={hogqlAlertPreview}
+                                        anomalyDetectionEnabled={
+                                            anomalyDetectionEnabled && insightAlertKind === 'trends'
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

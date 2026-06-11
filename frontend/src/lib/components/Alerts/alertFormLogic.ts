@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -72,6 +73,43 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
         upper != null &&
         !isNaN(upper)
     )
+}
+
+/** What a SQL alert would evaluate right now, mirroring the backend extractor's shape checks. */
+export type HogQLAlertPreview =
+    | { status: 'no-rows' }
+    | { status: 'bad-shape' }
+    | { status: 'multiple-columns'; columnCount: number; columnNames: string[] | null }
+    | { status: 'not-numeric'; value: string }
+    | { status: 'ok'; currentValue: number; previousValue: number | null; rowCount: number }
+
+export function deriveHogQLAlertPreview(insightData: Record<string, any> | null): HogQLAlertPreview | null {
+    const rows = insightData?.result
+    if (!Array.isArray(rows)) {
+        return null // No result loaded yet — fall back to the static hint
+    }
+    if (rows.length === 0) {
+        return { status: 'no-rows' }
+    }
+    const lastRow = rows[rows.length - 1]
+    if (!Array.isArray(lastRow)) {
+        return { status: 'bad-shape' }
+    }
+    const columnNames = Array.isArray(insightData?.columns) ? insightData.columns.map(String) : null
+    const columnCount = columnNames?.length ?? lastRow.length
+    if (columnCount > 1) {
+        return { status: 'multiple-columns', columnCount, columnNames }
+    }
+    const currentValue = lastRow[0]
+    if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
+        return { status: 'not-numeric', value: String(currentValue) }
+    }
+    const previousRow = rows.length > 1 ? rows[rows.length - 2] : null
+    const previousValue =
+        Array.isArray(previousRow) && typeof previousRow[0] === 'number' && Number.isFinite(previousRow[0])
+            ? previousRow[0]
+            : null
+    return { status: 'ok', currentValue, previousValue, rowCount: rows.length }
 }
 
 export interface AlertFormLogicProps {
@@ -179,7 +217,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
     key(({ alert }) => alert?.id ?? 'new'),
 
     connect((props: AlertFormLogicProps) => ({
-        values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
+        values: [
+            trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }),
+            ['goalLines'],
+            insightVizDataLogic({ dashboardItemId: undefined, ...props.insightVizDataLogicProps }),
+            ['insightData'],
+        ],
     })),
 
     actions({
@@ -372,7 +415,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    selectors({
+    selectors(({ props }) => ({
         thresholdBoundsFormError: [
             (s) => [s.alertFormSubmitAttempted, s.alertFormErrors],
             (submitAttempted, alertFormErrors): string | undefined => {
@@ -383,7 +426,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 return typeof thresholdError === 'string' ? thresholdError : undefined
             },
         ],
-    }),
+        hogqlAlertPreview: [
+            (s) => [s.insightData],
+            (insightData): HogQLAlertPreview | null =>
+                props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData) : null,
+        ],
+    })),
 
     listeners(({ props, values, actions }) => {
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {

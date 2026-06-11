@@ -11,11 +11,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { AlertFormType, HogQLAlertPreview } from 'lib/components/Alerts/alertFormLogic'
 import { AlertSimulationResult, isFunnelsAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -34,6 +35,8 @@ export interface AlertDefinitionSectionProps {
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
     funnelStepCount: number
+    /** What a SQL alert would evaluate right now; null until the insight result loads. */
+    hogqlPreview: HogQLAlertPreview | null
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -46,6 +49,79 @@ export interface AlertDefinitionSectionProps {
     onClearSimulationOverlay: () => void
 }
 
+/** Shows what the SQL alert would evaluate right now, surfacing shape problems before the first check. */
+function HogQLAlertPreviewBanner({
+    preview,
+    conditionType,
+}: {
+    preview: HogQLAlertPreview | null
+    conditionType?: AlertConditionType
+}): JSX.Element {
+    if (preview === null) {
+        return (
+            <LemonBanner type="info">
+                This alert evaluates the last row of the SQL insight's single-column result.
+            </LemonBanner>
+        )
+    }
+    switch (preview.status) {
+        case 'no-rows':
+            return (
+                <LemonBanner type="warning">
+                    The query currently returns no rows — the alert will error until it returns at least one row.
+                </LemonBanner>
+            )
+        case 'bad-shape':
+            return (
+                <LemonBanner type="warning">
+                    The query result isn't plain rows of values — the alert requires a query returning a single numeric
+                    column.
+                </LemonBanner>
+            )
+        case 'multiple-columns':
+            return (
+                <LemonBanner type="warning">
+                    This query returns {preview.columnCount} columns
+                    {preview.columnNames ? ` (${preview.columnNames.join(', ')})` : ''}. The alert evaluates a single
+                    numeric column — remove the extra columns (for example, don't select the date column) or the alert
+                    will fail to evaluate.
+                </LemonBanner>
+            )
+        case 'not-numeric':
+            return (
+                <LemonBanner type="warning">
+                    The last row's value ({preview.value}) isn't a number — the alert requires a single numeric column.
+                </LemonBanner>
+            )
+        case 'ok': {
+            const isRelative =
+                conditionType === AlertConditionType.RELATIVE_INCREASE ||
+                conditionType === AlertConditionType.RELATIVE_DECREASE
+            if (isRelative && preview.rowCount < 2) {
+                return (
+                    <LemonBanner type="warning">
+                        Relative conditions compare the last two rows, but the query currently returns only one row.
+                    </LemonBanner>
+                )
+            }
+            return (
+                <LemonBanner type="info">
+                    The alert evaluates the last row of the result — currently{' '}
+                    <strong>{humanFriendlyNumber(preview.currentValue)}</strong>
+                    {isRelative && preview.previousValue !== null ? (
+                        <>
+                            {' '}
+                            vs <strong>{humanFriendlyNumber(preview.previousValue)}</strong> in the previous row
+                        </>
+                    ) : null}{' '}
+                    ({preview.rowCount} row{preview.rowCount === 1 ? '' : 's'}). Order the query chronologically so the
+                    last row is the most recent value.
+                </LemonBanner>
+            )
+        }
+    }
+}
+
 export function AlertDefinitionSection({
     alertForm,
     alertMode,
@@ -55,6 +131,7 @@ export function AlertDefinitionSection({
     alertSeries,
     formulaNodes,
     funnelStepCount,
+    hogqlPreview,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -141,9 +218,7 @@ export function AlertDefinitionSection({
                     </Group>
                 </div>
             ) : (
-                <LemonBanner type="info">
-                    This alert evaluates the last row of the SQL insight's single-column result.
-                </LemonBanner>
+                <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
             )}
 
             {anomalyDetectionEnabled && (

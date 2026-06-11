@@ -30,13 +30,16 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
 
     const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled, funnelAlertsEnabled })
     const isFunnelInsight = !!insight.query && isInsightVizNode(insight.query) && isFunnelsQuery(insight.query.source)
-    const disabledReason = supported
-        ? undefined
-        : containsHogQLQuery(insight.query)
-          ? 'SQL insight alerts are not enabled for your account.'
-          : isFunnelInsight
-            ? 'Funnel insight alerts are not enabled for your account.'
-            : 'Alerts are only available for trends, SQL, and funnel insights. Change the insight representation to add alerts.'
+    // Existing alerts must stay manageable even if the gating flag is later disabled —
+    // they keep evaluating server-side, so the user needs a way in to edit or disable them.
+    const disabledReason =
+        supported || (alerts?.length ?? 0) > 0
+            ? undefined
+            : containsHogQLQuery(insight.query)
+              ? 'SQL insight alerts are not enabled for your account.'
+              : isFunnelInsight
+                ? 'Funnel insight alerts are not enabled for your account.'
+                : 'Alerts are only available for trends, SQL, and funnel insights. Change the insight representation to add alerts.'
 
     return (
         <LemonButton

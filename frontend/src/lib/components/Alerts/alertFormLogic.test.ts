@@ -20,7 +20,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
+import { alertFormLogic, deriveHogQLAlertPreview, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -292,5 +292,42 @@ describe('alertFormLogic', () => {
             '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
         )
         expect(successToastSpy).not.toHaveBeenCalled()
+    })
+
+    describe('deriveHogQLAlertPreview', () => {
+        it.each([
+            ['no result loaded', null, null],
+            ['result not an array', { result: 'oops' }, null],
+            ['empty result', { result: [] }, { status: 'no-rows' }],
+            ['rows are not arrays', { result: [{ a: 1 }] }, { status: 'bad-shape' }],
+            [
+                'multiple columns from response columns',
+                { result: [[1, '2024-01-01']], columns: ['count', 'day'] },
+                { status: 'multiple-columns', columnCount: 2, columnNames: ['count', 'day'] },
+            ],
+            [
+                'multiple columns inferred from row width',
+                { result: [[1, '2024-01-01']] },
+                { status: 'multiple-columns', columnCount: 2, columnNames: null },
+            ],
+            ['non-numeric value', { result: [['n/a']], columns: ['count'] }, { status: 'not-numeric', value: 'n/a' }],
+            [
+                'non-finite value',
+                { result: [[Infinity]], columns: ['count'] },
+                { status: 'not-numeric', value: 'Infinity' },
+            ],
+            [
+                'single row',
+                { result: [[5]], columns: ['count'] },
+                { status: 'ok', currentValue: 5, previousValue: null, rowCount: 1 },
+            ],
+            [
+                'multiple rows expose previous value',
+                { result: [[3], [7]], columns: ['count'] },
+                { status: 'ok', currentValue: 7, previousValue: 3, rowCount: 2 },
+            ],
+        ])('%s', (_name, insightData, expected) => {
+            expect(deriveHogQLAlertPreview(insightData as Record<string, any> | null)).toEqual(expected)
+        })
     })
 })
