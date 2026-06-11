@@ -1296,68 +1296,61 @@ describe('the feature flag release conditions logic', () => {
             ])
         }
 
-        it('resolves person names for distinct_id targeting, falling back to the raw id', async () => {
-            logic?.unmount()
-
-            useMocks({
-                post: {
-                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
-                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [
-                        200,
-                        {
-                            results: {
-                                'distinct-1': { name: 'alice@example.com' },
-                                // distinct-2 has no matching person, so it's absent from results.
-                            },
-                        },
-                    ],
+        it.each([
+            {
+                name: 'array value, falling back to the raw id for unmatched persons',
+                value: ['distinct-1', 'distinct-2'] as string | string[],
+                // distinct-2 has no matching person, so it's absent from results.
+                results: { 'distinct-1': { name: 'alice@example.com' } },
+                expectedDistinctIds: ['distinct-1', 'distinct-2'],
+                expectedCache: { 'distinct-1': 'alice@example.com', 'distinct-2': 'distinct-2' },
+                expectedLabels: {
+                    'distinct-1': 'distinct-1 (alice@example.com)',
+                    // Unresolved ids and unknown ids both fall back to the raw distinct id.
+                    'distinct-2': 'distinct-2',
+                    'never-requested': 'never-requested',
                 },
-            })
+            },
+            {
+                name: 'scalar value',
+                value: 'distinct-1' as string | string[],
+                results: { 'distinct-1': { name: 'alice@example.com' } },
+                expectedDistinctIds: ['distinct-1'],
+                expectedCache: { 'distinct-1': 'alice@example.com' },
+                expectedLabels: { 'distinct-1': 'distinct-1 (alice@example.com)' },
+            },
+        ])(
+            'resolves person names for distinct_id targeting ($name)',
+            async ({ value, results, expectedDistinctIds, expectedCache, expectedLabels }) => {
+                logic?.unmount()
 
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'distinct-id-names',
-                filters: distinctIdFilters(['distinct-1', 'distinct-2']),
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
-                .toMatchValues({
-                    distinctIdNameCache: { 'distinct-1': 'alice@example.com', 'distinct-2': 'distinct-2' },
+                useMocks({
+                    post: {
+                        '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                            200,
+                            { affected: 10, total: 100 },
+                        ],
+                        '/api/environments/:team/persons/batch_by_distinct_ids/': () => [200, { results }],
+                    },
                 })
 
-            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
-            // Unresolved ids and unknown ids both fall back to the raw distinct id.
-            expect(logic.values.getDistinctIdName('distinct-2')).toBe('distinct-2')
-            expect(logic.values.getDistinctIdName('never-requested')).toBe('never-requested')
-        })
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'distinct-id-names',
+                    filters: distinctIdFilters(value),
+                })
 
-        it('resolves a scalar distinct_id value', async () => {
-            logic?.unmount()
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                    .toMatchValues({ distinctIdNameCache: expectedCache })
 
-            useMocks({
-                post: {
-                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
-                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [
-                        200,
-                        { results: { 'distinct-1': { name: 'alice@example.com' } } },
-                    ],
-                },
-            })
-
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'distinct-id-scalar',
-                filters: distinctIdFilters('distinct-1'),
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
-
-            expect(logic.values.distinctIds).toEqual(['distinct-1'])
-            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
-        })
+                expect(logic.values.distinctIds).toEqual(expectedDistinctIds)
+                for (const [id, label] of Object.entries(expectedLabels)) {
+                    expect(logic.values.getDistinctIdName(id)).toBe(label)
+                }
+            }
+        )
 
         it('falls back to raw ids when the persons request fails', async () => {
             logic?.unmount()
@@ -1383,6 +1376,39 @@ describe('the feature flag release conditions logic', () => {
                 })
 
             expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
+        })
+
+        it('preserves resolved names from earlier chunks when a later chunk fails', async () => {
+            logic?.unmount()
+
+            // More than one batch worth of ids so the request is chunked.
+            const ids = Array.from({ length: 250 }, (_, i) => `d-${i}`)
+            const firstChunkResults = Object.fromEntries(ids.slice(0, 200).map((id) => [id, { name: `name-${id}` }]))
+
+            let callCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
+                        callCount += 1
+                        // First chunk resolves, second chunk fails.
+                        return callCount === 1 ? [200, { results: firstChunkResults }] : [500, {}]
+                    },
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-chunked',
+                filters: distinctIdFilters(ids),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames', 'setDistinctIdNames'])
+
+            // First-chunk names survive even though the second chunk fell back to raw ids.
+            expect(logic.values.getDistinctIdName('d-0')).toBe('d-0 (name-d-0)')
+            expect(logic.values.getDistinctIdName('d-200')).toBe('d-200')
         })
 
         it('resolves names when a distinct_id filter is added to a mounted flag', async () => {

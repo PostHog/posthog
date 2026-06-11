@@ -667,23 +667,30 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return
             }
 
-            const fallbackMapping = Object.fromEntries(uncachedIds.map((id) => [id, id]))
-            try {
-                const personsByDistinctId: Record<string, { name?: string }> = {}
-                for (let i = 0; i < uncachedIds.length; i += DISTINCT_ID_BATCH_SIZE) {
-                    const chunk = uncachedIds.slice(i, i + DISTINCT_ID_BATCH_SIZE)
-                    Object.assign(personsByDistinctId, await api.persons.getByDistinctIds(chunk))
+            // Resolve a chunk to its display-name mapping, keeping the raw id when no
+            // meaningful name resolved.
+            const toMapping = (
+                chunk: string[],
+                personsByDistinctId: Record<string, { name?: string }>
+            ): Record<string, string> =>
+                Object.fromEntries(
+                    chunk.map((id) => {
+                        const name = personsByDistinctId[id]?.name
+                        return [id, name && name !== id ? name : id]
+                    })
+                )
+
+            // Commit each chunk as it resolves so a later-chunk failure doesn't discard
+            // already-resolved names.
+            for (let i = 0; i < uncachedIds.length; i += DISTINCT_ID_BATCH_SIZE) {
+                const chunk = uncachedIds.slice(i, i + DISTINCT_ID_BATCH_SIZE)
+                try {
+                    const personsByDistinctId = await api.persons.getByDistinctIds(chunk)
+                    actions.setDistinctIdNames(toMapping(chunk, personsByDistinctId))
+                } catch (error) {
+                    console.error('Error loading distinct ID names:', error)
+                    actions.setDistinctIdNames(Object.fromEntries(chunk.map((id) => [id, id])))
                 }
-                const mapping: Record<string, string> = {}
-                uncachedIds.forEach((id) => {
-                    const name = personsByDistinctId[id]?.name
-                    // Keep the raw id when no meaningful display name resolved.
-                    mapping[id] = name && name !== id ? name : id
-                })
-                actions.setDistinctIdNames(mapping)
-            } catch (error) {
-                console.error('Error loading distinct ID names:', error)
-                actions.setDistinctIdNames(fallbackMapping)
             }
         },
     })),
