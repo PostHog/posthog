@@ -37,7 +37,6 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
@@ -661,8 +660,6 @@ function AIObservabilitySceneContent(): JSX.Element {
                     </>
                 }
             />
-
-            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>
