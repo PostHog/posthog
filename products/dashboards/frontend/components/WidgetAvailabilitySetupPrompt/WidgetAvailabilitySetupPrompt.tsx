@@ -42,7 +42,7 @@ export function WidgetAvailabilitySetupPrompt({
                             type="primary"
                             to={presentation.settingsUrl}
                             onClick={() => {
-                                posthog.capture('dashboard widget custom view cta clicked', {
+                                posthog.capture('dashboard widget cross product activated', {
                                     widget_type: widgetType,
                                     widget_id: widgetId,
                                     dashboard_id: dashboardId,
