@@ -464,10 +464,9 @@ def _bq_row_filter_conditions(
 ) -> tuple[list[str], list[bigquery.ScalarQueryParameter]]:
     """Build row-filter SQL conditions + bound BigQuery scalar parameters.
 
-    Columns are quoted through the identifier allowlist; operators are the canonical
-    set; values leave only as named query parameters (`@row_filter_i`, or
-    `@row_filter_i_j` per element for `IN` / `NOT IN`). The parameter type follows the
-    column's actual BigQuery type so DATETIME vs TIMESTAMP columns don't mismatch.
+    Columns are quoted; values leave only as named params (`@row_filter_i`, or
+    `@row_filter_i_j` per element for IN). The param type follows the column's actual
+    BigQuery type so DATETIME vs TIMESTAMP don't mismatch.
     """
     if not row_filters:
         return [], []

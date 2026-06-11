@@ -84,8 +84,7 @@ def _build_query(
     select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
     table_ref = f"{database}.{schema}.{table_name}"
 
-    # Positional params: IDENTIFIER(%s) is first, then any incremental value, then the
-    # row-filter values in the same left-to-right order the conditions appear in the SQL.
+    # Positional param order: IDENTIFIER(%s), then any incremental value, then row-filter values.
     filter_conditions, filter_values = render_positional_conditions(row_filters or [], _SNOWFLAKE_IDENTIFIER_QUOTER)
 
     if not should_use_incremental_field:

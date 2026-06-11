@@ -127,8 +127,8 @@ def _build_query(
     row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
-    # Row filters apply only to the real data path. The sampling queries feed row-count
-    # estimation, where an over-estimate is harmless, so they stay unfiltered.
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
     row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:

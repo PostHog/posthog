@@ -446,8 +446,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             "Run `Pull new schemas` to refresh available columns."
                         )
 
-        # Validate row filters against the schema's discovered columns + types. The raw filters
-        # are persisted as-is (a real model field); coercion happens again at sync time.
+        # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
             try:
                 validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)

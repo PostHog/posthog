@@ -459,18 +459,16 @@ function ColumnsAndRowFiltersSection({
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
 
-    // Derive the access-disabled reason as a plain value rather than via the render-prop form of
-    // SourceEditorAction: every edit re-renders this component, and the render-prop's fresh inline
-    // function would remount the editors (AccessControlAction treats it as a new component type),
-    // wiping their in-progress selection. See useSourceEditorAccess's docstring.
+    // Plain value, not the render-prop form of SourceEditorAction: a fresh inline render-prop on
+    // every edit would remount the editors and wipe their drafts. See useSourceEditorAccess's docstring.
     const { disabledReason: editorDisabledReason } = useSourceEditorAccess(source)
 
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
 
-    // Reset the drafts when navigating to a different schema or when the server values change
-    // (e.g. the schema reloads after a save). Keyed on content so unrelated re-renders don't wipe edits.
+    // Reset drafts on schema switch or when server values change (e.g. reload after save).
+    // Keyed on content so unrelated re-renders don't wipe edits.
     useEffect(() => {
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
@@ -500,9 +498,8 @@ function ColumnsAndRowFiltersSection({
     const commit = (resyncAfter: boolean): void => {
         const next = { ...schema, enabled_columns: draftColumns, row_filters: draftRowFilters }
         if (resyncAfter) {
-            // Bypass the bulk-update debounce so the Temporal workflow reads the new selection from
-            // the DB; firing resync against the queued (but unsent) PATCH would otherwise re-sync
-            // against the old configuration.
+            // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
+            // stale one a still-queued PATCH hasn't written yet.
             void api.externalDataSchemas
                 .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
                 .then(() => {
