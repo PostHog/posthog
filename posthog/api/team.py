@@ -1435,12 +1435,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         serializer.save()
 
-        # Read post-save state (not validated_data) so a partial update doesn't log spurious changes for
-        # fields the caller omitted — validated_data.get(..., []) would report them as cleared.
+        # Log activity for revenue analytics config changes
         new_config = {
-            "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
-            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
-            "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
+            "events": validated_data.get("events", []),
+            "goals": validated_data.get("goals", []),
+            "filter_test_accounts": validated_data.get("filter_test_accounts", False),
         }
 
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
@@ -1482,16 +1481,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         marketing_serializer.save()
 
-        # Read post-save state (not validated_data) so a partial update doesn't log spurious changes for
-        # fields the caller omitted.
+        # Log activity for marketing analytics config changes
         new_config = {
-            "sources_map": (
-                instance.marketing_analytics_config.sources_map.copy()
-                if instance.marketing_analytics_config.sources_map
-                else {}
-            ),
-            "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
-            "attribution_mode": instance.marketing_analytics_config.attribution_mode,
+            "sources_map": validated_data.get("sources_map", {}),
+            "attribution_window_days": validated_data.get("attribution_window_days"),
+            "attribution_mode": validated_data.get("attribution_mode"),
+            # Add other fields as they're added to the model
+            # "conversion_goals": validated_data.get("conversion_goals", []),
         }
 
         self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
