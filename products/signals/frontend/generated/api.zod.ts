@@ -68,7 +68,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Append a work-log entry (code reference, code diff, line reference, pushed branch, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected.
+ * Append a work-log entry (code reference, code diff, line reference, commit, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected. Content is validated against the type's schema.
  * @summary Append a log artefact to a report
  */
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
@@ -76,25 +76,49 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                'The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run.'
+                'The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run.'
             ),
         content: zod
             .unknown()
-            .describe('The artefact payload as a JSON object or array; shape depends on artefact_type.'),
+            .describe(
+                'The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema.'
+            ),
     })
     .describe(
-        'Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` (see `products\/signals\/backend\/artefact_schemas.py`); it is stored as-is.'
+        "Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` and is validated against the type's schema\n(see `products\/signals\/backend\/artefact_schemas.py`)."
     )
 
 /**
- * Replace the content of an existing log artefact, addressed by id. Only log types are editable.
+ * Replace the content of an existing log artefact, addressed by id. Only log types are editable, and the new content is validated against the artefact's type schema. Attribution is creation-time only — edits don't reassign it.
  * @summary Replace a log artefact's content
  */
 export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        content: zod.unknown().optional().describe('The new artefact payload as a JSON object or array.'),
+        content: zod
+            .unknown()
+            .optional()
+            .describe("The new artefact payload as a JSON object or array, matching the artefact type's schema."),
     })
-    .describe('Body for replacing the content of an existing log artefact (addressed by id).')
+    .describe(
+        "Body for replacing the content of an existing log artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
+    )
+
+/**
+ * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header).
+ * @summary Associate a task with a report
+ */
+export const SignalsReportTasksCreateBody = /* @__PURE__ */ zod
+    .object({
+        task_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
+            ),
+    })
+    .describe(
+        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts."
+    )
 
 /**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.

@@ -145,12 +145,13 @@ export interface SignalReportStateRequestApi {
  * Body for appending a log artefact (a work-log entry) to a report.
  *
  * Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
- * `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+ * `artefact_type` and is validated against the type's schema
+ * (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run. */
+    /** The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run. */
     artefact_type: string
-    /** The artefact payload as a JSON object or array; shape depends on artefact_type. */
+    /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
 }
 
@@ -173,26 +174,52 @@ export interface SignalReportArtefactWriteResponseApi {
      * @nullable
      */
     readonly updated_at: string | null
+    /**
+     * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+     * @nullable
+     */
+    readonly task_id: string | null
 }
 
 /**
  * Body for replacing the content of an existing log artefact (addressed by id).
+ *
+ * Per-type schema validation happens in the view, which knows the artefact's type.
  */
 export interface PatchedSignalReportArtefactLogUpdateApi {
-    /** The new artefact payload as a JSON object or array. */
+    /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
     content?: unknown
 }
 
 /**
- * Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base.
+ * Response for the `commit` artefact diff endpoint — the commit rendered against its parent.
  */
-export interface PushedBranchDiffResponseApi {
-    /** Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API. */
+export interface CommitDiffResponseApi {
+    /** Unified diff (patch) text introduced by the commit, from the GitHub commits API. */
     readonly diff: string
-    /** The base branch the diff was computed against (resolved to the repo default when the artefact omits one). */
-    readonly base_branch: string
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean
+}
+
+/**
+ * Body for associating a task with a report.
+ *
+ * The association is unlabelled — the task's purpose is derived from the report's artefacts.
+ */
+export interface SignalReportTaskCreateApi {
+    /**
+     * Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header.
+     * @nullable
+     */
+    task_id?: string | null
+}
+
+export interface SignalReportTaskApi {
+    readonly id: string
+    /** The report this task is associated with. */
+    readonly report_id: string
+    readonly task_id: string
+    readonly created_at: string
 }
 
 /**
@@ -1318,6 +1345,10 @@ export type SignalsReportsListParams = {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {

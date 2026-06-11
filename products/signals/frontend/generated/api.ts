@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CommitDiffResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
     ForgetRequestApi,
@@ -22,13 +23,14 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
-    PushedBranchDiffResponseApi,
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportStateRequestApi,
+    SignalReportTaskApi,
+    SignalReportTaskCreateApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
@@ -210,7 +212,7 @@ export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: 
 }
 
 /**
- * Append a work-log entry (code reference, code diff, line reference, pushed branch, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected.
+ * Append a work-log entry (code reference, code diff, line reference, commit, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected. Content is validated against the type's schema.
  * @summary Append a log artefact to a report
  */
 export const signalsReportArtefactsCreate = async (
@@ -232,7 +234,7 @@ export const getSignalsReportArtefactsPartialUpdateUrl = (projectId: string, rep
 }
 
 /**
- * Replace the content of an existing log artefact, addressed by id. Only log types are editable.
+ * Replace the content of an existing log artefact, addressed by id. Only log types are editable, and the new content is validated against the artefact's type schema. Attribution is creation-time only — edits don't reassign it.
  * @summary Replace a log artefact's content
  */
 export const signalsReportArtefactsPartialUpdate = async (
@@ -278,18 +280,40 @@ export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: st
 }
 
 /**
- * Fetch the unified diff of a `pushed_branch` artefact's branch against its base branch via the team's GitHub integration — lets the UI render the would-be PR diff without a PR being opened.
- * @summary Fetch the diff for a pushed_branch artefact
+ * Fetch the unified diff introduced by a `commit` artefact's commit via the team's GitHub integration — lets the UI render exactly what an agent pushed, commit by commit.
+ * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (
     projectId: string,
     reportId: string,
     id: string,
     options?: RequestInit
-): Promise<PushedBranchDiffResponseApi> => {
-    return apiMutator<PushedBranchDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
+): Promise<CommitDiffResponseApi> => {
+    return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportTasksCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/tasks/`
+}
+
+/**
+ * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header).
+ * @summary Associate a task with a report
+ */
+export const signalsReportTasksCreate = async (
+    projectId: string,
+    reportId: string,
+    signalReportTaskCreateApi?: SignalReportTaskCreateApi,
+    options?: RequestInit
+): Promise<SignalReportTaskApi> => {
+    return apiMutator<SignalReportTaskApi>(getSignalsReportTasksCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportTaskCreateApi),
     })
 }
 

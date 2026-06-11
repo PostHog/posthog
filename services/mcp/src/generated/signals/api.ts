@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -50,6 +50,10 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.'
         ),
+    task_id: zod
+        .string()
+        .optional()
+        .describe("Only reports associated with this task (via the report's task associations)."),
 })
 
 export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -120,7 +124,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Append a work-log entry (code reference, code diff, line reference, pushed branch, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected.
+ * Append a work-log entry (code reference, code diff, line reference, commit, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected. Content is validated against the type's schema.
  * @summary Append a log artefact to a report
  */
 export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
@@ -132,23 +136,34 @@ export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
     report_id: zod.string(),
 })
 
+export const SignalsReportArtefactsCreateHeader = /* @__PURE__ */ zod.object({
+    'X-PostHog-Task-Id': zod
+        .string()
+        .optional()
+        .describe(
+            'Task to attribute the artefact to (must belong to this project). Set automatically for sandbox agents; when absent the artefact is attributed to the requesting user.'
+        ),
+})
+
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
     .object({
         artefact_type: zod
             .string()
             .describe(
-                'The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run.'
+                'The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run.'
             ),
         content: zod
             .unknown()
-            .describe('The artefact payload as a JSON object or array; shape depends on artefact_type.'),
+            .describe(
+                'The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema.'
+            ),
     })
     .describe(
-        'Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.'
+        "Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` and is validated against the type's schema\n(see `products/signals/backend/artefact_schemas.py`)."
     )
 
 /**
- * Replace the content of an existing log artefact, addressed by id. Only log types are editable.
+ * Replace the content of an existing log artefact, addressed by id. Only log types are editable, and the new content is validated against the artefact's type schema. Attribution is creation-time only — edits don't reassign it.
  * @summary Replace a log artefact's content
  */
 export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -163,9 +178,14 @@ export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.obj
 
 export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        content: zod.unknown().optional().describe('The new artefact payload as a JSON object or array.'),
+        content: zod
+            .unknown()
+            .optional()
+            .describe("The new artefact payload as a JSON object or array, matching the artefact type's schema."),
     })
-    .describe('Body for replacing the content of an existing log artefact (addressed by id).')
+    .describe(
+        "Body for replacing the content of an existing log artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
+    )
 
 /**
  * Delete a log artefact, addressed by id. Only log types are deletable.
@@ -180,6 +200,41 @@ export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
         ),
     report_id: zod.string(),
 })
+
+/**
+ * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header).
+ * @summary Associate a task with a report
+ */
+export const SignalsReportTasksCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
+})
+
+export const SignalsReportTasksCreateHeader = /* @__PURE__ */ zod.object({
+    'X-PostHog-Task-Id': zod
+        .string()
+        .optional()
+        .describe(
+            "The calling agent's own task id (set automatically for sandbox agents). Used when the body omits task_id — 'associate me with this report'."
+        ),
+})
+
+export const SignalsReportTasksCreateBody = /* @__PURE__ */ zod
+    .object({
+        task_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
+            ),
+    })
+    .describe(
+        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts."
+    )
 
 /**
  * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.

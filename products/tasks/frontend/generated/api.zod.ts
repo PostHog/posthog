@@ -225,10 +225,6 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
     json_schema: zod
         .unknown()
         .optional()
@@ -294,10 +290,6 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
     json_schema: zod
         .unknown()
         .optional()
@@ -363,10 +355,6 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
     json_schema: zod
         .unknown()
         .optional()

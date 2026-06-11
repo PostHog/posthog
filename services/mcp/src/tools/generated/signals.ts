@@ -8,6 +8,8 @@ import {
     SignalsReportArtefactsDestroyParams,
     SignalsReportArtefactsPartialUpdateBody,
     SignalsReportArtefactsPartialUpdateParams,
+    SignalsReportTasksCreateBody,
+    SignalsReportTasksCreateParams,
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
@@ -125,6 +127,7 @@ const inboxReportsList = (): ToolBase<
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
+                task_id: params.task_id,
             },
         })
         const filtered = {
@@ -158,6 +161,31 @@ const inboxReportsList = (): ToolBase<
             },
             '/inbox'
         )
+    },
+})
+
+const InboxReportTasksCreateSchema = SignalsReportTasksCreateParams.omit({ project_id: true }).extend(
+    SignalsReportTasksCreateBody.shape
+)
+
+const inboxReportTasksCreate = (): ToolBase<
+    typeof InboxReportTasksCreateSchema,
+    WithPostHogUrl<Schemas.SignalReportTask>
+> => ({
+    name: 'inbox-report-tasks-create',
+    schema: InboxReportTasksCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportTasksCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.task_id !== undefined) {
+            body['task_id'] = params.task_id
+        }
+        const result = await context.api.request<Schemas.SignalReportTask>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/tasks/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
     },
 })
 
@@ -645,6 +673,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-list': inboxReportsList,
+    'inbox-report-tasks-create': inboxReportTasksCreate,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-source-configs-create': inboxSourceConfigsCreate,

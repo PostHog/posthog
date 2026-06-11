@@ -11424,6 +11424,16 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    /**
+     * Response for the `commit` artefact diff endpoint — the commit rendered against its parent.
+     */
+    export interface CommitDiffResponse {
+      /** Unified diff (patch) text introduced by the commit, from the GitHub commits API. */
+      readonly diff: string;
+      /** True when the diff was too large to return in full and has been truncated. */
+      readonly truncated: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -27580,16 +27590,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `implementation` - Implementation
-     */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
-
-
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
-    } as const;
-
-    /**
      * Latest run details for this task
      * @nullable
      */
@@ -27638,7 +27638,6 @@ export namespace Schemas {
       github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -33103,9 +33102,11 @@ export namespace Schemas {
 
     /**
      * Body for replacing the content of an existing log artefact (addressed by id).
+     *
+     * Per-type schema validation happens in the view, which knows the artefact's type.
      */
     export interface PatchedSignalReportArtefactLogUpdate {
-      /** The new artefact payload as a JSON object or array. */
+      /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
       content?: unknown;
     }
 
@@ -34020,7 +34021,6 @@ export namespace Schemas {
       github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -36686,18 +36686,6 @@ export namespace Schemas {
       Android: 'android',
       Web: 'web',
     } as const;
-
-    /**
-     * Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base.
-     */
-    export interface PushedBranchDiffResponse {
-      /** Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API. */
-      readonly diff: string;
-      /** The base branch the diff was computed against (resolved to the repo default when the artefact omits one). */
-      readonly base_branch: string;
-      /** True when the diff was too large to return in full and has been truncated. */
-      readonly truncated: boolean;
-    }
 
     export interface QuarantineInput {
       /**
@@ -39680,12 +39668,13 @@ export namespace Schemas {
      * Body for appending a log artefact (a work-log entry) to a report.
      *
      * Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
-     * `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+     * `artefact_type` and is validated against the type's schema
+     * (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run. */
+      /** The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run. */
       artefact_type: string;
-      /** The artefact payload as a JSON object or array; shape depends on artefact_type. */
+      /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
     }
 
@@ -39708,6 +39697,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at: string | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
     }
 
     /**
@@ -39741,6 +39735,27 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    export interface SignalReportTask {
+      readonly id: string;
+      /** The report this task is associated with. */
+      readonly report_id: string;
+      readonly task_id: string;
+      readonly created_at: string;
+    }
+
+    /**
+     * Body for associating a task with a report.
+     *
+     * The association is unlabelled — the task's purpose is derived from the report's artefacts.
+     */
+    export interface SignalReportTaskCreate {
+      /**
+         * Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header.
+         * @nullable
+         */
+      task_id?: string | null;
     }
 
     /**
@@ -53006,6 +53021,10 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
