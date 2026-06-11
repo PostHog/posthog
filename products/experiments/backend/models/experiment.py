@@ -47,7 +47,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
     feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
-    exposure_cohort = models.ForeignKey("posthog.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
+    exposure_cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
     start_date = models.DateTimeField(null=True, blank=True)
@@ -141,7 +141,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return Experiment.Status.DRAFT
 
     def get_feature_flag_key(self):
-        return self.feature_flag.key
+        # Strip the soft-delete tombstone so the API and analytics surface the original
+        # key, matching what the query runners resolve against historical events.
+        return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
         variants = (self.parameters or {}).get("feature_flag_variants")

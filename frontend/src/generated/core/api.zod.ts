@@ -11,13 +11,13 @@ import * as zod from 'zod'
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document under
+ * `posthog_verification_token`. When PostHog fetches the metadata, matching
+ * the token links the partner app to this organization and grants a higher
+ * default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreateBodyLabelMax = 40
 
@@ -266,7 +266,7 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
-Sends a single dedicated delegation email and records the inviting user as having delegated.
+ * Sends a single dedicated delegation email and records the inviting user as having delegated.
  */
 export const invitesDelegateCreateBodyMessageMax = 1000
 
@@ -1908,8 +1908,8 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
 
 /**
  * Manage logs product configuration for this project's canonical environment.
-Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
-alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+ * alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdateBodyNameMax = 200
 
@@ -2513,9 +2513,9 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemCreateBodyTypeMax = 100
 
@@ -2532,9 +2532,9 @@ export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUpdateBodyTypeMax = 100
 
@@ -2551,9 +2551,9 @@ export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemPartialUpdateBodyTypeMax = 100
 
@@ -2618,9 +2618,9 @@ export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zo
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLinkCreateBodyTypeMax = 100
 
@@ -2637,9 +2637,9 @@ export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemMoveCreateBodyTypeMax = 100
 
@@ -2672,9 +2672,9 @@ export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewCreateBodyTypeMax = 100
 
@@ -2691,9 +2691,9 @@ export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
 
@@ -2710,8 +2710,8 @@ export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object(
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutCreateBodyTypeMax = 100
 
@@ -2746,8 +2746,8 @@ export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
 
@@ -2782,8 +2782,8 @@ export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
 
@@ -2825,8 +2825,8 @@ export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.ob
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderCreateBodyProtocolMax = 64
 
@@ -2847,8 +2847,8 @@ export const DesktopPersistedFolderCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderUpdateBodyProtocolMax = 64
 
@@ -2869,8 +2869,8 @@ export const DesktopPersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderPartialUpdateBodyProtocolMax = 64
 
@@ -3221,21 +3221,34 @@ export const projectSecretApiKeysCreateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysCreateBodyLabelMax),
-    scopes: zod.array(zod.string()),
+    scopes: zod
+        .array(zod.string())
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const projectSecretApiKeysUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysUpdateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysUpdateBodyLabelMax),
-    scopes: zod.array(zod.string()),
+    scopes: zod
+        .array(zod.string())
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const projectSecretApiKeysPartialUpdateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     label: zod.string().max(projectSecretApiKeysPartialUpdateBodyLabelMax).optional(),
-    scopes: zod.array(zod.string()).optional(),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user.'
+        ),
 })
 
 export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
@@ -3280,22 +3293,22 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -3582,24 +3595,24 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**OAuth fast path:** when the current project already has a team-level
-GitHub installation, and the user has no ``UserIntegration`` for that
-installation yet, we skip the org picker and redirect straight to
-``/login/oauth/authorize`` so the user only authorizes themselves.
-``connect_from`` is preserved for first-party clients so they return to
-the originating client immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
+ *
+ * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+ * ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+ * under projects).
+ *
+ * Usually returns ``install_url`` pointing at ``/installations/new`` so the
+ * user can pick any GitHub org (new or already connected).  GitHub's install
+ * page handles both cases: orgs where the app is installed show "Configure"
+ * (no admin needed), orgs where it isn't show "Install" (needs admin).
+ *
+ * **OAuth fast path:** when the current project already has a team-level
+ * GitHub installation, and the user has no ``UserIntegration`` for that
+ * installation yet, we skip the org picker and redirect straight to
+ * ``/login/oauth/authorize`` so the user only authorizes themselves.
+ * ``connect_from`` is preserved for first-party clients so they return to
+ * the originating client immediately.
+ *
+ * In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking
  */
 export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
@@ -3615,12 +3628,12 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
 
 /**
  * Mark the current user as having exited onboarding with a non-delegated reason.
-Idempotent: the skip timestamp is only set on the first successful call.
-
-Callers wanting to delegate setup to a teammate must use the dedicated
-/organizations/{id}/invites/delegate/ endpoint, which atomically creates the
-invite and sets reason="delegated". This endpoint rejects that reason so state
-can't be faked without a real invite.
+ * Idempotent: the skip timestamp is only set on the first successful call.
+ *
+ * Callers wanting to delegate setup to a teammate must use the dedicated
+ * /organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+ * invite and sets reason="delegated". This endpoint rejects that reason so state
+ * can't be faked without a real invite.
  */
 export const usersOnboardingSkipCreateBodyStepAtSkipMax = 64
 

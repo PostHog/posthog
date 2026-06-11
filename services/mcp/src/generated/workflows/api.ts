@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -67,16 +67,25 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M / 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -233,16 +242,25 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M / 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -362,6 +380,61 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsInvocationResultsRetrieveQueryAfterDefault = `-7d`
+
+export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
+export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
+
+export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsInvocationResultsRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs."
+        ),
+    before: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now."),
+    distinct_id: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Only return invocations triggered for this distinct_id (the person the run executed for).'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(hogFlowsInvocationResultsRetrieveQueryLimitMax)
+        .default(hogFlowsInvocationResultsRetrieveQueryLimitDefault)
+        .describe('Maximum number of invocations to return (1-500, default 50).'),
+    status: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'."),
+})
+
+export const HogFlowsInvocationResultRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    invocation_id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -496,4 +569,25 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
+})
+
+export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsMetricsGlobalRetrieveQueryAfterDefault = `-7d`
+
+export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsMetricsGlobalRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
+        ),
+    before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
 })

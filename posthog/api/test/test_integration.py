@@ -18,7 +18,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -36,6 +35,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
@@ -303,7 +303,10 @@ class TestEmailIntegration:
         assert integration.created_by == self.user
 
         mock_client.create_email_domain.assert_called_once_with(
-            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+            "posthog.com",
+            mail_from_subdomain="youmustnothavelikedmyemail",
+            team_id=self.team.id,
+            org_team_ids=[self.team.id],
         )
 
     @patch("posthog.models.integration.SESProvider")
@@ -2048,13 +2051,6 @@ class TestStripeIntegration:
 
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
-    def _override_oidc_key(self, settings):
-        settings.OAUTH2_PROVIDER = {
-            **django_settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-
-    @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -3328,3 +3324,75 @@ class TestSlackPostHogCodeKindDeprecated:
 
         serializer.is_valid()
         assert "kind" not in serializer.errors
+
+
+class TestGitHubIntegrationUninstall:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_github_integration(self, installation_id: str = "12345") -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": installation_id},
+            sensitive_config={"access_token": "ghs_token"},
+            integration_id=installation_id,
+            created_by=self.user,
+        )
+
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    def test_destroy_github_uninstalls_and_cleans_up_personal_when_last_team_reference(
+        self, mock_uninstall, client: HttpClient
+    ):
+        mock_uninstall.return_value = True
+        integration = self._create_github_integration("12345")
+        personal = UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_uninstall.assert_called_once_with("12345")
+        assert not Integration.objects.filter(id=integration.id).exists()
+        # Last team reference removed → the App is uninstalled, so personal integrations go too.
+        assert not UserIntegration.objects.filter(id=personal.id).exists()
+
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    def test_destroy_github_skips_uninstall_when_other_team_reference_exists(self, mock_uninstall, client: HttpClient):
+        integration = self._create_github_integration("12345")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        Integration.objects.create(
+            team=other_team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+        personal = UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_uninstall.assert_not_called()
+        assert not Integration.objects.filter(id=integration.id).exists()
+        # Another team still uses the installation, so it stays installed and personal survives.
+        assert UserIntegration.objects.filter(id=personal.id).exists()
+
+    @patch(
+        "posthog.api.integration.GitHubIntegration.uninstall_app_installation",
+        side_effect=Exception("GitHub API error"),
+    )
+    def test_destroy_github_still_deletes_when_uninstall_fails(self, _mock_uninstall, client: HttpClient):
+        integration = self._create_github_integration("12345")
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()

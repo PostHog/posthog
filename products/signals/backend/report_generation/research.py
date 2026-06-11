@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
+# Deferred: importing temporal.types here runs the signals temporal package __init__, which
+# eager-imports agentic -> report -> back into this module, forming a circular import.
+# SignalData is annotation-only (this module uses `from __future__ import annotations`); the one
+# runtime helper is imported locally in _render_signal_for_research.
+if TYPE_CHECKING:
+    from products.signals.backend.temporal.types import SignalData
 
 
 class ActionabilityChoice(str, Enum):
@@ -254,12 +259,20 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
+    from products.signals.backend.temporal.types import _render_extra_to_text  # noqa: PLC0415
+
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
+    if signal.remediation:
+        lines.append("- **Remediation (authoritative guidance — follow it, then verify):**")
+        if agent := signal.remediation.get("agent"):
+            lines.append(f"    - **Guidance:** {agent}")
+        if priority := signal.remediation.get("priority"):
+            lines.append(f"    - **Suggested priority:** {priority}")
     if signal.extra:
         lines.append("#### Extras")
         lines.extend(_render_extra_to_text(signal.extra))
@@ -281,7 +294,9 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
+
+When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP, and verify the fix (e.g. query whether the expected events now arrive)."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 

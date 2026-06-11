@@ -49,6 +49,12 @@ class TestFormatUtils(BaseTest):
         matrix = [["single", "row"]]
         self.assertEqual(format_matrix(matrix), "single|row")
 
+    def test_format_matrix_coerces_none_and_non_string_cells(self):
+        # A None or non-string cell must not raise "sequence item N: expected str instance,
+        # NoneType found" and crash the whole insight/dashboard context build.
+        matrix = [["label", None, 42]]
+        self.assertEqual(format_matrix(matrix), "label||42")
+
     def test_format_percentage(self):
         self.assertEqual(format_percentage(0.5), "50%")
         self.assertEqual(format_percentage(0.123), "12.3%")
