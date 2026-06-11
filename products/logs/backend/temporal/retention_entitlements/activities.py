@@ -1,6 +1,6 @@
 from temporalio import activity
 
-from posthog.constants import AvailableFeature
+from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -12,11 +12,6 @@ from products.logs.backend.temporal.retention_entitlements.types import (
 )
 
 LOGGER = get_write_only_logger(__name__)
-
-LOGS_RETENTION_FEATURES_BY_DAYS = {
-    30: AvailableFeature.LOGS_RETENTION_30D,
-    90: AvailableFeature.LOGS_RETENTION_90D,
-}
 
 
 @activity.defn(name="enforce-logs-retention-entitlements")
@@ -47,7 +42,7 @@ async def enforce_logs_retention_entitlements(
                 continue
 
             teams_checked += 1
-            organization = await database_sync_to_async(lambda team: team.organization)(team)
+            organization = team.organization
             if organization.is_feature_available(required_feature):
                 continue
 

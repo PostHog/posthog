@@ -54,6 +54,12 @@ class AvailableFeature(StrEnum):
     XAA_AUTHENTICATION = "xaa_authentication"
 
 
+LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
+    30: AvailableFeature.LOGS_RETENTION_30D,
+    90: AvailableFeature.LOGS_RETENTION_90D,
+}
+
+
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"

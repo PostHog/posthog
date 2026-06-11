@@ -26,7 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.constants import AvailableFeature
+from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -1168,10 +1168,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     VALID_RETENTION_DAYS = {14, 30, 90}
-    LOGS_RETENTION_FEATURES_BY_DAYS = {
-        30: AvailableFeature.LOGS_RETENTION_30D,
-        90: AvailableFeature.LOGS_RETENTION_90D,
-    }
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None or not self.instance:
@@ -1191,7 +1187,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
         if new_retention is not None and old_retention != new_retention:
-            required_feature = TeamSerializer.LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
             if required_feature and not self.instance.organization.is_feature_available(required_feature):
                 raise exceptions.PermissionDenied(
                     f"This organization does not have permission to set Logs retention to {new_retention} days."
