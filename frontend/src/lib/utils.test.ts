@@ -2,25 +2,20 @@ import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ElementType, EventType, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
+import { ElementType, EventType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
     autoCaptureEventToDescription,
-    booleanOperatorMap,
     calculateDays,
     ceilMsToClosestSecond,
-    chooseOperatorMap,
     colonDelimitedDuration,
     dateFilterToText,
     dateMapping,
     dateStringToDayJs,
-    dateTimeOperatorMap,
-    durationOperatorMap,
     eventToDescription,
     floorMsToClosestSecond,
     formatDateTimeRange,
-    genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
     getRelativeNextPath,
@@ -28,14 +23,10 @@ import {
     is12HoursOrLess,
     isExternalLink,
     isLessThan2Days,
-    isOperatorMulti,
     isURL,
-    numericOperatorMap,
     parseTagsFilter,
     reverseColonDelimitedDuration,
-    selectorOperatorMap,
     shortTimeZone,
-    stringOperatorMap,
     toParams,
 } from './utils'
 
@@ -820,23 +811,6 @@ describe('lib/utils', () => {
                 expect(floorMsToClosestSecond(-1000)).toEqual(-1000)
             })
         })
-
-        describe('choosing an operator for taxonomic filters', () => {
-            const testCases = [
-                { propertyType: PropertyType.DateTime, expected: dateTimeOperatorMap },
-                { propertyType: PropertyType.String, expected: stringOperatorMap },
-                { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
-                { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
-                { propertyType: PropertyType.Duration, expected: durationOperatorMap },
-                { propertyType: PropertyType.Selector, expected: selectorOperatorMap },
-                { propertyType: undefined, expected: genericOperatorMap },
-            ]
-            testCases.forEach((testcase) => {
-                it(`correctly maps ${testcase.propertyType} to operator options`, () => {
-                    expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
-                })
-            })
-        })
     })
 
     describe('calculateDays', () => {
@@ -1193,25 +1167,6 @@ describe('lib/utils', () => {
             const from = dayjs('2025-03-15T12:00:00')
             const to = dayjs('2025-03-15T12:01:00')
             expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
-        })
-    })
-
-    describe('isOperatorMulti', () => {
-        it('returns true for operators that support multiple values', () => {
-            expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.IContainsMulti)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.NotIContainsMulti)).toBe(true)
-        })
-
-        it('returns false for operators that do not support multiple values', () => {
-            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
         })
     })
 })

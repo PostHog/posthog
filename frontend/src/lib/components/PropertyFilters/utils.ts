@@ -1,5 +1,11 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { allOperatorsMapping, cohortOperatorMap, isOperatorCohort, isOperatorFlag, isOperatorMulti } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    cohortOperatorMap,
+    isOperatorCohort,
+    isOperatorFlag,
+    isOperatorMulti,
+} from 'lib/utils/operators'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { isKeyOf } from 'lib/utils/typeChecks'
 
