@@ -2,9 +2,16 @@ import { urls } from 'scenes/urls'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 
-import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from '../generated/widget-configs.zod'
+import {
+    errorTrackingWidgetConfigSchema,
+    experimentResultsWidgetConfigSchema,
+    experimentsWidgetConfigSchema,
+    sessionReplayWidgetConfigSchema,
+} from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
+import { ExperimentResultsWidgetPreview } from '../widgets/previews/ExperimentResultsWidgetPreview'
+import { ExperimentsListWidgetPreview } from '../widgets/previews/ExperimentsListWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
@@ -61,6 +68,7 @@ export type DashboardWidgetTileFiltersCatalogConfig = {
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
+    experiments: 'Experiments',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -150,6 +158,33 @@ export const DASHBOARD_WIDGET_CATALOG = {
             allowedPropertyNames: SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES,
         },
     },
+    experiments_list: {
+        groupId: 'experiments',
+        label: 'Experiments list',
+        description: 'List of experiments filtered by status and creator.',
+        headerTitle: 'Experiments',
+        defaultConfig: experimentsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        titleHref: urls.experiments(),
+        sharedPlaceholder: {
+            title: 'Experiments',
+            message: 'Log in to PostHog to see experiments from this dashboard.',
+        },
+    },
+    experiment_results: {
+        groupId: 'experiments',
+        label: 'Experiment results',
+        description: 'Current results for the primary metrics of a selected experiment.',
+        headerTitle: 'Experiment results',
+        defaultConfig: experimentResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        sharedPlaceholder: {
+            title: 'Experiment results',
+            message: 'Log in to PostHog to see experiment results from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
@@ -158,6 +193,8 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,
+    experiments_list: ExperimentsListWidgetPreview,
+    experiment_results: ExperimentResultsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {

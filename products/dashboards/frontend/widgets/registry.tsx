@@ -19,6 +19,12 @@ import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTracking
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
 import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWidgetTileFilters'
+import { EditExperimentResultsWidgetModal } from './experiments/EditExperimentResultsWidgetModal'
+import { EditExperimentsListWidgetModal } from './experiments/EditExperimentsListWidgetModal'
+import { ExperimentResultsWidget } from './experiments/ExperimentResultsWidget'
+import { parseExperimentResultsWidgetConfigApiError } from './experiments/experimentResultsWidgetConfigValidation'
+import { ExperimentsListWidget } from './experiments/ExperimentsListWidget'
+import { parseExperimentsListWidgetConfigApiError } from './experiments/experimentsListWidgetConfigValidation'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
@@ -136,6 +142,18 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditSessionReplayWidgetModal,
         productAccess: 'session_recording',
         parseConfigApiError: parseSessionReplayWidgetConfigApiError,
+    },
+    experiments_list: {
+        Component: ExperimentsListWidget,
+        EditModal: EditExperimentsListWidgetModal,
+        productAccess: 'experiment',
+        parseConfigApiError: parseExperimentsListWidgetConfigApiError,
+    },
+    experiment_results: {
+        Component: ExperimentResultsWidget,
+        EditModal: EditExperimentResultsWidgetModal,
+        productAccess: 'experiment',
+        parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 
