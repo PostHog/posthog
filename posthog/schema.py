@@ -51,6 +51,7 @@ class AgentMode(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
     USER_INTERVIEW = "user_interview"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -787,6 +788,7 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    LIST_FEATURE_FLAGS = "list_feature_flags"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
@@ -800,6 +802,7 @@ class AssistantTool(StrEnum):
     ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    ASSESS_HEATMAP = "assess_heatmap"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -808,6 +811,10 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
+    DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    UPSERT_ACCOUNT = "upsert_account"
+    UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
+    OPEN_ACCOUNT = "open_account"
 
 
 class AssistantToolCall(BaseModel):
@@ -1142,18 +1149,6 @@ class ConversationsTicketSignalExtra(BaseModel):
     priority: str | None = None
     status: str
     ticket_number: float
-
-
-class ConversationsTicketSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ConversationsTicketSignalExtra
-    source_id: str
-    source_product: Literal["conversations"] = "conversations"
-    source_type: Literal["ticket"] = "ticket"
-    weight: float
 
 
 class CoreEventCategory(StrEnum):
@@ -1671,18 +1666,6 @@ class EndpointExecutionFailedSignalExtra(BaseModel):
     saved_query_id: str | None = None
 
 
-class EndpointExecutionFailedSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: EndpointExecutionFailedSignalExtra
-    source_id: str
-    source_product: Literal["endpoints"] = "endpoints"
-    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
-    weight: float
-
-
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1869,18 +1852,6 @@ class SourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
 
 
-class ErrorTrackingSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ErrorTrackingSignalExtra
-    source_id: str
-    source_product: Literal["error_tracking"] = "error_tracking"
-    source_type: SourceType
-    weight: float
-
-
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1967,6 +1938,11 @@ class MultipleVariantHandling(StrEnum):
 
 class Kind(StrEnum):
     EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+
+
+class Kind1(StrEnum):
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
 
 
@@ -2271,6 +2247,85 @@ class ExternalDataSourceType(StrEnum):
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
     WORK_OS = "WorkOS"
+    AMAZON_S3 = "AmazonS3"
+    GOOGLE_CLOUD_STORAGE = "GoogleCloudStorage"
+    DATABRICKS = "Databricks"
+    DYNAMICS365 = "Dynamics365"
+    SALESFORCE_MARKETING_CLOUD = "SalesforceMarketingCloud"
+    DB2 = "Db2"
+    HEAP = "Heap"
+    ADOBE_ANALYTICS = "AdobeAnalytics"
+    MATOMO = "Matomo"
+    OPTIMIZELY = "Optimizely"
+    ADYEN = "Adyen"
+    GO_CARDLESS = "GoCardless"
+    MOLLIE = "Mollie"
+    CHECKOUT_COM = "CheckoutCom"
+    BRANCH = "Branch"
+    CRITEO = "Criteo"
+    OUTBRAIN = "Outbrain"
+    TABOOLA = "Taboola"
+    AD_ROLL = "AdRoll"
+    DISPLAY_VIDEO360 = "DisplayVideo360"
+    GOOGLE_AD_MANAGER = "GoogleAdManager"
+    CAMPAIGN_MANAGER360 = "CampaignManager360"
+    SEARCH_ADS360 = "SearchAds360"
+    ADOBE_COMMERCE = "AdobeCommerce"
+    AMAZON_SELLING_PARTNER = "AmazonSellingPartner"
+    EBAY = "Ebay"
+    COMMERCETOOLS = "Commercetools"
+    LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIP_STATION = "ShipStation"
+    CONSTANT_CONTACT = "ConstantContact"
+    MAILGUN = "Mailgun"
+    ELOQUA = "Eloqua"
+    SAILTHRU = "Sailthru"
+    ORTTO = "Ortto"
+    ATTENTIVE = "Attentive"
+    KUSTOMER = "Kustomer"
+    DIXA = "Dixa"
+    GLADLY = "Gladly"
+    QUALTRICS = "Qualtrics"
+    DELIGHTED = "Delighted"
+    AZURE_DEV_OPS = "AzureDevOps"
+    ROLLBAR = "Rollbar"
+    OPSGENIE = "Opsgenie"
+    INCIDENT_IO = "IncidentIo"
+    PINGDOM = "Pingdom"
+    CLOUDFLARE = "Cloudflare"
+    COSMOS_DB = "CosmosDB"
+    PLANET_SCALE = "PlanetScale"
+    SAP_HANA = "SapHana"
+    RIPPLING = "Rippling"
+    HI_BOB = "HiBob"
+    PERSONIO = "Personio"
+    DEEL = "Deel"
+    ADP_WORKFORCE_NOW = "AdpWorkforceNow"
+    PAYLOCITY = "Paylocity"
+    GUSTO = "Gusto"
+    CULTURE_AMP = "CultureAmp"
+    LATTICE = "Lattice"
+    SAGE_INTACCT = "SageIntacct"
+    FRESH_BOOKS = "FreshBooks"
+    EXPENSIFY = "Expensify"
+    RAMP = "Ramp"
+    BREX = "Brex"
+    COUPA = "Coupa"
+    SAP_CONCUR = "SapConcur"
+    APOLLO = "Apollo"
+    CRUNCHBASE = "Crunchbase"
+    ZOOM_INFO = "ZoomInfo"
+    CLARI = "Clari"
+    CHORUS = "Chorus"
+    CODA = "Coda"
+    GURU = "Guru"
+    DROPBOX = "Dropbox"
+    DOCUSIGN = "Docusign"
+    PANDA_DOC = "PandaDoc"
+    SAP_ERP = "SapErp"
+    SAP_SUCCESS_FACTORS = "SapSuccessFactors"
+    ORACLE_EBS = "OracleEbs"
+    ORACLE_FUSION = "OracleFusion"
     CUSTOM = "Custom"
 
 
@@ -2532,18 +2587,6 @@ class GithubIssueSignalExtra(BaseModel):
     number: float
     state: str
     updated_at: str
-
-
-class GithubIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: GithubIssueSignalExtra
-    source_id: str
-    source_product: Literal["github"] = "github"
-    source_type: Literal["issue"] = "issue"
-    weight: float
 
 
 class Position(StrEnum):
@@ -2900,18 +2943,6 @@ class LinearIssueSignalExtra(BaseModel):
     url: str
 
 
-class LinearIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LinearIssueSignalExtra
-    source_id: str
-    source_product: Literal["linear"] = "linear"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class LinkedinAdsDefaultSources(StrEnum):
     LINKEDIN = "linkedin"
     LI = "li"
@@ -2948,30 +2979,6 @@ class LlmEvalSignalExtra(BaseModel):
     target_event_id: str | None = None
     target_event_type: str | None = None
     trace_id: str
-
-
-class LlmEvaluationReportSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalReportSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation_report"] = "evaluation_report"
-    weight: float
-
-
-class LlmEvaluationSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation"] = "evaluation"
-    weight: float
 
 
 class LoadingBlock(BaseModel):
@@ -3050,18 +3057,6 @@ class LogsAlertStateChangeSignalExtra(BaseModel):
     threshold_operator: ThresholdOperator
     url: str
     window_minutes: float
-
-
-class LogsAlertStateChangeSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LogsAlertStateChangeSignalExtra
-    source_id: str
-    source_product: Literal["logs"] = "logs"
-    source_type: Literal["alert_state_change"] = "alert_state_change"
-    weight: float
 
 
 class LogsOrderBy(StrEnum):
@@ -3880,18 +3875,6 @@ class PgAnalyzeIssueSignalExtra(BaseModel):
     synced_at: str
 
 
-class PgAnalyzeIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: PgAnalyzeIssueSignalExtra
-    source_id: str
-    source_product: Literal["pganalyze"] = "pganalyze"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
@@ -4566,18 +4549,6 @@ class SessionProblemSignalExtra(BaseModel):
     start_time: str
 
 
-class SessionProblemSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SessionProblemSignalExtra
-    source_id: str
-    source_product: Literal["session_replay"] = "session_replay"
-    source_type: Literal["session_problem"] = "session_problem"
-    weight: float
-
-
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4695,6 +4666,46 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalExtraBase(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class Priority(StrEnum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class SignalRemediation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    agent: str = Field(
+        ...,
+        description=(
+            "Agent-facing guidance: how to investigate (which MCP tools to call) and,"
+            " where the fix lives in the user's codebase, how to apply it. The research"
+            " agent treats this as authoritative — it still investigates and produces"
+            " findings, but follows this instead of starting cold."
+        ),
+    )
+    human: str = Field(
+        ...,
+        description=(
+            "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader."
+        ),
+    )
+    priority: Priority | None = Field(
+        default=None,
+        description=("Suggested report priority; advisory, the research agent may override."),
+    )
+
+
 class SignalReviewerUserInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4789,6 +4800,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
@@ -4806,6 +4825,7 @@ class SignalsScoutSignalInput(BaseModel):
     )
     description: str
     extra: SignalsScoutSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["signals_scout"] = "signals_scout"
     source_type: Literal["cross_source_issue"] = "cross_source_issue"
@@ -4828,6 +4848,23 @@ class SimilarIssue(BaseModel):
 class SimpleIntervalType(StrEnum):
     DAY = "day"
     MONTH = "month"
+
+
+class SlackIntegrationScope(StrEnum):
+    APP_MENTIONS_READ = "app_mentions:read"
+    CHANNELS_HISTORY = "channels:history"
+    CHANNELS_READ = "channels:read"
+    CHAT_WRITE = "chat:write"
+    CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    GROUPS_HISTORY = "groups:history"
+    GROUPS_READ = "groups:read"
+    LINKS_READ = "links:read"
+    LINKS_WRITE = "links:write"
+    REACTIONS_READ = "reactions:read"
+    REACTIONS_WRITE = "reactions:write"
+    TEAM_READ = "team:read"
+    USERS_READ = "users:read"
+    USERS_READ_EMAIL = "users:read.email"
 
 
 class SlashCommandName(StrEnum):
@@ -5222,6 +5259,11 @@ class TraceNeighborsQueryResponse(BaseModel):
     )
 
 
+class TraceOrderColumn(StrEnum):
+    TIMESTAMP = "timestamp"
+    DURATION = "duration"
+
+
 class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
@@ -5515,6 +5557,7 @@ class ZendeskTicketSignalInput(BaseModel):
     )
     description: str
     extra: ZendeskTicketSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["zendesk"] = "zendesk"
     source_type: Literal["ticket"] = "ticket"
@@ -6861,6 +6904,19 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class ConversationsTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ConversationsTicketSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["conversations"] = "conversations"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
+
+
 class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7006,6 +7062,19 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7071,6 +7140,19 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
         ...,
         description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
     )
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -7196,8 +7278,17 @@ class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str = Field(..., description="Custom exposure event name.")
-    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",
@@ -7491,6 +7582,12 @@ class FileSystemImport(BaseModel):
     last_viewed_at: str | None = Field(default=None, description="Timestamp when the file system entry was last viewed")
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
+    pinnedByDefault: bool | None = Field(
+        default=None,
+        description=(
+            "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row"
+        ),
+    )
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     reason: UserProductListReason | None = Field(
         default=None,
@@ -7557,6 +7654,19 @@ class FunnelsFilterLegacy(BaseModel):
     funnel_window_interval_unit: FunnelConversionWindowTimeUnit | None = None
     hidden_legend_keys: dict[str, bool | Any] | None = None
     layout: FunnelLayout | None = None
+
+
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class GroupPropertyFilter(BaseModel):
@@ -7754,6 +7864,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None
@@ -7766,6 +7883,45 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: bool | None = None
     show_values_on_series: bool | None = None
     toggledLifecycles: list[LifecycleToggle] | None = None
+
+
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
 
 
 class LogEntryPropertyFilter(BaseModel):
@@ -7809,6 +7965,19 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogsAlertStateChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LogsAlertStateChangeSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["logs"] = "logs"
+    source_type: Literal["alert_state_change"] = "alert_state_change"
+    weight: float
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -8030,6 +8199,19 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class PlanningStep(BaseModel):
@@ -8821,6 +9003,19 @@ class SessionBatchEventsQueryResponse(BaseModel):
     )
 
 
+class SessionProblemSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionProblemSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_problem"] = "session_problem"
+    weight: float
+
+
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8992,6 +9187,19 @@ class SignalInput(
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
     )
+
+
+class SignalInputBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalExtraBase
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: str
+    source_type: str
+    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -22730,10 +22938,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(
@@ -24314,7 +24531,14 @@ class TraceSpansQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: LogsOrderBy | None = None
+    orderBy: TraceOrderColumn | None = Field(
+        default=None,
+        description=(
+            "Column to order by. Defaults to timestamp. `timestamp` paginates via"
+            " keyset cursor (`after`); other columns via `offset`."
+        ),
+    )
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),

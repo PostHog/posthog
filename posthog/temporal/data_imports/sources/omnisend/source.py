@@ -36,7 +36,6 @@ class OmnisendSource(ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig]
             name=SchemaExternalDataSourceType.OMNISEND,
             label="Omnisend",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Omnisend API key to automatically pull your Omnisend data into the PostHog Data warehouse.
 
 You can create an API key in your [Omnisend account settings](https://app.omnisend.com/settings/integrations/api-keys).

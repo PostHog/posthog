@@ -12,7 +12,6 @@ from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import Property, PropertyGroup
@@ -20,6 +19,8 @@ from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
+
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 
 FilterType = TypeVar("FilterType", Filter, PathFilter)
 
@@ -350,7 +351,7 @@ def property_to_Q(
             # falling back to the persons-DB ORM otherwise. Mirrors the override
             # short-circuit below (returning Q(pk__isnull=False|True)).
             if person_id is not None and team_id is not None:
-                from posthog.models.cohort.util import is_person_in_cohort
+                from products.cohorts.backend.models.util import is_person_in_cohort
 
                 if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
                     return Q(pk__isnull=False)
@@ -362,7 +363,7 @@ def property_to_Q(
             # the Exists(CohortPeople) subquery so the persons DB is not
             # required on the personhog path.
             if team_id is not None:
-                from posthog.models.cohort.util import list_cohort_member_ids
+                from products.cohorts.backend.models.util import list_cohort_member_ids
 
                 member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
                 if not member_ids:

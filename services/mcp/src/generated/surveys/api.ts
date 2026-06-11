@@ -1702,15 +1702,15 @@ export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * Get survey response statistics for a specific survey.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-    include_per_question_stats: Optional boolean to include per-question response counts and distributions
-
-Returns:
-    Survey statistics including event counts, unique respondents, and conversion rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+ *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
+ *
+ * Returns:
+ *     Survey statistics including event counts, unique respondents, and conversion rates
  */
 export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
@@ -1784,13 +1784,13 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *
+ * Returns:
+ *     Aggregated statistics across all surveys including total counts and rates
  */
 export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

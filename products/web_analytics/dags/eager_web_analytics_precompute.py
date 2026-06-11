@@ -4,11 +4,24 @@ A single Dagster job that pre-warms the lazy precompute cache for the
 Web analytics dashboard's main tile matrix over the trailing 28 days,
 for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
-The job is intentionally thin: it enumerates the dashboard's query
-families and dispatches each through `get_query_runner(...).run(...)`.
-The runner routes through its family's lazy precompute path, which
-already knows what's stale and INSERTs only what's missing. This DAG is
-the *trigger*; the runner is the source of truth for freshness.
+The job is intentionally thin: it enumerates the dashboard's query families
+and dispatches each through `get_query_runner(...).run(...)` in force-refresh
+mode (`ExecutionMode.CALCULATE_BLOCKING_ALWAYS`). The runner routes through
+its family's lazy precompute path, which already knows what's stale and
+INSERTs only what's missing. This DAG is the *trigger*; the runner is the
+source of truth for freshness.
+
+Force-refresh is used deliberately. The DEFAULT execution mode gates on the
+HogQL query result cache (6h staleness), which is the wrong clock for a
+precompute warmer whose buckets expire on a much shorter TTL (15min for
+today's bucket) — it would skip tiles whose Redis result is still "fresh"
+while the precompute they feed has gone cold. Force-refresh always recomputes,
+so every tick re-enters the precompute path. Crucially it goes through `run()`
+(not a bare `calculate()`), so the warm stays inside the same rate-limit and
+concurrency wrappers (`_call_with_rate_limits`) as user traffic — the warmer
+must not pile unthrottled ClickHouse work on top of a saturated cluster. It
+also refreshes the (no-user) result-cache entry as a side effect, which is
+harmless; the user-facing replay warming is `cache_warming.py`'s job.
 
 Why this exists
 ---------------
@@ -52,7 +65,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
@@ -75,10 +88,21 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     WebStatsBreakdown.PAGE,
     WebStatsBreakdown.INITIAL_PAGE,
     WebStatsBreakdown.EXIT_PAGE,
-    WebStatsBreakdown.SCREEN_NAME,
+    # SCREEN_NAME is deliberately excluded. It reads `$screen_name`, a
+    # mobile-only ($screen) property that is empty for web teams, and there is
+    # no precompute family for it — warming it only ever ran a raw query that
+    # populated nothing. It stays available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-    WebStatsBreakdown.INITIAL_REFERRING_URL,
+    # INITIAL_REFERRING_URL is deliberately excluded. Unlike its domain
+    # sibling (which reads the aggregated `session.$entry_referring_domain`
+    # column), the full-URL breakdown reads the un-materialized event
+    # property `$session_entry_referrer` — there is no sessions-table column
+    # for the full referrer URL. On high-volume teams that JSONExtract scans
+    # the whole `properties` blob and OOMs the per-day insert, then falls
+    # back to a raw query that times out at 60s. The breakdown sees
+    # negligible real usage, so warming it is pure wasted compute. It stays
+    # available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
@@ -112,6 +136,13 @@ EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE = Counter(
     "web_analytics_eager_precompute_not_lazy_eligible_total",
     "Teams skipped by the eager warmer because they are not lazy-precompute eligible "
     "(the gate would route every tile through the raw path).",
+)
+EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
+    "web_analytics_eager_precompute_baseline_not_precomputed_total",
+    "Baseline queries that ran but did NOT resolve to a precompute read (fell through "
+    "to raw) — the precompute the warmer should keep fresh is stale, missing, or the "
+    "breakdown isn't precomputable. Labeled by query kind.",
+    ["query_kind"],
 )
 
 
@@ -171,6 +202,15 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # through to the raw stats query and the paths preagg table stays cold.
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
+        # EXIT_PAGE is served by the simple precompute, which bakes the cleaned-or-raw
+        # path into the stored breakdown value and the job hash (unlike PAGE/INITIAL_PAGE,
+        # whose paths precompute stores raw paths and cleans at read time). The End-paths
+        # tile sends `doPathCleaning=isPathCleaningEnabled` (true for teams with cleaning
+        # rules), so without this the warmer fills the raw variant while the dashboard
+        # reads the cleaned one and misses. True is a no-op for teams without cleaning
+        # rules (`apply_path_cleaning` returns the bare expression → identical hash).
+        if breakdown == WebStatsBreakdown.EXIT_PAGE:
+            query["doPathCleaning"] = True
         queries.append(query)
 
     warmed = 0
@@ -197,9 +237,33 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                 product=Product.WEB_ANALYTICS,
             )
             runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)
-            runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+            # Force-refresh via run() — see module docstring (recomputes every tick
+            # while staying inside run()'s rate-limit/concurrency wrappers).
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": EventSource.CACHE_WARMING},
+            )
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
+            # Self-check the warm actually did its job: the tile must resolve to a
+            # precompute read, not fall through to raw. `usedLazyPrecompute` is only
+            # True when the read passed the lazy executor's TTL freshness filter
+            # (`created_at + TTL >= now`, TTL = 15min today … 7d old), so True is a
+            # guarantee the precomputed value is well within the 2h threshold. A tile
+            # that comes back `not True` warmed nothing useful — surface it loudly so a
+            # stale/missing precompute or a non-precomputable breakdown can't hide.
+            if getattr(response, "usedLazyPrecompute", None) is not True:
+                EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
+                context.log.warning(
+                    f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
+                )
+                logger.warning(
+                    "eager_baseline_warming_tile_not_precomputed",
+                    team_id=team.pk,
+                    query=label,
+                    tile=idx,
+                    total=total,
+                )
             tile_ms = round((time.monotonic() - tile_started) * 1000)
             context.log.info(
                 f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "

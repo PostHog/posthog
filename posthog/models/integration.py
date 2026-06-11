@@ -15,6 +15,7 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 if TYPE_CHECKING:
     import aiohttp
     from anthropic import Anthropic
+    from slack_sdk.web.async_client import AsyncWebClient
     from stripe import StripeClient
 
 from django.conf import settings
@@ -35,7 +36,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
+
+from posthog.schema import SlackIntegrationScope
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -43,6 +45,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -270,24 +273,10 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
-POSTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:read",
-        "groups:read",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "channels:history",
-        "groups:history",
-        "links:read",
-        "links:write",
-        "reactions:read",
-        "reactions:write",
-        "team:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+# Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
+# StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
+# frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
+POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
 
 class OauthIntegration:
@@ -1145,7 +1134,11 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
+        # slack_sdk's async client imports aiohttp at module scope; this is a models module,
+        # so a top-level import would put aiohttp on the django.setup() path
+        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
     def granted_scopes(self) -> frozenset[str]:
@@ -1991,7 +1984,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
@@ -2012,7 +2005,13 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+            org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+            ses.create_email_domain(
+                domain,
+                mail_from_subdomain=mail_from_subdomain,
+                team_id=team_id,
+                org_team_ids=org_team_ids,
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:

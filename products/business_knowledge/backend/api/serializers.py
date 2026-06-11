@@ -331,6 +331,41 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         return attrs
 
 
+class KnowledgeDocumentWindowSerializer(serializers.Serializer):
+    """
+    One chunk in a drill-down window over a single knowledge document.
+
+    Output-only — the rows come from the `get_document_window` logic helper
+    (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+    read serializer rather than a `ModelSerializer`.
+    """
+
+    chunk_id = serializers.UUIDField(
+        read_only=True,
+        help_text="Stable identifier of this chunk. Same value used in search results.",
+    )
+    ordinal = serializers.IntegerField(
+        read_only=True,
+        help_text="Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window.",
+    )
+    content = serializers.CharField(
+        read_only=True,
+        help_text="The chunk's text content.",
+    )
+    heading_path = serializers.CharField(
+        read_only=True,
+        help_text="Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure.",
+    )
+    source_name = serializers.CharField(
+        read_only=True,
+        help_text="Human label of the knowledge source this chunk belongs to.",
+    )
+    document_title = serializers.CharField(
+        read_only=True,
+        help_text="Title of the document this chunk belongs to.",
+    )
+
+
 class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
     """
     Multipart upload payload for file sources. The file's content type is
