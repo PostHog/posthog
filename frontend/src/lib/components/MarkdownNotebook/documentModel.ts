@@ -1,4 +1,4 @@
-import { RestoreSelectionRequest } from './editorTypes'
+import { RestoreInlineSelectionRequest, RestoreSelectionRequest } from './editorTypes'
 import {
     COMMENT_COMPONENT_TAG,
     DIVIDER_COMPONENT_TAG,
@@ -8,6 +8,7 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
+import { getTextChanges, mapTextIndex } from './textChanges'
 import {
     NotebookBlockNode,
     NotebookComponentBlockNode,
@@ -366,6 +367,72 @@ export function makeEmptyNotebookTitle(idSeed: string): NotebookTextBlockNode {
 
 export function areNotebookDocumentsEqual(left: NotebookDocument, right: NotebookDocument): boolean {
     return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/**
+ * Re-map a captured caret through a document change (a remote merge or external value
+ * update), so the caret stays at the same place in the text instead of at the same
+ * numeric offset — when a collaborator inserts at the start of the line you're editing,
+ * your caret at the end must move with the text.
+ */
+export function mapRestoreSelectionThroughDocumentChange(
+    request: RestoreSelectionRequest | null,
+    previousDocument: NotebookDocument,
+    nextDocument: NotebookDocument
+): RestoreSelectionRequest | null {
+    if (!request || !('nodeId' in request)) {
+        return request
+    }
+
+    const previousNode = previousDocument.nodes.find((node) => node.id === request.nodeId)
+    const nextNode = nextDocument.nodes.find((node) => node.id === request.nodeId)
+    if (!previousNode || !nextNode) {
+        return request
+    }
+
+    const previousText = getEditableTextForSelectionRequest(previousNode, request)
+    const nextText = getEditableTextForSelectionRequest(nextNode, request)
+    if (previousText === null || nextText === null || previousText === nextText) {
+        return request
+    }
+
+    const changes = getTextChanges(previousText, nextText)
+    return {
+        ...request,
+        start: mapTextIndex(request.start, changes, 'right'),
+        end: mapTextIndex(request.end, changes, 'right'),
+    }
+}
+
+function getEditableTextForSelectionRequest(
+    node: NotebookBlockNode,
+    request: RestoreInlineSelectionRequest
+): string | null {
+    if (request.tableCell !== undefined) {
+        if (node.type !== 'table') {
+            return null
+        }
+        const cell = getTableCellAtPosition(node, request.tableCell)
+        return cell ? getInlineText(cell.children) : null
+    }
+
+    if (node.type === 'list') {
+        const item =
+            (request.listItemId !== undefined
+                ? node.items.find((candidate) => candidate.id === request.listItemId)
+                : undefined) ?? (request.listItemIndex !== undefined ? node.items[request.listItemIndex] : undefined)
+        return item ? getInlineText(item.children) : null
+    }
+
+    if (isTextBlockNode(node)) {
+        return getInlineText(node.children)
+    }
+
+    if (node.type === 'code') {
+        return node.text
+    }
+
+    return null
 }
 
 export function getHistoryRestoreSelection(document: NotebookDocument): RestoreSelectionRequest | null {

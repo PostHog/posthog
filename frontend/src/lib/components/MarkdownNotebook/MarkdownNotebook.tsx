@@ -55,6 +55,7 @@ import {
     isPromptComponentNode,
     isTextBlockNode,
     makeEmptyNotebookTitle,
+    mapRestoreSelectionThroughDocumentChange,
     readSystemClipboardText,
     rekeyNotebookNodes,
     serializeNotebookNodes,
@@ -397,7 +398,13 @@ export function MarkdownNotebook({
         documentRef.current = reconciledDocument
         setDocument(reconciledDocument)
         if (restoreSelectionRequest) {
-            restoreSelectionRef.current = restoreSelectionRequest
+            // Map the caret through the incoming change so it stays at the same place in
+            // the text, not at the same numeric offset.
+            restoreSelectionRef.current = mapRestoreSelectionThroughDocumentChange(
+                restoreSelectionRequest,
+                previousDocument,
+                reconciledDocument
+            )
         }
         setDebugMarkdown(value)
         // The base is intentionally left untouched: an external `value` change is a local-side
@@ -564,7 +571,14 @@ export function MarkdownNotebook({
             // reverting only this user's changes — never a collaborator's.
             rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
             if (restoreSelectionRequest) {
-                restoreSelectionRef.current = restoreSelectionRequest
+                // Map the caret through the merged-in remote changes so it stays at the same
+                // place in the text — a collaborator typing at the start of this line must
+                // push the caret along with the text, not leave it at a stale offset.
+                restoreSelectionRef.current = mapRestoreSelectionThroughDocumentChange(
+                    restoreSelectionRequest,
+                    previousDocument,
+                    reconciledDocument
+                )
             }
             commitDocument(reconciledDocument, { addToHistory: false })
 

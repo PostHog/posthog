@@ -1456,6 +1456,66 @@ Repeated block`),
         expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
     })
 
+    it('moves the caret with the text when a collaborator inserts before it', () => {
+        const onChange = jest.fn()
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nHello', onChange, remoteValue: '# Title\n\nHello' })
+        )
+        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
+        expect(paragraphBlock.textContent).toEqual('Hello')
+
+        // Caret at the end of the line while a collaborator types at the beginning.
+        placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '# Title\n\nHello',
+                onChange,
+                remoteValue: '# Title\n\nWell, Hello',
+            })
+        )
+
+        const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
+        expect(updatedBlock.textContent).toEqual('Well, Hello')
+
+        // The caret must still sit at the end of "Hello" — after the remote insertion,
+        // not at the stale numeric offset 5 (which would now be inside "Well,").
+        const range = window.getSelection()?.getRangeAt(0)
+        expect(range?.collapsed).toBe(true)
+        expect(range?.startContainer.textContent).toEqual('Well, Hello')
+        expect(range?.startOffset).toEqual('Well, Hello'.length)
+    })
+
+    it('keeps the caret in place when a collaborator inserts after it', () => {
+        const onChange = jest.fn()
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nHello', onChange, remoteValue: '# Title\n\nHello' })
+        )
+        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
+
+        // Caret at the start of the line while a collaborator appends to the end.
+        placeCaretInElement(paragraphBlock, 0)
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '# Title\n\nHello',
+                onChange,
+                remoteValue: '# Title\n\nHello world',
+            })
+        )
+
+        const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
+        expect(updatedBlock.textContent).toEqual('Hello world')
+
+        const range = window.getSelection()?.getRangeAt(0)
+        expect(range?.collapsed).toBe(true)
+        expect(range?.startOffset).toEqual(0)
+    })
+
     it('keeps undoing only local edits after a remote merge arrives', () => {
         const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
         const onChange = jest.fn()
