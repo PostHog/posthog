@@ -76,10 +76,13 @@ from products.web_analytics.dags.web_preaggregated_utils import check_for_concur
 logger = structlog.get_logger(__name__)
 
 
-# Single warming window: the trailing 28 days. The lazy precompute path
-# stores per-day buckets, so a 28-day warm naturally serves any user
-# request for a sub-window (today, last 7d, etc.) via the lazy CH cache.
-BASELINE_WINDOW_DAYS = 28
+# Single warming window: the trailing 31 days. The lazy precompute path stores
+# per-day buckets, so this warm serves any user request for a sub-window (today,
+# last 7d, last 30d, month-to-date, …) from the lazy CH cache. 31 rather than 28
+# so the common `-30d` preset (~6% of web-analytics traffic) and full
+# month-to-date land inside the window. Longer ranges (90d+, all, year-to-date)
+# stay lazy-on-read — pre-warming them across the audience isn't worth the cost.
+BASELINE_WINDOW_DAYS = 31
 
 
 # How many teams to warm concurrently. Each team's tiles still run sequentially
