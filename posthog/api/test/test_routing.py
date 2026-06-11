@@ -8,7 +8,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 
 from django.apps import apps
-from django.conf import settings
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -17,13 +16,14 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.permissions import APIScopePermission
 
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
@@ -181,13 +181,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         )
 
 
-@override_settings(
-    ROOT_URLCONF=__name__,
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
+@override_settings(ROOT_URLCONF=__name__)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     """Test that OAuth access tokens work through the routing layer with proper permissions"""
 
@@ -380,6 +374,16 @@ def _url_signature(router):
     return sorted((str(pattern.pattern), pattern.name) for pattern in router.urls)
 
 
+def _iter_router_viewset_actions(router):
+    for pattern in router.urls:
+        callback = getattr(pattern, "callback", None)
+        viewset_class = getattr(callback, "cls", None)
+        actions = getattr(callback, "actions", None)
+        if viewset_class is None or actions is None:
+            continue
+        yield pattern.name, viewset_class, set(actions.values())
+
+
 def test_product_route_discovery_is_order_independent():
     modules = _discover_product_route_modules()
     assert modules, "expected to discover product route modules"
@@ -405,6 +409,62 @@ def test_every_discovered_routes_module_is_callable():
     modules = _discover_product_route_modules()
     missing = [m.__name__ for m in modules if not callable(getattr(m, "register_routes", None))]
     assert not missing, f"routes modules without a register_routes callable: {missing}"
+
+
+def test_project_secret_api_key_authentication_routes_include_api_scope_permission():
+    from posthog.api import router
+
+    _assert_project_secret_api_key_routes_include_api_scope_permission(router)
+
+
+def _assert_project_secret_api_key_routes_include_api_scope_permission(router):
+    missing = []
+    authenticator = ProjectSecretAPIKeyAuthentication()
+    for route_name, viewset_class, actions in _iter_router_viewset_actions(router):
+        if ProjectSecretAPIKeyAuthentication not in viewset_class.authentication_classes:
+            continue
+
+        for action_name in actions:
+            view = viewset_class()
+            view.action = action_name
+            view.request = type("Request", (), {"successful_authenticator": authenticator})()
+            view.kwargs = {}
+            permissions = view.get_permissions()
+            if not any(isinstance(permission, APIScopePermission) for permission in permissions):
+                missing.append(f"{route_name}:{viewset_class.__name__}.{action_name}")
+
+    assert not missing, (
+        "ProjectSecretAPIKeyAuthentication routes must include APIScopePermission from get_permissions(): "
+        + ", ".join(sorted(missing))
+    )
+
+
+def test_project_secret_api_key_route_contract_fails_without_api_scope_permission():
+    class MisconfiguredPSAKViewSet(viewsets.GenericViewSet):
+        authentication_classes = [ProjectSecretAPIKeyAuthentication]
+
+        def list(self, request):
+            return Response({})
+
+    router = DefaultRouterPlusPlus()
+    router.register(r"misconfigured-psak", MisconfiguredPSAKViewSet, "misconfigured_psak")
+
+    with pytest.raises(AssertionError, match="misconfigured_psak-list:MisconfiguredPSAKViewSet.list"):
+        _assert_project_secret_api_key_routes_include_api_scope_permission(router)
+
+
+def test_project_secret_api_key_route_contract_passes_with_team_and_org_mixin():
+    class ConfiguredPSAKViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+        authentication_classes = [ProjectSecretAPIKeyAuthentication]
+        scope_object = "endpoint"
+
+        def list(self, request):
+            return Response({})
+
+    router = DefaultRouterPlusPlus()
+    router.register(r"configured-psak", ConfiguredPSAKViewSet, "configured_psak")
+
+    _assert_project_secret_api_key_routes_include_api_scope_permission(router)
 
 
 def test_router_registry_add_rejects_products_caller():
