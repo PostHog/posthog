@@ -69,6 +69,7 @@ class TestElasticsearchSource:
     def test_secret_subfields_are_marked_secret(self):
         config = self.source.get_source_config
         auth_field = next(f for f in config.fields if f.name == "auth_method")
+        assert isinstance(auth_field, SourceFieldSelectConfig)
         subfields = [f for option in auth_field.options for f in (option.fields or [])]
         secret_names = {f.name for f in subfields if isinstance(f, SourceFieldInputConfig) and f.secret}
         assert secret_names == {"password", "api_key"}

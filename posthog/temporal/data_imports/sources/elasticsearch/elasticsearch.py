@@ -49,7 +49,7 @@ def hostname_of(host: str) -> str:
 
 def _get_session(auth: ElasticsearchAuth) -> requests.Session:
     secrets = tuple(value for value in (auth.password, auth.api_key) if value)
-    session = make_tracked_session(redact_values=secrets)
+    session = make_tracked_session(redact_values=secrets, allow_redirects=False)
     if auth.api_key:
         session.headers["Authorization"] = f"ApiKey {auth.api_key}"
     elif auth.username is not None:
@@ -120,7 +120,7 @@ def get_rows(
     try:
         while True:
             hits = ((data.get("hits") or {}).get("hits")) or []
-            items = [{**(hit.get("_source") or {}), "_id": hit.get("_id")} for hit in hits]
+            items = [{**(hit.get("_source") or {}), "_id": hit["_id"]} for hit in hits]
 
             if items:
                 yield items
