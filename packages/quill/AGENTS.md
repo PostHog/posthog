@@ -129,6 +129,7 @@ ButtonGroup
 4. Define variants with CVA if the component has visual variants
 5. Accept `className` prop and merge with `cn()`
 6. Export from the component file (barrel export is in `index.ts`)
+7. Update the consumer guide in the same PR — `packages/primitives/AGENTS.md` (catalog row, "Choosing a component" cluster, composition pattern). Same rule applies to `packages/components/AGENTS.md` and `packages/charts/AGENTS.md` for their packages. A lint-staged warning fires if quill sources change without an AGENTS.md update
 
 ### Styling rules
 

@@ -43,20 +43,100 @@ Base UI automatically merges event handlers, aria attributes, and `data-*` state
 
 ---
 
+## Choosing a component
+
+Pick by intent, not appearance. Each cluster below lists the discriminating question first.
+
+### Menus and pickers
+
+**Is the user performing an action, or choosing a value?** Actions → menu family. Values → picker family.
+
+| Component    | Use when                                                                                                  | Not for                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| DropdownMenu | Click-triggered list of actions (edit, duplicate, delete, export). Checkbox/radio items for view options. | Choosing a form value — use Select/Combobox |
+| ContextMenu  | Same as DropdownMenu but right-click triggered, no visible trigger                                        | Primary navigation (undiscoverable)         |
+| Menubar      | Persistent horizontal bar of dropdown menus (scene menu bars, File/Edit/View)                             | A single one-off menu — use DropdownMenu    |
+| Select       | Pick one value from a short, static list (< ~15 options), no search needed                                | Long or async lists — use Combobox          |
+| Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
+| Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
+| Command      | Keyboard-first command palette (cmdk), usually in a CommandDialog                                         | Inline form fields                          |
+
+For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows.
+
+### Disclosure
+
+**One section or a coordinated set? Hiding content or switching between views?**
+
+| Component   | Use when                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| Accordion   | A coordinated set of sections (`type="single" collapsible` or `type="multiple"`) — FAQs, grouped settings          |
+| Collapsible | One standalone disclosure — "show more", advanced options, tree nodes (`variant="folder"`)                         |
+| Tabs        | Exactly one of N views visible at all times; content never fully hidden — `variant="line"` for page-level sections |
+
+### Overlays
+
+**Does it block the page? Does it contain interactive content? Is it anchored to a trigger?**
+
+| Component | Use when                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------- |
+| Dialog    | Modal, blocking flow — confirmations, focused forms. `size="wide"`/`"full"` for big content |
+| Drawer    | Mobile-first slide-up sheet; touch contexts                                                 |
+| Popover   | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)          |
+| Tooltip   | Hover-only text hint; never interactive content, never essential information                |
+| Toast     | Async outcome notification (`toast.success(...)`) — fire and forget                         |
+
+### Status and labels
+
+| Component | Use when                                                              |
+| --------- | --------------------------------------------------------------------- |
+| Badge     | Semantic status text — variants info/warning/success/destructive      |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state   |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                   |
+
+### Form controls
+
+| Component   | Use when                                                                          |
+| ----------- | --------------------------------------------------------------------------------- |
+| Checkbox    | Independent on/off choices submitted with a form                                  |
+| Switch      | Setting that takes effect immediately (no submit)                                 |
+| RadioGroup  | One-of-few where all options should be visible (≤ ~5)                             |
+| Select      | One-of-many where options can hide behind a trigger                               |
+| Toggle      | Pressed/unpressed tool state (e.g. bold); ToggleGroup for exclusive or multi sets |
+| NumberField | Numeric input with increment/decrement; Slider when the range matters visually    |
+
+Always wrap form controls in `Field` (see Composition Patterns below).
+
+### Text
+
+| Component | Use when                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------- |
+| Heading   | Section/page titles — sizes 2xl/xl/lg/base/sm, semantic level via `render={<h1 />}` decoupled from size |
+| Text      | Body copy — sizes lg/base/sm/xs/xxs, variants default/muted/destructive, weights normal/medium/semibold |
+| Label     | `<label>` bound to a control; inside forms prefer FieldLabel                                            |
+
+Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size="xs" variant="muted">` exists.
+
+### Lists and containers
+
+**Card vs Item** — see the dedicated section below. Third option: **Table** when data is columnar and comparable across rows (sorting, sticky columns); **ItemGroup** when rows are entities with a title/description/actions shape; **Card** when each entry is a rich standalone tile.
+
+---
+
 ## Component Catalog
 
-| Component    | Variants                                               | Sizes                                                | Notes                            |
-| ------------ | ------------------------------------------------------ | ---------------------------------------------------- | -------------------------------- |
-| Button       | default, outline, ghost, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg |                                  |
-| Badge        | default, info, destructive, warning, success           | —                                                    | Semantic status                  |
-| Toggle       | default, outline                                       | default, sm, lg, icon                                |                                  |
-| Chip         | outline                                                | sm                                                   | Use with ChipClose               |
-| Separator    | —                                                      | —                                                    | orientation: horizontal/vertical |
-| Spinner      | —                                                      | —                                                    | SVG, accepts svg props           |
-| Skeleton     | —                                                      | —                                                    | Pulsing placeholder div          |
-| SkeletonText | —                                                      | —                                                    | lines, minWidth, maxWidth        |
-| Progress     | —                                                      | —                                                    | value: 0-100                     |
-| Slider       | —                                                      | —                                                    | value, min, max                  |
+| Component    | Variants                                                 | Sizes                                                | Notes                            |
+| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | -------------------------------- |
+| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg |                                  |
+| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                  |
+| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                  |
+| Chip         | outline                                                  | sm                                                   | Use with ChipClose               |
+| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical |
+| Spinner      | —                                                        | —                                                    | SVG, accepts svg props           |
+| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div          |
+| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth        |
+| Progress     | —                                                        | —                                                    | value: 0-100                     |
+| Slider       | —                                                        | —                                                    | value, min, max                  |
 
 ---
 
@@ -675,13 +755,55 @@ Note: pressing `d` also toggles theme (skipped when focus is in input fields).
 
 ---
 
+## Spacing and layout
+
+Quill spacing uses a 4px base (`gap-1` = 4px, `gap-2` = 8px, `gap-4` = 16px). These rules are the conventions the stories actually follow:
+
+### Between siblings — use gap, never margins
+
+- `gap-2` — the default between related sibling controls, in rows and stacks: button rows, checkbox + label, icon + text. When unsure, use `gap-2`.
+- `gap-1` — tight pairs only: a label and its inline meta/hint.
+- `gap-4` — between sections: stacked form fields (FieldGroup's built-in default), dialog body sections, page regions.
+- `gap-px` — packed menu-like lists on a `bg-muted` surface (1px visual seams).
+- `gap-0` / `<ItemGroup combined>` / `<CardGroup>` — merged lists and stacked cards with shared borders.
+
+Don't space siblings with `mt-*`/`mb-*` — put `flex flex-col gap-*` (or `flex gap-*`) on the parent.
+
+### Don't re-pad primitive internals
+
+Primitives carry their own padding and heights. Adding `p-*`/`h-*` via `className` on top of them fights the system:
+
+| Primitive                          | Built-in                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| Button                             | h-7 px-2 (default), h-6 (sm), h-5 (xs), h-8 (lg); gap-2 icon spacing                  |
+| Input                              | h-8, px-2                                                                             |
+| Card / CardHeader / CardContent    | 1rem block + inline padding, gap-4 between sections (0.75rem / gap-3 for `size="sm"`) |
+| Menu popups (Dropdown/Context/...) | p-1 scroller; items pad themselves                                                    |
+| Item                               | py-2.5 px-3 (default/sm), py-2 px-2.5 (xs)                                            |
+| Field / FieldGroup                 | gap-y-1 within a field, gap-4 between fields                                          |
+
+Sanctioned escape hatches (the only padding overrides the stories use):
+
+- `p-0` on `DialogContent` when an inner component (e.g. a Combobox list) should consume the full dialog.
+- `p-0` on `Item size="xs"` in dense nested contexts (inside table cells, combobox rows).
+- `ml-auto` to push an element to the end of a flex row (alignment, not spacing).
+
+### Width and containers
+
+- Constrain single-column forms and lists: `w-full max-w-sm` is the standard.
+- Fixed sidebars/navs: explicit width (`w-[200px]`-ish), content area `flex-1`.
+- `flex flex-col` is the default layout; reach for `grid` only for genuinely two-dimensional layouts.
+- Tailwind utilities only — no inline styles; semantic tokens (`bg-muted`, `text-muted-foreground`) — never raw colors.
+
+---
+
 ## Rules
 
 1. **Use Field for forms** — don't compose raw Label + Input, use Field > FieldLabel + Input + FieldDescription/FieldError
 2. **Wrap app with providers** — ThemeProvider at root, TooltipProvider if using tooltips, Toaster if using toasts
 3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
-5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions, default is `"ghost"`
+5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
 6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
 7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
-8. **Quill spacing uses 4px base** — spacing-1 = 4px, spacing-2 = 8px, spacing-3 = 12px, spacing-4 = 16px
+8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
