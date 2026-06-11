@@ -27,6 +27,7 @@ from products.alerts.backend.evaluation.contract import (
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
+    execution_mode_for_alert,
     lookback_intervals_for,
     zero_sentinel_series,
 )
@@ -66,11 +67,7 @@ class TrendsExtractor:
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 
-        # Hourly insights and every-15-minutes alerts both move faster than the recent-results
-        # cache can track (its key uses relative times), so recompute fresh in both cases.
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        if query.interval == IntervalType.HOUR or alert.is_high_frequency_interval:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        execution_mode = execution_mode_for_alert(query.interval, high_frequency=alert.is_high_frequency_interval)
 
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:

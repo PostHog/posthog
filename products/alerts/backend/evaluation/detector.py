@@ -3,9 +3,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
+from posthog.schema import NodeKind, TrendsAlertConfig, TrendsQuery
 
-from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -23,7 +22,12 @@ from posthog.tasks.alerts.trends import TrendResult, _has_breakdown, _is_non_tim
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
-from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.evaluation.contract import (
+    ComparableSeries,
+    ExtractionResult,
+    SeriesPoint,
+    execution_mode_for_alert,
+)
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -62,11 +66,8 @@ def extract_detector_series(
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
 
-    # Hourly insights and every-15-minutes alerts both move faster than the recent-results cache
-    # can track (its key uses relative times), so recompute fresh. Simulation passes high_frequency=False.
-    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    if query.interval == IntervalType.HOUR or high_frequency:
-        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+    # Simulation passes high_frequency=False (read-only render, not cadence-bound).
+    execution_mode = execution_mode_for_alert(query.interval, high_frequency=high_frequency)
 
     calculation_result = calculate_for_query_based_insight(
         insight, team=team, execution_mode=execution_mode, user=None, filters_override=filters_override

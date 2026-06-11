@@ -3,6 +3,8 @@ from typing import Protocol
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
+from posthog.api.services.query import ExecutionMode
+
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -78,6 +80,18 @@ def lookback_intervals_for(condition: AlertCondition) -> int:
             return 3
         case _:
             raise AlertExtractionError(f"Unsupported alert condition type: {condition.type}")
+
+
+def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: bool) -> ExecutionMode:
+    """Pick the query execution mode for an alert check, shared by every extractor.
+
+    Skip the recent-results cache and recompute synchronously when the data moves faster than the
+    cache key can track: hourly-bucketed insights (the key uses relative times like ``-2h``) or an
+    every-15-minutes alert cadence. Otherwise reuse a recent cached result, recomputing only if stale.
+    """
+    if interval == IntervalType.HOUR or high_frequency:
+        return ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+    return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 class Extractor(Protocol):

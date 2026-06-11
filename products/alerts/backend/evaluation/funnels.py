@@ -9,7 +9,6 @@ from posthog.schema import (
     FunnelVizType,
 )
 
-from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
@@ -18,6 +17,7 @@ from products.alerts.backend.evaluation.contract import (
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
+    execution_mode_for_alert,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -54,7 +54,8 @@ class FunnelsExtractor:
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            # Funnel steps are a single snapshot (no hourly axis); only the alert cadence forces fresh.
+            execution_mode=execution_mode_for_alert(None, high_frequency=alert.is_high_frequency_interval),
             user=None,
             analytics_props={"source": EventSource.ALERT},
         )
