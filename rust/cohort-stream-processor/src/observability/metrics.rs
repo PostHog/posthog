@@ -107,7 +107,8 @@ pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_tot
 /// (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 /// Events skipped whole, labelled by `reason` (counter). `store_error` is also counted in
-/// `store_errors_total`; counting it here keeps `consumed == processed + Σskipped` exact.
+/// `store_errors_total`; counting it here keeps `consumed == processed + Σskipped + re_keyed`
+/// exact (the `re_keyed` leg is ack-lagged — see [`MERGE_TOMBSTONE_REDIRECTS_TOTAL`]).
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
@@ -138,12 +139,44 @@ pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_t
 /// [`COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED`]). Conservation chain:
 /// `consumed == dispatched + not_owned_skipped` and `dispatched == processed + Σskipped + route_errors`.
 pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
-/// Events dropped in `dispatch` because this consumer no longer owns their partition (counter): a
-/// revoke that raced an already-`recv()`'d in-flight batch. The event is never routed and never
-/// marked processed, so Kafka replays it on the partition's true owner. Closes the consumer half of
-/// the conservation chain: `consumed == dispatched + not_owned_skipped`.
+/// Events dropped in `dispatch` because this consumer no longer owns their partition (a revoke that
+/// raced an already-`recv()`'d in-flight batch) or because shutdown's draining gate had already
+/// flipped (counter). The event is never routed and never marked processed, so Kafka replays it on
+/// the partition's true owner. Closes the consumer half of the conservation chain:
+/// `consumed == dispatched + not_owned_skipped`.
 pub const COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_events_skipped_not_owned_total";
+/// `KAFKA_PERSON_MERGE_EVENTS` messages dropped at `dispatch_merges`' owned/draining gate
+/// (counter): never routed, never ceiling-bumped, replayed by Kafka on the partition's true owner —
+/// the merge counterpart of [`COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED`].
+pub const COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_merges_skipped_not_owned_total";
+/// `KAFKA_PERSON_MERGE_EVENTS` envelopes consumed and successfully decoded (counter); the merge
+/// counterpart of [`COHORT_STREAM_EVENTS_CONSUMED`].
+pub const COHORT_STREAM_MERGES_CONSUMED: &str = "cohort_stream_merges_consumed_total";
+/// `cohort_merge_state_transfer` envelopes consumed and successfully decoded (counter).
+pub const COHORT_STREAM_TRANSFERS_CONSUMED: &str = "cohort_stream_transfers_consumed_total";
+/// `KAFKA_PERSON_MERGE_EVENTS` payloads that were empty or failed to decode (counter). The message
+/// is skipped and later marks advance past it — a malformed merge is not recoverable by replay.
+pub const COHORT_STREAM_MERGE_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_merge_deserialize_errors_total";
+/// `cohort_merge_state_transfer` payloads that were empty or failed to decode (counter); same
+/// skip semantics as [`COHORT_STREAM_MERGE_DESERIALIZE_ERRORS`].
+pub const COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_transfer_deserialize_errors_total";
+/// `cohort_merge_state_transfer` messages dropped at `dispatch_transfers`' owned/draining gate
+/// (counter); same replay semantics as [`COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED`].
+pub const COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_transfers_skipped_not_owned_total";
+/// Decoded `KAFKA_PERSON_MERGE_EVENTS` envelopes accumulated per consume → dispatch cycle
+/// (histogram); the merge counterpart of [`COHORT_STREAM_CONSUME_BATCH_SIZE`]. A separate constant
+/// per topic, not a label (D12) — batch sizes from different topics in one histogram would be
+/// meaningless.
+pub const COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE: &str = "cohort_stream_merges_consume_batch_size";
+/// Decoded `cohort_merge_state_transfer` envelopes accumulated per consume → dispatch cycle
+/// (histogram); see [`COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE`].
+pub const COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE: &str =
+    "cohort_stream_transfers_consume_batch_size";
 /// A worker tried to mark an offset past what the dispatcher routed to it, so the
 /// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it (counter). A non-zero rate should
 /// page.
@@ -197,7 +230,8 @@ pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
 // ── Cross-partition merge protocol (TDD §4.5.1 / §8.1) ───────────────────────────
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter). Expect
-/// ~1.6% / ~98.4% in steady state. **Dormant in C1** — nothing routes merge events until C2.
+/// ~1.6% / ~98.4% in steady state. **Dormant in production until C3** ships the Node merge
+/// producer — the C2 plumbing is live but nothing produces to `person_merge_events` yet.
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter) — non-zero is normal
 /// under replay/restart.
@@ -205,13 +239,52 @@ pub const MERGE_DRAINS_SKIPPED_REPLAY_TOTAL: &str = "merge_drains_skipped_replay
 /// Transfer messages short-circuited by a `cf_merge_applied` hit (counter) — same as above.
 pub const MERGE_APPLIES_SKIPPED_REPLAY_TOTAL: &str = "merge_applies_skipped_replay_total";
 /// Late events for merged persons that triggered a tombstone redirect, labelled by `path`
-/// (`inline`|`re_keyed`|`cross_partition`) (counter). Closes S6a.
+/// (`inline`|`re_keyed`) (counter). Closes S6a. `inline` counts at resolve time; `re_keyed` counts
+/// only after the re-produce ack (a failed produce holds the events offset, and the redelivery
+/// re-resolves — resolve-time counting would count every retry). A hop-capped redirect is counted
+/// only under [`MERGE_REDIRECT_HOP_CAPPED_TOTAL`], never under `{inline|re_keyed}`.
 pub const MERGE_TOMBSTONE_REDIRECTS_TOTAL: &str = "merge_tombstone_redirects_total";
+/// Straggler re-key produces to `cohort_stream_events` that failed (counter). The worker holds the
+/// events offset so Kafka replays the straggler; unlike the membership produce's hold, this one IS
+/// self-healing — the re-key path writes no state, so the redelivery re-resolves the tombstone and
+/// re-produces, and a duplicate copy is absorbed by the target's `redirect_dedup[origin]`.
+pub const MERGE_REKEY_PRODUCE_FAILURE_TOTAL: &str = "merge_rekey_produce_failure_total";
+/// Cross-partition redirects that hit the `redirect_hops` cap and were processed inline at the
+/// best-known target instead of re-produced (counter, D13). Non-zero means a corrupt cross-partition
+/// tombstone cycle — investigate `cf_merge_tombstones` for the persons in the paired `warn!`.
+pub const MERGE_REDIRECT_HOP_CAPPED_TOTAL: &str = "merge_redirect_hop_capped_total";
 /// Per-leaf merge work dropped, labelled by `reason` (counter): a variant desync between the two
 /// sides (`variant_mismatch`), an LSK no longer in the catalog (`leaf_drift`), or a stale
 /// `cf_person_index` entry with no backing state (`stale_index`). A defensive guard, near-zero in
 /// steady state.
 pub const MERGE_LEAVES_DROPPED_TOTAL: &str = "merge_leaves_dropped_total";
+/// Transfer produces that exhausted the inline retry budget (counter). The packaged state stays in
+/// `cf_pending_transfers` and the merge offset is not committed (D3); the periodic redrive closes
+/// the within-tenure gap. **Label-free on purpose**: the TDD specifies a `team_id` label, but repo
+/// precedent keeps unbounded ids out of metric labels (cf. [`FILTER_CATALOG_TZ_FALLBACK`]) — the
+/// ids go to the `warn!` instead (D12).
+pub const MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL: &str = "merge_transfer_produce_failure_total";
+/// `cf_pending_transfers` clears that failed *after* the transfer produce was acked (counter). The
+/// merge offset still commits (D7): the transfer is durable on the topic, and the leftover outbox
+/// entry only re-produces a duplicate the apply side's source-coords dedup absorbs.
+pub const MERGE_OUTBOX_CLEAR_FAILURE_TOTAL: &str = "merge_outbox_clear_failure_total";
+/// Cross-partition drains whose packaged transfer carried no leaves, so nothing was produced or
+/// staged (counter, D10). Expected to spike on a first-ever assignment, when days of merge history
+/// replay against a wiped store and every drain finds no state.
+pub const MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL: &str = "merge_transfers_skipped_empty_total";
+/// Entries currently staged in a partition's `cf_pending_transfers` outbox, labelled by `partition`
+/// (gauge; set by the periodic redrive scan, zeroed by the revoke drain — the scan stops covering a
+/// revoked partition, so a stale last value would read forever as stranded transfers on entries the
+/// revoke's `delete_partition` already wiped). A sustained non-zero level means the transfer topic
+/// keeps refusing produces. Neither write is test-pinned: unit tests install no metrics recorder,
+/// so the gauge value is unobservable there (the scan/clear sequences it summarizes are pinned).
+pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
+/// Latency of one merge drain (`handle_merge_event`) on P_old's worker (histogram, seconds; the
+/// TDD's millisecond spec is normalized to the crate's seconds convention, D12).
+pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
+/// Latency of one transfer apply (`handle_transfer`) on P_new's worker (histogram, seconds; same
+/// seconds normalization as [`MERGE_DRAIN_DURATION_SECONDS`]).
+pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
 
 /// Keys the sweep popped from the queue but did **not** evict, labelled by `reason` (counter). The
 /// conservation counterpart to [`SWEEP_KEYS_EVICTED_TOTAL`]: both are counted only once the tick

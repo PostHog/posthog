@@ -35,14 +35,24 @@ pub enum ApplyOutcome {
     AlreadyApplied,
 }
 
-/// Apply `transfer` on P_new's worker (`partition_id` owns P_new). `transfer_coords` is the transfer
-/// message's own Kafka `(partition, offset)`, keying `cf_merge_applied` for replay idempotence.
+/// Apply `transfer` on P_new's worker (`partition_id` owns P_new).
+///
+/// Replay idempotence keys `cf_merge_applied` by the *source merge message's* coordinates
+/// (`transfer.source_partition`/`source_offset`): every copy of one merge's transfer carries the
+/// same source pair, while the designed duplication paths (outbox redrive racing the inline retry,
+/// an `AlreadyDrained` re-produce, a crash between the produce ack and the outbox clear) each
+/// re-produce at fresh transfer-topic coordinates — keying by those would let the second copy past
+/// the guard and double-count the daily/compressed bucket merge.
+///
+/// `_transfer_coords` is the transfer message's own Kafka `(partition, offset)`. The handler never
+/// consults it — it rides along for the caller, which marks the transfer-topic offset once the
+/// apply `WriteBatch` has committed.
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     transfer: &MergeStateTransfer,
-    transfer_coords: (i32, i64),
+    _transfer_coords: (i32, i64),
     queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_u64 = transfer.team_id as u64;
@@ -53,8 +63,8 @@ pub fn handle_transfer(
         partition_id,
         team_id: team_u64,
         new_person,
-        transfer_partition: transfer_coords.0,
-        transfer_offset: transfer_coords.1,
+        source_partition: transfer.source_partition,
+        source_offset: transfer.source_offset,
     };
     if store.get_merge_applied(&applied_key)?.is_some() {
         counter!(MERGE_APPLIES_SKIPPED_REPLAY_TOTAL).increment(1);

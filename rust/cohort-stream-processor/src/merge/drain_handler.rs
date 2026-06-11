@@ -45,7 +45,9 @@ pub enum DrainOutcome {
     FastPath { transitions: Vec<LeafTransition> },
     /// Cross-partition slow path: P_old's state was drained into `transfer`, staged in
     /// `cf_pending_transfers`. The caller produces it to `cohort_merge_state_transfer`, clears the
-    /// outbox, then commits the merge offset (acceptance #2).
+    /// outbox, then commits the merge offset (acceptance #2). A transfer with **no leaves** was not
+    /// staged (D10 — staging it could overwrite a still-pending prior transfer on a duplicate merge
+    /// event); the caller skips the produce and commits directly.
     Drained { transfer: MergeStateTransfer },
     /// A `cf_merge_drains_applied` hit — this merge message was already drained (acceptance #3 / #6).
     /// The caller re-produces any still-staged `cf_pending_transfers` entry, then commits.
@@ -290,11 +292,16 @@ fn slow_path(
             .map(|(lsk, record)| TransferLeaf::new(*lsk, record.clone()))
             .collect(),
     };
-    let pending = PendingTransfer {
+    // An empty transfer is never staged (D10): it ferries nothing, and — load-bearing — a duplicate
+    // upstream merge event at fresh coordinates misses the per-message drain marker, re-drains the
+    // by-then-empty P_old, and an unconditional put here would overwrite a still-pending,
+    // never-produced transfer with an empty payload, losing the packaged state. The caller skips
+    // the produce for it symmetrically.
+    let pending = (!transfer.leaves.is_empty()).then(|| PendingTransfer {
         transfer: transfer.clone(),
         merge_msg_partition: msg_coords.0,
         merge_msg_offset: msg_coords.1,
-    };
+    });
     let pending_key = PendingTransferKey {
         partition_id,
         team_id: team_u64,
@@ -304,7 +311,9 @@ fn slow_path(
     store.write_batch(|batch| {
         // Stage the outbox + drain marker, then delete P_old's state and write the tombstone — one
         // atomic batch, so a crash leaves either the full drain or none of it.
-        batch.put_pending_transfer(&pending_key, &pending.encode());
+        if let Some(pending) = &pending {
+            batch.put_pending_transfer(&pending_key, &pending.encode());
+        }
         batch.put_merge_drain_applied(drain_key, &drain_stamp.encode());
         for key in old_keys {
             batch.delete_stage1(key);

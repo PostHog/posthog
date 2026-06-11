@@ -7,15 +7,18 @@
 //!
 //! ## Produce before commit
 //!
-//! Per drained sub-batch the worker produces membership changes, awaits all acks, and only then
-//! marks the sub-batch's offset processed. The per-partition offset is tracked over **all**
-//! messages — including skipped/errored ones — so a poison event advances rather than wedges the
-//! partition; **only a produce failure holds the offset back**, since the shadow output should be
-//! durable before its offset commits. Holding the offset is best-effort, not self-healing: the
-//! state already committed during `process_event`, so the replay hits the `is_replay` guard and
-//! skips the transition — a produce-failed flip is dropped at-most-once, the same envelope as a
-//! crash here. Acceptable while shadow-only; the at-least-once cutover must commit state *after*
-//! the produce ack so a replay can re-emit.
+//! Per drained sub-batch the worker produces membership changes **and straggler re-keys**, awaits
+//! all acks, and only then marks the sub-batch's offset processed. The per-partition offset is
+//! tracked over **all** messages — including skipped/errored ones — so a poison event advances
+//! rather than wedges the partition; **only a produce failure holds the offset back**, since both
+//! outputs should be durable before their offset commits. For membership changes the hold is
+//! best-effort, not self-healing: the state already committed during `process_event`, so the
+//! replay hits the `is_replay` guard and skips the transition — a produce-failed flip is dropped
+//! at-most-once, the same envelope as a crash here. Acceptable while shadow-only; the
+//! at-least-once cutover must commit state *after* the produce ack so a replay can re-emit. The
+//! re-key hold IS self-healing: the `ReKey` path writes no state, so the redelivered straggler
+//! re-resolves the tombstone and re-produces, and a duplicate copy still carries its original
+//! source coords, which the target's `redirect_dedup[origin]` absorbs (at-least-once).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -34,10 +37,10 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
-    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_MEMBERSHIP_CHANGES_EMITTED,
-    OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED,
-    STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
-    SWEEP_KEYS_EVICTED_TOTAL,
+    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
+    MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
+    STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
+    STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -51,6 +54,7 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::{process_event, SkipReason};
+use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
 
@@ -62,9 +66,11 @@ pub struct Stage1Worker {
 }
 
 impl Stage1Worker {
-    /// Spawn a worker draining `receiver` for `partition_id`. `store`, `catalog`, `sink`, and
-    /// `tracker` are shared `Arc` handles; in particular the `tracker` is the one the consumer's
-    /// commit loop reads.
+    /// Spawn a worker draining `receiver` for `partition_id`. `store`, `catalog`, `sink`,
+    /// `tracker`, and `merge` are shared `Arc` handles; in particular `tracker` is the one the
+    /// events consumer's commit loop reads, and `merge` bundles the merge-protocol sinks and the
+    /// two follower-topic trackers (D7).
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
         receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
@@ -72,6 +78,7 @@ impl Stage1Worker {
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
+        merge: Arc<MergeWorkerDeps>,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -80,6 +87,7 @@ impl Stage1Worker {
             catalog,
             sink,
             tracker,
+            merge,
         ));
         Self {
             partition_id,
@@ -111,6 +119,7 @@ async fn run_worker(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
+    merge: Arc<MergeWorkerDeps>,
 ) {
     info!(partition_id, "stage 1 worker started");
 
@@ -120,6 +129,7 @@ async fn run_worker(
         // One `last_updated` for the whole sub-batch: the parity diff is insensitive to sub-ms skew.
         let last_updated = now_last_updated();
         let mut buffer = OutputBuffer::new();
+        let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
 
         for message in batch {
@@ -129,15 +139,16 @@ async fn run_worker(
                     // the partition. Only a produce failure (below) holds the offset back.
                     max_offset =
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
-                    let (changes, schedules) =
+                    let effects =
                         handle_event(partition_id, &store, &catalog, &event, &last_updated);
-                    buffer.extend(changes);
+                    buffer.extend(effects.changes);
                     // Eager + idempotent: every behavioral write (re)schedules its eviction, in or
                     // out of a transition. A reschedule supersedes, so an earlier-pulled deadline
                     // wins. Not gated on produce — scheduling is in-memory and replay-safe.
-                    for (key, deadline) in schedules {
+                    for (key, deadline) in effects.schedules {
                         queue.schedule(key, deadline);
                     }
+                    re_keys.extend(effects.re_keys);
                 }
                 // The sweep is self-contained: produces and writes its own results, carries no Kafka offset.
                 ShuffleMessage::Sweep { due_before_ms } => {
@@ -151,6 +162,44 @@ async fn run_worker(
                         due_before_ms,
                     )
                     .await;
+                }
+                // Merge-protocol messages are self-contained like the sweep: each produces its own
+                // output and marks its own follower-topic tracker, never the events `max_offset` (D7).
+                ShuffleMessage::Merge { event, offset } => {
+                    handle_merge(
+                        partition_id,
+                        &store,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &event,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Transfer { transfer, offset } => {
+                    handle_apply(
+                        partition_id,
+                        &store,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &transfer,
+                        offset,
+                    )
+                    .await;
+                }
+                // The outbox redrive rides the worker channel for the same single-mutator
+                // serialization the sweep relies on: the worker is the only one touching its
+                // partition's outbox slice mid-tenure, so the scan can never race a drain staging
+                // or clearing an entry. Self-contained like the sweep — it produces and marks its
+                // own tracker, never the events `max_offset`.
+                ShuffleMessage::RedrivePendingTransfers => {
+                    handle_redrive(partition_id, &store, &merge).await;
                 }
             }
         }
@@ -182,6 +231,29 @@ async fn run_worker(
             }
         }
 
+        // Re-produce cross-partition stragglers to `cohort_stream_events`, keyed to their rewritten
+        // target (D1), gating the events offset on the ack exactly like the membership produce
+        // above. Unlike that hold, this one IS self-healing: the `ReKey` path wrote no state, so
+        // the redelivered straggler re-resolves the tombstone and re-produces — and a duplicate
+        // already-produced copy still carries its original source coords, which the target's
+        // `redirect_dedup[origin]` absorbs (TDD §4.5.1, at-least-once).
+        if !re_keys.is_empty() {
+            let produced = re_keys.len() as u64;
+            let acks = merge.stream_event_sink.produce(re_keys).await;
+            let errors = acks.iter().filter(|result| result.is_err()).count();
+            if errors > 0 {
+                counter!(MERGE_REKEY_PRODUCE_FAILURE_TOTAL).increment(errors as u64);
+                warn!(
+                    partition_id,
+                    errors,
+                    "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
+                );
+                continue;
+            }
+            // Counted only after the ack: a failed produce replays and must not double-count.
+            tombstone_redirect::record_re_keyed(produced);
+        }
+
         // A `Sweep`-only batch carries no offset, so fall through without marking. Otherwise the
         // shadow output is durable, so the offset is safe to commit; `+ 1` is the next offset to
         // consume. A clamp to the dispatch ceiling means we tried to commit past an undispatched
@@ -204,7 +276,8 @@ async fn run_worker(
 }
 
 /// Tally `(entered, left)` for the `output_membership_changes_emitted_total{status}` counter.
-fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
+/// `pub(crate)` so the merge path's produce accounting matches the event/sweep paths exactly.
+pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
     changes
         .iter()
         .fold((0, 0), |(entered, left), change| match change.status {
@@ -213,37 +286,52 @@ fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
         })
 }
 
-/// Process one event end to end, returning the membership changes it produced (empty when skipped,
-/// errored, or flipping no single-leaf cohort) **and** the behavioral writes to (re)schedule for
-/// eviction (empty on every skip/error path). Emits the event-level metrics. A team absent from the
-/// catalog is the worker's own preflight skip.
+/// What one event's processing hands back to the batch epilogue: membership `changes` to produce,
+/// behavioral eviction (re)`schedules`, and cross-partition straggler `re_keys` to re-produce to
+/// `cohort_stream_events`. All empty on skip/error paths; `re_keys` is exclusive with the other
+/// two (a re-keyed straggler is not processed locally).
+#[derive(Default)]
+struct EventEffects {
+    changes: Vec<CohortMembershipChange>,
+    schedules: Vec<(Stage1Key, i64)>,
+    re_keys: Vec<CohortStreamEvent>,
+}
+
+/// Process one event end to end, returning its [`EventEffects`]. Emits the event-level metrics. A
+/// team absent from the catalog is the worker's own preflight skip.
 fn handle_event(
     partition_id: u16,
     store: &CohortStore,
     catalog: &CatalogHandle,
     event: &CohortStreamEvent,
     last_updated: &str,
-) -> (Vec<CohortMembershipChange>, Vec<(Stage1Key, i64)>) {
+) -> EventEffects {
     let snapshot = catalog.load();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
             .increment(1);
-        return (Vec::new(), Vec::new());
+        return EventEffects::default();
     };
     let filters: &TeamFilters = team_filters;
 
     // Tombstone preflight (TDD §4.5.1): redirect a post-merge straggler for a merged-away person to
-    // the person it merged into. A point-read per event — a bloom-filtered miss until C2 writes
-    // tombstones, so it is the only hot-path delta this slice adds. Borrows the event unchanged on the
-    // common `NotMerged` path; an unparseable/empty person_id has no tombstone and falls through to
-    // `process_event`'s own skip.
+    // the person it merged into. A point-read per event — a bloom-filtered miss for a never-merged
+    // person, so it is the only hot-path delta the merge protocol adds. Borrows the event unchanged
+    // on the common `NotMerged` path; an unparseable/empty person_id has no tombstone and falls
+    // through to `process_event`'s own skip.
     let resolved: Cow<'_, CohortStreamEvent> =
         match redirect_for_tombstone(partition_id, store, event) {
             Redirected::Process(event) => event,
-            // Cross-partition redirect: C1 has no producer, so drop (counted + warned). C2 replaces this
-            // with the ack-awaited re-produce to `cohort_stream_events` keyed to the target. Unreachable
-            // until C2 writes tombstones. See SESSION.md.
-            Redirected::DropCrossPartition => return (Vec::new(), Vec::new()),
+            // Cross-partition redirect: nothing is processed or written locally — P_old's state was
+            // drained away, and folding the target here would plant orphan state in the wrong
+            // slice. The rewritten event goes to the batch epilogue, which produces it back to
+            // `cohort_stream_events` keyed to the target and gates the events offset on the ack.
+            Redirected::ReKey(re_keyed) => {
+                return EventEffects {
+                    re_keys: vec![re_keyed],
+                    ..EventEffects::default()
+                }
+            }
         };
 
     let started = Instant::now();
@@ -254,7 +342,7 @@ fn handle_event(
         Ok(outcome) => {
             if let Some(reason) = outcome.skipped {
                 counter!(STAGE1_EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
-                return (Vec::new(), Vec::new());
+                return EventEffects::default();
             }
             counter!(STAGE1_EVENTS_PROCESSED).increment(1);
             let mut changes = Vec::new();
@@ -283,12 +371,18 @@ fn handle_event(
                     "stage 2 composition failed; skipping (self-heals on the person's next event)",
                 ),
             }
-            (changes, outcome.schedules)
+            EventEffects {
+                changes,
+                schedules: outcome.schedules,
+                re_keys: Vec::new(),
+            }
         }
         Err(error) => {
             // The offset still advances: this is a corrupt-event skip that replay won't fix, so it
             // must not wedge the partition. Counted as a skip (on top of store_errors_total) so the
-            // conservation identity `consumed == processed + Σskipped` stays exact.
+            // conservation identity `consumed == processed + Σskipped + re_keyed` stays exact. The
+            // re_keyed leg is ack-lagged: a straggler counts only after its re-produce ack, so the
+            // identity is transiently unbalanced while an offset is held for a failed produce.
             counter!(STAGE1_EVENTS_SKIPPED, "reason" => "store_error").increment(1);
             warn!(
                 partition_id,
@@ -296,27 +390,31 @@ fn handle_event(
                 error = %error,
                 "stage 1 store error; skipping event without holding the offset",
             );
-            (Vec::new(), Vec::new())
+            EventEffects::default()
         }
     }
 }
 
 /// The tombstone preflight's outcome: the event to feed to [`process_event`] (the original or a
-/// person-rewritten copy), or a signal to drop a cross-partition redirect (C1 has no re-producer).
-///
-/// Lives briefly on the stack per event; boxing the `Cow` to shrink the size gap would add a
-/// per-event allocation on the hot path — the opposite of what we want (cf. `ShuffleMessage`).
-#[allow(clippy::large_enum_variant)]
+/// person-rewritten copy), or a cross-partition straggler rewritten for the batch epilogue's
+/// re-produce.
 enum Redirected<'a> {
     Process(Cow<'a, CohortStreamEvent>),
-    DropCrossPartition,
+    /// Re-produce to `cohort_stream_events` keyed to the rewritten target. `person_id` **must** be
+    /// rewritten: tombstones are slice-prefixed, so an un-rewritten event would miss the target's
+    /// tombstone on the destination partition and rebuild orphan P_old state in the wrong slice.
+    /// `redirected_from` keeps the FIRST origin (rewriting it mid-chain would consult the wrong
+    /// `redirect_dedup` map, TDD §4.5.1), and `redirect_hops` is incremented for the produced hop
+    /// (D13).
+    ReKey(CohortStreamEvent),
 }
 
 /// Resolve a straggler event through the [`tombstone_redirect`] chain. Borrows the event unchanged on
 /// `NotMerged`; on an inline redirect returns a copy with `person_id` rewritten to the merge target
 /// and `redirected_from` stamped with the chain origin. A backend read error or an unparseable id
 /// falls through to normal processing (the tombstone is consulted again on the event's replay); a
-/// cross-partition redirect is dropped (C1).
+/// cross-partition redirect is rewritten for re-produce, except at the `redirect_hops` cap, where it
+/// degrades to an inline fold at the best-known target.
 fn redirect_for_tombstone<'a>(
     partition_id: u16,
     store: &CohortStore,
@@ -350,21 +448,37 @@ fn redirect_for_tombstone<'a>(
             target_person,
             origin,
         } => {
-            warn!(
-                partition_id,
-                team_id = event.team_id,
-                %target_person,
-                %origin,
-                "cross-partition tombstone redirect dropped (C1; C2 re-produces the re-keyed event)",
-            );
-            Redirected::DropCrossPartition
+            // D13: a corrupt cross-partition tombstone cycle would bounce the event between
+            // partitions forever — each hop looks like the first to its worker, so the
+            // same-partition hop cap inside `resolve` cannot see it. At the cap, degrade exactly
+            // like that cap does: fold inline at the best-known target instead of producing again
+            // (accepting a possibly wrong-slice fold for guaranteed termination).
+            if event.redirect_hops >= tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS {
+                counter!(MERGE_REDIRECT_HOP_CAPPED_TOTAL).increment(1);
+                warn!(
+                    partition_id,
+                    team_id = event.team_id,
+                    %target_person,
+                    %origin,
+                    hops = event.redirect_hops,
+                    "cross-partition redirect hop cap hit (corrupt tombstone cycle?); processing inline at the best-known target",
+                );
+                return Redirected::Process(Cow::Owned(rewrite_to(event, target_person, origin)));
+            }
+            let mut re_keyed = rewrite_to(event, target_person, origin);
+            // One produced Kafka hop; the receiving worker re-resolves (and re-checks the cap)
+            // from its own slice.
+            re_keyed.redirect_hops += 1;
+            Redirected::ReKey(re_keyed)
         }
     }
 }
 
-/// Rewrite a straggler to its inline merge target: `person_id` becomes `final_person`, and
+/// Rewrite a straggler to its merge target: `person_id` becomes `final_person`, and
 /// `redirected_from` is stamped with the chain `origin` **only if not already set** — a chained
 /// re-produce keeps the first origin, which keys the merged record's `redirect_dedup`.
+/// `redirect_hops` carries over unchanged; only the re-produce path increments it (an inline
+/// rewrite is not a Kafka hop).
 fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> CohortStreamEvent {
     CohortStreamEvent {
         person_id: final_person.to_string(),
@@ -637,7 +751,8 @@ fn reschedule_team(
 
 /// Map a transition to its `stage1_transitions_total{kind}` label. An unknown LSK returns `None`.
 /// A `BehavioralSingle` `Left` is only emitted by the sweep (the event path never clears a match).
-fn transition_metric_label(
+/// `pub(crate)` so the merge path labels its apply-side flips through the same mapping.
+pub(crate) fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,
 ) -> Option<&'static str> {
@@ -672,9 +787,11 @@ mod tombstone_redirect_tests {
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
+    use crate::producer::{CaptureSink, CaptureStreamEventSink, CaptureTransferSink};
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::store::{StoreConfig, TombstoneKey};
+    use crate::workers::merge_path::TransferRetryPolicy;
 
     const TEAM: i32 = 7;
     const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
@@ -735,7 +852,87 @@ mod tombstone_redirect_tests {
             source_offset,
             source_partition,
             redirected_from: None,
+            redirect_hops: 0,
         }
+    }
+
+    /// `(p_old, partition_of(p_old), p_new)` where `p_new` hashes to a *different* partition, so a
+    /// tombstone `p_old → p_new` resolves `CrossPartition`.
+    fn cross_partition_pair() -> (Uuid, u16, Uuid) {
+        let p_old = Uuid::from_u128(1);
+        let partition_id = partition_of(TeamId(TEAM), &p_old, COHORT_PARTITION_COUNT) as u16;
+        let p_new = (10u128..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 != partition_id)
+            .expect("some uuid hashes off p_old's partition");
+        (p_old, partition_id, p_new)
+    }
+
+    /// Merge deps whose straggler re-key producer is the given capture double (everything else the
+    /// default capture wiring).
+    fn merge_deps_with(stream_sink: CaptureStreamEventSink) -> Arc<MergeWorkerDeps> {
+        Arc::new(MergeWorkerDeps {
+            transfer_sink: Arc::new(CaptureTransferSink::new()),
+            stream_event_sink: Arc::new(stream_sink),
+            merge_tracker: Arc::new(OffsetTracker::new()),
+            transfer_tracker: Arc::new(OffsetTracker::new()),
+            retry: TransferRetryPolicy::default(),
+        })
+    }
+
+    /// Spawn a worker for `partition_id`, deliver `batch` as one sub-batch (with `dispatched` as
+    /// the events dispatch ceiling), and drain.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_batch(
+        partition_id: u16,
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+        membership: &CaptureSink,
+        tracker: &Arc<OffsetTracker>,
+        merge: Arc<MergeWorkerDeps>,
+        dispatched: i64,
+        batch: Vec<ShuffleMessage>,
+    ) {
+        let (tx, rx) = mpsc::channel(4);
+        let worker = Stage1Worker::spawn(
+            partition_id,
+            rx,
+            store.clone(),
+            catalog,
+            Arc::new(membership.clone()),
+            tracker.clone(),
+            merge,
+        );
+        tracker.mark_dispatched(partition_id as i32, dispatched);
+        tx.send(batch).await.unwrap();
+        drop(tx);
+        worker.join().await.unwrap();
+    }
+
+    /// Spawn a worker for `partition_id`, deliver the one straggler at events offset 0, and drain.
+    async fn run_one_straggler(
+        partition_id: u16,
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+        membership: &CaptureSink,
+        tracker: &Arc<OffsetTracker>,
+        merge: Arc<MergeWorkerDeps>,
+        event: CohortStreamEvent,
+    ) {
+        run_batch(
+            partition_id,
+            store,
+            catalog,
+            membership,
+            tracker,
+            merge,
+            1,
+            vec![ShuffleMessage::Event {
+                event,
+                cse_offset: 0,
+            }],
+        )
+        .await;
     }
 
     fn stage1_key(partition_id: u16, lsk: LeafStateKey, person: Uuid) -> Stage1Key {
@@ -796,12 +993,12 @@ mod tombstone_redirect_tests {
 
         // A matching straggler for P_old at offset 101 (> the ancestor's 100): folds into P_new.
         let straggler = person_event(p_old, "u@p.com", 5, 101);
-        let (changes, _schedules) = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+        let effects = handle_event(partition_id, &store, &catalog, &straggler, "ts");
 
         // The single-leaf cohort flips to Entered for P_new (not P_old).
-        assert_eq!(changes.len(), 1, "the straggler entered P_new");
-        assert_eq!(changes[0].person_id, p_new.to_string());
-        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
+        assert_eq!(effects.changes[0].person_id, p_new.to_string());
+        assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
 
         let after =
             StatefulRecord::decode(&store.get_stage1(&p_new_key).unwrap().unwrap()).unwrap();
@@ -825,43 +1022,317 @@ mod tombstone_redirect_tests {
             .is_none());
     }
 
-    #[test]
-    fn cross_partition_redirect_is_dropped_in_c1() {
-        // P_new hashes to a different partition: C1 has no re-producer, so the straggler is dropped
-        // (counted + warned) and writes nothing. C2 replaces this with the ack-awaited re-produce.
+    #[tokio::test]
+    async fn cross_partition_redirect_re_keys_the_straggler_to_the_target() {
+        // P_new hashes to a different partition: the straggler is rewritten to the target and
+        // re-produced to `cohort_stream_events`, writing nothing locally; the acked produce
+        // releases the events offset.
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
-
-        let p_old = Uuid::from_u128(1);
-        let partition_id = partition_of(TeamId(TEAM), &p_old, COHORT_PARTITION_COUNT) as u16;
-        let p_new = (10u128..)
-            .map(Uuid::from_u128)
-            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 != partition_id)
-            .unwrap();
+        let (p_old, partition_id, p_new) = cross_partition_pair();
         write_tombstone(&store, partition_id, p_old, p_new);
 
-        let straggler = person_event(p_old, "u@p.com", 5, 1);
-        let (changes, schedules) = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+        let stream_sink = CaptureStreamEventSink::new();
+        let membership = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        run_one_straggler(
+            partition_id,
+            &store,
+            catalog,
+            &membership,
+            &tracker,
+            merge_deps_with(stream_sink.clone()),
+            person_event(p_old, "u@p.com", 5, 9),
+        )
+        .await;
 
-        assert!(
-            changes.is_empty(),
-            "the cross-partition redirect is dropped"
+        let produced = stream_sink.events();
+        assert_eq!(produced.len(), 1, "one re-keyed event produced");
+        let re_keyed = &produced[0];
+        assert_eq!(
+            re_keyed.person_id,
+            p_new.to_string(),
+            "person rewritten to the target",
         );
-        assert!(schedules.is_empty());
+        assert_eq!(
+            re_keyed.redirected_from,
+            Some(p_old.to_string()),
+            "first origin stamped",
+        );
+        assert_eq!(
+            (re_keyed.source_partition, re_keyed.source_offset),
+            (5, 9),
+            "original source coords preserved for the target's redirect_dedup",
+        );
+        assert_eq!(re_keyed.redirect_hops, 1, "one produced hop");
+
+        assert!(membership.changes().is_empty(), "no local processing");
         assert!(
             store
                 .get_stage1(&stage1_key(partition_id, lsk, p_old))
                 .unwrap()
                 .is_none(),
-            "no state written for P_old",
+            "no state written for P_old in the source slice",
         );
         assert!(
             store
                 .get_stage1(&stage1_key(partition_id, lsk, p_new))
                 .unwrap()
                 .is_none(),
-            "no state written for P_new on this worker",
+            "no state written for P_new in the source slice",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            Some(&1),
+            "the acked re-key produce releases the events offset",
+        );
+    }
+
+    #[tokio::test]
+    async fn re_key_produce_failure_holds_the_events_offset_until_redelivery_succeeds() {
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        write_tombstone(&store, partition_id, p_old, p_new);
+        let membership = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+
+        // First delivery: the re-key produce fails, so the offset is held (nothing committable).
+        let failing = CaptureStreamEventSink::failing_always();
+        run_one_straggler(
+            partition_id,
+            &store,
+            catalog.clone(),
+            &membership,
+            &tracker,
+            merge_deps_with(failing.clone()),
+            person_event(p_old, "u@p.com", 5, 9),
+        )
+        .await;
+        assert!(
+            failing.events().is_empty(),
+            "the failed flush recorded nothing"
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            None,
+            "the failed produce holds the events offset",
+        );
+
+        // Redelivery (the held offset replays): the tombstone re-resolves — the ReKey path is
+        // stateless — and a succeeding produce releases the offset.
+        let succeeding = CaptureStreamEventSink::new();
+        run_one_straggler(
+            partition_id,
+            &store,
+            catalog,
+            &membership,
+            &tracker,
+            merge_deps_with(succeeding.clone()),
+            person_event(p_old, "u@p.com", 5, 9),
+        )
+        .await;
+        let produced = succeeding.events();
+        assert_eq!(
+            produced.len(),
+            1,
+            "the redelivery re-derives and produces the re-key"
+        );
+        assert_eq!(produced[0].person_id, p_new.to_string());
+        assert_eq!(
+            (produced[0].source_partition, produced[0].source_offset),
+            (5, 9),
+            "the re-derived copy carries the original source coords (dedupable at the target)",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            Some(&1),
+            "the later success releases the held offset",
+        );
+    }
+
+    #[tokio::test]
+    async fn membership_produce_failure_in_a_mixed_batch_withholds_the_re_key_and_the_mark() {
+        // A sub-batch carrying a normal flipping event AND a cross-partition straggler: the
+        // epilogue gates the re-key produce and the offset mark on the membership produce, so the
+        // first round's membership failure withholds all three; the replay re-produces the re-key
+        // (the ReKey path is stateless) without re-emitting the already-committed flip.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        write_tombstone(&store, partition_id, p_old, p_new);
+        // A live person co-resident with p_old, so both messages share one worker batch.
+        let alice = (100u128..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 == partition_id)
+            .expect("some uuid hashes onto p_old's partition");
+        let batch = || {
+            vec![
+                ShuffleMessage::Event {
+                    event: person_event(alice, "u@p.com", 5, 0),
+                    cse_offset: 0,
+                },
+                ShuffleMessage::Event {
+                    event: person_event(p_old, "u@p.com", 5, 9),
+                    cse_offset: 1,
+                },
+            ]
+        };
+
+        let membership = CaptureSink::failing_first(1);
+        let stream_sink = CaptureStreamEventSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+
+        // First delivery: alice's flip fails to produce, so the epilogue never reaches the re-key
+        // produce or the mark — the straggler is withheld along with the flip.
+        run_batch(
+            partition_id,
+            &store,
+            catalog.clone(),
+            &membership,
+            &tracker,
+            merge_deps_with(stream_sink.clone()),
+            2,
+            batch(),
+        )
+        .await;
+        assert!(
+            membership.changes().is_empty(),
+            "the failed flush recorded nothing"
+        );
+        assert!(
+            stream_sink.events().is_empty(),
+            "the membership failure withholds the straggler's re-key produce",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            None,
+            "the membership failure holds the whole sub-batch's offset",
+        );
+
+        // Redelivery: alice's state committed during the first round, so the replay hits the
+        // `is_replay` guard and emits no duplicate change; the straggler re-resolves and the acked
+        // re-key releases the offset past both events.
+        run_batch(
+            partition_id,
+            &store,
+            catalog,
+            &membership,
+            &tracker,
+            merge_deps_with(stream_sink.clone()),
+            2,
+            batch(),
+        )
+        .await;
+        assert!(
+            membership.changes().is_empty(),
+            "the replay emits no duplicate membership change (the failed flip stays dropped, at-most-once)",
+        );
+        let produced = stream_sink.events();
+        assert_eq!(produced.len(), 1, "the replay produces the re-key once");
+        assert_eq!(produced[0].person_id, p_new.to_string());
+        assert_eq!(
+            (produced[0].source_partition, produced[0].source_offset),
+            (5, 9),
+            "the re-key carries the straggler's original source coords",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            Some(&2),
+            "the acked replay releases the offset past both events",
+        );
+    }
+
+    #[test]
+    fn re_keyed_event_folds_into_p_new_exactly_once_via_redirect_dedup() {
+        // Two partitions over one store: the source worker re-keys, the target worker (as if it
+        // consumed the re-produced event) folds into P_new through `redirect_dedup[origin]`, and a
+        // duplicate delivery folds zero times.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let (p_old, source_partition, p_new) = cross_partition_pair();
+        let target_partition = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as u16;
+        assert_ne!(source_partition, target_partition);
+        write_tombstone(&store, source_partition, p_old, p_new);
+
+        // Source side: nothing local, one re-key out.
+        let straggler = person_event(p_old, "u@p.com", 5, 9);
+        let mut effects = handle_event(source_partition, &store, &catalog, &straggler, "ts");
+        assert!(effects.changes.is_empty());
+        assert!(effects.schedules.is_empty());
+        assert_eq!(effects.re_keys.len(), 1);
+        let re_keyed = effects.re_keys.pop().unwrap();
+
+        // Target side: P_new has no tombstone, so the event processes normally — but its
+        // `redirected_from` routes the fold through `redirect_dedup[p_old]`, never the main map.
+        let effects = handle_event(target_partition, &store, &catalog, &re_keyed, "ts");
+        assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
+        assert_eq!(effects.changes[0].person_id, p_new.to_string());
+        assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
+        assert!(effects.re_keys.is_empty(), "no further hop: P_new is live");
+
+        let folded = StatefulRecord::decode(
+            &store
+                .get_stage1(&stage1_key(target_partition, lsk, p_new))
+                .unwrap()
+                .expect("P_new state written in the target slice"),
+        )
+        .unwrap();
+        assert!(
+            folded.redirect_dedup[&p_old].is_replay(5, 9),
+            "the fold recorded the original source coords under redirect_dedup[origin]",
+        );
+        assert!(
+            !folded.applied_offsets.is_replay(5, 9),
+            "the main map stays untouched by a redirected straggler",
+        );
+
+        // Duplicate delivery (produce-retry or redelivery overlap): absorbed, zero folds.
+        let dup = handle_event(target_partition, &store, &catalog, &re_keyed, "ts");
+        assert!(dup.changes.is_empty(), "the duplicate folds zero times");
+        assert!(dup.re_keys.is_empty());
+    }
+
+    #[test]
+    fn hop_capped_redirect_processes_inline_at_the_best_known_target() {
+        // An event arriving AT the cap (a corrupt cross-partition tombstone cycle would otherwise
+        // re-produce forever) degrades to an inline fold at the best-known target: no produce, the
+        // fold lands in THIS partition's slice.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        write_tombstone(&store, partition_id, p_old, p_new);
+
+        let straggler = CohortStreamEvent {
+            redirect_hops: tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS,
+            ..person_event(p_old, "u@p.com", 5, 9)
+        };
+        let effects = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+
+        assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
+        assert_eq!(effects.changes.len(), 1, "processed inline instead");
+        assert_eq!(effects.changes[0].person_id, p_new.to_string());
+
+        let folded = StatefulRecord::decode(
+            &store
+                .get_stage1(&stage1_key(partition_id, lsk, p_new))
+                .unwrap()
+                .expect("the degraded fold writes P_new state in the local slice"),
+        )
+        .unwrap();
+        assert!(
+            folded.redirect_dedup[&p_old].is_replay(5, 9),
+            "the inline degrade still dedups by the chain origin",
+        );
+        assert!(
+            store
+                .get_stage1(&stage1_key(partition_id, lsk, p_old))
+                .unwrap()
+                .is_none(),
+            "no P_old state rebuilt",
         );
     }
 
@@ -875,9 +1346,9 @@ mod tombstone_redirect_tests {
         let partition_id = partition_of(TeamId(TEAM), &alice, COHORT_PARTITION_COUNT) as u16;
 
         let event = person_event(alice, "u@p.com", 5, 0);
-        let (changes, _schedules) = handle_event(partition_id, &store, &catalog, &event, "ts");
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].person_id, alice.to_string());
+        let effects = handle_event(partition_id, &store, &catalog, &event, "ts");
+        assert_eq!(effects.changes.len(), 1);
+        assert_eq!(effects.changes[0].person_id, alice.to_string());
         assert!(
             store
                 .get_stage1(&stage1_key(partition_id, lsk, alice))

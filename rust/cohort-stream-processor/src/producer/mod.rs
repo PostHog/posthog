@@ -12,6 +12,7 @@
 
 pub mod batcher;
 pub mod kafka;
+pub mod merge;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +30,10 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
 pub use kafka::KafkaMembershipSink;
+pub use merge::{
+    CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,
+    StreamEventSink, TransferSink,
+};
 
 /// One per-cohort membership change on `cohort_membership_changed_shadow`. The wire shape matches
 /// the legacy Python producer and the Node Zod consumer exactly:

@@ -31,7 +31,7 @@ use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig,
 };
-use cohort_stream_processor::workers::{process_event, Stage1Worker};
+use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -156,6 +156,7 @@ fn event_at(person: Uuid, timestamp: &str, source_offset: i64) -> CohortStreamEv
         source_offset,
         source_partition: 1,
         redirected_from: None,
+        redirect_hops: 0,
     }
 }
 
@@ -256,7 +257,15 @@ fn spawn_worker(
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
-    let worker = Stage1Worker::spawn(PARTITION_ID, rx, store.clone(), catalog, sink, tracker);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        sink,
+        tracker,
+        MergeWorkerDeps::capture(),
+    );
     (tx, worker)
 }
 
@@ -1374,6 +1383,7 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
         store.clone(),
         catalog_of(filters),
         sink.clone(),
+        MergeWorkerDeps::capture(),
     ));
 
     let alice = person(1);

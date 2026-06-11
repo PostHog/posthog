@@ -26,7 +26,7 @@ use cohort_stream_processor::stage1::{
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, StoreConfig,
 };
-use cohort_stream_processor::workers::{process_event, SkipReason, Stage1Worker};
+use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -179,6 +179,7 @@ fn event(person: Uuid, source_partition: i32, source_offset: i64) -> CohortStrea
         source_offset,
         source_partition,
         redirected_from: None,
+        redirect_hops: 0,
     }
 }
 
@@ -981,6 +982,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     dispatch_to_worker(&tracker, &tx, event(alice, 1, 0), 0).await;
@@ -1035,6 +1037,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     // Event A flips only the behavioral leaf (non-matching email): the single-leaf cohort 2 enters,
@@ -1100,6 +1103,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     // Skipped before touching the store, but the offset must still advance (no partition wedge).
@@ -1154,6 +1158,7 @@ async fn worker_produces_changes_and_advances_offset() {
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 5).await;
@@ -1186,6 +1191,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     let non_match = CohortStreamEvent {
@@ -1218,6 +1224,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1246,6 +1253,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1708,6 +1716,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     let alice = person(1);
@@ -2051,6 +2060,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
+        MergeWorkerDeps::capture(),
     );
 
     let alice = person(1);

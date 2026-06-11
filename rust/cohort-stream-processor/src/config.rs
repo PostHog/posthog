@@ -10,6 +10,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
 use crate::store::StoreConfig;
+use crate::workers::TransferRetryPolicy;
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -95,6 +96,47 @@ pub struct Config {
     /// restart within the window reclaims them with no rebalance.
     #[envconfig(default = "60000")]
     pub kafka_session_timeout_ms: u64,
+
+    // ── Merge-protocol follower topics + groups (TDD §4.5.1) ───────────────
+    /// The person-merge trigger topic, keyed by `hash(team_id, old_person_uuid)` so a merge lands on
+    /// P_old's worker.
+    #[envconfig(default = "person_merge_events")]
+    pub person_merge_events_topic: String,
+
+    /// The internal state-transfer topic, keyed by `hash(team_id, new_person_uuid)` so a packaged
+    /// drain lands on P_new's worker. Must be co-partitioned with `cohort_stream_events` (asserted
+    /// at startup, D14).
+    #[envconfig(default = "cohort_merge_state_transfer")]
+    pub cohort_merge_state_transfer_topic: String,
+
+    /// Group for the `person_merge_events` follower — separate from the events group so drain-path
+    /// lag is observable in isolation.
+    #[envconfig(default = "cohort-stream-merges")]
+    pub kafka_merge_consumer_group: String,
+
+    /// Group for the `cohort_merge_state_transfer` follower — same isolation rationale.
+    #[envconfig(default = "cohort-stream-merge-apply")]
+    pub kafka_merge_apply_consumer_group: String,
+
+    // ── Merge transfer produce retry (D4) ──────────────────────────────────
+    /// Inline retries after the first transfer-produce attempt. The default budget
+    /// (5 × 0.5/1/2/4/8 s ≈ 15.5 s) keeps a blocked worker inside the liveness and graceful-shutdown
+    /// windows; exhaustion leaves the transfer staged for the periodic redrive (D3).
+    #[envconfig(default = "5")]
+    pub merge_transfer_max_retries: u32,
+
+    /// First retry backoff (ms); doubles per retry.
+    #[envconfig(default = "500")]
+    pub merge_transfer_retry_base_ms: u64,
+
+    /// Backoff ceiling (ms).
+    #[envconfig(default = "8000")]
+    pub merge_transfer_retry_cap_ms: u64,
+
+    /// How often the pending-transfer redrive scans `cf_pending_transfers` and re-produces staged
+    /// transfers whose inline retry budget was exhausted.
+    #[envconfig(default = "60000")]
+    pub merge_redrive_interval_ms: u64,
 
     // ── Static group membership (sticky partitions across restarts) ────────
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership so a
@@ -208,6 +250,20 @@ impl Config {
         Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
+    /// Inline bounded backoff for the transfer produce (D4), from the `MERGE_TRANSFER_*` envs.
+    pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
+        TransferRetryPolicy {
+            max_retries: self.merge_transfer_max_retries,
+            base: Duration::from_millis(self.merge_transfer_retry_base_ms),
+            cap: Duration::from_millis(self.merge_transfer_retry_cap_ms),
+        }
+    }
+
+    /// How often the pending-transfer redrive fires.
+    pub fn merge_redrive_interval(&self) -> Duration {
+        Duration::from_millis(self.merge_redrive_interval_ms)
+    }
+
     /// RocksDB settings for the state store. Only the path and the wipe-on-start flag are
     /// configurable; the rest use defaults.
     pub fn store_config(&self) -> StoreConfig {
@@ -274,6 +330,45 @@ impl Config {
         config
     }
 
+    /// Build the `rdkafka` client config for one of the two merge-protocol follower consumers
+    /// (`person_merge_events` / `cohort_merge_state_transfer`).
+    ///
+    /// Followers never `subscribe()` — the events group's rebalance mirrors every (un)assignment
+    /// onto them (D5) — so there is no assignment strategy and no static membership; `group.id`
+    /// exists only so commits land on an observable group. `auto.offset.reset` is **hard-coded** to
+    /// `earliest`, deliberately not env-tunable: a never-subscribing group is `Empty` to the broker,
+    /// so its committed offsets are pruned after `offsets.retention.minutes`, and a tail reset after
+    /// pruning would silently skip the merge backlog — a permanently split-brain person, not mere
+    /// lag.
+    pub fn follower_client_config(&self, group: &str) -> ClientConfig {
+        let mut config = ClientConfig::new();
+        config
+            .set("bootstrap.servers", &self.kafka_hosts)
+            .set("group.id", group)
+            .set("enable.auto.commit", "false")
+            .set("enable.auto.offset.store", "false")
+            .set("auto.offset.reset", "earliest")
+            .set("socket.timeout.ms", "10000");
+
+        // `client.id` for broker-side observability only; no `group.instance.id` — there is no
+        // membership to make static.
+        if let Some(id) = self.pod_identity() {
+            config.set("client.id", id);
+        }
+        if !self.kafka_client_id.is_empty() {
+            config.set("client.id", &self.kafka_client_id);
+        }
+        if !self.kafka_client_rack.is_empty() {
+            config.set("client.rack", &self.kafka_client_rack);
+        }
+        if self.kafka_tls {
+            config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+        config
+    }
+
     /// Kafka connection + producer config for the `cohort_membership_changed_shadow` producer. The
     /// partitioner is always set — `murmur2_random` is load-bearing for cross-runtime co-partitioning.
     pub fn build_kafka_config(&self) -> KafkaConfig {
@@ -324,6 +419,14 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            person_merge_events_topic: "person_merge_events".to_string(),
+            cohort_merge_state_transfer_topic: "cohort_merge_state_transfer".to_string(),
+            kafka_merge_consumer_group: "cohort-stream-merges".to_string(),
+            kafka_merge_apply_consumer_group: "cohort-stream-merge-apply".to_string(),
+            merge_transfer_max_retries: 5,
+            merge_transfer_retry_base_ms: 500,
+            merge_transfer_retry_cap_ms: 8000,
+            merge_redrive_interval_ms: 60_000,
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
@@ -470,6 +573,103 @@ mod tests {
         assert_eq!(
             config.store_config().path,
             std::path::PathBuf::from("/var/lib/cohort/state"),
+        );
+    }
+
+    #[test]
+    fn merge_envs_default_to_the_tdd_topology() {
+        // `init_from_hashmap` with an empty map exercises every `envconfig(default)`.
+        let config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(config.person_merge_events_topic, "person_merge_events");
+        assert_eq!(
+            config.cohort_merge_state_transfer_topic,
+            "cohort_merge_state_transfer",
+        );
+        assert_eq!(config.kafka_merge_consumer_group, "cohort-stream-merges");
+        assert_eq!(
+            config.kafka_merge_apply_consumer_group,
+            "cohort-stream-merge-apply",
+        );
+        assert_eq!(
+            config.transfer_retry_policy(),
+            TransferRetryPolicy::default()
+        );
+        assert_eq!(
+            config.merge_redrive_interval(),
+            Duration::from_millis(60_000)
+        );
+    }
+
+    #[test]
+    fn merge_envs_override_the_defaults() {
+        let env: std::collections::HashMap<String, String> = [
+            ("PERSON_MERGE_EVENTS_TOPIC", "pme_test"),
+            ("COHORT_MERGE_STATE_TRANSFER_TOPIC", "transfer_test"),
+            ("KAFKA_MERGE_CONSUMER_GROUP", "merges-test"),
+            ("KAFKA_MERGE_APPLY_CONSUMER_GROUP", "apply-test"),
+            ("MERGE_TRANSFER_MAX_RETRIES", "2"),
+            ("MERGE_TRANSFER_RETRY_BASE_MS", "100"),
+            ("MERGE_TRANSFER_RETRY_CAP_MS", "400"),
+            ("MERGE_REDRIVE_INTERVAL_MS", "5000"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.person_merge_events_topic, "pme_test");
+        assert_eq!(config.cohort_merge_state_transfer_topic, "transfer_test");
+        assert_eq!(config.kafka_merge_consumer_group, "merges-test");
+        assert_eq!(config.kafka_merge_apply_consumer_group, "apply-test");
+        assert_eq!(
+            config.transfer_retry_policy(),
+            TransferRetryPolicy {
+                max_retries: 2,
+                base: Duration::from_millis(100),
+                cap: Duration::from_millis(400),
+            },
+        );
+        assert_eq!(config.merge_redrive_interval(), Duration::from_millis(5000));
+    }
+
+    #[test]
+    fn follower_config_hard_codes_earliest_regardless_of_the_events_reset() {
+        // The events group's reset env must never leak into a follower: a pruned Empty group that
+        // reset to the tail would silently skip the merge backlog.
+        let mut config = test_config();
+        config.kafka_consumer_offset_reset = "latest".to_string();
+        let client = config.follower_client_config("cohort-stream-merges");
+        assert_eq!(client.get("auto.offset.reset"), Some("earliest"));
+        assert_eq!(client.get("group.id"), Some("cohort-stream-merges"));
+        assert_eq!(client.get("enable.auto.commit"), Some("false"));
+        assert_eq!(client.get("enable.auto.offset.store"), Some("false"));
+        assert_eq!(client.get("bootstrap.servers"), Some("localhost:9092"));
+    }
+
+    #[test]
+    fn follower_config_never_joins_the_group_protocol() {
+        // Followers are driven by `incremental_assign`, never `subscribe()`: no assignment strategy
+        // and no static membership, even when a pod identity is present.
+        let mut config = test_config();
+        config.pod_hostname = Some("cohort-stream-processor-2".to_string());
+        let client = config.follower_client_config("cohort-stream-merge-apply");
+        assert_eq!(client.get("partition.assignment.strategy"), None);
+        assert_eq!(client.get("group.instance.id"), None);
+        // `client.id` is still stamped for broker-side observability.
+        assert_eq!(client.get("client.id"), Some("cohort-stream-processor-2"));
+    }
+
+    #[test]
+    fn follower_config_sets_tls_keys_only_when_enabled() {
+        let mut config = test_config();
+        assert_eq!(
+            config.follower_client_config("g").get("security.protocol"),
+            None,
+        );
+        config.kafka_tls = true;
+        assert_eq!(
+            config.follower_client_config("g").get("security.protocol"),
+            Some("ssl"),
         );
     }
 

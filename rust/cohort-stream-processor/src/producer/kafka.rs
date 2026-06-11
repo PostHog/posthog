@@ -11,11 +11,12 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::{CohortMembershipChange, MembershipSink};
 
-/// No-op liveness reporter for the producer's rdkafka client context: a producer stall blocks the
+/// No-op liveness reporter for a producer's rdkafka client context: a producer stall blocks the
 /// consumer loop, which owns the liveness deadline, so routing producer health here would mask the
-/// very stall the consumer's stall detector should catch.
+/// very stall the consumer's stall detector should catch. Shared by every producer in the crate
+/// (membership, transfer, straggler re-key).
 #[derive(Clone, Copy)]
-struct AlwaysHealthy;
+pub(crate) struct AlwaysHealthy;
 
 impl SyncLivenessReporter for AlwaysHealthy {
     fn report_healthy(&self) {}

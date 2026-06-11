@@ -65,6 +65,7 @@ mod tests {
     use crate::partitions::{OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
     use crate::store::{CohortStore, StoreConfig};
+    use crate::workers::MergeWorkerDeps;
 
     fn dispatcher() -> (TempDir, Arc<EventDispatcher>) {
         let dir = TempDir::new().unwrap();
@@ -81,6 +82,7 @@ mod tests {
             store,
             catalog,
             sink,
+            MergeWorkerDeps::capture(),
         );
         (dir, Arc::new(dispatcher))
     }

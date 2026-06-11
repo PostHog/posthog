@@ -23,7 +23,7 @@ pub const STAGE2_KEY_LEN: usize = 2 + 8 + 8 + 16;
 pub const MERGE_DRAIN_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
 /// `[partition_id u16][team_id u64][old_person 16]`.
 pub const PENDING_TRANSFER_KEY_LEN: usize = 2 + 8 + 16;
-/// `[partition_id u16][team_id u64][new_person 16][transfer_partition u32][transfer_offset u64]`.
+/// `[partition_id u16][team_id u64][new_person 16][source_partition u32][source_offset u64]`.
 pub const MERGE_APPLIED_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
 /// `[partition_id u16][team_id u64][person 16]`.
 pub const TOMBSTONE_KEY_LEN: usize = 2 + 8 + 16;
@@ -67,17 +67,22 @@ pub struct PendingTransferKey {
     pub old_person: Uuid,
 }
 
-/// `cf_merge_applied` key (TDD §4.5.1): the Phase 2 idempotence marker for one transfer message,
-/// disambiguated by the `cohort_merge_state_transfer` message's Kafka coordinates.
+/// `cf_merge_applied` key (TDD §4.5.1): the Phase 2 idempotence marker for one *merge*,
+/// disambiguated by the triggering merge message's Kafka coordinates (carried in the transfer as
+/// `source_partition`/`source_offset`) — **not** the transfer message's own. Duplicate copies of one
+/// merge's transfer (outbox redrive racing the inline retry, an `AlreadyDrained` re-produce, a crash
+/// between the produce ack and the outbox clear) each land at fresh transfer-topic coordinates by
+/// design, but all carry the same source pair — the only key under which every copy short-circuits
+/// instead of double-counting the bucket merge.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct MergeAppliedKey {
     pub partition_id: u16,
     pub team_id: u64,
     pub new_person: Uuid,
-    /// Kafka partition of the transfer message. Non-negative; encoded as BE `u32`.
-    pub transfer_partition: i32,
-    /// Kafka offset of the transfer message. Non-negative; encoded as BE `u64`.
-    pub transfer_offset: i64,
+    /// Kafka partition of the triggering merge message. Non-negative; encoded as BE `u32`.
+    pub source_partition: i32,
+    /// Kafka offset of the triggering merge message. Non-negative; encoded as BE `u64`.
+    pub source_offset: i64,
 }
 
 /// `cf_merge_tombstones` key (TDD §4.5.1): the redirect marker for a merged-away person.
@@ -199,8 +204,8 @@ impl MergeAppliedKey {
         out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
         out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
         out[10..26].copy_from_slice(self.new_person.as_bytes());
-        out[26..30].copy_from_slice(&(self.transfer_partition as u32).to_be_bytes());
-        out[30..38].copy_from_slice(&(self.transfer_offset as u64).to_be_bytes());
+        out[26..30].copy_from_slice(&(self.source_partition as u32).to_be_bytes());
+        out[30..38].copy_from_slice(&(self.source_offset as u64).to_be_bytes());
         out
     }
 
@@ -210,8 +215,8 @@ impl MergeAppliedKey {
             partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
             team_id: u64::from_be_bytes(array8(&bytes[2..10])),
             new_person: Uuid::from_bytes(array16(&bytes[10..26])),
-            transfer_partition: u32::from_be_bytes(array4(&bytes[26..30])) as i32,
-            transfer_offset: u64::from_be_bytes(array8(&bytes[30..38])) as i64,
+            source_partition: u32::from_be_bytes(array4(&bytes[26..30])) as i32,
+            source_offset: u64::from_be_bytes(array8(&bytes[30..38])) as i64,
         })
     }
 }
@@ -487,8 +492,8 @@ mod tests {
                 partition_id: 1,
                 team_id: 2,
                 new_person: person(3),
-                transfer_partition: 4,
-                transfer_offset: 5,
+                source_partition: 4,
+                source_offset: 5,
             }
             .encode()
             .len(),
@@ -524,8 +529,8 @@ mod tests {
             partition_id: 7,
             team_id: 42,
             new_person: person(0xC0FFEE),
-            transfer_partition: 17,
-            transfer_offset: 12345,
+            source_partition: 17,
+            source_offset: 12345,
         };
         assert_eq!(MergeAppliedKey::decode(&key.encode()).unwrap(), key);
     }

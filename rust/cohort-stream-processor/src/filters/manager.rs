@@ -16,6 +16,7 @@ use lifecycle::Handle;
 use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
+use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, retain_allowlisted};
@@ -80,6 +81,10 @@ pub struct CatalogStats {
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
+    /// Wakes [`wait_until_loaded`](Self::wait_until_loaded) waiters on the first successful
+    /// [`store`](Self::store). Notified on every store (cheap, idempotent) rather than just the
+    /// first, so no first-store bookkeeping is needed.
+    loaded_notify: Notify,
     /// Applied at [`refresh`](Self::refresh) time: cohorts for teams outside this allowlist never
     /// enter the catalog, so per-team lookups, the `FILTER_CATALOG_TEAMS` gauge, and shadow output
     /// all reflect the scoped set for free.
@@ -96,6 +101,7 @@ impl CatalogHandle {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),
             loaded: AtomicBool::new(false),
+            loaded_notify: Notify::new(),
             allowlist,
         }
     }
@@ -111,6 +117,21 @@ impl CatalogHandle {
         self.loaded.load(Ordering::Acquire)
     }
 
+    /// Resolve once the first refresh has succeeded; immediate if it already has. The merge-protocol
+    /// follower loops gate on this (D9): before the first load every team reads as absent, and a
+    /// drain/apply against that false-empty view would drop a real team's leaves as drift.
+    pub async fn wait_until_loaded(&self) {
+        while !self.is_loaded() {
+            // Register the waiter *before* re-checking, so a store that lands between the check and
+            // the await still wakes us (`notify_waiters` reaches futures created before the call).
+            let notified = self.loaded_notify.notified();
+            if self.is_loaded() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     /// Build an already-loaded handle from a prebuilt catalog — the test seam; production loads via
     /// [`refresh`](Self::refresh).
     pub fn from_catalog(catalog: FilterCatalog) -> Self {
@@ -124,6 +145,7 @@ impl CatalogHandle {
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
         self.catalog.store(Arc::new(catalog));
         self.loaded.store(true, Ordering::Release);
+        self.loaded_notify.notify_waiters();
     }
 
     /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
@@ -246,6 +268,28 @@ mod tests {
         assert!(snapshot.team(TeamId(7)).is_some());
         assert!(snapshot.team(TeamId(8)).is_none());
         assert_eq!(snapshot.total_unique_conditions(), 1);
+    }
+
+    #[tokio::test]
+    async fn wait_until_loaded_resolves_on_the_first_store_and_immediately_after() {
+        let handle = Arc::new(CatalogHandle::new());
+
+        let waiter = {
+            let handle = handle.clone();
+            tokio::spawn(async move { handle.wait_until_loaded().await })
+        };
+        // The waiter cannot resolve before the first store.
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        waiter.await.expect("waiter resolves on the first store");
+
+        // Already loaded → immediate.
+        handle.wait_until_loaded().await;
     }
 
     #[test]

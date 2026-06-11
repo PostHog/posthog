@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use common_database::get_pool_with_config;
 use envconfig::Envconfig;
-use lifecycle::{ComponentOptions, Manager};
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use lifecycle::{ComponentOptions, Handle, Manager};
+use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -14,15 +14,23 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_stream_processor::config::Config;
-use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
+use cohort_stream_processor::consumers::{
+    CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute, MergeRoute,
+    TransferRoute,
+};
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
+use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionRouter,
+    run_rebalance_worker, CohortConsumerContext, MergeFollowers, OffsetTracker, PartitionRouter,
 };
-use cohort_stream_processor::producer::{KafkaMembershipSink, MembershipSink};
+use cohort_stream_processor::producer::{
+    KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, StreamEventSink,
+    TransferSink,
+};
 use cohort_stream_processor::store::CohortStore;
 use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
+use cohort_stream_processor::workers::MergeWorkerDeps;
 
 common_alloc::used!();
 
@@ -66,6 +74,18 @@ async fn async_main(config: Config) -> Result<()> {
             .with_graceful_shutdown(Duration::from_secs(30))
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
+    );
+    // The merge-protocol followers stop on the same coordinated signal; their graceful window
+    // covers the final sync commit. Deliberately no liveness deadline — a follower's health signal
+    // is consumer-group lag on its merge group, and the events consumer above already owns
+    // process-level liveness.
+    let merge_follower_handle = manager.register(
+        "merge-follower",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+    );
+    let transfer_follower_handle = manager.register(
+        "transfer-follower",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
     );
 
     let readiness = manager.readiness_handler();
@@ -114,16 +134,41 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
+    // Merge-protocol sinks + trackers (TDD §4.5.1). The trackers are shared three ways: workers
+    // mark processed offsets, the dispatcher marks dispatch ceilings and forgets revoked
+    // partitions, and the follower consumers commit from them through the dispatcher (D7).
+    let transfer_sink: Arc<dyn TransferSink> = Arc::new(
+        KafkaTransferSink::new(
+            &kafka_config,
+            config.cohort_merge_state_transfer_topic.clone(),
+        )
+        .await
+        .context("creating merge state transfer producer")?,
+    );
+    let stream_event_sink: Arc<dyn StreamEventSink> = Arc::new(
+        KafkaStreamEventSink::new(&kafka_config, config.cohort_stream_events_topic.clone())
+            .await
+            .context("creating straggler re-key producer")?,
+    );
+    let merge_deps = Arc::new(MergeWorkerDeps {
+        transfer_sink,
+        stream_event_sink,
+        merge_tracker: Arc::new(OffsetTracker::new()),
+        transfer_tracker: Arc::new(OffsetTracker::new()),
+        retry: config.transfer_retry_policy(),
+    });
+
     // The dispatcher owns the shared router/workers/ownership state; the consume loop dispatches
     // through it while the rebalance context (and its async worker) drive the partition lifecycle
     // over the *same* state. It shares the catalog snapshot the refresh loop swaps, and hands the
-    // sink + offset tracker to each per-partition worker.
+    // sink + offset tracker + merge deps to each per-partition worker.
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
         store,
         catalog.clone(),
         sink,
+        merge_deps,
     ));
 
     // The consumer carries the rebalance context, so `create_with_context` (which pings broker
@@ -136,6 +181,52 @@ async fn async_main(config: Config) -> Result<()> {
     stream_consumer
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
+
+    // The merge-protocol followers never `subscribe()` — the events group's rebalance mirrors
+    // ownership onto them (D5). Client creation alone is lazy, so the co-partitioning check below
+    // doubles as their fail-fast broker ping.
+    let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
+        config
+            .follower_client_config(&config.kafka_merge_consumer_group)
+            .create()
+            .context("creating person_merge_events follower consumer")?,
+    );
+    let transfers_follower_consumer: Arc<StreamConsumer> = Arc::new(
+        config
+            .follower_client_config(&config.kafka_merge_apply_consumer_group)
+            .create()
+            .context("creating cohort_merge_state_transfer follower consumer")?,
+    );
+
+    // D14: the merge protocol's partition arithmetic — the keyed transfer produce, `partition_of`'s
+    // same-vs-cross-partition split, assignment mirroring by partition number — assumes all three
+    // topics are co-partitioned. A mismatch is silently wrong forever (drains land on workers that
+    // don't own P_old), so fail fast on live broker metadata instead.
+    let events_partitions =
+        fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
+    let merge_partitions =
+        fetch_partition_count(&merges_follower_consumer, &config.person_merge_events_topic)?;
+    let transfer_partitions = fetch_partition_count(
+        &transfers_follower_consumer,
+        &config.cohort_merge_state_transfer_topic,
+    )?;
+    anyhow::ensure!(
+        merge_partitions == events_partitions && transfer_partitions == events_partitions,
+        "merge topics must be co-partitioned with {} ({} partitions): {} has {}, {} has {}",
+        config.cohort_stream_events_topic,
+        events_partitions,
+        config.person_merge_events_topic,
+        merge_partitions,
+        config.cohort_merge_state_transfer_topic,
+        transfer_partitions,
+    );
+
+    let followers = Arc::new(MergeFollowers::new(
+        merges_follower_consumer.clone(),
+        config.person_merge_events_topic.clone(),
+        transfers_follower_consumer.clone(),
+        config.cohort_merge_state_transfer_topic.clone(),
+    ));
 
     // Currently unused; wired through to the rebalance worker and the consume loop.
     let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
@@ -157,11 +248,13 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // The async half of rebalancing: reclaim revoked partitions off the poll thread, exiting on the
-    // consumer's shutdown token. Held so teardown can await it after the consume loop stops.
+    // The async half of rebalancing: mirror every (un)assignment onto the merge followers and
+    // reclaim revoked partitions off the poll thread, exiting on the consumer's shutdown token.
+    // Held so teardown can await it after the consume loop stops.
     let rebalance_worker = tokio::spawn(run_rebalance_worker(
         rebalance_rx,
         dispatcher.clone(),
+        followers,
         consumer_command_tx,
         consumer_handle.shutdown_token(),
     ));
@@ -175,6 +268,42 @@ async fn async_main(config: Config) -> Result<()> {
         config.sweep_interval(),
         consumer_handle.shutdown_token(),
     ));
+
+    // The pending-transfer redrive (TDD §4.5.1, D3): each tick routes a redrive to every owned
+    // partition's worker, which re-produces any `cf_pending_transfers` entries stranded by
+    // inline-retry exhaustion and finally lets the merge group's commit advance past them. Same
+    // timer machinery and shutdown token as the eviction sweep above.
+    tokio::spawn(run_sweep_loop(
+        RedriveSweeper::new(dispatcher.clone()),
+        config.merge_redrive_interval(),
+        consumer_handle.shutdown_token(),
+    ));
+
+    // The two follower consume loops, gated on the first successful catalog load (D9): their
+    // partitions are already mirrored, so until the gate opens librdkafka prefetches the assigned
+    // partitions into its client-side buffer (bounded by `queued.max.messages.kbytes`) with nothing
+    // `recv()`ing it — harmless at merge-topic rates, and visible as lag on the two merge groups.
+    let merge_follower = FollowerConsumer::<MergeRoute>::new(
+        merges_follower_consumer,
+        config.person_merge_events_topic.clone(),
+        dispatcher.clone(),
+        merge_follower_handle.clone(),
+        config.recv_batch_size,
+        config.recv_batch_timeout(),
+        config.offset_commit_interval(),
+    );
+    spawn_follower_after_catalog_load(catalog.clone(), merge_follower, merge_follower_handle);
+
+    let transfer_follower = FollowerConsumer::<TransferRoute>::new(
+        transfers_follower_consumer,
+        config.cohort_merge_state_transfer_topic.clone(),
+        dispatcher.clone(),
+        transfer_follower_handle.clone(),
+        config.recv_batch_size,
+        config.recv_batch_timeout(),
+        config.offset_commit_interval(),
+    );
+    spawn_follower_after_catalog_load(catalog.clone(), transfer_follower, transfer_follower_handle);
 
     let events_consumer = CohortStreamEventsConsumer::new(
         stream_consumer,
@@ -213,6 +342,50 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
+/// One topic's partition count from live broker metadata — D14's input. Fails on a missing topic,
+/// a broker-reported topic error, or an empty partition set.
+fn fetch_partition_count<C: ConsumerContext>(
+    consumer: &StreamConsumer<C>,
+    topic: &str,
+) -> Result<usize> {
+    let metadata = consumer
+        .fetch_metadata(Some(topic), Duration::from_secs(10))
+        .with_context(|| format!("fetching broker metadata for {topic}"))?;
+    let topic_metadata = metadata
+        .topics()
+        .iter()
+        .find(|candidate| candidate.name() == topic)
+        .with_context(|| format!("topic {topic} missing from broker metadata"))?;
+    if let Some(err) = topic_metadata.error() {
+        anyhow::bail!("broker reports an error for topic {topic}: {err:?}");
+    }
+    let count = topic_metadata.partitions().len();
+    anyhow::ensure!(
+        count > 0,
+        "topic {topic} has no partitions in broker metadata"
+    );
+    Ok(count)
+}
+
+/// Spawn a merge-protocol follower's consume loop, gated on the first successful filter-catalog
+/// load (D9): before it, every team reads as absent, and a drain/apply against that false-empty
+/// view would silently drop a real team's leaves as drift. Shutdown can preempt the gate — the
+/// task then drops the never-started follower, and the handle's drop-during-shutdown reports
+/// completion to the manager (nothing was consumed, so there is nothing to commit).
+fn spawn_follower_after_catalog_load<R: FollowerRoute>(
+    catalog: Arc<CatalogHandle>,
+    follower: FollowerConsumer<R>,
+    handle: Handle,
+) {
+    tokio::spawn(async move {
+        tokio::select! {
+            biased;
+            _ = handle.shutdown_recv() => {}
+            _ = catalog.wait_until_loaded() => follower.process().await,
+        }
+    });
+}
+
 /// Log a redacted startup summary. Deliberately omits `database_url` (carries credentials).
 fn log_startup(config: &Config) {
     info!(
@@ -223,6 +396,10 @@ fn log_startup(config: &Config) {
         output_topic = %config.cohort_membership_changed_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
+        merge_topic = %config.person_merge_events_topic,
+        transfer_topic = %config.cohort_merge_state_transfer_topic,
+        merge_consumer_group = %config.kafka_merge_consumer_group,
+        merge_apply_consumer_group = %config.kafka_merge_apply_consumer_group,
         session_timeout_ms = config.kafka_session_timeout_ms,
         pod_identity = config.pod_identity().unwrap_or("<dynamic>"),
         recv_batch_size = config.recv_batch_size,

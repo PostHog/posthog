@@ -63,8 +63,12 @@ impl TransferLeaf {
 
 /// Internal `cohort_merge_state_transfer` payload (TDD §4.5.1): P_old's packaged state, keyed by
 /// `hash(team_id, new_person_uuid)` so it lands on P_new's worker. `source_partition`/`source_offset`
-/// are the triggering merge message's Kafka coordinates (carried for traceability; the apply step
-/// keys `cf_merge_applied` by the *transfer* message's own coordinates).
+/// are the triggering merge message's Kafka coordinates, and they — not the transfer message's own —
+/// key `cf_merge_applied` on the apply side: duplicate copies of one merge's transfer (outbox redrive
+/// racing the inline retry, an `AlreadyDrained` re-produce, a crash between the produce ack and the
+/// outbox clear) each land at fresh transfer-topic coordinates by design, but all carry the same
+/// source pair — identical across copies and globally unique per merge — so only the source pair
+/// makes the second copy a no-op instead of a bucket double-count.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MergeStateTransfer {
     pub team_id: i32,

@@ -75,8 +75,8 @@ fn merge_applied_key(partition: u16, team: u64, new: u128) -> MergeAppliedKey {
         partition_id: partition,
         team_id: team,
         new_person: person(new),
-        transfer_partition: 3,
-        transfer_offset: 42,
+        source_partition: 3,
+        source_offset: 42,
     }
 }
 

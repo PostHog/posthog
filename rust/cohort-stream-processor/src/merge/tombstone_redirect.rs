@@ -5,10 +5,11 @@
 //! through that tombstone (and any chain of further merges) to the person it should fold into.
 //!
 //! [`resolve`] follows **same-partition** tombstone hops in process (no cross-worker reads), stopping
-//! at the first hop that lands on a different partition — that one is re-keyed and re-produced (in C2)
-//! so it hops to the owning worker, which re-resolves from there. The chain `origin` is always the
-//! **first** person (the straggler's own id): it keys the merged record's `redirect_dedup`, so
-//! rewriting it mid-chain would consult the wrong dedup map and re-open the double-fold hazard.
+//! at the first hop that lands on a different partition — that one is re-keyed and re-produced to
+//! `cohort_stream_events` so it hops to the owning worker, which re-resolves from there. The chain
+//! `origin` is always the **first** person (the straggler's own id): it keys the merged record's
+//! `redirect_dedup`, so rewriting it mid-chain would consult the wrong dedup map and re-open the
+//! double-fold hazard.
 
 use metrics::counter;
 use tracing::{debug, warn};
@@ -25,6 +26,15 @@ use crate::store::{CohortStore, StoreError, TombstoneKey};
 /// is a defensive backstop against a pathological/corrupt cycle.
 const MAX_TOMBSTONE_HOPS: usize = 16;
 
+/// Bound on the number of **cross-partition** re-produce hops one straggler event may take
+/// (`redirect_hops` on the wire, D13). [`MAX_TOMBSTONE_HOPS`] only bounds a chain within one
+/// partition's slice: a corrupt cross-partition tombstone cycle (A→B on one partition, B→A on
+/// another) looks like a fresh single hop to each worker, so an un-capped event would re-produce
+/// between the two partitions forever. At the cap the worker stops producing and processes the
+/// event inline at the best-known target — the same degrade as the same-partition cap, trading a
+/// possibly wrong-slice fold for guaranteed termination.
+pub(crate) const MAX_CROSS_PARTITION_REDIRECT_HOPS: u8 = 8;
+
 /// Where a straggler event for `person` should actually be processed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resolution {
@@ -35,7 +45,8 @@ pub enum Resolution {
     /// as the merge origin so the fold dedups against `redirect_dedup[origin]`.
     Inline { final_person: Uuid, origin: Uuid },
     /// The chain reaches `target_person` on a **different** partition. Re-key the event to
-    /// `target_person` and re-produce it (C2) so it lands on the owning worker; `origin` is preserved.
+    /// `target_person` and re-produce it to `cohort_stream_events` so it lands on the owning worker;
+    /// `origin` is preserved.
     CrossPartition { target_person: Uuid, origin: Uuid },
 }
 
@@ -118,21 +129,27 @@ fn read_tombstone(
     }
 }
 
-/// The `merge_tombstone_redirects_total{path}` label for a resolution that triggered a redirect.
-/// `NotMerged` has no label (it is the no-op path).
-pub fn redirect_path(resolution: &Resolution) -> Option<&'static str> {
+/// Record an **inline** redirect at resolve time (a no-op for [`Resolution::NotMerged`]).
+///
+/// A [`Resolution::CrossPartition`] is deliberately *not* counted here: its `re_keyed` count is
+/// recorded by [`record_re_keyed`] only after the re-produce ack — a failed produce holds the
+/// events offset and the redelivery re-resolves the same tombstone, so resolve-time counting would
+/// count every retry of a never-produced redirect.
+pub fn record_redirect(resolution: &Resolution) {
     match resolution {
-        Resolution::NotMerged => None,
-        Resolution::Inline { .. } => Some("inline"),
-        // C1 drops this arm (no producer yet); C2 re-produces it and relabels to `re_keyed`.
-        Resolution::CrossPartition { .. } => Some("cross_partition"),
+        Resolution::NotMerged | Resolution::CrossPartition { .. } => {}
+        Resolution::Inline { .. } => {
+            counter!(MERGE_TOMBSTONE_REDIRECTS_TOTAL, "path" => "inline").increment(1);
+        }
     }
 }
 
-/// Record the redirect under its `path` label (a no-op for [`Resolution::NotMerged`]).
-pub fn record_redirect(resolution: &Resolution) {
-    if let Some(path) = redirect_path(resolution) {
-        counter!(MERGE_TOMBSTONE_REDIRECTS_TOTAL, "path" => path).increment(1);
+/// Record `count` cross-partition redirects under `merge_tombstone_redirects_total{path="re_keyed"}`.
+/// Called by the worker's batch epilogue strictly **after** the re-produce ack, so the counter only
+/// ever counts stragglers that durably hopped to their owning partition.
+pub fn record_re_keyed(count: u64) {
+    if count > 0 {
+        counter!(MERGE_TOMBSTONE_REDIRECTS_TOTAL, "path" => "re_keyed").increment(count);
     }
 }
 

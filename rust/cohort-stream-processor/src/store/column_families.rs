@@ -19,8 +19,9 @@ pub const CF_MERGE_DRAINS_APPLIED: &str = "cf_merge_drains_applied";
 /// merge between the drain `WriteBatch` and the successful produce to `cohort_merge_state_transfer`;
 /// scanned on startup so an orphaned drain is re-produced.
 pub const CF_PENDING_TRANSFERS: &str = "cf_pending_transfers";
-/// Phase 2 idempotence: `(partition_id, team_id, P_new, transfer_partition, transfer_offset) →
-/// applied_at_ms`. Short-circuits a re-applied transfer message.
+/// Phase 2 idempotence: `(partition_id, team_id, P_new, source_partition, source_offset) →
+/// applied_at_ms`. Keyed by the triggering merge message's coordinates, so every duplicate copy of
+/// one merge's transfer short-circuits — not just a redelivery at the same transfer-topic offset.
 pub const CF_MERGE_APPLIED: &str = "cf_merge_applied";
 /// Post-merge straggler redirect (closes S6a): `(partition_id, team_id, P_old) → Tombstone`. Records
 /// merged-away persons so a late `cohort_stream_events` message for P_old is redirected to P_new.

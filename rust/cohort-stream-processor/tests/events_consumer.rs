@@ -19,13 +19,14 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionRouter,
+    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+use cohort_stream_processor::workers::MergeWorkerDeps;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::KafkaProduceError;
 use lifecycle::{ComponentOptions, Manager};
@@ -152,6 +153,15 @@ async fn produce_events(topic: &str) -> usize {
     total
 }
 
+/// These tests exercise the events topic alone; assignment mirroring onto the merge followers is
+/// covered by the rebalance unit tests and the merge-consumer broker tests.
+struct NoopMirror;
+
+impl PartitionMirror for NoopMirror {
+    fn assign(&self, _partitions: &[i32]) {}
+    fn unassign(&self, _partitions: &[i32]) {}
+}
+
 fn build_consumer(
     topic: &str,
     group: &str,
@@ -167,6 +177,7 @@ fn build_consumer(
         store,
         Arc::new(catalog),
         sink,
+        MergeWorkerDeps::capture(),
     ));
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
@@ -186,6 +197,7 @@ fn build_consumer(
     tokio::spawn(run_rebalance_worker(
         rebalance_rx,
         dispatcher.clone(),
+        Arc::new(NoopMirror),
         consumer_command_tx,
         handle.shutdown_token(),
     ));

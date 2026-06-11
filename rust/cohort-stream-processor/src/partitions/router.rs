@@ -11,6 +11,7 @@
 //!   full channel parks only itself within one [`route_batch`](PartitionRouter::route_batch) call.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -54,6 +55,11 @@ pub struct PartitionRouter {
     senders: DashMap<i32, mpsc::Sender<Vec<ShuffleMessage>>>,
     /// Bounded buffer for every per-partition channel — the backpressure knob.
     channel_buffer: usize,
+    /// Terminal: set by [`clear`](Self::clear) (shutdown), never unset. Read by
+    /// [`add_partition`](Self::add_partition) *under its shard guard* so a registration can never
+    /// land after the clear's removal pass — a sender registered post-clear would never be dropped,
+    /// and the worker holding its receiver would never exit (the shutdown-join hang).
+    closed: AtomicBool,
 }
 
 impl PartitionRouter {
@@ -61,6 +67,7 @@ impl PartitionRouter {
         Self {
             senders: DashMap::new(),
             channel_buffer,
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -77,8 +84,25 @@ impl PartitionRouter {
     /// Self-heal is a safety net, **not** a substitute for cleanup: the caller must still run
     /// [`remove_partition`](Self::remove_partition) on every worker-exit path, because until the
     /// next reassignment a silently-dead worker keeps dropping (and Kafka replaying) its messages.
+    ///
+    /// Returns `None` without registering anything once [`clear`](Self::clear) has closed the
+    /// router: a sender registered after the clear would never be dropped, so its worker would
+    /// never exit and a shutdown join on it would hang forever.
     pub fn add_partition(&self, partition: i32) -> Option<mpsc::Receiver<Vec<ShuffleMessage>>> {
-        let receiver = match self.senders.entry(partition) {
+        let entry = self.senders.entry(partition);
+        // Read `closed` while holding the entry's shard guard: `clear()` stores `closed` *before*
+        // its removal pass, and that pass needs this shard's write lock — so a `false` read here
+        // guarantees any sender we insert is still visible to (and dropped by) the clear, and a
+        // `true` read refuses outright. Either way no sender survives a clear.
+        if self.closed.load(Ordering::SeqCst) {
+            drop(entry);
+            warn!(
+                partition,
+                "router is closed (cleared for shutdown); refusing to register a worker channel"
+            );
+            return None;
+        }
+        let receiver = match entry {
             Entry::Occupied(mut slot) => {
                 if slot.get().is_closed() {
                     // Orphaned sender from a worker that exited without `remove_partition`; replace it.
@@ -118,11 +142,21 @@ impl PartitionRouter {
         }
     }
 
-    /// Drop every sender at once, signalling all workers to drain and exit. Used on shutdown, where
-    /// the router is shared (`Arc`) so it cannot be dropped to close the channels.
+    /// Drop every sender at once, signalling all workers to drain and exit, and close the router
+    /// **terminally**: every later [`add_partition`](Self::add_partition) refuses. Used on
+    /// shutdown, where the router is shared (`Arc`) so it cannot be dropped to close the channels.
     pub fn clear(&self) {
+        // Store before the removal pass: `add_partition` reads `closed` under its shard guard, so
+        // an insert that read `false` completes before this pass can take that shard and is
+        // removed by it. The cleared, closed map is the final state under every interleaving.
+        self.closed.store(true, Ordering::SeqCst);
         self.senders.clear();
         self.emit_active_gauge();
+    }
+
+    /// Whether [`clear`](Self::clear) has closed this router. Terminal — never resets.
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 
     /// Group a mixed-partition batch by partition and dispatch each sub-batch to its worker,
@@ -231,6 +265,7 @@ mod tests {
                 source_offset: tag,
                 source_partition: 0,
                 redirected_from: None,
+                redirect_hops: 0,
             },
             cse_offset: 0,
         }
@@ -241,7 +276,12 @@ mod tests {
             .iter()
             .map(|message| match message {
                 ShuffleMessage::Event { event, .. } => event.source_offset,
-                ShuffleMessage::Sweep { .. } => unreachable!("router tests route only events"),
+                ShuffleMessage::Sweep { .. }
+                | ShuffleMessage::Merge { .. }
+                | ShuffleMessage::Transfer { .. }
+                | ShuffleMessage::RedrivePendingTransfers => {
+                    unreachable!("router tests route only events")
+                }
             })
             .collect()
     }
@@ -382,6 +422,39 @@ mod tests {
         // Partition 1 still holds only the pre-fill; the new sub-batch is queued in the pending future.
         assert_eq!(tags(&rx1.try_recv().unwrap()), vec![100]);
         assert!(rx1.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn clear_closes_the_router_so_add_partition_refuses() {
+        // `clear` is shutdown's signal and is terminal: a registration that arrives after it (e.g.
+        // an `ensure_worker` whose `draining` load passed before shutdown flipped the flag) must be
+        // refused, or its never-dropped sender would hang the shutdown join on its worker.
+        let router = PartitionRouter::new(16);
+        let mut rx = router.add_partition(5).unwrap();
+
+        router.clear();
+        assert!(router.is_closed());
+        assert!(rx.recv().await.is_none(), "clear dropped the live sender");
+
+        assert!(
+            router.add_partition(5).is_none(),
+            "re-registration after clear is refused",
+        );
+        assert!(
+            router.add_partition(6).is_none(),
+            "first-time registration after clear is refused too",
+        );
+        assert_eq!(router.partition_count(), 0, "nothing was inserted");
+
+        // Routing still degrades to the dropped-and-replayed path, never a panic.
+        let errors = router.route_batch(vec![(5, event(1))]).await;
+        assert_eq!(
+            errors,
+            vec![RouteError::NoWorker {
+                partition: 5,
+                dropped: 1
+            }]
+        );
     }
 
     #[tokio::test]

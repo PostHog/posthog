@@ -140,6 +140,7 @@ mod tests {
             source_offset: 0,
             source_partition: 0,
             redirected_from: None,
+            redirect_hops: 0,
         }
     }
 

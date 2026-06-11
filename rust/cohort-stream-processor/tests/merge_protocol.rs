@@ -12,7 +12,7 @@ use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder
 use cohort_stream_processor::merge::apply_handler::{handle_transfer, ApplyOutcome};
 use cohort_stream_processor::merge::drain_handler::{handle_merge_event, DrainOutcome};
 use cohort_stream_processor::merge::transfer::{
-    PendingTransfer, PersonMergeEvent, MERGE_EVENT_SCHEMA_VERSION,
+    MergeStateTransfer, PendingTransfer, PersonMergeEvent, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
@@ -119,6 +119,7 @@ fn pageview_event(person: Uuid, source_partition: i32, source_offset: i64) -> Co
         source_offset,
         source_partition,
         redirected_from: None,
+        redirect_hops: 0,
     }
 }
 
@@ -377,6 +378,136 @@ fn compressed_sum(state: &Stage1State) -> u32 {
     }
 }
 
+/// Seed a cross-partition `(P_old, P_new)` pair (one `$pageview` each), drain P_old, and return the
+/// staged transfer alongside everything an apply-dedup test needs.
+fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeStateTransfer) {
+    let store = temp_store_in(dir);
+    let filters = build_filters();
+
+    let p_old = Uuid::from_u128(0x0DD);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
+    fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
+
+    let mut old_queue = EvictionQueue::<Stage1Key>::new();
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        &mut old_queue,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer } => transfer,
+        other => panic!("expected Drained, got {other:?}"),
+    };
+    (store, filters, p_new_part, p_new, transfer)
+}
+
+/// Duplicate transfer copies are designed protocol paths (a crash between the produce ack and the
+/// outbox clear, an `AlreadyDrained` re-produce racing the original ack, the redrive racing the
+/// inline retry) — each copy lands at fresh transfer-topic coordinates, so the apply dedup must key
+/// by the source merge message's coordinates, which are identical across every copy.
+#[test]
+fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() {
+    let dir = TempDir::new().unwrap();
+    let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
+
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    let first =
+        handle_transfer(p_new_part, &store, &filters, &transfer, (5, 7), &mut queue).unwrap();
+    assert!(matches!(first, ApplyOutcome::Applied { .. }));
+
+    let duplicate = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (63, 9_999),
+        &mut queue,
+    )
+    .unwrap();
+    assert_eq!(
+        duplicate,
+        ApplyOutcome::AlreadyApplied,
+        "the same merge under different transfer coords dedups by source coords"
+    );
+
+    // The merged state itself is unchanged — the duplicate never re-ran the bucket merge.
+    let (single, daily, compressed) = behavioral_states(&store, &filters, p_new_part, p_new);
+    assert!(matches!(
+        single,
+        Some(Stage1State::BehavioralSingle {
+            has_match: true,
+            ..
+        })
+    ));
+    assert_eq!(
+        daily_sum(&daily.unwrap()),
+        2,
+        "daily buckets not double-counted by the duplicate copy"
+    );
+    assert_eq!(
+        compressed_sum(&compressed.unwrap()),
+        2,
+        "compressed history not double-counted by the duplicate copy"
+    );
+}
+
+/// The accepted residual of source-coords dedup: a re-drain after a drain-marker wipe can capture
+/// straggler-rebuilt P_old state in a second transfer for the same merge — same source coordinates,
+/// different payload. The dedup cannot distinguish it from a plain duplicate copy, so the rebuilt
+/// state is dropped (rare — it needs a marker wipe plus stragglers in the same window; bounded by
+/// the straggler tail and comparator-scoped). This pins the drop as intended behavior.
+#[test]
+fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
+    let dir = TempDir::new().unwrap();
+    let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
+
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    let first =
+        handle_transfer(p_new_part, &store, &filters, &transfer, (5, 7), &mut queue).unwrap();
+    assert!(matches!(first, ApplyOutcome::Applied { .. }));
+
+    // The re-drain repackaged different state for the same merge (same source coordinates).
+    let mut redrained = transfer.clone();
+    for leaf in &mut redrained.leaves {
+        if let Stage1State::BehavioralDailyBuckets { buckets, .. } = &mut leaf.record.state {
+            for bucket in buckets.iter_mut() {
+                *bucket += 5;
+            }
+        }
+    }
+    assert_ne!(
+        redrained.leaves, transfer.leaves,
+        "the re-drained payload differs"
+    );
+
+    let outcome = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &redrained,
+        (12, 345),
+        &mut queue,
+    )
+    .unwrap();
+    assert_eq!(outcome, ApplyOutcome::AlreadyApplied);
+
+    let (_, daily, compressed) = behavioral_states(&store, &filters, p_new_part, p_new);
+    assert_eq!(
+        daily_sum(&daily.unwrap()),
+        2,
+        "the rebuilt P_old state is dropped, not folded"
+    );
+    assert_eq!(compressed_sum(&compressed.unwrap()), 2);
+}
+
 #[test]
 fn fast_path_equals_the_cross_partition_result() {
     let dir = TempDir::new().unwrap();
@@ -564,5 +695,72 @@ fn apply_transitions_compose_into_stage2() {
     assert!(
         composable_enter.is_some_and(|c| c.status == MembershipStatus::Entered),
         "the merged daily flip composes AND(daily, person) → Entered for P_new",
+    );
+}
+
+/// D10's staging seam: a duplicate upstream merge event at NEW coordinates (the merge producer is
+/// at-least-once) misses the per-message drain marker, re-drains the by-then-empty P_old, and must
+/// NOT overwrite a still-pending, never-produced transfer with its empty payload — that would lose
+/// the packaged state for good. The empty re-drain stages nothing; the original entry survives
+/// verbatim for the redrive to produce.
+#[test]
+fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
+    let dir = TempDir::new().unwrap();
+    let (store, filters, _p_new_part, p_new, transfer) = seed_and_drain(&dir);
+    let p_old = transfer.old_person_uuid;
+    let p_old_part = part(p_old);
+    let pending_key = PendingTransferKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        old_person: p_old,
+    };
+
+    // The transfer was never produced (a produce failure), so the outbox entry is still staged.
+    let staged = PendingTransfer::decode(
+        &store
+            .get_pending_transfer(&pending_key)
+            .unwrap()
+            .expect("the drain staged the transfer"),
+    )
+    .unwrap();
+    assert!(!staged.transfer.leaves.is_empty());
+    assert_eq!(
+        (staged.merge_msg_partition, staged.merge_msg_offset),
+        (5, 100),
+    );
+
+    // The duplicate merge redelivers at fresh coordinates → the drain marker misses → re-drain.
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    let redrain = handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 101),
+        &mut queue,
+    )
+    .unwrap();
+    let DrainOutcome::Drained {
+        transfer: redrained,
+    } = redrain
+    else {
+        panic!("expected Drained, got {redrain:?}");
+    };
+    assert!(
+        redrained.leaves.is_empty(),
+        "P_old was already drained, so the re-drain packages nothing",
+    );
+
+    // The staged entry is untouched: same payload, same merge-message coordinates.
+    let after = PendingTransfer::decode(
+        &store
+            .get_pending_transfer(&pending_key)
+            .unwrap()
+            .expect("the pending transfer survives the empty re-drain"),
+    )
+    .unwrap();
+    assert_eq!(
+        after, staged,
+        "an empty re-drain must not overwrite the pending transfer",
     );
 }

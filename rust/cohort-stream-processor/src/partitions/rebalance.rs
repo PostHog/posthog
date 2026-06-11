@@ -26,6 +26,7 @@ use tracing::{debug, error, info};
 
 use crate::consumers::events::EventDispatcher;
 use crate::observability::metrics::{REBALANCES_TOTAL, REBALANCE_EMPTY_SKIPPED_TOTAL};
+use crate::partitions::follower::PartitionMirror;
 
 /// Work shipped from the synchronous rebalance callbacks to the async [`run_rebalance_worker`],
 /// which can do the I/O the callbacks must not.
@@ -145,9 +146,16 @@ impl ConsumerContext for CohortConsumerContext {
     }
 }
 
-/// Drain the async half of rebalancing: reclaim revoked partitions (drain worker + delete state) off
-/// the poll thread. Runs until the [`shutdown`](CancellationToken) token fires or the context (its
-/// only sender) is dropped.
+/// Drain the async half of rebalancing: mirror every (un)assignment onto the merge-protocol
+/// follower consumers, and reclaim revoked partitions (drain worker + delete state) off the poll
+/// thread. Runs until the [`shutdown`](CancellationToken) token fires or the context (its only
+/// sender) is dropped.
+///
+/// Both mirror calls are **unconditional** (D5) — no ownership re-check, even on the rapid
+/// revoke→assign path where the drain itself skips. Between the sync revoke and the unassign here,
+/// the followers keep fetching and the owned-gate drops their messages while the in-session fetch
+/// position advances; only an unconditional re-assign at `Offset::Stored` rewinds over that dropped
+/// window, and the drain/apply source-coords markers absorb the redelivered prefix.
 ///
 /// An in-flight cleanup is never interrupted: `select!` only races the *futures* — once a
 /// `RebalanceEvent` is received and its handler is running, it completes before the next shutdown
@@ -155,6 +163,7 @@ impl ConsumerContext for CohortConsumerContext {
 pub async fn run_rebalance_worker(
     mut events: RebalanceEventReceiver,
     dispatcher: Arc<EventDispatcher>,
+    mirror: Arc<dyn PartitionMirror>,
     // Currently unused; held so the command channel's receiver stays open.
     _consumer_command_tx: ConsumerCommandSender,
     shutdown: CancellationToken,
@@ -174,12 +183,20 @@ pub async fn run_rebalance_worker(
                 };
                 match event {
                     RebalanceEvent::Revoke(partitions) => {
+                        // Unassign the followers *before* the drain: the drain joins the worker, and
+                        // anything the followers fetched during that window would be dropped at the
+                        // owned-gate while still advancing their fetch position. Deliberately **no**
+                        // follower offset commit here: the worker may still be marking the drained
+                        // tail, and an uncommitted offset simply redelivers to the partition's next
+                        // owner, whose drain/apply source-coords markers absorb the replay.
+                        mirror.unassign(&partitions);
                         for partition in partitions {
                             dispatcher.revoke_partition_drain(partition).await;
                         }
                     }
-                    // Assignment needs no async work; workers spawn lazily on first message.
-                    RebalanceEvent::Assign(_partitions) => {}
+                    // The dispatcher side needs no async work (workers spawn lazily on first
+                    // message); the followers resume from each group's committed offset.
+                    RebalanceEvent::Assign(partitions) => mirror.assign(&partitions),
                 }
             }
         }
@@ -199,12 +216,14 @@ fn partition_numbers(partitions: &TopicPartitionList) -> Vec<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::TempDir;
 
     use crate::filters::{CatalogHandle, FilterCatalog};
-    use crate::partitions::{OffsetTracker, PartitionRouter};
+    use crate::partitions::{MarkOutcome, OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
     use crate::store::{CohortStore, StoreConfig};
+    use crate::workers::MergeWorkerDeps;
 
     const TOPIC: &str = "cohort_stream_events";
 
@@ -217,8 +236,9 @@ mod tests {
     }
 
     /// A dispatcher over an empty catalog: enough to exercise the ownership/queue plumbing without
-    /// processing any events.
-    fn test_dispatcher() -> (TempDir, Arc<EventDispatcher>) {
+    /// processing any events. Also returns the shared events tracker, the seam the mirror tests
+    /// use to observe whether the revoke drain has run yet.
+    fn test_dispatcher() -> (TempDir, Arc<EventDispatcher>, Arc<OffsetTracker>) {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {
             path: dir.path().join("db"),
@@ -227,14 +247,81 @@ mod tests {
         .unwrap();
         let catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([])));
         let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        let tracker = Arc::new(OffsetTracker::new());
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
-            Arc::new(OffsetTracker::new()),
+            tracker.clone(),
             store,
             catalog,
             sink,
+            MergeWorkerDeps::capture(),
         );
-        (dir, Arc::new(dispatcher))
+        (dir, Arc::new(dispatcher), tracker)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum MirrorCall {
+        Assign(Vec<i32>),
+        Unassign(Vec<i32>),
+    }
+
+    /// Records every mirror call in order. At unassign time it also snapshots whether the events
+    /// tracker still held every revoked partition's entry — the drain forgets those entries, so a
+    /// `true` observation proves the unassign ran *before* the drain.
+    struct RecordingMirror {
+        tracker: Arc<OffsetTracker>,
+        calls: Mutex<Vec<MirrorCall>>,
+        unassign_saw_tracker_entry: Mutex<Vec<bool>>,
+    }
+
+    impl RecordingMirror {
+        fn new(tracker: Arc<OffsetTracker>) -> Arc<Self> {
+            Arc::new(Self {
+                tracker,
+                calls: Mutex::new(Vec::new()),
+                unassign_saw_tracker_entry: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn calls(&self) -> Vec<MirrorCall> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl PartitionMirror for RecordingMirror {
+        fn assign(&self, partitions: &[i32]) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(MirrorCall::Assign(partitions.to_vec()));
+        }
+
+        fn unassign(&self, partitions: &[i32]) {
+            let offsets = self.tracker.committable_offsets();
+            let saw_all = partitions
+                .iter()
+                .all(|partition| offsets.contains_key(partition));
+            self.unassign_saw_tracker_entry
+                .lock()
+                .unwrap()
+                .push(saw_all);
+            self.calls
+                .lock()
+                .unwrap()
+                .push(MirrorCall::Unassign(partitions.to_vec()));
+        }
+    }
+
+    /// Queue the context's pending events, drop it, and run the worker to completion — the closed
+    /// channel drains every queued event before `recv()` yields `None`, so no polling or token
+    /// cancellation is needed.
+    async fn run_worker_to_completion(
+        events: RebalanceEventReceiver,
+        dispatcher: Arc<EventDispatcher>,
+        mirror: Arc<RecordingMirror>,
+    ) {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        run_rebalance_worker(events, dispatcher, mirror, cmd_tx, CancellationToken::new()).await;
     }
 
     #[test]
@@ -253,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_assign_records_ownership_and_queues_an_assign_event() {
-        let (_dir, dispatcher) = test_dispatcher();
+        let (_dir, dispatcher, _tracker) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[0, 1, 4]));
@@ -271,7 +358,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_revoke_clears_ownership_and_queues_a_revoke_event() {
-        let (_dir, dispatcher) = test_dispatcher();
+        let (_dir, dispatcher, _tracker) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[0, 1]));
@@ -291,7 +378,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_callbacks_are_noops_and_queue_nothing() {
-        let (_dir, dispatcher) = test_dispatcher();
+        let (_dir, dispatcher, _tracker) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[]));
@@ -301,6 +388,85 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "an empty callback must not queue work",
+        );
+    }
+
+    #[tokio::test]
+    async fn assign_event_mirrors_the_followers() {
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+
+        ctx.on_assign(&tpl(&[0, 4]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher, mirror.clone()).await;
+
+        assert_eq!(mirror.calls(), vec![MirrorCall::Assign(vec![0, 4])]);
+    }
+
+    #[tokio::test]
+    async fn revoke_unassigns_the_followers_before_the_drain() {
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker.clone());
+
+        // Seed a committable entry the drain will forget — the order probe.
+        tracker.mark_dispatched(3, 10);
+        assert_eq!(tracker.mark_processed(3, 10), MarkOutcome::WithinDispatch);
+
+        ctx.on_assign(&tpl(&[3]));
+        ctx.on_revoke(&tpl(&[3]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror.clone()).await;
+
+        assert_eq!(
+            mirror.calls(),
+            vec![MirrorCall::Assign(vec![3]), MirrorCall::Unassign(vec![3])],
+        );
+        assert_eq!(
+            *mirror.unassign_saw_tracker_entry.lock().unwrap(),
+            vec![true],
+            "the tracker entry was still live at unassign time, so the unassign ran before the drain",
+        );
+        assert!(
+            !tracker.committable_offsets().contains_key(&3),
+            "the drain then forgot the revoked partition's entry",
+        );
+        assert!(!dispatcher.owns(3));
+    }
+
+    #[tokio::test]
+    async fn rapid_revoke_assign_mirrors_both_calls_unconditionally() {
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker.clone());
+
+        tracker.mark_dispatched(3, 10);
+        assert_eq!(tracker.mark_processed(3, 10), MarkOutcome::WithinDispatch);
+
+        // Cooperative-sticky can revoke and immediately hand the partition back. The drain skips
+        // (re-acquired at its entry check) but the mirror must still unassign *and* re-assign:
+        // skipping the re-assign would leave the follower's in-session position past the
+        // owned-gate-dropped window, which a later monotonic-max mark would commit over.
+        ctx.on_assign(&tpl(&[3]));
+        ctx.on_revoke(&tpl(&[3]));
+        ctx.on_assign(&tpl(&[3]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror.clone()).await;
+
+        assert_eq!(
+            mirror.calls(),
+            vec![
+                MirrorCall::Assign(vec![3]),
+                MirrorCall::Unassign(vec![3]),
+                MirrorCall::Assign(vec![3]),
+            ],
+        );
+        assert!(dispatcher.owns(3), "the rapid re-assign restored ownership");
+        assert_eq!(
+            tracker.committable_offsets().get(&3),
+            Some(&10),
+            "the drain skipped for the re-acquired partition, so its tracker entry survives",
         );
     }
 }
