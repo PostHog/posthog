@@ -1877,10 +1877,11 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         assert len(with_pushdown or []) == 3  # u1's two events (has tier) and u2's event (no tier)
 
     def test_exec_having_on_property_alias_stays_correct(self):
-        # A HAVING comparison on a select alias over a property must not be rewritten to a bare backing column:
-        # with pushdown, the property read lives inside the events subquery, so a bare events-table column would be
-        # out of scope in the outer query (ClickHouse: unknown identifier). The rewrite declines via the
-        # tables-in-scope guard and the comparison stays on the alias.
+        # A non-aggregate HAVING drops rows after the join, so `_safe_inner_limit` declines the pushdown (a pushed
+        # LIMIT could under-produce). The query compiles flat; the comparison on the alias must still resolve to the
+        # property correctly and match the same rows with the modifier on and off. (If the decline is ever relaxed,
+        # the tables-in-scope guard is the second barrier: it stops the alias comparison from being rewritten to a
+        # bare events column the subquery doesn't project.)
         self._create_data()
         select = (
             f"SELECT properties.tier AS t, session.$session_duration AS d "

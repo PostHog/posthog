@@ -295,6 +295,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """Apply predicate pushdown to an eligible query. Returns a decline reason, or None if applied."""
         assert node.select_from is not None
 
+        # The hoister rewrites events references in the select list, residual predicates, HAVING/QUALIFY, and join
+        # constraints — but the printer also prints column-CTE bodies and WINDOW clauses. An events reference there
+        # would survive un-rewritten and point at a column the pre-filtering subquery doesn't project (ClickHouse:
+        # unknown identifier), so decline those shapes outright.
+        if node.ctes:
+            return "has_ctes"
+        if node.window_exprs:
+            return "has_window_exprs"
+
         joined_aliases = self._collect_joined_aliases(node)
         if not joined_aliases:
             return "no_safe_joined_aliases"
@@ -447,6 +456,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             or node.array_join_list is not None
             or node.limit_with_ties
             or node.limit_percent
+            # A non-aggregate HAVING / QUALIFY drops rows after the join, exactly like a residual predicate: the
+            # first `offset + limit` events no longer cover the outer slice, so a pushed LIMIT could under-produce.
+            or node.having is not None
+            or node.qualify is not None
         ):
             return None
         if residual_where is not None or residual_prewhere is not None:
