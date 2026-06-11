@@ -12,7 +12,9 @@
 //! Not ported, consistent with `flag_definitions`/`local_evaluation` (so "matches Django"
 //! does not extend to these): per-flag access control (advanced RBAC) is not enforced.
 //! Personal-key callers are checked for scope and team/org membership only, not role-based
-//! feature flag access, even though this endpoint can return decrypted payloads.
+//! feature flag access, even though this endpoint can return decrypted payloads. OAuth
+//! access tokens are also not accepted — any non-`phs_` bearer goes through personal-key
+//! validation and gets 401; only `phs_` and `phx_` credentials work.
 
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
