@@ -1,6 +1,54 @@
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { buildApplyUrlStatePayload } from './aiObservabilitySharedLogic'
+import { buildApplyUrlStatePayload, stripStaleSearchParams } from './aiObservabilitySharedLogic'
+
+describe('stripStaleSearchParams', () => {
+    it('returns null when every param is preserved', () => {
+        expect(
+            stripStaleSearchParams({
+                date_from: '-7d',
+                filter_test_accounts: 'true',
+                review_search: 'hallucination',
+                human_reviews_tab: 'reviews',
+            })
+        ).toBeNull()
+    })
+
+    it('keeps Reviews-tab params while stripping trace-view stale params', () => {
+        expect(
+            stripStaleSearchParams({
+                review_search: 'hallucination',
+                review_definition_id: 'def-123',
+                review_order_by: 'created_at',
+                review_page: 2,
+                human_reviews_tab: 'reviews',
+                // stale params carried over from the trace view
+                event: 'evt-1',
+                timestamp: '2026-04-01',
+                msg: 'whatever',
+            })
+        ).toEqual({
+            review_search: 'hallucination',
+            review_definition_id: 'def-123',
+            review_order_by: 'created_at',
+            review_page: 2,
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('keeps shared filter params alongside stripping stale ones', () => {
+        expect(
+            stripStaleSearchParams({
+                date_from: '-30d',
+                filters: [{ key: '$ai_model' }],
+                back_to: 'generations',
+            })
+        ).toEqual({
+            date_from: '-30d',
+            filters: [{ key: '$ai_model' }],
+        })
+    })
+})
 
 describe('buildApplyUrlStatePayload', () => {
     const currentDateFilter = { dateFrom: '-1h', dateTo: null as string | null }

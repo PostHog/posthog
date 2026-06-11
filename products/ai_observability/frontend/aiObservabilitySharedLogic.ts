@@ -76,6 +76,43 @@ interface BuildApplyUrlStatePayloadInput {
     currentPropertyFilters: AnyPropertyFilter[]
 }
 
+// Params owned by the shared logic (date/property/test-account filter bar).
+const KNOWN_URL_PARAMS = ['filters', 'date_from', 'date_to', 'filter_test_accounts'] as const
+
+// Params owned by the Reviews tab (aiObservabilityReviewsLogic). They live only in the
+// URL, so they must be preserved when other tabs strip stale params — otherwise the
+// first non-reviews visit wipes them and returning to Reviews resets the filters.
+const REVIEWS_URL_PARAMS = [
+    'review_page',
+    'review_search',
+    'review_definition_id',
+    'review_order_by',
+    'human_reviews_tab',
+] as const
+
+const PRESERVED_URL_PARAMS = new Set<string>([...KNOWN_URL_PARAMS, ...REVIEWS_URL_PARAMS])
+
+/**
+ * When no shared filter changed, stale params carried over from other pages (e.g.
+ * `event`, `timestamp`, `msg` from the trace view) still need stripping — but the
+ * shared filter bar and Reviews-tab params must survive. Returns the cleaned param
+ * set to replace the URL with, or `null` when there is nothing stale to strip.
+ */
+export function stripStaleSearchParams(searchParams: Record<string, unknown>): Record<string, unknown> | null {
+    const hasStaleParams = Object.keys(searchParams).some((key) => !PRESERVED_URL_PARAMS.has(key))
+    if (!hasStaleParams) {
+        return null
+    }
+
+    const cleanParams: Record<string, unknown> = {}
+    for (const key of PRESERVED_URL_PARAMS) {
+        if (searchParams[key] !== undefined) {
+            cleanParams[key] = searchParams[key]
+        }
+    }
+    return cleanParams
+}
+
 /**
  * Build the payload for `applyUrlState` from a DataTable's query source. Preserves
  * reference identity on unchanged `propertyFilters` so Kea selectors short-circuit,
@@ -255,8 +292,6 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     urlToAction(({ actions, values, cache }) => {
-        const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
-
         function applySearchParams(
             searchParams: Record<string, unknown>,
             options?: { stripStaleParams?: boolean }
@@ -289,14 +324,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             } else if (options?.stripStaleParams !== false) {
                 // No state changed, but stale params may still need stripping
                 // (e.g. event, timestamp, msg from trace view).
-                const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
-                if (hasStaleParams) {
-                    const cleanParams: Record<string, unknown> = {}
-                    for (const key of KNOWN_PARAMS) {
-                        if (searchParams[key] !== undefined) {
-                            cleanParams[key] = searchParams[key]
-                        }
-                    }
+                const cleanParams = stripStaleSearchParams(searchParams)
+                if (cleanParams) {
                     router.actions.replace(router.values.location.pathname, cleanParams)
                 }
             }
