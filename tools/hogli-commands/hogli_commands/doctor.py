@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import enum
 import time
 import shutil
 import signal
+import platform
+import importlib
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -1717,6 +1721,33 @@ def _print_check_result(result: CheckResult) -> None:
         click.echo(f"{'':>30}{result.remediation}")
 
 
+def _run_checks(repo_root: Path) -> list[CheckResult]:
+    """Run all health checks concurrently and return results in declared order."""
+    checks: list[Callable[[], CheckResult]] = [
+        lambda: _check_disk(repo_root),
+        lambda: _check_zombies(repo_root),
+        _check_docker,
+        _check_migrations,
+    ]
+
+    # Each check is I/O-bound and independent, so fan them out across threads.
+    results: list[CheckResult | None] = [None] * len(checks)
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception as e:
+                results[idx] = CheckResult(
+                    name=f"Check {idx + 1}",
+                    status=CheckStatus.ERROR,
+                    summary=f"Check failed with error: {str(e)}",
+                )
+
+    return [r for r in results if r is not None]
+
+
 @click.command(name="doctor", help="Quick health check for your dev environment")
 def doctor() -> None:
     """Run non-destructive checks and print a status summary."""
@@ -1724,36 +1755,15 @@ def doctor() -> None:
 
     click.echo("\nhogli doctor\n")
 
-    checks: list[Callable[[], CheckResult]] = [
-        lambda: _check_disk(REPO_ROOT),
-        lambda: _check_zombies(REPO_ROOT),
-        lambda: _check_docker(),
-        lambda: _check_migrations(),
-    ]
-
-    # Run all checks concurrently — each is I/O-bound and independent.
-    results: list[CheckResult | None] = [None] * len(checks)
-    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-        future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
-        for future in as_completed(future_to_idx):
-            try:
-                results[future_to_idx[future]] = future.result()
-            except Exception as e:
-                idx = future_to_idx[future]
-                results[idx] = CheckResult(
-                    name=f"Check {idx + 1}",
-                    status=CheckStatus.ERROR,
-                    summary=f"Check failed with error: {str(e)}",
-                )
+    results = _run_checks(REPO_ROOT)
 
     for result in results:
-        assert result is not None
         _print_check_result(result)
 
     click.echo()
 
-    warnings = sum(1 for r in results if r is not None and r.status == CheckStatus.WARNING)
-    errors = sum(1 for r in results if r is not None and r.status == CheckStatus.ERROR)
+    warnings = sum(1 for r in results if r.status == CheckStatus.WARNING)
+    errors = sum(1 for r in results if r.status == CheckStatus.ERROR)
     if warnings == 0 and errors == 0:
         click.secho("  All checks passed.", fg="green")
     else:
@@ -1767,3 +1777,246 @@ def doctor() -> None:
     click.echo()
 
     hints.record_check_run("doctor")
+
+
+# ---------------------------------------------------------------------------
+# doctor:report — paste-ready diagnostics dump for devex triage
+# ---------------------------------------------------------------------------
+
+
+def _run_output(cmd: Sequence[str], timeout: float = 5.0) -> str | None:
+    """Run a command and return its trimmed stdout, or None on any failure."""
+    try:
+        result = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, check=False)
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _format_kv_block(pairs: Sequence[tuple[str, str]]) -> list[str]:
+    """Render label/value pairs as left-aligned ``label  value`` lines."""
+    width = max((len(label) for label, _ in pairs), default=0)
+    return [f"{label.ljust(width)}  {value}" for label, value in pairs]
+
+
+def _system_info() -> list[tuple[str, str]]:
+    """Collect OS, shell, and terminal context (terminal matters for TUI bugs)."""
+    if platform.system() == "Darwin":
+        mac_ver = platform.mac_ver()[0]
+        os_desc = f"macOS {mac_ver} (Darwin {platform.release()})" if mac_ver else f"Darwin {platform.release()}"
+    else:
+        os_desc = platform.platform()
+    return [
+        ("os", os_desc),
+        ("arch", platform.machine()),
+        ("shell", os.environ.get("SHELL", "unknown")),
+        ("term", os.environ.get("TERM", "unset")),
+        ("term_program", os.environ.get("TERM_PROGRAM", "unset")),
+        ("locale", os.environ.get("LANG", "unset")),
+    ]
+
+
+def _repo_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Collect git branch, HEAD, and working-tree dirtiness."""
+    git = ["git", "-C", str(repo_root)]
+    branch = _run_output([*git, "rev-parse", "--abbrev-ref", "HEAD"]) or "unknown"
+    commit = _run_output([*git, "log", "-1", "--format=%h %s"]) or "unknown"
+    status = _run_output([*git, "status", "--porcelain"])
+    dirty_count = len([line for line in status.splitlines() if line.strip()]) if status else 0
+
+    pairs = [
+        ("path", str(repo_root)),
+        ("branch", branch),
+        ("commit", commit),
+        ("dirty", "clean" if dirty_count == 0 else f"{dirty_count} uncommitted file(s)"),
+    ]
+    if ".claude/worktrees/" in str(repo_root):
+        pairs.append(("worktree", "yes"))
+    return pairs
+
+
+def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Collect runtime/toolchain versions relevant to running the dev stack."""
+    pairs: list[tuple[str, str]] = [("python", f"{platform.python_version()} ({sys.executable})")]
+
+    node = _run_output(["node", "--version"])
+    if node:
+        nvmrc = repo_root / ".nvmrc"
+        expected = nvmrc.read_text().strip() if nvmrc.exists() else ""
+        suffix = ""
+        if expected:
+            actual_major = node.lstrip("v").split(".")[0]
+            expected_major = expected.lstrip("v").split(".")[0]
+            suffix = " (.nvmrc ok)" if actual_major == expected_major else f" (.nvmrc wants {expected})"
+        pairs.append(("node", f"{node}{suffix}"))
+    else:
+        pairs.append(("node", "not found"))
+
+    pairs.append(("pnpm", _run_output(["pnpm", "--version"]) or "not found"))
+
+    flox_ver = _run_output(["flox", "--version"])
+    if os.environ.get("FLOX_ENV_DESCRIPTION") or os.environ.get("FLOX_ENV"):
+        pairs.append(("flox", f"active{f' — {flox_ver}' if flox_ver else ''}"))
+    elif flox_ver:
+        pairs.append(("flox", f"not active ({flox_ver} on PATH)"))
+    else:
+        pairs.append(("flox", "not on PATH"))
+
+    docker_ver = _run_output(["docker", "version", "--format", "{{.Server.Version}}"], timeout=3.0)
+    pairs.append(("docker", f"{docker_ver} (daemon running)" if docker_ver else "daemon not responding"))
+
+    phrocs_path = shutil.which("phrocs")
+    if phrocs_path:
+        pairs.append(("phrocs", f"{_run_output([phrocs_path, '--version']) or 'installed'} ({phrocs_path})"))
+    else:
+        pairs.append(("phrocs", "MISSING — `hogli start` TUI needs it (see tools/phrocs/install.sh)"))
+
+    return pairs
+
+
+def _checks_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Run the doctor health checks and flatten them into label/value pairs."""
+    pairs: list[tuple[str, str]] = []
+    for result in _run_checks(repo_root):
+        value = f"{_STATUS_LABELS[result.status]} ({result.summary})"
+        if result.remediation:
+            value += f" → {result.remediation}"
+        pairs.append((result.name.lower().replace(" ", "_"), value))
+    return pairs
+
+
+def _collect_import_targets(manifest_data: dict) -> list[tuple[str, str, str | None]]:
+    """Enumerate ``(label, module_path, attr)`` for every importable command + boot module.
+
+    ``attr`` is the click command symbol for ``click:`` entries, or ``None`` for
+    boot modules (which we only need to import, not resolve an attribute on).
+    """
+    targets: list[tuple[str, str, str | None]] = []
+    seen: set[tuple[str, str, str | None]] = set()
+
+    def _add(label: str, module_path: str, attr: str | None) -> None:
+        key = (label, module_path, attr)
+        if key not in seen:
+            seen.add(key)
+            targets.append(key)
+
+    for category_key, commands in manifest_data.items():
+        if category_key in {"metadata", "config"} or not isinstance(commands, dict):
+            continue
+        for cmd_name, cfg in commands.items():
+            if not isinstance(cfg, dict):
+                continue
+            click_str = cfg.get("click")
+            if isinstance(click_str, str) and click_str.count(":") == 1:
+                module_path, attr = click_str.split(":", 1)
+                if module_path and attr:
+                    _add(cmd_name, module_path, attr)
+
+    for module_path in (manifest_data.get("config", {}) or {}).get("boot_modules", []) or []:
+        if isinstance(module_path, str) and module_path:
+            _add(module_path, module_path, None)
+
+    return targets
+
+
+def _probe_command_imports(manifest_data: dict) -> tuple[int, list[tuple[str, str]]]:
+    """Import every command + boot module, returning ``(probed, failures)``.
+
+    Surfaces broken modules that would otherwise fail opaquely at invoke time —
+    a common cause of confusing ``hogli`` startup behaviour.
+    """
+    targets = _collect_import_targets(manifest_data)
+    module_cache: dict[str, object] = {}
+    failures: list[tuple[str, str]] = []
+
+    for label, module_path, attr in targets:
+        if module_path not in module_cache:
+            try:
+                module_cache[module_path] = importlib.import_module(module_path)
+            except Exception as exc:
+                module_cache[module_path] = exc
+        module = module_cache[module_path]
+        if isinstance(module, Exception):
+            failures.append((label, f"{type(module).__name__}: {str(module)[:120]}"))
+        elif attr is not None and not hasattr(module, attr):
+            failures.append((label, f"missing attribute '{attr}'"))
+
+    return len(targets), failures
+
+
+def _build_report(repo_root: Path, manifest_data: dict) -> str:
+    """Assemble the full diagnostics report body (no surrounding code fence)."""
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines: list[str] = [f"hogli doctor:report — {timestamp}"]
+
+    for title, pairs in (
+        ("System", _system_info()),
+        ("Repo", _repo_info(repo_root)),
+        ("Toolchain", _toolchain_info(repo_root)),
+        ("Checks", _checks_info(repo_root)),
+    ):
+        lines.append("")
+        lines.append(f"== {title} ==")
+        lines.extend(_format_kv_block(pairs))
+
+    lines.append("")
+    lines.append("== Command imports ==")
+    probed, failures = _probe_command_imports(manifest_data)
+    if not failures:
+        lines.append(f"probed {probed} target(s): all import OK")
+    else:
+        lines.append(f"probed {probed} target(s): {len(failures)} FAILED")
+        lines.extend(f"  {label}: {error}" for label, error in failures)
+
+    return "\n".join(lines)
+
+
+def _copy_to_clipboard(text: str) -> str | None:
+    """Copy text to the system clipboard, returning the tool used (or None)."""
+    candidates: list[tuple[str, list[str]]] = [
+        ("pbcopy", ["pbcopy"]),
+        ("wl-copy", ["wl-copy"]),
+        ("xclip", ["xclip", "-selection", "clipboard"]),
+        ("xsel", ["xsel", "--clipboard", "--input"]),
+    ]
+    for name, cmd in candidates:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            result = subprocess.run(cmd, input=text, text=True, check=False)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return name
+    return None
+
+
+@click.command(
+    name="doctor:report",
+    help="Dump a paste-ready dev-environment diagnostics report for devex triage",
+)
+@click.option("--no-copy", is_flag=True, help="Don't copy the report to the clipboard")
+def doctor_report(no_copy: bool) -> None:
+    """Collect environment, toolchain, health-check, and command-import diagnostics
+    into a single copy-paste block to share with the devex team."""
+    from hogli.manifest import REPO_ROOT, get_manifest
+
+    click.echo("\nGathering diagnostics…\n")
+    report = _build_report(REPO_ROOT, get_manifest().data)
+
+    click.echo("```text")
+    click.echo(report)
+    click.echo("```")
+
+    if not no_copy:
+        tool = _copy_to_clipboard(report)
+        if tool:
+            click.secho(f"\n  Copied to clipboard via {tool}. Paste it into Slack for devex.", fg="green")
+        else:
+            click.secho("\n  Could not copy to clipboard; copy the block above manually.", fg="yellow")
+
+    click.echo()
+
+    hints.record_check_run("doctor:report")
