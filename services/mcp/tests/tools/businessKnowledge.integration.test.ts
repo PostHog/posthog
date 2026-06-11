@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
-    API_BASE_URL,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
     createTestClient,
@@ -91,11 +90,16 @@ describe('Business knowledge sources', { concurrent: false }, () => {
     describe('url-create', () => {
         const urlCreateTool = getToolByName('business-knowledge-sources-url-create')
 
+        // Must be a public host: claim_url_source runs the SSRF check (is_url_allowed),
+        // which blocks localhost/private hosts. The actual fetch is backgrounded and not
+        // awaited here, so the URL only needs to pass SSRF, not return real content.
+        const PUBLIC_TEST_URL = 'https://example.com/'
+
         it('should create a URL source with source_type dispatched correctly', async () => {
             const name = generateUniqueKey('MCP URL Source')
             const result = await urlCreateTool.handler(context, {
                 name,
-                url: `${API_BASE_URL}/robots.txt`,
+                url: PUBLIC_TEST_URL,
             })
             const source = parseToolResponse(result)
 
@@ -109,7 +113,7 @@ describe('Business knowledge sources', { concurrent: false }, () => {
             const name = generateUniqueKey('MCP URL Refresh')
             const result = await urlCreateTool.handler(context, {
                 name,
-                url: `${API_BASE_URL}/robots.txt`,
+                url: PUBLIC_TEST_URL,
                 refresh_interval: '24h',
             })
             const source = parseToolResponse(result)
