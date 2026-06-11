@@ -892,7 +892,7 @@ class OpsgenieSourceConfig(config.Config):
 
 @config.config
 class OptimizelySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
