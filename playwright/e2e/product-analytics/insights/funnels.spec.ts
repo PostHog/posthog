@@ -68,8 +68,6 @@ const FUNNEL_QUERY = {
 }
 
 test.describe('Funnel insights', () => {
-    test.setTimeout(60_000)
-
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
