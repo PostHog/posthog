@@ -383,7 +383,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         )
 
         # gVisor only — Modal's domain allowlist breaks vm_runtime.
-        if ctx.modal_network_allowlist_active and ctx.allowed_domains is not None:
+        if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:
             config.outbound_domain_allowlist = _to_modal_domain_allowlist(ctx.allowed_domains)
             emit_agent_log(
                 ctx.run_id,

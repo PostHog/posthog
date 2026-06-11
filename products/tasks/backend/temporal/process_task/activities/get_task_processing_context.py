@@ -67,11 +67,6 @@ class TaskProcessingContext:
     use_modal_network_allowlist: bool = False
 
     @property
-    def modal_network_allowlist_active(self) -> bool:
-        # Modal's domain allowlist is gVisor-only; on the VM runtime agentsh enforces instead.
-        return self.use_modal_network_allowlist and not self.use_modal_vm_sandbox
-
-    @property
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")

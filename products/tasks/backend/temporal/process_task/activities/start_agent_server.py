@@ -73,7 +73,7 @@ def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBa
             " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
         )
 
-        if ctx.allowed_domains is not None and not ctx.modal_network_allowlist_active:
+        if ctx.allowed_domains is not None and not (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox):
             cmd = (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
@@ -183,9 +183,11 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             )
 
         # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
-        agentsh_domains = None if ctx.modal_network_allowlist_active else ctx.allowed_domains
+        agentsh_domains = (
+            None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+        )
 
-        if ctx.modal_network_allowlist_active and ctx.allowed_domains is not None:
+        if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
             emit_agent_log(
                 ctx.run_id,
