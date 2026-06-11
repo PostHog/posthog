@@ -53,7 +53,7 @@ import time
 import itertools
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 from django.db import connections
@@ -383,10 +383,23 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
     # Warm the least-recently-computed teams first, so a run cut short by
     # `max_runtime` still makes progress on the teams that need it most. Teams
-    # that have never been precomputed (no `PreaggregationJob` row, or only
-    # un-computed rows) sort to the front. One indexed aggregate, not per-team.
+    # that have never been warmed (no qualifying `PreaggregationJob` row) sort to
+    # the front. One indexed aggregate, not per-team.
+    #
+    # Scope the freshness signal to READY jobs whose coverage falls inside the
+    # baseline window this DAG actually warms. `PreaggregationJob` is a shared
+    # lazy-precompute table (web analytics, marketing analytics, experiments all
+    # write it) with no product column, so this can't perfectly isolate this
+    # warmer's own jobs — but restricting to READY + the trailing window drops
+    # the bulk of the noise (old one-off date ranges, pending/failed/stale rows)
+    # that would otherwise make a team with a stale baseline look freshly warmed.
+    window_start = datetime.now(UTC) - timedelta(days=BASELINE_WINDOW_DAYS)
     last_computed: dict[int, datetime | None] = dict(
-        PreaggregationJob.objects.filter(team_id__in=[t.pk for t in eligible])
+        PreaggregationJob.objects.filter(
+            team_id__in=[t.pk for t in eligible],
+            status=PreaggregationJob.Status.READY,
+            time_range_end__gte=window_start,
+        )
         .values("team_id")
         .annotate(last=Max("computed_at"))
         .values_list("team_id", "last")

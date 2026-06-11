@@ -41,14 +41,20 @@ def _eager_audience(team_ids):
         yield
 
 
-def _make_preagg_job(team: Team, *, computed_at) -> PreaggregationJob:
-    now = timezone.now()
+def _make_preagg_job(
+    team: Team,
+    *,
+    computed_at,
+    status=PreaggregationJob.Status.READY,
+    time_range_end=None,
+) -> PreaggregationJob:
+    end = time_range_end if time_range_end is not None else timezone.now()
     return PreaggregationJob.objects.create(
         team=team,
-        time_range_start=now - timedelta(days=1),
-        time_range_end=now,
+        time_range_start=end - timedelta(days=1),
+        time_range_end=end,
         query_hash="a" * 64,
-        status=PreaggregationJob.Status.READY,
+        status=status,
         computed_at=computed_at,
     )
 
@@ -107,6 +113,33 @@ class TestWarmEagerBaselineOp(APIBaseTest):
             if not seen or seen[-1] != team.pk:
                 seen.append(team.pk)
         assert seen == [never.pk, old.pk, recent.pk]
+
+    @patch(f"{_EAGER_MODULE}.WARM_TEAM_CONCURRENCY", 1)
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_staleness_ordering_ignores_out_of_window_and_non_ready_jobs(self, get_runner, _tag, _is_cloud):
+        # `PreaggregationJob` is shared across products and has no product column, so the
+        # ordering scopes its freshness signal to READY jobs covering the baseline window.
+        # A recent-but-out-of-window job, or a recent non-READY job, must NOT make a team
+        # look freshly warmed — both should still sort ahead of a genuinely warm team.
+        genuine, noise_window, noise_status = self._enroll_teams(count=3)
+        now = timezone.now()
+        _make_preagg_job(genuine, computed_at=now)
+        _make_preagg_job(noise_window, computed_at=now, time_range_end=now - timedelta(days=BASELINE_WINDOW_DAYS + 5))
+        _make_preagg_job(noise_status, computed_at=now, status=PreaggregationJob.Status.STALE)
+        get_runner.return_value = Mock(run=Mock(return_value=Mock(usedLazyPrecompute=True)))
+
+        with _eager_audience([genuine.pk, noise_window.pk, noise_status.pk]):
+            warm_eager_baseline_op(dagster.build_op_context())
+
+        seen: list[int] = []
+        for call in get_runner.call_args_list:
+            team = call.kwargs.get("team") or call.args[1]
+            if not seen or seen[-1] != team.pk:
+                seen.append(team.pk)
+        # Both noise teams are treated as never-warmed (front); the genuinely warm team is last.
+        assert seen[-1] == genuine.pk
+        assert set(seen[:2]) == {noise_window.pk, noise_status.pk}
 
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")
