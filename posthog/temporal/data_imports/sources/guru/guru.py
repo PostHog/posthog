@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.guru.settings import GURU_ENDPOINTS, GuruEndpointConfig
 
 GURU_BASE_URL = "https://api.getguru.com/api/v1"
+GURU_API_HOST = "api.getguru.com"
 REQUEST_TIMEOUT_SECONDS = 60
 # Guru's rate limits are not publicly documented — be conservative and honor 429s.
 MAX_RETRY_ATTEMPTS = 5
@@ -21,6 +22,23 @@ MAX_RETRY_ATTEMPTS = 5
 
 class GuruRetryableError(Exception):
     pass
+
+
+class GuruHostNotAllowedError(Exception):
+    pass
+
+
+def _is_same_host(url: str) -> bool:
+    """Whether ``url`` points at the canonical Guru API host.
+
+    Pagination/resume URLs are server-controlled (they arrive in the Link header), so we
+    pin them to the validated host to avoid being redirected at an arbitrary internal
+    address (SSRF) and leaking the Basic auth credentials carried on every request.
+    """
+    try:
+        return (urlparse(url).hostname or "").lower() == GURU_API_HOST
+    except Exception:
+        return False
 
 
 @dataclasses.dataclass
@@ -31,7 +49,9 @@ class GuruResumeConfig:
 
 
 def _get_session(api_token: str) -> requests.Session:
-    return make_tracked_session(redact_values=(api_token,))
+    # allow_redirects=False so a 3xx can't silently move the credentialed request off the
+    # validated host (SSRF). See _NoRedirectSession in common/http/transport.py.
+    return make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
 
 def _format_last_modified(value: Any) -> str:
@@ -82,11 +102,10 @@ def _build_url(path: str, params: dict[str, str]) -> str:
 
 def _normalize_member(item: dict[str, Any]) -> dict[str, Any]:
     # Team member rows nest the identifying email under `user`; copy it to the top
-    # level so it can serve as the primary key.
+    # level so it can serve as the primary key. Use direct access so a member missing
+    # the email surfaces a fast KeyError instead of a row with a null primary key.
     if "email" not in item and isinstance(item.get("user"), dict):
-        email = item["user"].get("email")
-        if email is not None:
-            return {**item, "email": email}
+        return {**item, "email": item["user"]["email"]}
     return item
 
 
@@ -117,10 +136,12 @@ def get_rows(
     session = _get_session(api_token)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
+    if resume_config is not None and _is_same_host(resume_config.next_url):
         url: str = resume_config.next_url
         logger.debug(f"Guru: resuming {endpoint} from URL: {url}")
     else:
+        if resume_config is not None:
+            logger.warning("Guru: ignoring resume URL whose host does not match the Guru API host")
         url = _build_url(
             config.path,
             _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field),
@@ -137,6 +158,13 @@ def get_rows(
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GuruRetryableError(f"Guru API error (retryable): status={response.status_code}, url={page_url}")
+
+        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather
+        # than silently parsing the redirect body as data — we never follow redirects (SSRF).
+        if response.is_redirect or response.is_permanent_redirect:
+            raise GuruHostNotAllowedError(
+                f"Guru API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+            )
 
         if not response.ok:
             logger.error(f"Guru API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -157,6 +185,12 @@ def get_rows(
 
         next_url = response.links.get("next-page", {}).get("url")
         if not next_url:
+            break
+
+        # The next-page URL is server-controlled; only follow it if it stays on the Guru
+        # API host so a tampered response can't aim the credentialed request elsewhere (SSRF).
+        if not _is_same_host(next_url):
+            logger.warning("Guru: stopping pagination, next URL host does not match the Guru API host")
             break
 
         # Save state AFTER yielding the page so a crash re-yields the last page

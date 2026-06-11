@@ -30,6 +30,8 @@ def _response(items: list[dict[str, Any]], next_link: str | None = None) -> mock
     resp.json.return_value = items
     resp.status_code = 200
     resp.ok = True
+    resp.is_redirect = False
+    resp.is_permanent_redirect = False
     resp.links = {"next-page": {"url": next_link}} if next_link else {}
     return resp
 
@@ -120,13 +122,18 @@ class TestNormalizeMember:
     @pytest.mark.parametrize(
         "item",
         [
-            {"user": {}},
             {"user": None},
             {},
         ],
     )
     def test_leaves_items_without_email_untouched(self, item):
         assert _normalize_member(item) == item
+
+    def test_missing_nested_email_raises_keyerror(self):
+        # email is the primary key, so a member nesting a user dict without an email must
+        # fail loudly rather than produce a row with a null primary key.
+        with pytest.raises(KeyError):
+            _normalize_member({"user": {"firstName": "Jane"}})
 
 
 class TestValidateCredentials:
@@ -180,6 +187,32 @@ class TestGetRows:
         list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
+
+    @mock.patch("posthog.temporal.data_imports.sources.guru.guru.make_tracked_session")
+    def test_stops_pagination_when_next_url_host_differs(self, mock_session):
+        # A tampered Link header pointing off-host must not move the credentialed request.
+        evil_url = "http://169.254.169.254/latest/meta-data"
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": "1"}], next_link=evil_url),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == ["1"]
+        # Only one request was made; the off-host next URL was neither followed nor saved.
+        assert mock_session.return_value.get.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.guru.guru.make_tracked_session")
+    def test_ignores_resume_url_with_foreign_host(self, mock_session):
+        mock_session.return_value.get.return_value = _response([])
+
+        manager = _make_manager(GuruResumeConfig(next_url="http://169.254.169.254/latest/meta-data"))
+        list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+
+        # Falls back to the canonical built URL rather than the foreign resume URL.
+        assert mock_session.return_value.get.call_args.args[0].startswith("https://api.getguru.com/api/v1/collections")
 
     @mock.patch("posthog.temporal.data_imports.sources.guru.guru.make_tracked_session")
     def test_members_rows_are_normalized(self, mock_session):
