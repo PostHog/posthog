@@ -104,7 +104,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             enabledPercentage: 0,
             stripHeavyTeams: [],
         },
-        groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,
     }

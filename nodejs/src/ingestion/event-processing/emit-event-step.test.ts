@@ -50,7 +50,6 @@ describe('emit-event-step', () => {
 
         config = {
             outputs: mockOutputs,
-            groupId: 'test-group-id',
         }
 
         mockProcessedEvent = {

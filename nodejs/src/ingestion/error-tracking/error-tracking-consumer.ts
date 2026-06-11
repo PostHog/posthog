@@ -281,7 +281,6 @@ export class ErrorTrackingConsumer {
 
         this.pipeline = createErrorTrackingPipeline({
             outputs: this.deps.outputs,
-            groupId: this.config.groupId,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
             personRepository: this.deps.personRepository,

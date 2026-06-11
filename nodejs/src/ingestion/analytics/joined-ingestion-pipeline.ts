@@ -57,7 +57,6 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
-    groupId: string
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -136,7 +135,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
-        groupId,
         outputs,
         splitAiEventsConfig,
         perDistinctIdOptions,
@@ -187,7 +185,6 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         hogTransformer,
-        groupId,
         topHog: topHogWrapper,
     }
 

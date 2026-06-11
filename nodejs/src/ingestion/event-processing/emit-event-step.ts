@@ -19,7 +19,6 @@ export interface EventToEmit<O extends string> {
 
 export interface EmitEventStepConfig<O extends string> {
     outputs: IngestionOutputs<O | IngestionWarningsOutput>
-    groupId: string
 }
 
 export interface EmitEventStepInput<O extends string> {

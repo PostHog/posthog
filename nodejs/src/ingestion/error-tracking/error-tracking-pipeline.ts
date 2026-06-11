@@ -67,7 +67,6 @@ export type ErrorTrackingOutputs = IngestionOutputs<
 
 export interface ErrorTrackingPipelineConfig {
     outputs: ErrorTrackingOutputs
-    groupId: string
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
     personRepository: PersonReadRepository
@@ -163,7 +162,6 @@ export function createErrorTrackingPipeline(
 > {
     const {
         outputs,
-        groupId,
         promiseScheduler,
         teamManager,
         personRepository,
@@ -290,7 +288,6 @@ export function createErrorTrackingPipeline(
                                                     topHogWrapper(
                                                         createEmitEventStep({
                                                             outputs,
-                                                            groupId,
                                                         }),
                                                         [
                                                             count('emitted_events', (input) => ({

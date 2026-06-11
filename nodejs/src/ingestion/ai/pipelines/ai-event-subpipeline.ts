@@ -47,7 +47,6 @@ export interface AiEventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     splitAiEventsConfig: SplitAiEventsStepConfig
-    groupId: string
     topHog: TopHogWrapper
 }
 
@@ -55,8 +54,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, groupId, topHog } =
-        config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -109,7 +107,6 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(

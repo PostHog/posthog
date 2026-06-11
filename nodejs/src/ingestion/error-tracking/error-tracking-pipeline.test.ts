@@ -312,7 +312,6 @@ describe('ErrorTrackingPipeline', () => {
                     'test'
                 ),
             }),
-            groupId: 'error-tracking-test',
             promiseScheduler,
             teamManager: mockTeamManager,
             personRepository: mockPersonRepository,

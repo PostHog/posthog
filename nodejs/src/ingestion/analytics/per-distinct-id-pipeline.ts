@@ -27,7 +27,6 @@ export interface PerDistinctIdPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    groupId: string
     topHog: TopHogWrapper
 }
 
@@ -50,8 +49,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, splitAiEventsConfig, teamManager, groupTypeManager, hogTransformer, groupId, topHog } =
-        config
+    const { options, outputs, splitAiEventsConfig, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder.retry(
         (e) =>
@@ -65,7 +63,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             groupTypeManager,
                             hogTransformer,
                             splitAiEventsConfig,
-                            groupId,
                             topHog,
                         })
                     )
@@ -76,7 +73,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            groupId,
                             topHog,
                         })
                     )
