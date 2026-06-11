@@ -26,7 +26,10 @@ export function FieldNotesOverlay(): JSX.Element | null {
     let boxTop = 80
     let boxLeft = 16
     if (selectedElementRect) {
-        boxTop = Math.min(selectedElementRect.top + selectedElementRect.height + 8, window.innerHeight - 240)
+        boxTop = Math.max(
+            8,
+            Math.min(selectedElementRect.top + selectedElementRect.height + 8, window.innerHeight - 240)
+        )
         boxLeft = Math.min(Math.max(selectedElementRect.left, 8), window.innerWidth - COMMENT_BOX_WIDTH - 8)
     }
 

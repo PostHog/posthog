@@ -58,7 +58,7 @@ export function FieldNotesToolbarMenu(): JSX.Element {
                                         icon={<IconTrash />}
                                         tooltip="Delete field note"
                                         loading={deletingId === note.id}
-                                        disabledReason={deletingId ? 'Deleting…' : undefined}
+                                        disabledReason={deletingId === note.id ? 'Deleting…' : undefined}
                                         onClick={() => deleteFieldNote(note.id)}
                                     />
                                 </div>
