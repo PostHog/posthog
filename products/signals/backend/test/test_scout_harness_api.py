@@ -588,28 +588,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 60
 
-    def test_list_surfaces_skill_description_from_metadata(self) -> None:
+    @parameterized.expand(
+        [
+            ("skill_present", "Watches error tracking for new and spiking issues."),
+            ("skill_absent", None),
+        ]
+    )
+    def test_list_surfaces_skill_description(self, _name: str, skill_description: str | None) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
-        LLMSkill.objects.create(
-            team=self.team,
-            name="signals-scout-errors",
-            description="Watches error tracking for new and spiking issues.",
-            body="...",
-        )
+        if skill_description is not None:
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-errors", description=skill_description, body="..."
+            )
 
         response = self.client.get(self._list_url())
 
         assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body[0]["description"] == "Watches error tracking for new and spiking issues."
-
-    def test_list_description_blank_when_skill_absent(self) -> None:
-        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
-
-        response = self.client.get(self._list_url())
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()[0]["description"] == ""
+        # Absent skill (or no description) falls back to "".
+        assert response.json()[0]["description"] == (skill_description or "")
 
     def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
