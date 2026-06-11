@@ -7,10 +7,13 @@ sandbox. Each tool is team-scoped and Postgres-backed.
 
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_EVIDENCE_ENTRIES,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_FINDING,
     EmitResult,
     EvidenceEntry,
     InvalidEmitError,
     emit_finding,
+    normalize_tags,
 )
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
@@ -42,6 +45,8 @@ __all__ = [
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
     "MAX_RUN_SEARCH_LIMIT",
+    "MAX_TAG_LENGTH",
+    "MAX_TAGS_PER_FINDING",
     "PROFILE_TTL",
     "ProjectProfile",
     "ScratchpadEntry",
@@ -52,6 +57,7 @@ __all__ = [
     "forget",
     "get_project_profile",
     "get_run",
+    "normalize_tags",
     "remember",
     "search_scratchpad",
     "search_recent_runs",

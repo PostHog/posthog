@@ -100,7 +100,10 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Baseline variant</h2>
                 <LemonSelect
                     value={experiment.stats_config?.baseline_variant_key ?? 'control'}
-                    options={variants.map((v) => ({ value: v.key, label: v.name || v.key }))}
+                    options={variants.map((v) => ({
+                        value: v.key,
+                        label: v.key,
+                    }))}
                     onChange={(value) => {
                         updateExperimentSettings({
                             stats_config: { ...experiment.stats_config, baseline_variant_key: value },

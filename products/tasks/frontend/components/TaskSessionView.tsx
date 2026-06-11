@@ -4,6 +4,7 @@ import { TextMorph } from 'torph/react'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
@@ -108,7 +109,7 @@ export function mergeDuplicateUserPromptEntries(entries: LogEntry[]): LogEntry[]
     }, [])
 }
 
-function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
+function LogEntryRenderer({ entry, renderMarkdown }: { entry: LogEntry; renderMarkdown: boolean }): JSX.Element | null {
     switch (entry.type) {
         case 'console':
             return (
@@ -163,7 +164,13 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         <span className="text-xs font-medium">Agent</span>
                     </div>
                     <div className="border-l-2 border-primary pl-3 max-w-[90%]">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        {renderMarkdown && entry.message ? (
+                            <LemonMarkdown className="text-sm font-sans" lowKeyHeadings disableImages>
+                                {entry.message}
+                            </LemonMarkdown>
+                        ) : (
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        )}
                     </div>
                 </div>
             )
@@ -210,6 +217,7 @@ export function TaskSessionView({
 }: TaskSessionViewProps): JSX.Element {
     // Debug lines are noise by default; opt in to show them.
     const [showDebug, setShowDebug] = useState(false)
+    const [renderMarkdown, setRenderMarkdown] = useState(true)
     const parsedLogs = useMemo(() => parseLogs(logs), [logs])
     // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
     const entries = useMemo(() => {
@@ -221,6 +229,7 @@ export function TaskSessionView({
         () => entries.filter((entry) => entry.type === 'console' && entry.level === 'debug').length,
         [entries]
     )
+    const agentCount = useMemo(() => entries.filter((entry) => entry.type === 'agent').length, [entries])
     const visibleEntries = useMemo(
         () => (showDebug ? entries : entries.filter((entry) => !(entry.type === 'console' && entry.level === 'debug'))),
         [entries, showDebug]
@@ -256,6 +265,15 @@ export function TaskSessionView({
                     <span className="text-sm font-semibold">Logs ({visibleEntries.length})</span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {agentCount > 0 && (
+                        <LemonSwitch
+                            label="Markdown"
+                            checked={renderMarkdown}
+                            onChange={setRenderMarkdown}
+                            size="xsmall"
+                            bordered
+                        />
+                    )}
                     {debugCount > 0 && (
                         <LemonSwitch
                             label={`Show debug (${debugCount})`}
@@ -272,7 +290,7 @@ export function TaskSessionView({
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-sm bg-bg-3000">
                 {visibleEntries.map((entry) => (
-                    <LogEntryRenderer key={entry.id} entry={entry} />
+                    <LogEntryRenderer key={entry.id} entry={entry} renderMarkdown={renderMarkdown} />
                 ))}
                 {(isPolling || isStreaming) && <HedgehogStatus />}
             </div>

@@ -45,6 +45,7 @@ type DashboardWidgetItemProps = {
     placement: DashboardPlacement
     dashboardId?: number | null
     canEditDashboard?: boolean
+    isDashboardEditMode?: boolean
     result: unknown
     loading: boolean
     error?: string | null
@@ -136,6 +137,7 @@ function DashboardWidgetItemContent({
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
+    isDashboardEditMode,
     canEditDashboard,
     onDuplicate,
     onRemove,
@@ -208,6 +210,7 @@ function DashboardWidgetItemContent({
                 showDescription={showDescription}
                 loading={loading}
                 showEditingControls={showEditingControls}
+                isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
                 moreButtonOverlay={
                     <>
@@ -339,6 +342,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             placement,
             dashboardId,
             canEditDashboard,
+            isDashboardEditMode,
             result,
             loading,
             error,
@@ -419,6 +423,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onUpdateWidgetTile={onUpdateWidgetTile}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
+                    isDashboardEditMode={isDashboardEditMode}
                     onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}
                     onDuplicate={onDuplicate}

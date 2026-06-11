@@ -29,6 +29,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+)
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -62,11 +65,6 @@ COMPRESSION_EXTENSIONS = {
     "zstd": "zst",
     "lz4": "lz4",
     "snappy": "sz",
-}
-
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
 }
 
 LOGGER = get_write_only_logger(__name__)
