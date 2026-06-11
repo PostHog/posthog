@@ -6826,10 +6826,6 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
-    useQueryV2?: boolean | null
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
-    useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
     volumeResolution: number

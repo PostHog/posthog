@@ -6248,10 +6248,6 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
-      useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
-      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
