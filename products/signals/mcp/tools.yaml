@@ -35,8 +35,8 @@ tools:
             relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note),
             `line_reference` (a single line: file_path, line, note), `pushed_branch` (a branch pushed without a PR, for
             rendering a would-be diff: repository, branch, base_branch), `task_run` (a reference to a tasks.Task run:
-            task_id, run_id, product, type), or `note` (free-form: note). `content` is a JSON object matching the chosen type.
-            Log artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.
+            task_id, run_id, product, type), or `note` (free-form: note). `content` is a JSON object matching the chosen
+            type. Log artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true

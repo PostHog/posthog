@@ -143,9 +143,9 @@ export interface SignalReportStateRequestApi {
 
 /**
  * Body for appending a log artefact (a work-log entry) to a report.
-
-Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
-`artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+ *
+ * Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
+ * `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
  */
 export interface SignalReportArtefactLogCreateApi {
     /** The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run. */
