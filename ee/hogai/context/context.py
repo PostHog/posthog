@@ -1,3 +1,4 @@
+import re
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
@@ -50,6 +51,21 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
 )
+
+# Client-supplied notebook markdown is embedded verbatim in the prompt; cap it so a
+# malicious or buggy client can't blow up the context window.
+NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
+
+
+def _sanitize_inline_prompt_value(value: str) -> str:
+    """Make a client-supplied string safe to interpolate into a single prompt line."""
+    return re.sub(r"\s+", " ", value.replace("`", "")).strip()
+
+
+def _markdown_fence_for(content: str) -> str:
+    """Return a backtick fence longer than any backtick run in the content, so the content can't close it."""
+    longest_run = max((len(match) for match in re.findall(r"`+", content)), default=0)
+    return "`" * max(3, longest_run + 1)
 
 
 class AssistantContextManager(AssistantContextMixin):
@@ -340,10 +356,11 @@ class AssistantContextManager(AssistantContextMixin):
         return None
 
     def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
-        title = notebook.name or f"Notebook {notebook.id}"
-        chat_id = notebook.insertion_placeholder_block_id or "unknown"
-        chat_marker = notebook.insertion_placeholder_marker or f'<Chat id="{chat_id}" />'
-        markdown = notebook.markdown_with_insertion_placeholder or ""
+        title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
+        chat_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
+        chat_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or f'<Chat id="{chat_id}" />')
+        markdown = (notebook.markdown_with_insertion_placeholder or "")[:NOTEBOOK_MARKDOWN_MAX_LENGTH]
+        fence = _markdown_fence_for(markdown)
 
         return "\n".join(
             [
@@ -368,9 +385,9 @@ class AssistantContextManager(AssistantContextMixin):
                 ),
                 "",
                 "Current notebook markdown with inline AI chat:",
-                "```markdown",
+                f"{fence}markdown",
                 markdown,
-                "```",
+                fence,
             ]
         )
 
