@@ -158,3 +158,55 @@ class TestUpdateExternalJobStatus:
         assert updated.finished_at is not None
         assert updated.latest_error == "boom"
         mock_emit.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "status,expect_notify",
+        [
+            (ExternalDataJob.Status.FAILED, True),
+            (ExternalDataJob.Status.COMPLETED, False),
+            (ExternalDataJob.Status.BILLING_LIMIT_REACHED, False),
+            (ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW, False),
+            (ExternalDataJob.Status.RUNNING, False),
+        ],
+    )
+    def test_failure_notification_only_fires_on_failed_status(self, status, expect_notify):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        with (
+            patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.external_data_source.jobs.notify_external_data_sync_failures"
+            ) as mock_notify,
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+            )
+
+        if expect_notify:
+            mock_notify.assert_called_once_with(team.pk)
+        else:
+            mock_notify.assert_not_called()
+
+    def test_failure_notification_not_repeated_on_retried_terminal_transition(self):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        with (
+            patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.external_data_source.jobs.notify_external_data_sync_failures"
+            ) as mock_notify,
+        ):
+            for _ in range(2):
+                update_external_job_status(
+                    job_id=str(job.id),
+                    team_id=team.pk,
+                    status=ExternalDataJob.Status.FAILED,
+                    logger=MagicMock(),
+                    latest_error="boom",
+                )
+
+        mock_notify.assert_called_once()

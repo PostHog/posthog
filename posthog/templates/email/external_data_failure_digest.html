@@ -1,0 +1,65 @@
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+
+{% block preheader %}Data warehouse sync failures in {{ team.name }}{% endblock %}
+
+{% block heading %}Data warehouse sync failures{% endblock %}
+
+{% block section %}
+<p style="color: #374151;">
+    Some data warehouse syncs are failing in project <strong>{{ team.name }}</strong>.
+    {% if has_paused %}
+    Syncs marked as paused hit an error we can't retry (for example invalid credentials or an unreachable host) —
+    fix the source configuration, then re-enable syncing to resume. Other syncs will be retried automatically on
+    their next scheduled run.
+    {% else %}
+    They will be retried automatically on their next scheduled run, but the data in these tables may be out of date
+    until a sync succeeds.
+    {% endif %}
+</p>
+
+<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 12px; border-left: 4px solid #fd7e14;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid #e1e5e9;">
+                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Table</th>
+                <th align="left" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Source</th>
+                <th align="left" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Error</th>
+                <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: right; white-space: nowrap;">Paused</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for schema in schemas %}
+            <tr>
+                <td align="left" style="padding: 10px 8px 10px 0; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: left;">
+                    <a href="{{ schema.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ schema.schema_name|truncatechars:40 }}</a>
+                </td>
+                <td align="left" style="padding: 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: left; color: #6b7280; font-size: 0.85em; white-space: nowrap;">
+                    {{ schema.source_type }}
+                </td>
+                <td align="left" style="padding: 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: left; color: #6b7280; font-size: 0.85em; word-break: break-word;">
+                    {{ schema.error|truncatechars:90 }}
+                </td>
+                <td align="right" style="padding: 10px 0 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: right; font-size: 0.9em; white-space: nowrap;">
+                    {% if schema.paused %}<span style="color: #dc3545; font-weight: 600;">&#10003;</span>{% else %}<span style="color: #9ca3af;">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p style="font-size: 0.85em; color: #6b7280; margin-top: 16px;">
+    Click any table name to see its sync history and full error details.
+</p>
+
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/cdp/sources?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

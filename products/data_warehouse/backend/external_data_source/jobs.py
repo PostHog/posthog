@@ -4,6 +4,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
+from products.data_warehouse.backend.external_data_source.notifications import notify_external_data_sync_failures
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -48,5 +49,8 @@ def update_external_job_status(
     if is_first_terminal_transition:
         logger.debug("Emitting app metrics")
         emit_data_import_app_metrics(model)
+
+        if status == ExternalDataJob.Status.FAILED:
+            notify_external_data_sync_failures(team_id)
 
     return model

@@ -608,6 +608,51 @@ def send_batch_export_run_failure(
     message.send()
 
 
+def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]]) -> None:
+    """Email a per-team digest of failing external data source syncs.
+
+    Called inline from the sync failure path rather than as a task. The
+    MessagingRecord campaign key embeds the date, capping delivery at one
+    email per team per day — repeat calls the same day are per-recipient no-ops.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("Team %d not found for external data failure digest", team_id)
+        return
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    if not memberships_to_email:
+        return
+
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    campaign_key = f"external_data_failure_digest_{team_id}_{today}"
+
+    paused_count = sum(1 for schema in schemas if schema["paused"])
+    subject = (
+        f"[Alert] Data warehouse syncs paused in project '{team.name}'"
+        if paused_count == len(schemas)
+        else f"[Alert] Data warehouse syncs failing in project '{team.name}'"
+    )
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="external_data_failure_digest",
+        template_context={
+            "team": team,
+            "schemas": schemas,
+            "has_paused": paused_count > 0,
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
