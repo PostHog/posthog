@@ -54,6 +54,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutRunDetailSerializer,
@@ -587,11 +588,15 @@ def _skill_descriptions_for(team_id: int, skill_names: list[str]) -> dict[str, s
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-scout config: list and tune each scout's schedule, enablement, and emit posture.
+    """Per-scout config: list, register, and tune each scout's schedule, enablement, and
+    emit posture.
 
-    `list` is read (`signal_scout:read`); `partial_update` is a user-grantable write
-    (`signal_scout:write`) — config changes drive spend, so enablement is activity-logged
-    and `enabled_by` records who flipped it on.
+    `list` is read (`signal_scout:read`) and side-effect free — the MCP tool is annotated
+    `readOnly`, so it must never write. `create` and `partial_update` are user-grantable
+    writes (`signal_scout:write`) — config changes drive spend, so enablement is
+    activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
+    authored `signals-scout-*` skill can be configured immediately instead of waiting for the
+    coordinator tick to auto-register a row.
     """
 
     serializer_class = SignalScoutConfigSerializer
@@ -612,7 +617,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List scout configs",
         description=(
             "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout."
+            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
+            "authored scout skill appears here once its config is registered, either "
+            "explicitly via create or by the coordinator's next tick."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -622,6 +629,65 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         descriptions = _skill_descriptions_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_descriptions": descriptions})
         return Response(serializer.data)
+
+    @extend_schema(
+        request=SignalScoutConfigCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalScoutConfigSerializer, description="Created config."),
+            200: OpenApiResponse(
+                response=SignalScoutConfigSerializer,
+                description="A config already existed for this skill; the provided fields were applied to it.",
+            ),
+            400: OpenApiResponse(
+                description="No such skill on this project, or the name lacks the `signals-scout-` prefix."
+            ),
+        },
+        summary="Create a scout config",
+        description=(
+            "Register the config for a `signals-scout-*` skill immediately, without waiting "
+            "for the coordinator to auto-register it — optionally setting `run_interval_minutes`, "
+            "`enabled`, and `emit` in the same call. The skill must already exist on this "
+            "project. Upsert: if a config already exists for the skill, the provided fields "
+            "are applied to it."
+        ),
+        operation_id="signals_scout_config_create",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        serializer = SignalScoutConfigCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        skill_name = serializer.validated_data["skill_name"]
+        if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
+            raise exceptions.ValidationError(
+                {"skill_name": "No skill with this name exists on this project. Author the skill first."}
+            )
+        tunables = {key: value for key, value in serializer.validated_data.items() if key != "skill_name"}
+        # `team_id` stays in the kwargs: `get_or_create` builds the created row from
+        # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
+        config, created = SignalScoutConfig.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            skill_name=skill_name,
+            defaults={
+                **tunables,
+                "created_by": request.user,
+                # Configs default enabled; record who switched the scout on (it drives spend).
+                "enabled_by": request.user if tunables.get("enabled", True) else None,
+            },
+        )
+        if not created and tunables:
+            # The coordinator tick (or a concurrent caller) won the race — apply the provided
+            # fields to the existing row so the call still lands the requested settings.
+            update = SignalScoutConfigSerializer(config, data=tunables, partial=True)
+            update.is_valid(raise_exception=True)
+            save_kwargs = {}
+            if not config.enabled and update.validated_data.get("enabled"):
+                save_kwargs["enabled_by"] = request.user
+            config = update.save(**save_kwargs)
+        descriptions = _skill_descriptions_for(team_id, [config.skill_name])
+        return Response(
+            SignalScoutConfigSerializer(config, context={"skill_descriptions": descriptions}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     @extend_schema(
         request=SignalScoutConfigSerializer,

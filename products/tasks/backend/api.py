@@ -35,8 +35,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
-from posthog.models.file_system.constants import DESKTOP_SURFACE
-from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, surface_q
 from posthog.models.integration import Integration
 from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
@@ -86,8 +84,6 @@ from .serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     TaskAutomationSerializer,
-    TaskFileRequestSerializer,
-    TaskFileResponseSerializer,
     TaskListQuerySerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
@@ -906,56 +902,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
-
-    @validated_request(
-        request_serializer=TaskFileRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=TaskFileResponseSerializer, description="Task filed into the desktop project tree"
-            ),
-            404: OpenApiResponse(description="Task not found"),
-        },
-        summary="File a task into the project tree",
-        description=(
-            "Add this task to the desktop project tree so it can be organized into folders. "
-            "Optionally pass a destination folder path. Idempotent — re-filing updates the existing entry."
-        ),
-    )
-    @action(detail=True, methods=["post"], url_path="file", required_scopes=["task:write"])
-    def file(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        folder = (request.validated_data.get("folder") or "").strip() or "Tasks"
-        fs = task.get_file_system_representation(folder=folder)
-        create_or_update_file(
-            team=task.team,
-            base_folder=fs.base_folder,
-            name=fs.name,
-            file_type=fs.type,
-            ref=fs.ref,
-            href=fs.href,
-            meta=fs.meta,
-            created_at=task.created_at,
-            created_by_id=task.created_by_id,
-            surface=DESKTOP_SURFACE,
-        )
-        entry = (
-            FileSystem.objects.filter(surface_q(DESKTOP_SURFACE), team=task.team, type="task", ref=str(task.id))
-            .exclude(shortcut=True)
-            .first()
-        )
-        return Response(TaskFileResponseSerializer(entry).data)
-
-    @extend_schema(
-        request=None,
-        responses={204: OpenApiResponse(description="Task removed from the project tree")},
-        summary="Remove a task from the project tree",
-        description="Remove this task's entry from the desktop project tree. The task itself is not deleted.",
-    )
-    @action(detail=True, methods=["post"], url_path="unfile", required_scopes=["task:write"])
-    def unfile(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        delete_file(team=task.team, file_type="task", ref=str(task.id), surface=DESKTOP_SURFACE)
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_update(self, serializer):
         task = cast(Task, serializer.instance)
