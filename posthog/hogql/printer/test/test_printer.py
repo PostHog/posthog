@@ -4484,9 +4484,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert f"less(events.{mat_col.name}," not in printed
 
     @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_uses_typed_numeric_source(
-        self, mock_base_get_mat_col, mock_planner_get_mat_col
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
     ) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -4506,7 +4506,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(Float64)",
             has_minmax_index=True,
         )
-        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_resolution_get_mat_col.return_value = mock_mat_col
         mock_planner_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.numeric_test_prop < 5")
@@ -4516,9 +4516,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "accurateCastOrNull" not in printed
 
     @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_uses_typed_datetime_source(
-        self, mock_base_get_mat_col, mock_planner_get_mat_col
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
     ) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -4538,7 +4538,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(DateTime64(6, 'UTC'))",
             has_minmax_index=True,
         )
-        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_resolution_get_mat_col.return_value = mock_mat_col
         mock_planner_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
@@ -4549,9 +4549,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "parseDateTime64BestEffortOrNull" not in printed
 
     @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
-        self, mock_base_get_mat_col, mock_planner_get_mat_col
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
     ) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -4571,7 +4571,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Float64",
             has_minmax_index=True,
         )
-        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_resolution_get_mat_col.return_value = mock_mat_col
         mock_planner_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.numeric_test_prop < 5")
