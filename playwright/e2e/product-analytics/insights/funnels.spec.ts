@@ -77,7 +77,13 @@ test.describe('Funnel insights', () => {
             use_current_time: true,
             skip_onboarding: true,
             events: generateFunnelEvents(),
-            insights: [{ name: 'Seeded Funnel', query: FUNNEL_QUERY }],
+            // Tests that save the insight get their own copy — saving a shared insight
+            // leaks state (e.g. step order) into every test that loads it afterwards.
+            insights: [
+                { name: 'Seeded Funnel', query: FUNNEL_QUERY },
+                { name: 'Step Order Funnel', query: FUNNEL_QUERY },
+                { name: 'Lifecycle Funnel', query: FUNNEL_QUERY },
+            ],
             dashboards: [{ name: 'Funnel Dashboard', insight_indexes: [0] }],
         })
     })
@@ -86,13 +92,13 @@ test.describe('Funnel insights', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    function seededInsightId(): InsightShortId {
-        return workspace!.created_insights![0].short_id as InsightShortId
+    function seededInsightId(insightIndex: number = 0): InsightShortId {
+        return workspace!.created_insights![insightIndex].short_id as InsightShortId
     }
 
-    async function goToSeededFunnel(page: InsightPage['page']): Promise<InsightPage> {
+    async function goToSeededFunnel(page: InsightPage['page'], insightIndex: number = 0): Promise<InsightPage> {
         const insight = new InsightPage(page)
-        await insight.goToInsight(seededInsightId(), { edit: true })
+        await insight.goToInsight(seededInsightId(insightIndex), { edit: true })
         await insight.funnels.waitForChart()
         return insight
     }
@@ -190,7 +196,7 @@ test.describe('Funnel insights', () => {
     })
 
     test('Configure step ordering and session aggregation gating', async ({ page }) => {
-        const insight = await goToSeededFunnel(page)
+        const insight = await goToSeededFunnel(page, 1)
 
         await test.step('default step order is Sequential', async () => {
             await expect(insight.funnels.stepOrderFilter).toContainText('Sequential')
@@ -217,10 +223,17 @@ test.describe('Funnel insights', () => {
         await test.step('switch back to Sequential', async () => {
             await insight.funnels.selectStepOrder('Sequential')
             await insight.funnels.waitForChart()
+            // Without this check a silently failed switch gets saved below, and any
+            // test reading this insight afterwards runs against the wrong step order.
+            await expect(insight.funnels.stepOrderFilter).toContainText('Sequential')
         })
 
         await test.step('clicking dropped-off count opens persons modal with correct users', async () => {
-            await insight.save()
+            // Repeat runs share the workspace, so the round-trip back to Sequential can
+            // match the saved state exactly — only save when there is something to save.
+            if (!(await insight.saveButton.innerText()).includes('No changes')) {
+                await insight.save()
+            }
             await insight.funnels.waitForChart()
 
             const step2 = insight.funnels.stepLegend(1)
@@ -342,11 +355,17 @@ test.describe('Funnel insights', () => {
     })
 
     test('Save, button states, edit, and cancel lifecycle', async ({ page }) => {
-        const insight = await goToSeededFunnel(page)
+        const insight = await goToSeededFunnel(page, 2)
         const funnelName = randomString('funnel-lifecycle')
 
+        // Repeat runs share the workspace, so derive window values from the currently
+        // saved one — hardcoded values would be a no-op edit on the second run.
+        const savedWindow = Number(await insight.funnels.getConversionWindowInterval())
+        const windowA = String(savedWindow >= 300 ? 2 : savedWindow + 1)
+        const windowB = String(savedWindow >= 300 ? 3 : savedWindow + 2)
+
         await test.step('save button is enabled on unsaved changes', async () => {
-            await insight.funnels.setConversionWindowInterval('7')
+            await insight.funnels.setConversionWindowInterval(windowA)
             await insight.funnels.waitForChart()
             await expect(insight.saveButton).toBeEnabled()
             await expect(insight.saveButton).not.toContainText('No changes')
@@ -365,7 +384,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('make a change — save enables, cancel button appears', async () => {
-            await insight.funnels.setConversionWindowInterval('3')
+            await insight.funnels.setConversionWindowInterval(windowB)
             await insight.funnels.waitForChart()
 
             await expect(insight.saveButton).toBeEnabled()
@@ -379,7 +398,7 @@ test.describe('Funnel insights', () => {
             await insight.funnels.waitForChart()
 
             await insight.edit()
-            await expect(insight.funnels.conversionWindowInput).toHaveValue('7')
+            await expect(insight.funnels.conversionWindowInput).toHaveValue(windowA)
         })
     })
 
