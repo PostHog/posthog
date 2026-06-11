@@ -10,13 +10,20 @@ from typing import Literal
 
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.settings import SITE_URL
 
+from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.person_lookup import _get_persons_by_email
@@ -56,6 +63,68 @@ def _get_actor_distinct_id(
 # to use for organization attribution.
 _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
 
+# Latest organization/customer group keys from the customer's recent $groupidentify events.
+# $groupidentify is what posthog.group() emits on every SDK, so it exists whenever a person's
+# events carry groups at all — unlike $pageview/$screen, which are platform-specific. Filtering
+# by event also lets ClickHouse prune granules via the sort key (team_id, toDate(timestamp),
+# event, ...) instead of scanning all of the team's events for the date range; $groupidentify
+# volume is tiny, so the unmaterialized property reads are cheap.
+GROUPS_FROM_EVENTS_QUERY = """
+SELECT
+    argMaxIf(properties.$group_key, timestamp, properties.$group_type = 'organization'),
+    argMaxIf(properties.$group_key, timestamp, properties.$group_type = 'customer')
+FROM events
+WHERE event = '$groupidentify'
+  AND distinct_id IN {distinct_ids}
+  AND timestamp >= now() - INTERVAL 30 DAY
+"""
+
+
+def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict | None:
+    """Resolve ``$groups`` from the customer's recent analytics events in ClickHouse.
+
+    Fallback for when the ``OrganizationMembership`` lookup misses: that join runs
+    against this region's Postgres only, so accounts registered in another region
+    (e.g. an EU user filing a ticket against a US project) are invisible to it.
+    Their identified app sessions, however, stamp ``$group_N`` onto every event
+    captured into this project, which is cross-region by construction.
+
+    Event-supplied groups are captured with the project's public token and are
+    therefore spoofable — fine for analytics enrichment (same trust level as
+    ``$identify``), never for authorization. ``instance``/``project`` are rebuilt
+    server-side so fallback-path events match ``build_groups()`` output.
+    """
+    if not distinct_ids:
+        return None
+
+    cached = get_cached_resolved_groups(team.id, distinct_ids)
+    if cached is not None:
+        return cached or None  # {} is the negative-cache sentinel
+
+    # Cheap guard: skip the ClickHouse query entirely for projects without org group analytics.
+    group_type_names = {gtm["group_type"] for gtm in get_group_types_for_project(team.project_id)}
+    if "organization" not in group_type_names:
+        return None
+
+    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
+        response = execute_hogql_query(
+            GROUPS_FROM_EVENTS_QUERY,
+            placeholders={"distinct_ids": ast.Constant(value=distinct_ids)},
+            team=team,
+            query_type="conversations_groups_lookup",
+        )
+
+    groups: dict | None = None
+    if response.results:
+        org_key, customer_key = response.results[0]
+        if org_key:
+            groups = {"instance": SITE_URL, "project": str(team.uuid), "organization": org_key}
+            if customer_key:
+                groups["customer"] = customer_key
+
+    set_cached_resolved_groups(team.id, distinct_ids, groups)
+    return groups
+
 
 def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     """Resolve the customer organization's ``$groups`` for a ticket.
@@ -82,6 +151,13 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
             )
             if membership:
                 return True, build_groups(membership.organization, team)
+            # Membership rows are region-local: accounts registered in another region
+            # never appear in this Postgres. Fall back to the $groups their sessions
+            # stamped onto this project's analytics events (same distinct_id, so the
+            # shared-email caveat above still holds).
+            groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
+            if groups:
+                return True, groups
             return False, None
 
     # 2. Email fallback, restricted to channels with a provider-verified email identity.
@@ -100,6 +176,10 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
             )
             if membership:
                 return True, build_groups(membership.organization, team)
+            # Same cross-region fallback as above, keyed by the person's distinct_ids.
+            groups = _resolve_groups_from_analytics(team, person.distinct_ids)
+            if groups:
+                return True, groups
 
     return False, None
 

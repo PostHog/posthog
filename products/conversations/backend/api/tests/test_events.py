@@ -3,6 +3,8 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -23,6 +25,8 @@ from products.conversations.backend.models import Ticket
 class TestConversationEvents(BaseTest):
     def setUp(self):
         super().setUp()
+        # The resolved-groups cache is keyed by (team_id, distinct_ids), both reused across tests here.
+        cache.clear()
         self.widget_session_id = str(uuid.uuid4())
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -542,6 +546,153 @@ class TestConversationEvents(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            ("with_customer", "cus_456"),
+            ("without_customer", ""),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_analytics_fallback_groups(
+        self, _name, customer_key, mock_get_persons, mock_group_types, mock_hogql, mock_capture
+    ):
+        """Cross-region account: no membership row in this region's Postgres, org resolved from event $groups."""
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        mock_group_types.return_value = [
+            {"group_type": "project", "group_type_index": 0},
+            {"group_type": "organization", "group_type_index": 1},
+            {"group_type": "customer", "group_type_index": 2},
+        ]
+        mock_hogql.return_value.results = [["org-eu-123", customer_key]]
+
+        capture_ticket_created(self.ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == "org-eu-123"
+        # instance/project are rebuilt server-side, never taken from the event row
+        assert groups["project"] == str(self.team.uuid)
+        assert "instance" in groups
+        if customer_key:
+            assert groups["customer"] == customer_key
+        else:
+            assert "customer" not in groups
+
+    @parameterized.expand(
+        [
+            ("no_events", []),
+            ("empty_org_key", [["", ""]]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_analytics_fallback_no_groups(
+        self, _name, results, mock_get_persons, mock_group_types, mock_hogql, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 1}]
+        mock_hogql.return_value.results = results
+
+        capture_ticket_created(self.ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_membership_hit_skips_analytics_fallback(
+        self, mock_get_persons, mock_hogql, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Person Org")
+        person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket)
+
+        mock_hogql.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["$groups"]["organization"] == str(person_org.id)
+
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_email_channel_analytics_fallback_groups(
+        self, mock_get_persons, mock_get_by_email, mock_group_types, mock_hogql, mock_capture
+    ):
+        """Email channel, person found by email, no membership in this region -> org from event $groups."""
+        from posthog.models.person.person import Person
+
+        customer_email = "biz@acme.com"
+        mock_get_persons.return_value = []
+        person = Person(team_id=self.team.id, is_identified=True)
+        person._distinct_ids = ["real-did-1"]
+        mock_get_by_email.return_value = {customer_email: person}
+
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+        mock_hogql.return_value.results = [["org-eu-123", ""]]
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=customer_email,
+            channel_source="email",
+            anonymous_traits={"name": "Biz", "email": customer_email},
+        )
+
+        capture_ticket_created(ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        assert call_kwargs["properties"]["$groups"]["organization"] == "org-eu-123"
+
+    @parameterized.expand(
+        [
+            ("positive", [["org-eu-123", ""]], True),
+            ("negative", [], False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_analytics_fallback_result_is_cached(
+        self, _name, results, expect_groups, mock_get_persons, mock_group_types, mock_hogql, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+        mock_hogql.return_value.results = results
+
+        capture_ticket_created(self.ticket)
+        capture_message_received(self.ticket, "msg-456", "Hello support")
+
+        mock_hogql.assert_called_once()
+        assert mock_capture.call_count == 2
+        for call in mock_capture.call_args_list:
+            if expect_groups:
+                assert call.kwargs["properties"]["$groups"]["organization"] == "org-eu-123"
+            else:
+                assert "$groups" not in call.kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_status_changed_system_actor_uses_customer_distinct_id(self, mock_capture):
