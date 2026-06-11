@@ -712,6 +712,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
+                    visionQuotaLogic.findMounted()?.actions.loadQuota()
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'
