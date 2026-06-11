@@ -5,12 +5,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
     TargetFingerprintEmbeddingNotFoundError,
+    _merge_fingerprint_into_closest_issue,
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
     _select_model_name,
@@ -198,6 +201,68 @@ class TestFingerprintEmbeddingResultActivity:
         assert result.merged_count == 0
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
+
+    def test_merge_fingerprint_skips_teams_without_rollout(self) -> None:
+        result = _merge_fingerprint_into_closest_issue(
+            team=MagicMock(id=1),
+            fingerprint="test-fingerprint",
+            closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01)],
+        )
+
+        assert result == 0
+
+    def test_merge_fingerprint_skips_distances_above_threshold(self) -> None:
+        result = _merge_fingerprint_into_closest_issue(
+            team=MagicMock(id=2),
+            fingerprint="test-fingerprint",
+            closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.019)],
+        )
+
+        assert result == 0
+
+    def test_merge_fingerprint_moves_source_fingerprint_to_closest_issue(self) -> None:
+        source_issue_id = uuid.uuid4()
+        target_issue_id = uuid.uuid4()
+        source_fingerprint = MagicMock(issue_id=source_issue_id)
+        target_issue = MagicMock()
+        target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue)
+        team = MagicMock(id=2, uuid=uuid.uuid4())
+        fingerprint_querysets = [MagicMock(), MagicMock()]
+        fingerprint_querysets[0].select_related.return_value.first.return_value = source_fingerprint
+        fingerprint_querysets[1].select_related.return_value.first.return_value = target_fingerprint
+        capture = MagicMock()
+        capture_context = MagicMock()
+        capture_context.__enter__.return_value = capture
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                side_effect=fingerprint_querysets,
+            ) as filter_fingerprints,
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
+                return_value=capture_context,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
+                return_value={"team": "test"},
+            ),
+        ):
+            result = _merge_fingerprint_into_closest_issue(
+                team=team,
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+            )
+
+        assert result == 1
+        assert filter_fingerprints.call_args_list[0].kwargs == {"team_id": 2, "fingerprint": "test-fingerprint"}
+        assert filter_fingerprints.call_args_list[1].kwargs == {"team_id": 2, "fingerprint": "fingerprint-1"}
+        target_issue.merge.assert_called_once_with(issue_ids=[source_issue_id])
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["merge_source"] == "auto"
+        assert properties["source_issue_id"] == str(source_issue_id)
+        assert properties["target_issue_id"] == str(target_issue_id)
 
 
 class TestFingerprintEmbeddingResultWorkflow:
