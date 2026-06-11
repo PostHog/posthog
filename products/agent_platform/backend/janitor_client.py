@@ -23,6 +23,7 @@ from django.conf import settings
 import requests
 
 from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
+from posthog.security.outbound_proxy import internal_requests
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,9 @@ class JanitorClient:
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:
         url = f"{self.base_url}{path}"
         try:
-            resp = requests.request(method, url, headers=self._headers(), timeout=self.timeout, **kwargs)
+            # The janitor is an in-cluster service — use the internal session so the
+            # call bypasses HTTP(S)_PROXY (smokescreen blocks private IPs → 407).
+            resp = internal_requests.request(method, url, headers=self._headers(), timeout=self.timeout, **kwargs)
         except requests.RequestException as e:
             logger.exception("janitor request failed")
             raise JanitorClientError(502, f"janitor unreachable: {e}") from e
