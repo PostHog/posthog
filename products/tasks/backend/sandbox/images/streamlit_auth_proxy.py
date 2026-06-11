@@ -40,7 +40,7 @@ log = logging.getLogger("auth_proxy")
 
 LISTEN_PORT = 8080
 BRIDGE_LISTEN_PORT = 8181  # 127.0.0.1-only; never tunneled by Modal
-UPSTREAM = "http://localhost:8501"  # TODO: terrible name for a variable - upstream for what?
+STREAMLIT_UPSTREAM = "http://localhost:8501"  # the Streamlit server this proxy fronts
 POSTHOG_SITE_URL = os.environ.get("POSTHOG_SITE_URL", "")
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 
@@ -61,7 +61,8 @@ MAX_HEADER_BYTES = 64 * 1024
 OTEL_SERVICE_NAME_DEFAULT = "streamlit-auth-proxy"
 OTEL_LOG_PATH = "/i/v1/logs"
 
-# TODO: This too - what is this variable doing?
+# RFC 7230 hop-by-hop headers: connection-scoped, must not be forwarded by a
+# proxy in either direction (plus `host`, which we set per upstream request).
 HOP_BY_HOP = frozenset(
     {
         "connection",
@@ -77,7 +78,8 @@ HOP_BY_HOP = frozenset(
 )
 
 # Dropped upstream so user code can't read our tokens via document.referrer.
-STRIP_UPSTREAM = frozenset({"referer"})  # TODO: is this a typo here?
+# "referer" (one r) is the header's actual spelling per the HTTP spec.
+STRIP_UPSTREAM = frozenset({"referer"})
 
 # JS shim injected after <head> that patches fetch/XHR/WebSocket/element.src
 # setters to append both tokens on same-host requests. %s is filled via
@@ -337,7 +339,8 @@ async def _introspect_token(
         return None
 
     url = f"{POSTHOG_SITE_URL}/oauth/introspect/"
-    # TODO: do we need the token both in Bearer token and in body? If in bearer - might need the introspect scope!
+    # Token in both Bearer and body = self-introspection, which OAuthIntrospectTokenView
+    # allows without the `introspection` scope.
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/x-www-form-urlencoded",
@@ -478,7 +481,7 @@ async def proxy_handler(request: web.Request) -> web.StreamResponse:
 
 async def _proxy_to_upstream(request: web.Request) -> web.StreamResponse:
     path = request.match_info.get("path", "")
-    target = f"{UPSTREAM}/{path}"
+    target = f"{STREAMLIT_UPSTREAM}/{path}"
     qs = _strip_auth_params(request.query_string)
     if qs:
         target = f"{target}?{qs}"
@@ -502,8 +505,7 @@ async def _proxy_http(request: web.Request, target: str) -> web.StreamResponse:
     if content_length is not None and content_length > MAX_REQUEST_BODY_BYTES:
         return web.Response(status=413, text="Request body too large")
 
-    # TODO: what does this comment mean?
-    # Stream chunk-by-chunk; a 500 MB upload used to be resident before forwarding.
+    # Pass the body as a stream so large uploads are never fully resident in memory.
     body_stream = request.content if request.can_read_body else None
 
     async with client_session.request(
@@ -725,9 +727,8 @@ async def _run_both_apps(
     )
 
     try:
-        while True:
-            # TODO: What the heck is this? Are we limited to an hour of Streamlit?
-            await asyncio.sleep(3600)
+        # Park forever; the sites serve in the background until the process is killed.
+        await asyncio.Event().wait()
     finally:
         await main_runner.cleanup()
         await bridge_runner.cleanup()
