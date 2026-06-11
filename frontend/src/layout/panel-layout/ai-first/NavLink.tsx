@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
+import { useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -36,6 +38,17 @@ export function NavLink({
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
+    const labelRef = useRef<HTMLSpanElement>(null)
+    const [isLabelTruncated, setIsLabelTruncated] = useState(false)
+    useResizeObserver({
+        ref: labelRef,
+        onResize: () => {
+            if (labelRef.current) {
+                setIsLabelTruncated(labelRef.current.scrollWidth > labelRef.current.clientWidth)
+            }
+        },
+    })
+
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
@@ -57,7 +70,7 @@ export function NavLink({
                 to={to}
                 data-attr={dataAttr}
                 onClick={onClick}
-                tooltip={label}
+                tooltip={isCollapsed || isLabelTruncated ? label : undefined}
                 tooltipPlacement="right"
             >
                 <span
@@ -70,6 +83,7 @@ export function NavLink({
                 </span>
                 {!isCollapsed && (
                     <span
+                        ref={labelRef}
                         className={cn(
                             'flex-1 truncate text-left text-secondary group-hover:text-primary',
                             isActive && 'text-primary'
