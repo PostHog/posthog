@@ -60,6 +60,10 @@ function getDefaultMocks(
     return {
         get: {
             '/api/environments/:team_id/session_recordings/:id/snapshots': createSnapshotMockHandler(snapshotSources),
+            '/api/environments/:team_id/session_recordings/:id/player_events': {
+                session_events: recordingEventsJson,
+                related_events: { columns: recordingEventsJson.columns, results: [] },
+            },
             '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             '/api/projects/:team_id/comments': EMPTY_PAGINATED_RESPONSE,
             '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,

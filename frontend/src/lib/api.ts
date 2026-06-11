@@ -4416,6 +4416,12 @@ const api = {
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
+        async getPlayerEvents(recordingId: SessionRecordingType['id']): Promise<{
+            session_events: { columns: string[]; results: any[][] }
+            related_events: { columns: string[]; results: any[][] }
+        }> {
+            return await new ApiRequest().recording(recordingId).withAction('player_events').get()
+        },
         async getCaptureDiagnostics(
             recordingId: SessionRecordingType['id']
         ): Promise<{ properties: Record<string, any> | null }> {

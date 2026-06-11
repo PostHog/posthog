@@ -6,6 +6,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.person.missing_person import MissingPerson
 from posthog.session_recordings.queries.session_replay_events import (
     SESSION_ID_CLOCK_SKEW_SLACK,
     SessionReplayEvents,
@@ -495,3 +496,58 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["properties"]["$recording_status"] == "endpoint"
+
+
+class TestPlayerEventsEndpoint(ClickhouseTestMixin, APIBaseTest):
+    def test_returns_session_and_related_events_in_one_response(self) -> None:
+        base = (now() - relativedelta(hours=1)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(base)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base,
+            last_timestamp=base + relativedelta(minutes=5),
+            distinct_id="d-player",
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d-player",
+            timestamp=base + relativedelta(minutes=1),
+            properties={"$session_id": session_id, "$window_id": "w1", "$lib": "web"},
+        )
+        # Sessionless events carry the deterministic personless person_id that
+        # load_person() surfaces as MissingPerson — mirror ingestion in the seed.
+        _create_event(
+            team=self.team,
+            event="backend_event",
+            distinct_id="d-player",
+            timestamp=base + relativedelta(minutes=2),
+            properties={"$lib": "posthog-python"},
+            person_id=MissingPerson(self.team.pk, "d-player").uuid,
+        )
+        _create_event(
+            team=self.team,
+            event="sessionless_web_event",
+            distinct_id="d-player",
+            timestamp=base + relativedelta(minutes=2),
+            properties={"$lib": "web"},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/session_recordings/{session_id}/player_events")
+
+        assert response.status_code == 200
+        payload = response.json()
+        session_event_names = [row[1] for row in payload["session_events"]["results"]]
+        related_event_names = [row[1] for row in payload["related_events"]["results"]]
+        assert session_event_names == ["$pageview"]
+        assert related_event_names == ["backend_event"]
+
+    def test_404s_when_recording_does_not_exist(self) -> None:
+        session_id = _uuidv7_session_id_for(now() - relativedelta(hours=1))
+
+        response = self.client.get(f"/api/environments/{self.team.id}/session_recordings/{session_id}/player_events")
+
+        assert response.status_code == 404

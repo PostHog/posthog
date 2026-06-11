@@ -13,14 +13,11 @@ import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
 import type { sessionEventsDataLogicType } from './sessionEventsDataLogicType'
 import { SessionRecordingMetaLogicProps, sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
-
-const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
-const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 
 export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionEventsDataLogic', key]),
@@ -44,64 +41,20 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
             {
                 loadEvents: async (_, breakpoint) => {
                     const meta = values.sessionPlayerMetaData
-                    if (!meta) {
+                    const start = meta?.start_time ? dayjs(meta.start_time) : null
+                    if (!start) {
                         return null
                     }
 
-                    const start = meta.start_time ? dayjs(meta.start_time) : null
-                    const end = meta.end_time ? dayjs(meta.end_time) : null
-                    const person = meta.person
-
-                    if (!person || !start || !end) {
-                        return null
-                    }
-
-                    const sessionEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
-FROM events
-WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-AND $session_id = ${props.sessionRecordingId}
-ORDER BY timestamp ASC
-LIMIT 1000000`
-
-                    let relatedEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
-FROM events
-WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
-AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
-AND (empty ($session_id) OR isNull($session_id))
-AND properties.$lib != 'web'`
-
-                    if (person?.uuid) {
-                        relatedEventsQuery = (relatedEventsQuery +
-                            hogql`\nAND person_id = ${person.uuid}`) as HogQLQueryString
-                    }
-                    if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
-                        relatedEventsQuery = (relatedEventsQuery +
-                            hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`) as HogQLQueryString
-                    }
-
-                    relatedEventsQuery = (relatedEventsQuery +
-                        hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
-
-                    const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
-                    const [sessionEvents, relatedEvents]: any[] = await Promise.all([
-                        // make one query for all events that are part of the session
-                        api.queryHogQL(sessionEventsQuery, tags),
-                        // make a second for all events from that person,
-                        // not marked as part of the session
-                        // but in the same time range
-                        // these are probably e.g. backend events for the session
-                        // but with no session id
-                        // since posthog-js must always add session id we can also
-                        // take advantage of lib being materialized and further filter
-                        api.queryHogQL(relatedEventsQuery, tags),
-                    ])
+                    // One backend round trip returns the session's own events plus
+                    // events from the same person in the window that carry no session
+                    // id (e.g. backend events) - the windows and person fallback are
+                    // derived server-side from the recording metadata.
+                    const response = await api.recordings.getPlayerEvents(props.sessionRecordingId)
 
                     breakpoint()
 
-                    return [...sessionEvents.results, ...relatedEvents.results].map(
+                    return [...response.session_events.results, ...response.related_events.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small

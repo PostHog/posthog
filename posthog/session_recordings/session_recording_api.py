@@ -98,6 +98,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
     get_latest_session_event_properties,
+    get_player_events,
 )
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
@@ -993,6 +994,25 @@ class SessionRecordingViewSet(
         recording = self.get_object()
         properties = get_latest_session_event_properties(str(recording.session_id), self.team)
         return Response({"properties": properties})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="player_events")
+    def player_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """The session's events plus related person events for the player timeline, in one round trip."""
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
+        recording = self.get_object()
+        if not recording.load_metadata() or not recording.start_time or not recording.end_time:
+            raise exceptions.NotFound("Recording not found")
+        recording.load_person()
+        payload = get_player_events(
+            session_id=recording.session_id,
+            team=self.team,
+            start_time=recording.start_time,
+            end_time=recording.end_time,
+            person_uuid=str(recording.person.uuid) if recording.person else None,
+            distinct_id=recording.distinct_id,
+        )
+        return Response(payload)
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

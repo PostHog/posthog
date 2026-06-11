@@ -11,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import {
     RecordingSnapshot,
     SessionRecordingSnapshotSource,
@@ -206,22 +205,15 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadEvents'])
                 .toFinishAllListeners()
 
-            // Two HogQL session/related-events queries plus a third query that fetches full
-            // properties for events with a primary property (e.g. $pageview's $pathname)
+            // Session + related events arrive in one GET from the player_events
+            // endpoint (windows derived server-side); the only remaining query is
+            // the full-properties fetch for events with a primary property
             // — see preloadableEvents in sessionEventsDataLogic.
-            expect(api.create).toHaveBeenCalledTimes(3)
-
-            const queries = (api.create as jest.MockedFunction<typeof api.create>).mock.calls.map(
-                (call) => (call[1] as { query: HogQLQueryResponse })?.query?.query
+            const playerEventsCalls = (api.get as jest.MockedFunction<typeof api.get>).mock.calls.filter((call) =>
+                String(call[0]).includes('/player_events')
             )
-
-            // queries 0 varies 24 hours around start time
-            expect(queries[0]).toMatch(/WHERE timestamp > '2023-04-30 14:46:20'/)
-            expect(queries[0]).toMatch(/AND timestamp < '2023-05-02 14:46:32'/)
-
-            // queries one varies 5 minutes around start time
-            expect(queries[1]).toMatch(/WHERE timestamp > '2023-05-01 14:41:20'/)
-            expect(queries[1]).toMatch(/AND timestamp < '2023-05-01 14:51:32'/)
+            expect(playerEventsCalls).toHaveLength(1)
+            expect(api.create).toHaveBeenCalledTimes(1)
 
             expect(api.create.mock.calls).toMatchSnapshot()
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)

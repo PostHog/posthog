@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.core.cache import cache
 
@@ -141,6 +141,85 @@ def _latest_session_event_properties_between(
     if not row:
         return None
     return _filter_to_diagnostic_properties(json.loads(row) if isinstance(row, str) else row)
+
+
+# Buffers around the recording's own span when fetching its events: session
+# events can be ingested with timestamps well outside the recording (buffered
+# mobile events, timezone oddities); person-related events only need a small
+# window since they are matched by person, not session.
+PLAYER_SESSION_EVENTS_BUFFER = timedelta(hours=24)
+PLAYER_RELATED_EVENTS_BUFFER = timedelta(minutes=5)
+
+_PLAYER_SESSION_EVENTS_SQL = """
+    SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
+    FROM events
+    WHERE timestamp > {date_from}
+        AND timestamp < {date_to}
+        AND $session_id = {session_id}
+    ORDER BY timestamp ASC
+    LIMIT 1000000
+"""
+
+# Events from the same person in the recording's window that carry no session id
+# (e.g. backend events). posthog-js always sets a session id, and $lib is
+# materialized, so the $lib filter cheaply excludes web events.
+_PLAYER_RELATED_EVENTS_SQL_PREFIX = """
+    SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
+    FROM events
+    WHERE timestamp > {date_from}
+        AND timestamp < {date_to}
+        AND (empty($session_id) OR isNull($session_id))
+        AND properties.$lib != 'web'
+"""
+_PLAYER_EVENTS_SQL_SUFFIX = """
+    ORDER BY timestamp ASC
+    LIMIT 1000000
+"""
+
+
+def get_player_events(
+    session_id: str,
+    team: Team,
+    start_time: datetime,
+    end_time: datetime,
+    person_uuid: Optional[str],
+    distinct_id: Optional[str],
+) -> dict[str, Any]:
+    """Events for the replay player: the session's own events plus same-window
+    events with no session id, matched by person when known, else by distinct_id."""
+    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+
+    session_events_query = HogQLQuery(
+        query=_PLAYER_SESSION_EVENTS_SQL,
+        values={
+            "date_from": start_time - PLAYER_SESSION_EVENTS_BUFFER,
+            "date_to": end_time + PLAYER_SESSION_EVENTS_BUFFER,
+            "session_id": session_id,
+        },
+    )
+
+    related_sql = _PLAYER_RELATED_EVENTS_SQL_PREFIX
+    related_values: dict[str, Any] = {
+        "date_from": start_time - PLAYER_RELATED_EVENTS_BUFFER,
+        "date_to": end_time + PLAYER_RELATED_EVENTS_BUFFER,
+    }
+    if person_uuid:
+        related_sql += "    AND person_id = {person_id}\n"
+        related_values["person_id"] = person_uuid
+    elif distinct_id:
+        related_sql += "    AND distinct_id = {distinct_id}\n"
+        related_values["distinct_id"] = distinct_id
+    related_events_query = HogQLQuery(query=related_sql + _PLAYER_EVENTS_SQL_SUFFIX, values=related_values)
+
+    session_result = HogQLQueryRunner(team=team, query=session_events_query).calculate()
+    related_result = HogQLQueryRunner(team=team, query=related_events_query).calculate()
+
+    return {
+        "session_events": {"columns": session_result.columns, "results": session_result.results or []},
+        "related_events": {"columns": related_result.columns, "results": related_result.results or []},
+    }
 
 
 def seconds_until_midnight():
