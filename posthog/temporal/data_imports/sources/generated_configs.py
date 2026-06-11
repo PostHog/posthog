@@ -1184,7 +1184,8 @@ class SharePointSourceConfig(config.Config):
 
 @config.config
 class ShipStationSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config

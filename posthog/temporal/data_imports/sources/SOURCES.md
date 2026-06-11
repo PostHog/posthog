@@ -124,6 +124,7 @@ the row lists both.
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow       | HTTP                        | requests                                                        | ✅                          |
+| shipstation      | HTTP                        | requests                                                        | ✅                          |
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -295,7 +296,6 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - sftp
 - sharepoint
-- shipstation
 - surveymonkey
 - taboola
 - twitter_ads
