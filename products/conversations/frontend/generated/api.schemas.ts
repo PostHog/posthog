@@ -384,6 +384,18 @@ export interface PatchedConversationApi {
 }
 
 /**
+ * Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation.
+ */
+export interface SandboxCancelResponseApi {
+    /** The products/tasks Task backing the conversation. */
+    task_id: string
+    /** The Run that was targeted for cancellation. */
+    run_id: string
+    /** Status of the Run after the cancel command was issued. */
+    run_status: string
+}
+
+/**
  * Approval reply for a sandbox-runtime `permission_request`.
  */
 export interface PermissionResponseApi {
@@ -402,6 +414,8 @@ export interface PermissionResponseApi {
      * @maxLength 10000
      */
     customInput?: string
+    /** Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation. */
+    traceId?: string
 }
 
 /**

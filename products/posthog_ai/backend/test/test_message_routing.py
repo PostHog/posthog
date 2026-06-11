@@ -152,6 +152,8 @@ class TestHandleSandboxMessage(APIBaseTest):
         assert result.run_id == str(run.id)
         assert result.just_created_run is False
         assert result.run_status == TaskRun.Status.IN_PROGRESS
+        # The routing endpoint reads this off the result for its "prompt sent" telemetry.
+        assert result.attached_context_count == 1
 
         # The live workflow is signalled, no new Run created.
         m_signal.assert_called_once()
@@ -333,6 +335,8 @@ class TestHandleSandboxCancel(APIBaseTest):
         assert result.task_id == str(task.id)
         assert result.run_id == str(run.id)
         assert result.run_status == TaskRun.Status.IN_PROGRESS
+        # A live run was actually signalled — the routing endpoint emits cancellation telemetry.
+        assert result.cancel_requested is True
         m_cancel.assert_called_once()
 
     def test_cancel_delivery_failure_raises_502(self):
@@ -352,6 +356,8 @@ class TestHandleSandboxCancel(APIBaseTest):
         with patch(f"{ROUTING}.send_cancel") as m_cancel:
             result = self._service().cancel()
         assert result.run_status == TaskRun.Status.COMPLETED
+        # Nothing was cancelled, so no cancellation telemetry should fire.
+        assert result.cancel_requested is False
         m_cancel.assert_not_called()
 
     def test_cancel_without_task_raises(self):

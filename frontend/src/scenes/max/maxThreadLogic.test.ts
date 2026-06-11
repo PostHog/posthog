@@ -1330,6 +1330,68 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('sandbox history-load branch', () => {
+        const SANDBOX_TASK_ID = 'task-abc'
+        const SANDBOX_RUN_ID = 'run-abc'
+
+        function sandboxConversation(currentRunId: string | null): ConversationDetail {
+            return {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.InProgress,
+                title: 'Sandbox chat',
+                user: MOCK_DEFAULT_BASIC_USER,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                type: ConversationType.Assistant,
+                agent_runtime: 'sandbox',
+                task: { id: SANDBOX_TASK_ID, current_run_id: currentRunId },
+                messages: [],
+            }
+        }
+
+        it('replays logs/ then opens SSE for a non-terminal sandbox run, never reconnecting LangGraph', async () => {
+            logic.unmount()
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            const runSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                panelId: 'test',
+                conversation: sandboxConversation(SANDBOX_RUN_ID),
+            })
+            logic.mount()
+            // Drain the async afterMount (loadConversation → bootstrapRun → logs/ replay → run refetch).
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            // bootstrapRun replayed logs/ and refetched the run, then opened SSE — and the LangGraph
+            // stream was never touched (coexistence).
+            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(runSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+
+        it('does not bootstrap a sandbox run without a current_run_id', async () => {
+            logic.unmount()
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(null))
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                panelId: 'test',
+                conversation: sandboxConversation(null),
+            })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logsSpy).not.toHaveBeenCalled()
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('command selection and activation', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
