@@ -144,7 +144,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        soft_delete: true
         title: Delete Streamlit app
         description: |
             Delete a Streamlit app by short_id. Stops any running sandbox and soft-deletes the app.

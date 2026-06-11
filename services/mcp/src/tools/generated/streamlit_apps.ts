@@ -206,15 +206,14 @@ const streamlitAppsStop = (): ToolBase<typeof StreamlitAppsStopSchema, WithPostH
 
 const StreamlitAppsDeleteSchema = StreamlitAppsDestroyParams.omit({ project_id: true })
 
-const streamlitAppsDelete = (): ToolBase<typeof StreamlitAppsDeleteSchema, Schemas.StreamlitApp> => ({
+const streamlitAppsDelete = (): ToolBase<typeof StreamlitAppsDeleteSchema, unknown> => ({
     name: 'streamlit-apps-delete',
     schema: StreamlitAppsDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof StreamlitAppsDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.StreamlitApp>({
-            method: 'PATCH',
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/`,
-            body: { deleted: true },
         })
         return result
     },
