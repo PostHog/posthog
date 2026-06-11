@@ -74,6 +74,31 @@ impl RawRubyFrame {
     }
 }
 
+impl From<&RawRubyFrame> for Frame {
+    fn from(raw: &RawRubyFrame) -> Self {
+        Frame {
+            frame_id: FrameId::placeholder(),
+            mangled_name: raw.function.clone(),
+            line: raw.lineno,
+            column: None,
+            source: Some(raw.filename.clone()),
+            in_app: raw.meta.in_app,
+            resolved_name: Some(raw.function.clone()),
+            lang: "ruby".to_string(),
+            resolved: true,
+            resolve_failure: None,
+
+            junk_drawer: None,
+            context: raw.get_context(),
+            release: None,
+            synthetic: raw.meta.synthetic,
+            suspicious: false,
+            module: None,
+            code_variables: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -121,30 +146,5 @@ mod test {
                 ContextLine::new(13, "line 13"),
             ]
         );
-    }
-}
-
-impl From<&RawRubyFrame> for Frame {
-    fn from(raw: &RawRubyFrame) -> Self {
-        Frame {
-            frame_id: FrameId::placeholder(),
-            mangled_name: raw.function.clone(),
-            line: raw.lineno,
-            column: None,
-            source: Some(raw.filename.clone()),
-            in_app: raw.meta.in_app,
-            resolved_name: Some(raw.function.clone()),
-            lang: "ruby".to_string(),
-            resolved: true,
-            resolve_failure: None,
-
-            junk_drawer: None,
-            context: raw.get_context(),
-            release: None,
-            synthetic: raw.meta.synthetic,
-            suspicious: false,
-            module: None,
-            code_variables: None,
-        }
     }
 }
