@@ -222,7 +222,7 @@ export function InsightTooltip({
                             renderCount,
                             seriesColumnData?.color
                         )
-                        if (onRowClick && seriesColumnData && numDataPoints > 1) {
+                        if (onRowClick && seriesColumnData && numDataPoints > 1 && datum.id !== 'total') {
                             return (
                                 <div
                                     className="cursor-pointer hover:bg-accent-highlight-secondary -mx-2 px-2 -my-1 py-1"

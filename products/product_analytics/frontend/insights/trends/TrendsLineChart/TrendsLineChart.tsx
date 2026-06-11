@@ -166,6 +166,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     showTotal={
                         !isPercentStackView &&
                         !isStickiness &&
+                        !formula &&
                         ctx.seriesData.every(
                             (s) =>
                                 !s.series.meta?.action?.math ||

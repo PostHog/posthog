@@ -361,6 +361,7 @@ export function TrendsBarChart({
                     showTotal={
                         !isPercentStackView &&
                         !isStickiness &&
+                        !formula &&
                         tooltipCtx.seriesData.every(
                             (s) =>
                                 !s.series.meta?.action?.math ||
