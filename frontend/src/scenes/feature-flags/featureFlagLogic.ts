@@ -726,7 +726,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
-                    return { ...state, filters }
+                    return {
+                        ...state,
+                        filters: {
+                            ...filters,
+                            payloads: state.filters.payloads,
+                        },
+                    }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
                     if (!state) {

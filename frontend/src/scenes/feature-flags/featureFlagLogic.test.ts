@@ -444,6 +444,55 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('setFeatureFlagFilters', () => {
+        it('preserves boolean payloads when release conditions update from a stale filters snapshot', async () => {
+            const payload = '{"enabled":true}'
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: payload },
+                })
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+
+            const updatedConditionFilters: FeatureFlagFilters = {
+                ...logic.values.featureFlag.filters,
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 42,
+                        variant: null,
+                    },
+                ],
+                payloads: {},
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagFilters(updatedConditionFilters, {})
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        groups: updatedConditionFilters.groups,
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+        })
+    })
+
     describe('change detection', () => {
         it('detects active status changes', () => {
             const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
