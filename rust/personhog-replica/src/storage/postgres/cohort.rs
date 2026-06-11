@@ -1,13 +1,47 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
+use super::{
+    ConsistencyLevel, PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED,
+};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
 use crate::storage::types::CohortMembership;
+
+/// Insert one bounded chunk of cohort members. NOT EXISTS makes re-running the same
+/// person_ids (e.g. on retry) idempotent without a unique index; the bare ON CONFLICT DO
+/// NOTHING is a forward-safeguard — if a unique (cohort_id, person_id) constraint is later
+/// added, a concurrent same-key insert is skipped cleanly instead of erroring.
+async fn insert_cohort_members_chunk(
+    pool: &sqlx::PgPool,
+    cohort_id: i64,
+    person_ids: &[i64],
+    version: Option<i32>,
+) -> StorageResult<i64> {
+    let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
+    let result = sqlx::query!(
+        r#"
+        INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
+        SELECT pid, $1, $3
+        FROM UNNEST($2::bigint[]) AS t(pid)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM posthog_cohortpeople cp
+            WHERE cp.person_id = pid AND cp.cohort_id = $1
+        )
+        ON CONFLICT DO NOTHING
+        "#,
+        cohort_id as i32,
+        person_ids,
+        version,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(result.rows_affected() as i64)
+}
 
 #[async_trait]
 impl CohortStorage for PostgresStorage {
@@ -214,28 +248,35 @@ impl CohortStorage for PostgresStorage {
         let method = current_method_name();
         let labels = [
             ("operation".to_string(), "insert_cohort_members".to_string()),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
             ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        // Split into fixed-size chunks inserted concurrently on the bulk pool, mirroring
+        // delete_persons. Each chunk dedups with NOT EXISTS, so a retry of the full list
+        // sees the already-committed rows and skips them — idempotent without a unique index.
+        let pool = self.bulk_primary_pool.clone();
+        let chunks: Vec<Vec<i64>> = person_ids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[("operation".to_string(), "insert_cohort_members".to_string())],
+            chunks.len() as f64,
+        );
 
-        let result = sqlx::query!(
-            r#"
-            INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
-            SELECT pid, $1, $3
-            FROM UNNEST($2::bigint[]) AS t(pid)
-            ON CONFLICT DO NOTHING
-            "#,
-            cohort_id as i32,
-            person_ids,
-            version,
-        )
-        .execute(&mut *conn)
+        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
+            let pool = pool.clone();
+            async move { insert_cohort_members_chunk(&pool, cohort_id, &chunk, version).await }
+        }))
+        .buffer_unordered(self.bulk_max_concurrent_chunks)
+        .try_collect()
         .await?;
 
+        let inserted: i64 = results.iter().sum();
         common_metrics::histogram(
             DB_ROWS_RETURNED,
             &[
@@ -243,10 +284,10 @@ impl CohortStorage for PostgresStorage {
                 ("client".to_string(), client.to_string()),
                 ("method".to_string(), method.to_string()),
             ],
-            result.rows_affected() as f64,
+            inserted as f64,
         );
 
-        Ok(result.rows_affected() as i64)
+        Ok(inserted)
     }
 
     async fn list_cohort_member_ids(
