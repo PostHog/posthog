@@ -5010,6 +5010,10 @@ snapshots:
         hash: v1.k794b7964.4947f06455042031427ae2a5f1677d3cd0f25aacf83b9041fb4a659241bb98c5.BGORqjaiNrbMf3NySbKUf0j8PAE2GdEd4C2l8H5FPCA
     scenes-app-hogfunctions-destination--configuration--light:
         hash: v1.k794b7964.1f55b872709218aa08caa34a7a759f9c03a61e9037c11a8f4a66c48d4fbfb17d.kOgE7mbNXb-EInqnbC04Jqlm_yTmrQolj9l-lU3kc0M
+    scenes-app-hogfunctions-destination--configuration-with-templating-warning--dark:
+        hash: v1.k794b7964.17c5de6021e1e18cfa86321b50acf3f8e29c985d43e5104a04235b93e9a41f22.rUxwPBD7Pzgos2aEKwQDQAlseJ1xWkqFlScea4eAFLM
+    scenes-app-hogfunctions-destination--configuration-with-templating-warning--light:
+        hash: v1.k794b7964.184f915af5342f2d0f5a7ab80ee223f7488cf3927f7d5b299c178cea88f4661c.kt1bwVo0hMXNkLQHb799UxknBlngVxt_Fc6LZDcCPe4
     scenes-app-hogfunctions-destination--logs--dark:
         hash: v1.k794b7964.9f6e346b5bdaaa41dc9434d8b787dc48d6843ead5931ab214e180d2aa6e1c54f.FmPRcWiNIOxvN_Gq0lmIpoRe4rZZuhdFbc1gnExmu0k
     scenes-app-hogfunctions-destination--logs--light:
