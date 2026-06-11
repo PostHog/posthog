@@ -319,7 +319,7 @@ def migrate_google_service_account_key_file_to_integration(
     Read the service account key file and copies them over to the integration.
     """
     integration_id = job_inputs.get("google_cloud_service_account_integration_id")
-    if integration_id not in (None, ""):
+    if integration_id is not None and integration_id != "" and integration_id != 0:
         migrated_job_inputs = dict(job_inputs)
         migrated_job_inputs.pop("key_file", None)
         return migrated_job_inputs
