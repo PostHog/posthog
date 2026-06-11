@@ -131,6 +131,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
+        loadDistinctIdNames: (distinctIds: string[]) => ({ distinctIds }),
+        setDistinctIdNames: (distinctIdNames: Record<string, string>) => ({ distinctIdNames }),
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
         setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
@@ -377,6 +379,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setFlagKeysLoading: (_, { isLoading }) => isLoading,
             },
         ],
+        distinctIdNameCache: [
+            {} as Record<string, string>,
+            {
+                setDistinctIdNames: (state, { distinctIdNames }) => ({
+                    ...state,
+                    ...distinctIdNames,
+                }),
+            },
+        ],
         openConditions: [
             [] as string[],
             {
@@ -413,9 +424,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     listeners(({ actions, values, props }) => ({
         setFilters: async () => {
-            const { flagIds } = values
+            const { flagIds, distinctIds } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
+            }
+            if (distinctIds.length > 0) {
+                actions.loadDistinctIdNames(distinctIds)
             }
             // Recalculate blast radius when filters change (e.g., from template application)
             if (!props.readOnly) {
@@ -454,6 +468,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 const allFlagIds = [...values.flagIds, ...newFlagIds]
                 if (allFlagIds.length > 0) {
                     await actions.loadAllFlagKeys(allFlagIds)
+                }
+
+                // Resolve display names for any distinct_id targeting in the updated properties.
+                if (values.distinctIds.length > 0) {
+                    actions.loadDistinctIdNames(values.distinctIds)
                 }
             }
 
@@ -628,6 +647,33 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setFlagKeysLoading(false)
             }
         },
+        loadDistinctIdNames: async ({ distinctIds }) => {
+            if (!distinctIds || distinctIds.length === 0) {
+                return
+            }
+
+            // Only fetch ids we haven't resolved yet (cache stores a value for every
+            // requested id — the resolved name or the raw id as fallback).
+            const uncachedIds = [...new Set(distinctIds)].filter((id) => !(id in values.distinctIdNameCache))
+            if (uncachedIds.length === 0) {
+                return
+            }
+
+            const fallbackMapping = Object.fromEntries(uncachedIds.map((id) => [id, id]))
+            try {
+                const personsByDistinctId = await api.persons.getByDistinctIds(uncachedIds)
+                const mapping: Record<string, string> = {}
+                uncachedIds.forEach((id) => {
+                    const name = personsByDistinctId[id]?.name
+                    // Keep the raw id when no meaningful display name resolved.
+                    mapping[id] = name && name !== id ? name : id
+                })
+                actions.setDistinctIdNames(mapping)
+            } catch (error) {
+                console.error('Error loading distinct ID names:', error)
+                actions.setDistinctIdNames(fallbackMapping)
+            }
+        },
     })),
     selectors({
         filterGroups: [(s) => [s.filters], (filters: FeatureFlagFilters) => filters.groups || []],
@@ -779,6 +825,30 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         ) || []
                 ) || [],
         ],
+        distinctIds: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]): string[] =>
+                filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) => {
+                            if (property.type !== PropertyFilterType.Person || property.key !== 'distinct_id') {
+                                return []
+                            }
+                            if (Array.isArray(property.value)) {
+                                return property.value.map((v) => String(v))
+                            }
+                            return property.value !== null && property.value !== undefined
+                                ? [String(property.value)]
+                                : []
+                        }) || []
+                ) || [],
+        ],
+        getDistinctIdName: [
+            (s) => [s.distinctIdNameCache],
+            (distinctIdNameCache: Record<string, string>) =>
+                (distinctId: string): string =>
+                    distinctIdNameCache[distinctId] || distinctId,
+        ],
         properties: [
             (s) => [s.filterGroups],
             (filterGroups: FeatureFlagGroupType[]) => {
@@ -823,9 +893,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     afterMount(({ props, actions, values }) => {
         // Load flag keys on mount if there are flag dependencies
         if (props.filters) {
-            const { flagIds } = values
+            const { flagIds, distinctIds } = values
             if (flagIds.length > 0) {
                 actions.loadAllFlagKeys(flagIds)
+            }
+            if (distinctIds.length > 0) {
+                actions.loadDistinctIdNames(distinctIds)
             }
         }
 

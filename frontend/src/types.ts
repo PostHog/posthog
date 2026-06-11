@@ -1096,8 +1096,6 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
-    /** Server-resolved display names keyed by distinct ID, for `distinct_id` filters. */
-    distinct_id_names?: Record<string, string>
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {

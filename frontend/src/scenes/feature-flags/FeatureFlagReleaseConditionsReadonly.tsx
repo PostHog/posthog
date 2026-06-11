@@ -29,18 +29,21 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-/** Extract server-provided display names (group names or person names) from a property, if present. */
-function getValueDisplayNames(property: AnyPropertyFilter): Record<string, string> {
-    if (property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+/** Extract server-provided group_key_names from a property, if present. */
+function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
+    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
         return (property as any).group_key_names ?? {}
-    }
-    if (property.key === 'distinct_id' && property.type === PropertyFilterType.Person && 'distinct_id_names' in property) {
-        return (property as any).distinct_id_names ?? {}
     }
     return {}
 }
 
-function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JSX.Element {
+function PropertyValueDisplay({
+    property,
+    getDistinctIdName,
+}: {
+    property: AnyPropertyFilter
+    getDistinctIdName: (distinctId: string) => string
+}): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -50,20 +53,29 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const displayNames = getValueDisplayNames(property)
+    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
+    const isDistinctId = property.type === PropertyFilterType.Person && property.key === 'distinct_id'
 
     return (
         <>
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
-                const display = displayNames[strVal] || strVal
+                const display = isDistinctId ? getDistinctIdName(strVal) : groupKeyNames[strVal] || strVal
                 return <LemonSnack key={idx}>{display}</LemonSnack>
             })}
         </>
     )
 }
 
-function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter; isFirst: boolean }): JSX.Element {
+function PropertyFilterRow({
+    property,
+    isFirst,
+    getDistinctIdName,
+}: {
+    property: AnyPropertyFilter
+    isFirst: boolean
+    getDistinctIdName: (distinctId: string) => string
+}): JSX.Element {
     const propertyLabel =
         property.type === PropertyFilterType.Cohort || property.type === PropertyFilterType.Flag
             ? null
@@ -93,7 +105,7 @@ function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter;
                 <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
             )}
             <span className="text-muted">{operator}</span>
-            <PropertyValueDisplay property={property} />
+            <PropertyValueDisplay property={property} getDistinctIdName={getDistinctIdName} />
         </div>
     )
 }
@@ -112,7 +124,7 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName, properties } = useValues(releaseConditionsLogic)
+    const { filterGroups, aggregationTargetName, properties, getDistinctIdName } = useValues(releaseConditionsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -145,6 +157,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                             group={group}
                             index={index}
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                            getDistinctIdName={getDistinctIdName}
                         />
                     </div>
                 ))}
@@ -161,9 +174,15 @@ interface ConditionSetCardProps {
     group: FeatureFlagGroupType
     index: number
     aggregationTargetName: string
+    getDistinctIdName: (distinctId: string) => string
 }
 
-function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetCardProps): JSX.Element {
+function ConditionSetCard({
+    group,
+    index,
+    aggregationTargetName,
+    getDistinctIdName,
+}: ConditionSetCardProps): JSX.Element {
     const properties = group.properties || []
     const rollout = group.rollout_percentage ?? 100
 
@@ -194,7 +213,12 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
             {properties.length > 0 && (
                 <div className="mt-3 flex flex-col gap-1">
                     {properties.map((property, idx) => (
-                        <PropertyFilterRow key={idx} property={property} isFirst={idx === 0} />
+                        <PropertyFilterRow
+                            key={idx}
+                            property={property}
+                            isFirst={idx === 0}
+                            getDistinctIdName={getDistinctIdName}
+                        />
                     ))}
                 </div>
             )}

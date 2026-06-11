@@ -1362,14 +1362,6 @@ class FeatureFlagSerializer(
             if prop.get("key") == "$group_key"
         ]
 
-    def _get_distinct_id_properties_from_filters(self, filters: dict):
-        """Extract distinct_id properties from person-type filters."""
-        return [
-            prop
-            for prop in self._get_properties_from_filters(filters, PropertyFilterType.PERSON)
-            if prop.get("key") == "distinct_id"
-        ]
-
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
@@ -1944,34 +1936,6 @@ class FeatureFlagSerializer(
 
                     for prop in group_key_props:
                         prop["group_key_names"] = group_names
-
-        # Resolve human-readable display names for distinct_id person filters, mirroring
-        # the group_key_names resolution above so the UI can show person names instead of
-        # raw distinct IDs.
-        distinct_id_props = self._get_distinct_id_properties_from_filters(filters)
-        if distinct_id_props:
-            distinct_ids: set[str] = set()
-            for prop in distinct_id_props:
-                prop_value = prop.get("value")
-                if isinstance(prop_value, list):
-                    distinct_ids.update(str(v) for v in prop_value)
-                elif prop_value is not None:
-                    distinct_ids.add(str(prop_value))
-
-            if distinct_ids:
-                from posthog.api.person import get_person_name
-                from posthog.models.person.util import get_persons_mapped_by_distinct_id
-
-                persons_by_distinct_id = get_persons_mapped_by_distinct_id(instance.team_id, list(distinct_ids))
-                distinct_id_names: dict[str, str] = {}
-                for distinct_id, person in persons_by_distinct_id.items():
-                    name = get_person_name(instance.team, person)
-                    if name and name != distinct_id:
-                        distinct_id_names[distinct_id] = name
-
-                if distinct_id_names:
-                    for prop in distinct_id_props:
-                        prop["distinct_id_names"] = distinct_id_names
 
         representation["filters"] = filters
         return representation
