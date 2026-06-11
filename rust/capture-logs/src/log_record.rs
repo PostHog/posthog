@@ -438,9 +438,9 @@ mod tests {
     }
 
     /// Billable bytes of a single `sample_row()` with non-zero trace/span ids:
-    /// trace_id(3) + span_id(3) + body(5) + severity_text(4) + instrumentation_scope(7)
-    /// + event_name(3) + attributes "k"+"v"(2) = 27 (uuid and service_name excluded);
-    /// resource_attributes "host.name"+"localhost"(18) are counted once per distinct resource.
+    /// trace_id(3) + span_id(3) + body(5) + severity_text(4) + instrumentation_scope(7) +
+    /// event_name(3) + attributes "k"+"v"(2) = 27 (uuid and service_name excluded);
+    /// resource_attributes "host.name"+"localhost"(18) are counted once per contiguous run.
     const SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE: u64 = 27;
     const SAMPLE_ROW_RESOURCE_BYTES: u64 = 18;
 
