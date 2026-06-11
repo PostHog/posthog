@@ -13,8 +13,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.matomo.settings import (
+    DEFAULT_BACKFILL_DAYS,
     MATOMO_ENDPOINTS,
-    REPORT_DEFAULT_BACKFILL_DAYS,
     REPORT_LOOKBACK_DAYS,
     VISIT_FINALITY_WINDOW_SECONDS,
 )
@@ -57,7 +57,9 @@ def hostname_of(host: str) -> str:
 
 
 def _get_session(api_token: str) -> requests.Session:
-    return make_tracked_session(redact_values=(api_token,))
+    # `host` is user-supplied, so pin redirects off: validation and the
+    # outbound request must stay on the same target (SSRF defense-in-depth).
+    return make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
 
 def _to_date(value: Any) -> Optional[date]:
@@ -118,6 +120,8 @@ def get_rows(
         reraise=True,
     )
     def call(method: str, extra: dict[str, Any]) -> Any:
+        # Throttle every call, including tenacity retries, so a retry storm
+        # can't blow past Matomo's per-IP rate limit on top of the backoff.
         time.sleep(REQUEST_THROTTLE_SECONDS)
         response = session.post(
             api_url,
@@ -166,7 +170,7 @@ def get_rows(
         if min_timestamp > 0:
             range_start = datetime.fromtimestamp(min_timestamp, tz=UTC).date()
         else:
-            range_start = today - timedelta(days=REPORT_DEFAULT_BACKFILL_DAYS)
+            range_start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
         while True:
             batch = call(
@@ -201,7 +205,17 @@ def get_rows(
             ]
             if not timestamps:
                 return
-            min_timestamp = max(timestamps)
+            next_min_timestamp = max(timestamps)
+            # minTimestamp is inclusive: boundary visits at the max second get
+            # refetched next page and deduped on idVisit (fine). But if a full
+            # page's visits all fall in a single second, advancing to that
+            # second returns the same page forever, so step one second past it
+            # to guarantee progress. The only loss is overflow beyond
+            # VISITS_PAGE_SIZE visits within that one second — an accepted
+            # tradeoff against stalling the sync indefinitely.
+            if next_min_timestamp <= min_timestamp or min(timestamps) == next_min_timestamp:
+                next_min_timestamp = next_min_timestamp + 1
+            min_timestamp = next_min_timestamp
             # Save state AFTER yielding so a crash re-yields the in-flight
             # batch (merge dedupes on idVisit).
             resumable_source_manager.save_state(MatomoResumeConfig(min_timestamp=min_timestamp))
@@ -209,7 +223,7 @@ def get_rows(
     # Per-day report walk, oldest-first. Recent days re-archive, so
     # incremental runs re-pull a trailing lookback window.
     today = datetime.now(tz=UTC).date()
-    start = today - timedelta(days=REPORT_DEFAULT_BACKFILL_DAYS)
+    start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
     if should_use_incremental_field:
         watermark = _to_date(db_incremental_field_last_value)
         if watermark is not None:

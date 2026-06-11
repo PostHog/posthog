@@ -125,6 +125,23 @@ class TestVisits:
         ]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_full_page_at_one_timestamp_steps_past_cursor(self, mock_session, mock_sleep):
+        # minTimestamp is inclusive, so a full page whose visits all share the
+        # same second must step the cursor forward or it would refetch forever.
+        ts = _final_ts(10_000)
+        first_page = [{"idVisit": str(i), "serverTimestamp": ts} for i in range(VISITS_PAGE_SIZE)]
+        second_page = [{"idVisit": "last", "serverTimestamp": ts + 5}]
+        mock_session.return_value.post.side_effect = [_response(first_page), _response(second_page)]
+
+        manager = _make_manager()
+        batches = list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
+
+        assert [len(batch) for batch in batches] == [VISITS_PAGE_SIZE, 1]
+        second_body = mock_session.return_value.post.call_args_list[1].kwargs["data"]
+        assert second_body["minTimestamp"] == ts + 1
+        assert [call.args[0].min_timestamp for call in manager.save_state.call_args_list] == [ts + 1]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_still_active_visits_are_deferred(self, mock_session, mock_sleep):
         now = int(datetime.now(tz=UTC).timestamp())
         mock_session.return_value.post.return_value = _response(

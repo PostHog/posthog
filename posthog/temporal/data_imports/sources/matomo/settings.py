@@ -6,8 +6,8 @@ from products.data_warehouse.backend.types import IncrementalField, IncrementalF
 # Reports for recent days change until archiving completes, so incremental
 # syncs re-pull a trailing window and merge on (_date, ...).
 REPORT_LOOKBACK_DAYS = 3
-# Default history pulled on the first sync of a report stream.
-REPORT_DEFAULT_BACKFILL_DAYS = 365
+# Default history pulled on the first sync of a stream (visits and reports).
+DEFAULT_BACKFILL_DAYS = 365
 # Visits newer than this are considered possibly still in progress and are
 # deferred to the next sync so their action list is complete when stored.
 VISIT_FINALITY_WINDOW_SECONDS = 3600
