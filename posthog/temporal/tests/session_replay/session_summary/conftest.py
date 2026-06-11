@@ -202,7 +202,7 @@ class AsyncRedisTestContext(RedisTestContextBase):
 
 
 @pytest_asyncio.fixture
-async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext]:
     """Async context manager for Redis test setup and cleanup."""
     context = AsyncRedisTestContext()
     try:

@@ -59,8 +59,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
     actions({
         toggleExpandSpan: (uuid: string) => ({ uuid }),
-        openTraceModal: (traceId: string) => ({ traceId }),
-        closeTraceModal: true,
+        openTrace: (traceId: string) => ({ traceId }),
+        closeTrace: true,
         openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,
         syncUrlAndRunQuery: true,
@@ -87,8 +87,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         selectedTraceId: [
             null as string | null,
             {
-                openTraceModal: (_, { traceId }) => traceId,
-                closeTraceModal: () => null,
+                openTrace: (_, { traceId }) => traceId,
+                closeTrace: () => null,
             },
         ],
         compareFlameSpanName: [
@@ -108,7 +108,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     selectors({
-        isTraceModalOpen: [
+        isTraceOpen: [
             (s) => [s.selectedTraceId],
             (selectedTraceId: string | null): boolean => selectedTraceId !== null,
         ],
@@ -139,7 +139,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openTraceModal: ({ traceId }) => {
+        openTrace: ({ traceId }) => {
             posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
