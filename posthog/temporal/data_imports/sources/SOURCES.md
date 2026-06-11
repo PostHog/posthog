@@ -75,6 +75,7 @@ the row lists both.
 | freshsales       | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
+| fullstory        | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
@@ -234,7 +235,6 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - firebase
 - freshbooks
-- fullstory
 - gladly
 - gocardless
 - google_ad_manager
