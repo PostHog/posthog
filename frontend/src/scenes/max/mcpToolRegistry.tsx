@@ -1,13 +1,29 @@
 import type { ComponentType } from 'react'
 
-import { IconDashboard, IconGraph, IconNotebook, IconRewindPlay, IconWarning, IconWrench } from '@posthog/icons'
+import {
+    IconDashboard,
+    IconFunnels,
+    IconGraph,
+    IconLifecycle,
+    IconLlmAnalytics,
+    IconNotebook,
+    IconPerson,
+    IconRetention,
+    IconRewindPlay,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
+    IconWarning,
+    IconWrench,
+} from '@posthog/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
-import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
+import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
 import { CreateNotebookWidget } from './messages/adapters/CreateNotebookWidget'
-import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
-import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
-import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
+import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
+import { QueryWidget } from './messages/adapters/QueryWidget'
+import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
+import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 
 export interface McpToolRendererProps {
@@ -58,13 +74,13 @@ export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 // register both aliases where both are real tool names.
 
 // --- Data tools: insight ---
-// VisualizationArtifactAnswer renderer — create / update / read insight.
+// VisualizationWidget renderer — create / update / read insight.
 for (const key of ['insight-create', 'insight-update', 'insight-get', 'create_insight']) {
     mcpToolRegistry.register({
         key,
         displayName: 'Insight',
         icon: <IconGraph />,
-        Renderer: CreateInsightAdapter,
+        Renderer: CreateInsightWidget,
     })
 }
 
@@ -74,7 +90,7 @@ for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) 
         key,
         displayName: 'Dashboard',
         icon: <IconDashboard />,
-        Renderer: UpsertDashboardAdapter,
+        Renderer: UpsertDashboardWidget,
     })
 }
 
@@ -84,7 +100,7 @@ for (const key of ['query-session-recordings-list', 'search_session_recordings',
         key,
         displayName: 'Session recordings',
         icon: <IconRewindPlay />,
-        Renderer: SearchSessionRecordingsAdapter,
+        Renderer: SearchSessionRecordingsWidget,
     })
 }
 
@@ -100,7 +116,7 @@ for (const key of [
         key,
         displayName: 'Error tracking',
         icon: <IconWarning />,
-        Renderer: ErrorTrackingAdapter,
+        Renderer: ErrorTrackingWidget,
     })
 }
 
@@ -114,6 +130,24 @@ for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-re
         icon: <IconNotebook />,
         Renderer: CreateNotebookWidget,
     })
+}
+
+// --- Data tools: query wrappers ---
+// VisualizationWidget renderer — analytics and product queries executed inline by the agent.
+const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element }[] = [
+    { key: 'query-trends', displayName: 'Trends query', icon: <IconTrends /> },
+    { key: 'query-funnel', displayName: 'Funnel query', icon: <IconFunnels /> },
+    { key: 'query-retention', displayName: 'Retention query', icon: <IconRetention /> },
+    { key: 'query-stickiness', displayName: 'Stickiness query', icon: <IconStickiness /> },
+    { key: 'query-paths', displayName: 'Paths query', icon: <IconUserPaths /> },
+    { key: 'query-lifecycle', displayName: 'Lifecycle query', icon: <IconLifecycle /> },
+    { key: 'query-llm-traces-list', displayName: 'LLM traces', icon: <IconLlmAnalytics /> },
+    { key: 'query-trends-actors', displayName: 'Trends persons', icon: <IconPerson /> },
+    { key: 'query-lifecycle-actors', displayName: 'Lifecycle persons', icon: <IconPerson /> },
+    { key: 'query-paths-actors', displayName: 'Paths persons', icon: <IconPerson /> },
+]
+for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
+    mcpToolRegistry.register({ key, displayName, icon, Renderer: QueryWidget })
 }
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */

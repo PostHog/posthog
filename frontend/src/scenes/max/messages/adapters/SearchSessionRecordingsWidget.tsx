@@ -8,7 +8,7 @@ import { extractRecordingFilters } from './extractors'
  * in `rawOutput.filters`; `RecordingsWidget` renders the live playlist inline. Pre-completion or a
  * missing filter object falls back to the generic card.
  */
-export function SearchSessionRecordingsAdapter({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function SearchSessionRecordingsWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
     const filters = message.status === 'completed' ? extractRecordingFilters(message) : null
 
     if (!filters) {

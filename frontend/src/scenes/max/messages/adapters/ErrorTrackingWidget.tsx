@@ -9,7 +9,7 @@ import { extractErrorTrackingResponse } from './extractors'
  * pushes filters into the error-tracking scene when it is active). Pre-completion or missing output
  * falls back to the generic card.
  */
-export function ErrorTrackingAdapter({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function ErrorTrackingWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
     const filters = message.status === 'completed' ? extractErrorTrackingResponse(message) : null
 
     if (!filters) {

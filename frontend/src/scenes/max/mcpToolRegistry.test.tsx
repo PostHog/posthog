@@ -1,28 +1,39 @@
 import { lookupMcpToolRenderer, mcpToolRegistry } from './mcpToolRegistry'
-import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
-import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
-import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
-import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
+import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
+import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
+import { QueryWidget } from './messages/adapters/QueryWidget'
+import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
+import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 
-describe('mcpToolRegistry data-tool adapters', () => {
+describe('mcpToolRegistry data-tool widgets', () => {
     const cases: [string, React.ComponentType<any>][] = [
-        ['insight-create', CreateInsightAdapter],
-        ['insight-update', CreateInsightAdapter],
-        ['insight-get', CreateInsightAdapter],
-        ['create_insight', CreateInsightAdapter],
-        ['dashboard-create', UpsertDashboardAdapter],
-        ['dashboard-update', UpsertDashboardAdapter],
-        ['upsert_dashboard', UpsertDashboardAdapter],
-        ['query-session-recordings-list', SearchSessionRecordingsAdapter],
-        ['search_session_recordings', SearchSessionRecordingsAdapter],
-        ['filter_session_recordings', SearchSessionRecordingsAdapter],
-        ['query-error-tracking-issues-list', ErrorTrackingAdapter],
-        ['search_error_tracking_issues', ErrorTrackingAdapter],
-        ['filter_error_tracking_issues', ErrorTrackingAdapter],
+        ['insight-create', CreateInsightWidget],
+        ['insight-update', CreateInsightWidget],
+        ['insight-get', CreateInsightWidget],
+        ['create_insight', CreateInsightWidget],
+        ['dashboard-create', UpsertDashboardWidget],
+        ['dashboard-update', UpsertDashboardWidget],
+        ['upsert_dashboard', UpsertDashboardWidget],
+        ['query-session-recordings-list', SearchSessionRecordingsWidget],
+        ['search_session_recordings', SearchSessionRecordingsWidget],
+        ['filter_session_recordings', SearchSessionRecordingsWidget],
+        ['query-error-tracking-issues-list', ErrorTrackingWidget],
+        ['search_error_tracking_issues', ErrorTrackingWidget],
+        ['filter_error_tracking_issues', ErrorTrackingWidget],
+        ['query-trends', QueryWidget],
+        ['query-funnel', QueryWidget],
+        ['query-retention', QueryWidget],
+        ['query-stickiness', QueryWidget],
+        ['query-paths', QueryWidget],
+        ['query-lifecycle', QueryWidget],
+        ['query-llm-traces-list', QueryWidget],
+        ['query-trends-actors', QueryWidget],
+        ['query-lifecycle-actors', QueryWidget],
+        ['query-paths-actors', QueryWidget],
     ]
 
-    it.each(cases)('resolves %s to its data-tool adapter', (key, expectedRenderer) => {
+    it.each(cases)('resolves %s to its data-tool widget', (key, expectedRenderer) => {
         const entry = mcpToolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.Renderer).toBe(expectedRenderer)
@@ -33,10 +44,12 @@ describe('mcpToolRegistry data-tool adapters', () => {
     it('falls back to FallbackMcpToolRenderer for unknown / unregistered tool names', () => {
         expect(mcpToolRegistry.lookup('mcp__user-installed__something')).toBeNull()
         expect(lookupMcpToolRenderer('mcp__user-installed__something').Renderer).toBe(FallbackMcpToolRenderer)
-        // An inner tool we have not wired an adapter for also falls through.
+        // An inner tool we have not wired a widget for also falls through.
         expect(lookupMcpToolRenderer('experiment-create').Renderer).toBe(FallbackMcpToolRenderer)
         // Names that exist in no tool definition stay unregistered.
         expect(mcpToolRegistry.lookup('insight-query')).toBeNull()
         expect(mcpToolRegistry.lookup('read_insight')).toBeNull()
+        // A single LLM trace has no inline renderer, so the tool stays on the fallback card.
+        expect(mcpToolRegistry.lookup('query-llm-trace')).toBeNull()
     })
 })

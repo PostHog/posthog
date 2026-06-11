@@ -8,15 +8,16 @@ import {
     AssistantMessageType,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
-import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
+import { isInsightQueryNode } from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { McpToolCallMessage } from '../../maxTypes'
 
 /**
- * Shared shape extractors for the sandbox MCP tool renderer adapters. Each turns a flattened
- * `McpToolCallMessage` (built by `sandboxStreamLogic` from ACP frames) into the props the existing
- * `messages/*` renderer components already expect, so those components stay untouched.
+ * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
+ * `McpToolCallMessage` (built by `sandboxStreamLogic` from ACP frames) into the props the atomic
+ * `messages/*` widgets expect.
  */
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -27,7 +28,7 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
 }
 
-/** The artifact envelope + content `VisualizationArtifactAnswer` consumes, plus the resolved status. */
+/** The artifact envelope + content the visualization widget proxies consume. */
 export interface VisualizationArtifactExtraction {
     envelope: ArtifactMessage
     content: VisualizationArtifactContent
@@ -70,6 +71,55 @@ export function extractVisualizationArtifact(message: McpToolCallMessage): Visua
     }
 
     return { envelope, content }
+}
+
+/** A query-wrapper tool result mapped onto renderable visualization content. */
+export interface QueryResultExtraction {
+    content: VisualizationArtifactContent
+    /** The MCP server's `_posthogUrl` enrichment — the "open as insight" CTA target. */
+    url: string | null
+}
+
+/**
+ * Maps a query-wrapper tool's output (`{query, results, _posthogUrl}`) onto visualization
+ * content. Insight queries pass through bare (the widget wraps them in `InsightVizNode`);
+ * table-renderable kinds are wrapped in a `DataTableNode` here. Kinds without an inline
+ * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
+ */
+export function extractQueryResult(message: McpToolCallMessage): QueryResultExtraction | null {
+    const output = asRecord(message.rawOutput)
+    const query = output ? asRecord(output.query) : null
+    if (!output || !query || typeof query.kind !== 'string') {
+        return null
+    }
+
+    let renderable: VisualizationArtifactContent['query'] | null = null
+    if (isInsightQueryNode(query)) {
+        renderable = query as VisualizationArtifactContent['query']
+    } else if (query.kind === NodeKind.TracesQuery || query.kind === NodeKind.ActorsQuery) {
+        // The actors wrappers echo a ready-made ActorsQuery envelope; traces come back bare.
+        renderable = { kind: NodeKind.DataTableNode, source: query } as unknown as DataTableNode
+    } else if (query.kind === NodeKind.InsightActorsQuery) {
+        // Defensive: a bare InsightActorsQuery isn't a table source — wrap it in an ActorsQuery first.
+        renderable = {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, source: query, select: ['actor'] },
+        } as unknown as DataTableNode
+    }
+
+    if (!renderable) {
+        return null
+    }
+
+    return {
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: renderable,
+            name: null,
+            description: null,
+        },
+        url: asString(output._posthogUrl) ?? null,
+    }
 }
 
 /** Dashboard create/update output — the REST payload (`id`, `name`) plus the MCP server's `_posthogUrl` enrichment. */

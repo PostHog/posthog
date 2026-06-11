@@ -4,6 +4,7 @@ import type { McpToolCallMessage } from '../../maxTypes'
 import {
     extractDashboard,
     extractErrorTrackingResponse,
+    extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
 } from './extractors'
@@ -114,6 +115,57 @@ describe('mcp tool adapter extractors', () => {
         it('rejects outputs without any known field', () => {
             expect(extractErrorTrackingResponse(toolMessage({ results: [{ id: 'issue-1' }] }))).toBeNull()
             expect(extractErrorTrackingResponse(toolMessage(undefined))).toBeNull()
+        })
+    })
+
+    describe('extractQueryResult', () => {
+        it.each(['TrendsQuery', 'FunnelsQuery', 'RetentionQuery', 'StickinessQuery', 'PathsQuery', 'LifecycleQuery'])(
+            'passes a bare %s through for InsightVizNode wrapping downstream',
+            (kind) => {
+                const result = extractQueryResult(
+                    toolMessage({
+                        query: { kind, series: [] },
+                        results: [],
+                        _posthogUrl: 'https://us.posthog.com/insights/new',
+                    })
+                )
+                expect(result?.content.query).toEqual({ kind, series: [] })
+                expect(result?.url).toBe('https://us.posthog.com/insights/new')
+            }
+        )
+
+        it('wraps a TracesQuery in a DataTableNode', () => {
+            const result = extractQueryResult(toolMessage({ query: { kind: 'TracesQuery' }, results: [] }))
+            expect(result?.content.query).toEqual({ kind: 'DataTableNode', source: { kind: 'TracesQuery' } })
+            expect(result?.url).toBeNull()
+        })
+
+        it('wraps the actors wrapper output (ActorsQuery envelope) untouched in a DataTableNode', () => {
+            const actorsQuery = {
+                kind: 'ActorsQuery',
+                source: { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery' } },
+                select: ['actor'],
+            }
+            const result = extractQueryResult(
+                toolMessage({ query: actorsQuery, results: { columns: [], results: [] } })
+            )
+            expect(result?.content.query).toEqual({ kind: 'DataTableNode', source: actorsQuery })
+        })
+
+        it('wraps a bare InsightActorsQuery in an ActorsQuery before the DataTableNode', () => {
+            const insightActors = { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery' } }
+            const result = extractQueryResult(toolMessage({ query: insightActors }))
+            expect(result?.content.query).toEqual({
+                kind: 'DataTableNode',
+                source: { kind: 'ActorsQuery', source: insightActors, select: ['actor'] },
+            })
+        })
+
+        it('returns null for kinds without an inline renderer or malformed outputs', () => {
+            expect(extractQueryResult(toolMessage({ query: { kind: 'TraceQuery', traceId: 't1' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ results: [] }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: 'not-an-object' }))).toBeNull()
+            expect(extractQueryResult(toolMessage(undefined))).toBeNull()
         })
     })
 })

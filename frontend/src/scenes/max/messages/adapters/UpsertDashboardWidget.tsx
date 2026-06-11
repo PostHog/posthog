@@ -14,7 +14,7 @@ import { extractDashboard } from './extractors'
  * dashboard embed is deliberately deferred). Pre-completion or malformed output falls back to
  * the generic card.
  */
-export function UpsertDashboardAdapter({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function UpsertDashboardWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
     const dashboard = message.status === 'completed' ? extractDashboard(message) : null
 
     if (!dashboard) {
