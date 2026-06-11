@@ -8,7 +8,6 @@ import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { UUIDT } from '../../utils/utils'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
@@ -19,7 +18,7 @@ import { counterParseError } from './metrics'
 
 // Synthetic event name stamped on the synthetic event built for a warehouse-row trigger.
 // Acts as the "this globals object originated from a synced warehouse row" discriminator.
-export const DWH_ROW_SYNCED_EVENT = '$dwh_row_synced'
+export const WAREHOUSE_SOURCE_ROW_EVENT = '$warehouse_source_row'
 
 // Special property on the synthetic event holding the dot-notated source table name.
 // Used by the pipeline's eligibility predicate to match warehouse-table HogFlow triggers
@@ -199,8 +198,9 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     // The synthetic event carries:
-    //   - a real per-row uuid so billing dedup (keyed on event.uuid) counts each row distinctly
-    //   - `$dwh_row_synced` as the event name so downstream code can identify warehouse-row globals
+    //   - the producer's deterministic per-row id (CDPProducer._build_event_id) as the uuid, so
+    //     billing dedup (keyed on event.uuid) counts each row distinctly and stably across re-runs
+    //   - `$warehouse_source_row` as the event name so downstream code can identify warehouse-row globals
     //   - the dot-notated source table name on `properties.$source_table` so consumers can match
     //     warehouse-table HogFlow triggers without a new top-level field on globals
     return {
@@ -210,10 +210,10 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
             url: projectUrl,
         },
         event: {
-            uuid: new UUIDT().toString(),
-            event: DWH_ROW_SYNCED_EVENT,
-            elements_chain: '',
-            distinct_id: '',
+            uuid: event.event_id,
+            event: WAREHOUSE_SOURCE_ROW_EVENT,
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
             properties: {
                 ...data,
                 [DWH_SOURCE_TABLE_PROPERTY]: event.table_name ?? '',

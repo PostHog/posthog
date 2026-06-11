@@ -11,6 +11,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -60,10 +61,10 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
-    // Name and UUID of the event that matched, so the executor's resume log can surface the
-    // name and the logs view can link to the exact event.
+    // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
+    eventTimestamp?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
@@ -178,6 +179,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let stepMatched = false
             let stepMatchedEventName: string | undefined
             let stepMatchedEventUuid: string | undefined
+            let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
@@ -186,6 +188,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
+                        stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
                 if (!conversionMatched) {
@@ -203,6 +206,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     conversionMatched,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
+                    eventTimestamp: stepMatchedEventTimestamp,
                 })
             }
         }
@@ -230,9 +234,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // event, which is what makes property-based waits event-driven rather than polled.
         const context = { hogFlowId: hogflowId, actionId: action.id }
         for (const eventConfig of action.config.events ?? []) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
+        }
+        // An empty condition compiles to always-true bytecode, which would wake the job on the next
+        // event of any kind. Only evaluate the condition when it has a real compiled filter;
+        // otherwise the wait relies on its `events` / the step timeout.
+        if (!isEvaluableCondition(action.config.condition)) {
+            return false
         }
         return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
@@ -241,6 +254,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
+            if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
@@ -264,6 +280,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // ANY/ANY would match a job whose team and distinct_id came from two different
         // events in the batch (a cross-team false-positive candidate). The function_id
         // filter further scopes to flows the matcher can act on.
+        //
+        // We deliberately do NOT filter by queue_name: a parked wait can sit on a queue
+        // other than 'hogflow'. When a step (e.g. email) routes the invocation to a
+        // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
+        // filter would silently miss it. function_id already scopes to hogflow jobs, and
+        // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
         let result
         try {
@@ -271,7 +293,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
@@ -279,7 +300,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
              SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
@@ -438,6 +458,15 @@ type IndexedBatch = {
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
 }
 
+// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
+// it would match every incoming event. Action-based entries (events empty, actions set) are real
+// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
+// in one place.
+function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; actions?: unknown[] } }): boolean {
+    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
+}
+
 // Skip teams whose hogflows have no wait_until_condition step and no event-based
 // conversion goal — nothing for the matcher to evaluate against.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
@@ -564,6 +593,7 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
                     eventMatched: true,
                     eventMatchedEvent: req.eventName,
                     eventMatchedEventUuid: req.eventUuid,
+                    eventMatchedEventTimestamp: req.eventTimestamp,
                 }
                 applied = true
             } else {

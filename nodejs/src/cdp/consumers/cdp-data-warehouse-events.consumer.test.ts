@@ -33,6 +33,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
         return {
             team_id: teamId,
             table_name: tableName,
+            event_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
             properties: {
                 column1: 'value1',
                 column2: 123,
@@ -119,10 +120,9 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 column2: 123,
                 test_prop: 'test_value',
             })
-            // Real per-row UUID so billing dedup (keyed on event.uuid) counts each row distinctly.
-            expect(invocations[0].event.uuid).toMatch(/^[0-9a-f-]+$/i)
-            expect(invocations[0].event.uuid).not.toBe('data-warehouse-table-uuid-do-not-use')
-            expect(invocations[0].event.event).toBe('$dwh_row_synced')
+            // Deterministic per-row id from the producer, surfaced as event.uuid for stable billing dedup.
+            expect(invocations[0].event.uuid).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+            expect(invocations[0].event.event).toBe('$warehouse_source_row')
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {
@@ -423,7 +423,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             // The source table is exposed via event.properties.$source_table so the pipeline's
             // eligibilityFn can match warehouse-table triggers without a top-level globals field.
             expect(globals).toHaveLength(1)
-            expect(globals[0].event?.event).toBe('$dwh_row_synced')
+            expect(globals[0].event?.event).toBe('$warehouse_source_row')
             expect(globals[0].event?.properties?.$source_table).toBe('postgres.table_1')
         })
     })

@@ -338,7 +338,7 @@ describe('CDP Consumer loop', () => {
                 project: { id: team.id } as any,
                 event: {
                     uuid: new UUIDT().toString(),
-                    event: '$dwh_row_synced',
+                    event: '$warehouse_source_row',
                     distinct_id: '',
                     properties: { ...rowProperties, $source_table: TABLE_NAME },
                     timestamp: '2024-09-03T09:00:00Z',

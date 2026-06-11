@@ -149,7 +149,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
-    request_timeout_seconds: Some(10),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -292,7 +291,7 @@ impl ServerHandle {
         self.client
             .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
             .header("authorization", format!("Bearer {token}"))
-            .header("PostHog-Sdk-Info", "posthog-rust/1.0.0")
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
             .header("PostHog-Attempt", "1")
             .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
             .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")

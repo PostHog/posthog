@@ -1,7 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
@@ -25,7 +23,6 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
 
 export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({
         values: [sceneLogic, ['sceneKey']],
     })),

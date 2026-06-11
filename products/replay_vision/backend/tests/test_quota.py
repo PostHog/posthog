@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,6 +15,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import MONTHLY_OBSERVATION_QUOTA, compute_quota_snapshot
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -146,6 +148,106 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             assert snapshot.usage_this_month == 2
             assert snapshot.exhausted is True
             assert snapshot.remaining == 0
+
+
+class TestQuotaGrants(_VisionQuotaTestCase):
+    def test_active_grant_adds_to_monthly_quota(self) -> None:
+        ReplayQuotaGrant.objects.create(
+            organization=self.organization,
+            amount=500,
+            expires_at=timezone.now() + timedelta(days=10),
+        )
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.monthly_quota == MONTHLY_OBSERVATION_QUOTA + 500
+
+    def test_multiple_active_grants_stack(self) -> None:
+        for amount in (100, 200, 700):
+            ReplayQuotaGrant.objects.create(
+                organization=self.organization,
+                amount=amount,
+                expires_at=timezone.now() + timedelta(days=10),
+            )
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.monthly_quota == MONTHLY_OBSERVATION_QUOTA + 1000
+
+    def test_expired_grant_does_not_count(self) -> None:
+        grant = ReplayQuotaGrant(
+            organization=self.organization,
+            amount=500,
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        grant.save()  # bypass full_clean — simulate the case where a grant has aged past its expiry
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.monthly_quota == MONTHLY_OBSERVATION_QUOTA
+
+    def test_other_orgs_grants_not_counted(self) -> None:
+        other_org = Organization.objects.create(name="other-grant-org")
+        ReplayQuotaGrant.objects.create(
+            organization=other_org,
+            amount=500,
+            expires_at=timezone.now() + timedelta(days=10),
+        )
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.monthly_quota == MONTHLY_OBSERVATION_QUOTA
+
+    @parameterized.expand(
+        [
+            ("past_expires_at", 500, timedelta(seconds=-1), "expires_at"),
+            ("amount_zero", 0, timedelta(days=10), "amount"),
+            ("amount_above_cap", 10_000_000, timedelta(days=10), "amount"),
+        ]
+    )
+    def test_full_clean_rejects(self, _name: str, amount: int, expires_offset: timedelta, expected_field: str) -> None:
+        # timezone.now() resolves inside the test body so we don't freeze it at import time.
+        grant = ReplayQuotaGrant(
+            organization=self.organization,
+            amount=amount,
+            expires_at=timezone.now() + expires_offset,
+        )
+        with self.assertRaises(ValidationError) as cm:
+            grant.full_clean()
+        assert expected_field in cm.exception.message_dict
+
+    def test_grant_pushes_exhaustion_back(self) -> None:
+        with patch("products.replay_vision.backend.quota.MONTHLY_OBSERVATION_QUOTA", 2):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            assert compute_quota_snapshot(organization_id=self.organization.id).exhausted is True
+
+            ReplayQuotaGrant.objects.create(
+                organization=self.organization,
+                amount=1,
+                expires_at=timezone.now() + timedelta(days=10),
+            )
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+            assert snapshot.exhausted is False
+            assert snapshot.remaining == 1
+
+
+class TestReplayQuotaGrantAdmin(_VisionQuotaTestCase):
+    def test_initial_form_renders(self) -> None:
+        # Regression: `expires_at` initial must be a datetime, not a str. The admin's
+        # SplitDateTimeWidget.decompress runs `to_current_timezone` → `is_aware` →
+        # `value.utcoffset()`, which AttributeErrors on a str and 500s the add page in prod.
+        # We render the form directly instead of GETting /admin/...add/ because the admin
+        # URLs are gated on ADMIN_PORTAL_ENABLED, which defaults False in product test env.
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from products.replay_vision.backend.admin import ReplayQuotaGrantAdmin
+
+        self.user.is_staff = True
+        self.user.save()
+        request = RequestFactory().get("/admin/replay_vision/replayquotagrant/add/")
+        request.user = self.user
+
+        grant_admin = ReplayQuotaGrantAdmin(ReplayQuotaGrant, django_admin.site)
+        form_class = grant_admin.get_form(request)
+        form = form_class(initial=grant_admin.get_changeform_initial_data(request))
+        # `as_p()` triggers widget render, which is where the bug fires.
+        html = form.as_p()
+        assert 'name="expires_at_0"' in html
+        assert 'name="granted_by"' in html
 
 
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):

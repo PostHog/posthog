@@ -31,6 +31,8 @@ export const CdpDataWarehouseEventSchema = z.object({
     // Dot-notated table name the row was synced into. Optional for backwards compatibility with
     // messages produced before the producer started including it.
     table_name: z.string().optional(),
+    // Deterministic id, unique per row per external data job run (see CDPProducer._build_event_id)
+    event_id: z.string(),
     properties: z.record(z.string(), z.any()),
 })
 
