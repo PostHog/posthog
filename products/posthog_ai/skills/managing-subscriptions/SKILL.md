@@ -1,6 +1,6 @@
 ---
 name: managing-subscriptions
-description: 'Manage PostHog subscriptions — scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get a recurring AI summary / written analysis of a dashboard or insight, surface outliers and insights automatically, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
+description: 'Manage PostHog subscriptions — scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get an AI summary attached to those deliveries, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
 ---
 
 # Managing subscriptions
@@ -14,17 +14,10 @@ Use this skill when the user:
 
 - Wants to "track", "follow", "subscribe to", or "get updates" about an insight or dashboard
 - Asks for "daily updates", "weekly reports", or "send me this every morning"
-- Wants an **AI-written summary / narrative** of a dashboard or insight delivered on each send — e.g. "summarize this dashboard for me automatically", "tell me what changed", "call out outliers and new insights", "an auto-updating written analysis"
+- Wants an **AI-written summary** attached to each delivery of an insight or dashboard (see step 6)
 - Wants to know what subscriptions they have
 - Asks to stop, pause, or unsubscribe from something
 - Wants to change who receives an update or how often
-
-> **An auto-refreshing AI summary that lives _on the dashboard itself_ is not a native feature.**
-> When a user asks for that, don't call it a flat gap — recommend the closest supported thing: a
-> **dashboard subscription with `summary_enabled: true`** (an AI summary of the dashboard
-> delivered on each tick — see step 6 below), or, when the value is the analysis itself rather
-> than a recurring snapshot of an existing dashboard, a **prompt subscription** (see the
-> `creating-ai-subscription` skill).
 
 ## Subscriptions vs alerts
 
