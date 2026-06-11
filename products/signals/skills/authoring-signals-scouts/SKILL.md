@@ -42,8 +42,10 @@ only as good as its fit to the data it watches.
    specific event, confirm it exists and check its shape with `posthog:read-data-schema`.
    A scout for an event the project doesn't capture is dead on arrival.
 2. **See what already runs.** `posthog:signals-scout-config-list` lists every existing
-   scout on the project with its schedule, `enabled`, and `emit` posture. Don't duplicate
-   a surface a canonical scout already covers — adapt that one instead.
+   scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's
+   `description` (pulled from the skill's frontmatter) so you can tell what a scout watches
+   without loading its body. Don't duplicate a surface a canonical scout already covers —
+   adapt that one instead.
 3. **Read the closest canonical scout.** It's your template and your reference shape. Pull
    it with `posthog:llma-skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
    read it from the repo at `products/signals/skills/signals-scout-*/`. The generalist
@@ -69,10 +71,10 @@ There are two independent decisions: **what** you're building, and **where** it 
 
 ### Where
 
-| Path                                 | Mechanism                                                                                                                                  | Use when                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:llma-skill-create` / `-update` / `-file-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
-| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                         | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
+| Path                                 | Mechanism                                                                                                                                                                                                                  | Use when                                                                                                                              |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:llma-skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:signals-scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
+| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                         | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
 
 **Adapting-in-place tradeoff:** editing a canonical scout's row for your team marks it
 **diverged** — you stop receiving upstream improvements to that scout. If you only need an
@@ -119,8 +121,13 @@ body so every run anchors on it.
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the
-skill body. Tune with `posthog:signals-scout-config-update` (find the `id` via
-`-config-list`):
+skill body. For a **brand-new scout**, register the config immediately after creating the
+skill with `posthog:signals-scout-config-create {"skill_name": "signals-scout-<scope>", ...}`,
+setting any of the fields below in the same call — including creating it disabled or in
+dry-run **before it ever runs**. (It's an upsert: if the coordinator already auto-registered
+the row, your fields are applied to it.) Otherwise the coordinator auto-registers an enabled
+hourly default on its next tick (up to ~30 min). For an **existing scout**, tune with
+`posthog:signals-scout-config-update` (find the `id` via `-config-list`):
 
 - `run_interval_minutes` — 10 to 43200. Default 60 (hourly). Slow a chatty or expensive
   scout by raising this.
@@ -139,7 +146,10 @@ loop is **emit + inspect**: ship the scout live, let it emit, and calibrate agai
 actually lands.
 
 1. Ship the scout (the default `emit=true`) with a short `run_interval_minutes` so it fires
-   soon.
+   soon — set it at creation via
+   `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 10}`
+   right after `llma-skill-create`, rather than waiting for the coordinator to
+   auto-register an hourly default.
 2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
    emitted), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full
    reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
@@ -148,7 +158,8 @@ actually lands.
 4. Once it's landing the right findings, restore the interval to something sustainable
    (hourly+).
 
-**Want to be extra careful?** Set `emit=false` to dry-run first — the scout runs and logs
+**Want to be extra careful?** Set `emit=false` to dry-run first — create the config with
+`emit=false` via `-config-create` so the scout never has a live first run; it runs and logs
 what it _would_ have emitted (visible via `-runs-list` / `-runs-retrieve`) without writing to
 the inbox. Inspect, refine, then flip `emit=true`. Worth it for a scout you expect to be
 chatty, expensive, or high-stakes; otherwise just emitting and watching the inbox is the
