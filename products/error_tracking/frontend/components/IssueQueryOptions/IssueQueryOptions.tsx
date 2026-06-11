@@ -5,14 +5,14 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 
-export const IssueReloadButton = ({ size = 'small' }: { size?: 'xsmall' | 'small' }): JSX.Element => {
+export const IssueReloadButton = (): JSX.Element => {
     const { responseLoading } = useValues(issuesDataNodeLogic)
     const { reloadData, cancelQuery } = useActions(issuesDataNodeLogic)
 
     return (
         <LemonButton
             type="tertiary"
-            size={size}
+            size="small"
             onClick={() => {
                 if (responseLoading) {
                     cancelQuery()

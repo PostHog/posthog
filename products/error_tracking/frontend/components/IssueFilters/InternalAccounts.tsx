@@ -27,7 +27,8 @@ interface FilterSettingsMenuProps {
     quickFilterContext?: QuickFilterContext
     logicKey?: string
     showIssueFilters?: boolean
-    size?: 'xsmall' | 'small'
+    /** @default <IconBolt /> */
+    icon?: JSX.Element
 }
 
 export const FilterSettingsMenu = (props: FilterSettingsMenuProps): JSX.Element => {
@@ -87,7 +88,7 @@ const FilterSettingsMenuCore = ({
     quickFilterContext,
     logicKey,
     issueFilterItems,
-    size = 'small',
+    icon,
 }: FilterSettingsMenuProps & {
     issueFilterItems: LemonMenuItem[]
 }): JSX.Element => {
@@ -199,7 +200,7 @@ const FilterSettingsMenuCore = ({
     return (
         <>
             <LemonMenu items={items} trigger="hover">
-                <LemonButton type="tertiary" size={size} icon={<IconBolt />} />
+                <LemonButton type="tertiary" size="small" icon={icon ?? <IconBolt />} />
             </LemonMenu>
             {quickFilterContext && <QuickFiltersModal context={quickFilterContext} />}
         </>
