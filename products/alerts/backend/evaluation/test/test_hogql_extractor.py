@@ -106,6 +106,7 @@ def test_absolute_alert_breaches_on_last_row():
         result, AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE), _threshold(upper=100)
     )
     assert evaluation.value == 200.0
+    assert evaluation.breaches is not None
     assert evaluation.breaches[0] == "The SQL insight value (200.0) is more than upper threshold (100.0)"
 
 

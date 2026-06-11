@@ -150,12 +150,28 @@ export function EditAlertModal({
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
-            isNextPlannedEvaluationStale(creatingNewAlert, alert, {
-                calculation_interval: alertForm.calculation_interval,
-                schedule_restriction: alertForm.schedule_restriction,
-                skip_weekend: alertForm.skip_weekend,
-                config: alertForm.config,
-            }),
+            isNextPlannedEvaluationStale(
+                creatingNewAlert,
+                alert
+                    ? {
+                          calculation_interval: alert.calculation_interval,
+                          schedule_restriction: alert.schedule_restriction,
+                          skip_weekend: alert.skip_weekend,
+                          // Only trends alerts have an ongoing-interval concept; SQL/funnel alerts don't.
+                          config: isTrendsAlertConfig(alert.config)
+                              ? { check_ongoing_interval: alert.config.check_ongoing_interval }
+                              : null,
+                      }
+                    : null,
+                {
+                    calculation_interval: alertForm.calculation_interval,
+                    schedule_restriction: alertForm.schedule_restriction,
+                    skip_weekend: alertForm.skip_weekend,
+                    config: isTrendsAlertConfig(alertForm.config)
+                        ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
+                        : null,
+                }
+            ),
         [
             alert,
             alertForm.calculation_interval,
