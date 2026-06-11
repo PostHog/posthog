@@ -189,6 +189,18 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBeNull()
     })
 
+    it('keeps filter state isolated per internal tab', () => {
+        const tabA = engineeringAnalyticsLogic({ tabId: 'tab-a' })
+        const tabB = engineeringAnalyticsLogic({ tabId: 'tab-b' })
+        tabA.mount()
+        tabB.mount()
+
+        tabA.actions.setStateFilter('merged')
+
+        expect(tabA.values.stateFilter).toBe('merged')
+        expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
+    })
+
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()

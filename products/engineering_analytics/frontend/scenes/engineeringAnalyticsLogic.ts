@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -159,203 +159,211 @@ export function filterPullRequests(
     })
 }
 
-export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
-    path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
+export interface EngineeringAnalyticsLogicProps {
+    tabId?: string
+}
 
-    actions({
-        setStateFilter: (state: PRStateFilter) => ({ state }),
-        setAuthor: (author: string | null) => ({ author }),
-        setRepo: (repo: string | null) => ({ repo }),
-        setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
-        setSearch: (search: string) => ({ search }),
-        setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
-        applyCardFilter: (card: CardFilter) => ({ card }),
-        resetFilters: true,
-        refresh: true,
-    }),
+export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicType> =
+    kea<engineeringAnalyticsLogicType>([
+        props({} as EngineeringAnalyticsLogicProps),
+        // One instance per internal tab so filters and loading state don't bleed across tabs.
+        key((props) => props.tabId ?? 'default'),
+        path((key) => ['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic', key]),
 
-    loaders(() => ({
-        cards: [
-            null as CardsData | null,
-            {
-                loadCards: async (): Promise<CardsData> => {
-                    const data = await engineeringAnalyticsCiCards(projectId())
-                    return {
-                        openPrs: data.open_prs,
-                        repos: data.repos,
-                        stuck: data.stuck,
-                        failingCi: data.failing_ci,
+        actions({
+            setStateFilter: (state: PRStateFilter) => ({ state }),
+            setAuthor: (author: string | null) => ({ author }),
+            setRepo: (repo: string | null) => ({ repo }),
+            setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
+            setSearch: (search: string) => ({ search }),
+            setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
+            applyCardFilter: (card: CardFilter) => ({ card }),
+            resetFilters: true,
+            refresh: true,
+        }),
+
+        loaders(() => ({
+            cards: [
+                null as CardsData | null,
+                {
+                    loadCards: async (): Promise<CardsData> => {
+                        const data = await engineeringAnalyticsCiCards(projectId())
+                        return {
+                            openPrs: data.open_prs,
+                            repos: data.repos,
+                            stuck: data.stuck,
+                            failingCi: data.failing_ci,
+                        }
+                    },
+                },
+            ],
+            pullRequests: [
+                [] as PullRequestRow[],
+                {
+                    loadPullRequests: async (): Promise<PullRequestRow[]> => {
+                        const response = await engineeringAnalyticsPullRequests(projectId())
+                        return response.items.map(
+                            (it): PullRequestRow => ({
+                                number: it.number,
+                                title: it.title,
+                                repoOwner: it.repo.owner,
+                                repoName: it.repo.name,
+                                authorHandle: it.author.handle,
+                                authorAvatarUrl: it.author.avatar_url,
+                                isBot: it.author.is_bot,
+                                state: it.state as PRState,
+                                isDraft: it.is_draft,
+                                createdAt: it.created_at,
+                                mergedAt: it.merged_at,
+                                openToMergeSeconds: it.open_to_merge_seconds,
+                                labels: it.labels,
+                                runs: it.ci.runs,
+                                passing: it.ci.passing,
+                                failing: it.ci.failing,
+                                pending: it.ci.pending,
+                            })
+                        )
+                    },
+                },
+            ],
+            workflowHealth: [
+                [] as WorkflowHealthRow[],
+                {
+                    loadWorkflowHealth: async (): Promise<WorkflowHealthRow[]> => {
+                        const items = await engineeringAnalyticsWorkflowHealth(projectId())
+                        return items.map(
+                            (it): WorkflowHealthRow => ({
+                                repoOwner: it.repo.owner,
+                                repoName: it.repo.name,
+                                workflowName: it.workflow_name,
+                                runCount: it.run_count,
+                                successRate: it.success_rate,
+                                p50Seconds: it.p50_seconds,
+                                p95Seconds: it.p95_seconds,
+                                lastFailureAt: it.last_failure_at,
+                                daily: it.daily.map((d) => ({
+                                    day: d.day,
+                                    runCount: d.run_count,
+                                    completed: d.completed,
+                                    successes: d.successes,
+                                })),
+                            })
+                        )
+                    },
+                },
+            ],
+        })),
+
+        reducers({
+            stateFilter: [
+                DEFAULT_FILTERS.state,
+                { setStateFilter: (_, { state }) => state, resetFilters: () => DEFAULT_FILTERS.state },
+            ],
+            author: [
+                DEFAULT_FILTERS.author,
+                { setAuthor: (_, { author }) => author, resetFilters: () => DEFAULT_FILTERS.author },
+            ],
+            repo: [DEFAULT_FILTERS.repo, { setRepo: (_, { repo }) => repo, resetFilters: () => DEFAULT_FILTERS.repo }],
+            ciStatusFilter: [
+                DEFAULT_FILTERS.ciStatus,
+                { setCiStatusFilter: (_, { ciStatus }) => ciStatus, resetFilters: () => DEFAULT_FILTERS.ciStatus },
+            ],
+            search: [
+                DEFAULT_FILTERS.search,
+                { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
+            ],
+            // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
+            stuckOnly: [
+                DEFAULT_FILTERS.stuckOnly,
+                {
+                    setStuckOnly: (_, { stuckOnly }) => stuckOnly,
+                    setStateFilter: () => false,
+                    resetFilters: () => DEFAULT_FILTERS.stuckOnly,
+                },
+            ],
+            // The endpoints 400 when the team has no GitHub warehouse source connected.
+            // A failed cards load is the canary for "no source connected".
+            loadFailed: [
+                false,
+                {
+                    loadCards: () => false,
+                    loadCardsSuccess: () => false,
+                    loadCardsFailure: () => true,
+                },
+            ],
+        }),
+
+        selectors({
+            filters: [
+                (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
+                (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
+                    state: stateFilter,
+                    author,
+                    repo,
+                    ciStatus,
+                    search,
+                    stuckOnly,
+                }),
+            ],
+            activeCard: [
+                (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
+                (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
+                    if (stateFilter !== 'open') {
+                        return null
                     }
+                    if (stuckOnly) {
+                        return 'stuck'
+                    }
+                    if (ciStatus === 'failing') {
+                        return 'failing'
+                    }
+                    return ciStatus === 'all' ? 'open' : null
                 },
-            },
-        ],
-        pullRequests: [
-            [] as PullRequestRow[],
-            {
-                loadPullRequests: async (): Promise<PullRequestRow[]> => {
-                    const response = await engineeringAnalyticsPullRequests(projectId())
-                    return response.items.map(
-                        (it): PullRequestRow => ({
-                            number: it.number,
-                            title: it.title,
-                            repoOwner: it.repo.owner,
-                            repoName: it.repo.name,
-                            authorHandle: it.author.handle,
-                            authorAvatarUrl: it.author.avatar_url,
-                            isBot: it.author.is_bot,
-                            state: it.state as PRState,
-                            isDraft: it.is_draft,
-                            createdAt: it.created_at,
-                            mergedAt: it.merged_at,
-                            openToMergeSeconds: it.open_to_merge_seconds,
-                            labels: it.labels,
-                            runs: it.ci.runs,
-                            passing: it.ci.passing,
-                            failing: it.ci.failing,
-                            pending: it.ci.pending,
-                        })
-                    )
-                },
-            },
-        ],
-        workflowHealth: [
-            [] as WorkflowHealthRow[],
-            {
-                loadWorkflowHealth: async (): Promise<WorkflowHealthRow[]> => {
-                    const items = await engineeringAnalyticsWorkflowHealth(projectId())
-                    return items.map(
-                        (it): WorkflowHealthRow => ({
-                            repoOwner: it.repo.owner,
-                            repoName: it.repo.name,
-                            workflowName: it.workflow_name,
-                            runCount: it.run_count,
-                            successRate: it.success_rate,
-                            p50Seconds: it.p50_seconds,
-                            p95Seconds: it.p95_seconds,
-                            lastFailureAt: it.last_failure_at,
-                            daily: it.daily.map((d) => ({
-                                day: d.day,
-                                runCount: d.run_count,
-                                completed: d.completed,
-                                successes: d.successes,
-                            })),
-                        })
-                    )
-                },
-            },
-        ],
-    })),
+            ],
+            filteredPullRequests: [
+                (s) => [s.pullRequests, s.filters],
+                (pullRequests, filters): PullRequestRow[] => filterPullRequests(pullRequests, filters),
+            ],
+            hasActiveFilters: [
+                (s) => [s.filters],
+                (filters): boolean => !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
+            ],
+            authorOptions: [
+                (s) => [s.pullRequests],
+                (pullRequests): string[] =>
+                    Array.from(new Set(pullRequests.map((pr) => pr.authorHandle).filter(Boolean))).sort(),
+            ],
+            repoOptions: [
+                (s) => [s.pullRequests],
+                (pullRequests): string[] =>
+                    Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
+            ],
+            anyLoading: [
+                (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading],
+                (cardsLoading, pullRequestsLoading, workflowHealthLoading): boolean =>
+                    cardsLoading || pullRequestsLoading || workflowHealthLoading,
+            ],
+            tableTruncated: [(s) => [s.pullRequests], (pullRequests): boolean => pullRequests.length >= PR_TABLE_LIMIT],
+        }),
 
-    reducers({
-        stateFilter: [
-            DEFAULT_FILTERS.state,
-            { setStateFilter: (_, { state }) => state, resetFilters: () => DEFAULT_FILTERS.state },
-        ],
-        author: [
-            DEFAULT_FILTERS.author,
-            { setAuthor: (_, { author }) => author, resetFilters: () => DEFAULT_FILTERS.author },
-        ],
-        repo: [DEFAULT_FILTERS.repo, { setRepo: (_, { repo }) => repo, resetFilters: () => DEFAULT_FILTERS.repo }],
-        ciStatusFilter: [
-            DEFAULT_FILTERS.ciStatus,
-            { setCiStatusFilter: (_, { ciStatus }) => ciStatus, resetFilters: () => DEFAULT_FILTERS.ciStatus },
-        ],
-        search: [
-            DEFAULT_FILTERS.search,
-            { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
-        ],
-        // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
-        stuckOnly: [
-            DEFAULT_FILTERS.stuckOnly,
-            {
-                setStuckOnly: (_, { stuckOnly }) => stuckOnly,
-                setStateFilter: () => false,
-                resetFilters: () => DEFAULT_FILTERS.stuckOnly,
+        listeners(({ actions, values }) => ({
+            refresh: () => {
+                actions.loadCards()
+                actions.loadPullRequests()
+                actions.loadWorkflowHealth()
             },
-        ],
-        // The endpoints 400 when the team has no GitHub warehouse source connected.
-        // A failed cards load is the canary for "no source connected".
-        loadFailed: [
-            false,
-            {
-                loadCards: () => false,
-                loadCardsSuccess: () => false,
-                loadCardsFailure: () => true,
+            applyCardFilter: ({ card }) => {
+                // Clicking the already-active card toggles back to the plain open view.
+                const target: CardFilter = values.activeCard === card ? 'open' : card
+                actions.setStateFilter('open')
+                actions.setCiStatusFilter(target === 'failing' ? 'failing' : 'all')
+                actions.setStuckOnly(target === 'stuck')
             },
-        ],
-    }),
+        })),
 
-    selectors({
-        filters: [
-            (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
-            (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
-                state: stateFilter,
-                author,
-                repo,
-                ciStatus,
-                search,
-                stuckOnly,
-            }),
-        ],
-        activeCard: [
-            (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
-            (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
-                if (stateFilter !== 'open') {
-                    return null
-                }
-                if (stuckOnly) {
-                    return 'stuck'
-                }
-                if (ciStatus === 'failing') {
-                    return 'failing'
-                }
-                return ciStatus === 'all' ? 'open' : null
-            },
-        ],
-        filteredPullRequests: [
-            (s) => [s.pullRequests, s.filters],
-            (pullRequests, filters): PullRequestRow[] => filterPullRequests(pullRequests, filters),
-        ],
-        hasActiveFilters: [
-            (s) => [s.filters],
-            (filters): boolean => !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
-        ],
-        authorOptions: [
-            (s) => [s.pullRequests],
-            (pullRequests): string[] =>
-                Array.from(new Set(pullRequests.map((pr) => pr.authorHandle).filter(Boolean))).sort(),
-        ],
-        repoOptions: [
-            (s) => [s.pullRequests],
-            (pullRequests): string[] =>
-                Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
-        ],
-        anyLoading: [
-            (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading],
-            (cardsLoading, pullRequestsLoading, workflowHealthLoading): boolean =>
-                cardsLoading || pullRequestsLoading || workflowHealthLoading,
-        ],
-        tableTruncated: [(s) => [s.pullRequests], (pullRequests): boolean => pullRequests.length >= PR_TABLE_LIMIT],
-    }),
-
-    listeners(({ actions, values }) => ({
-        refresh: () => {
+        afterMount(({ actions }) => {
             actions.loadCards()
             actions.loadPullRequests()
             actions.loadWorkflowHealth()
-        },
-        applyCardFilter: ({ card }) => {
-            // Clicking the already-active card toggles back to the plain open view.
-            const target: CardFilter = values.activeCard === card ? 'open' : card
-            actions.setStateFilter('open')
-            actions.setCiStatusFilter(target === 'failing' ? 'failing' : 'all')
-            actions.setStuckOnly(target === 'stuck')
-        },
-    })),
-
-    afterMount(({ actions }) => {
-        actions.loadCards()
-        actions.loadPullRequests()
-        actions.loadWorkflowHealth()
-    }),
-])
+        }),
+    ])
