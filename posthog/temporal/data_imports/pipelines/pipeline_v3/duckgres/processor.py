@@ -52,13 +52,22 @@ def process_batch(batch: PendingBatch) -> None:
     # reads below reconnect instead of failing every attempt after a DB bounce.
     close_old_connections()
 
-    job = ExternalDataJob.objects.select_related("schema", "schema__source").get(
-        id=batch.job_id,
-        team_id=batch.team_id,
-    )
-    schema = job.schema
-    if schema is None:
-        raise ValueError(f"ExternalDataJob {batch.job_id} has no schema")
+    schema: ExternalDataSchema
+    if _is_backfill_batch(batch):
+        # Synthetic backfill batches carry a sentinel job_id; resolve the schema
+        # directly instead of via ExternalDataJob.
+        schema = ExternalDataSchema.objects.select_related("source").get(
+            id=batch.schema_id,
+            team_id=batch.team_id,
+        )
+    else:
+        job = ExternalDataJob.objects.select_related("schema", "schema__source").get(
+            id=batch.job_id,
+            team_id=batch.team_id,
+        )
+        if job.schema is None:
+            raise ValueError(f"ExternalDataJob {batch.job_id} has no schema")
+        schema = job.schema
 
     with _connect_to_duckgres(batch.team_id) as conn:
         # The sink only reads parquet over S3; httpfs is bundled in the duckgres
@@ -68,7 +77,10 @@ def process_batch(batch: PendingBatch) -> None:
         setup_duckgres_session(conn, extensions=("httpfs",))
         _create_extract_read_secret(conn)
         try:
-            _process_batch(conn, batch, schema)
+            if _is_backfill_batch(batch):
+                _process_backfill_batch(conn, batch, schema)
+            else:
+                _process_batch(conn, batch, schema)
         except DuckgresBatchAlreadyAppliedError:
             # A concurrent processor (lost advisory-lock session + recovery sweep)
             # won the marker insert; its committed write is the canonical one and
@@ -154,6 +166,23 @@ def _sql_str(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _is_backfill_batch(batch: PendingBatch) -> bool:
+    return bool(batch.metadata.get("duckgres_backfill"))
+
+
+def _backfill_chunk_paths(batch: PendingBatch) -> list[str]:
+    paths = batch.metadata.get("chunk_paths")
+    if isinstance(paths, list) and paths:
+        return [str(p) for p in paths]
+    return [batch.s3_path]
+
+
+def _read_parquet_expr(paths: list[str]) -> sql.Composable:
+    """read_parquet([...]) with inlined literals — list parameters do not bind
+    reliably over the duckgres extended protocol."""
+    return sql.SQL("read_parquet([{}])").format(sql.SQL(", ").join(sql.Literal(p) for p in paths))
+
+
 def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: ExternalDataSchema) -> None:
     duckgres_schema = _duckgres_schema_name(batch.team_id)
     duckgres_table = _duckgres_table_name(schema)
@@ -178,7 +207,7 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
         )
         return
 
-    parquet_schema = _read_parquet_schema(conn, batch.s3_path)
+    parquet_schema = _read_parquet_schema(conn, [batch.s3_path])
     columns = [column.name for column in parquet_schema]
     operation = _plan_batch_operation(
         conn,
@@ -204,11 +233,92 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
             operation,
             duckgres_schema=duckgres_schema,
             duckgres_table=duckgres_table,
-            s3_path=batch.s3_path,
+            paths=[batch.s3_path],
             columns=columns,
         )
         _mark_duckgres_batch_applied(conn, duckgres_schema, batch=batch)
         return
+
+
+def _process_backfill_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: ExternalDataSchema) -> None:
+    """Apply one backfill chunk into <table>__backfill; the last chunk swaps it live.
+
+    See BACKFILL_SPEC.md. The swap (DROP live + RENAME) shares the last chunk's
+    transaction together with the apply-marker arbiter, so it is atomic and
+    exactly-once even with a concurrent processor.
+    """
+    duckgres_schema = _duckgres_schema_name(batch.team_id)
+    live_table = _duckgres_table_name(schema)
+    # Keep headroom under common 63-char identifier handling for the suffix.
+    backfill_table = f"{live_table[:53]}__backfill"
+
+    conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(duckgres_schema)))
+    _ensure_duckgres_apply_table(conn, duckgres_schema)
+
+    if _has_duckgres_batch_applied(conn, duckgres_schema, batch=batch):
+        logger.info(
+            "duckgres_backfill_chunk_already_applied",
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+        )
+        return
+
+    chunk_paths = _backfill_chunk_paths(batch)
+    chunk_count = int(batch.metadata.get("chunk_count") or 0)
+    is_last = chunk_count > 0 and batch.batch_index == chunk_count - 1
+    parquet_schema = _read_parquet_schema(conn, chunk_paths)
+    columns = [column.name for column in parquet_schema]
+
+    with conn.transaction():
+        if batch.batch_index == 0:
+            # CREATE OR REPLACE makes a re-planned backfill self-cleaning.
+            conn.execute(
+                sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM {}").format(
+                    sql.Identifier(duckgres_schema),
+                    sql.Identifier(backfill_table),
+                    _read_parquet_expr(chunk_paths),
+                )
+            )
+        else:
+            _ensure_target_columns(conn, duckgres_schema, backfill_table, parquet_schema)
+            _insert_batch(conn, duckgres_schema, backfill_table, chunk_paths, columns)
+
+        if is_last:
+            logger.info(
+                "duckgres_backfill_swapping",
+                team_id=batch.team_id,
+                schema_id=batch.schema_id,
+                run_uuid=batch.run_uuid,
+                table=live_table,
+                chunk_count=chunk_count,
+            )
+            conn.execute(
+                sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    sql.Identifier(duckgres_schema), sql.Identifier(live_table)
+                )
+            )
+            conn.execute(
+                sql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                    sql.Identifier(duckgres_schema),
+                    sql.Identifier(backfill_table),
+                    sql.Identifier(live_table),
+                )
+            )
+
+        _mark_duckgres_batch_applied(conn, duckgres_schema, batch=batch)
+
+    if is_last:
+        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import mark_primed
+
+        mark_primed(batch.schema_id, chunks_applied=chunk_count)
+        logger.info(
+            "duckgres_backfill_swapped",
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            table=live_table,
+        )
 
 
 def _duckgres_schema_name(team_id: int) -> str:
@@ -278,25 +388,25 @@ def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_
     return cursor.fetchone() is not None
 
 
-def _replace_table(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, s3_path: str) -> None:
+def _replace_table(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, paths: list[str]) -> None:
     conn.execute(
-        sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM read_parquet(%s)").format(
+        sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM {}").format(
             sql.Identifier(duckgres_schema),
             sql.Identifier(duckgres_table),
-        ),
-        [s3_path],
+            _read_parquet_expr(paths),
+        )
     )
 
 
 def _create_table_from_parquet(
-    conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, s3_path: str
+    conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, paths: list[str]
 ) -> None:
     conn.execute(
-        sql.SQL("CREATE TABLE {}.{} AS SELECT * FROM read_parquet(%s)").format(
+        sql.SQL("CREATE TABLE {}.{} AS SELECT * FROM {}").format(
             sql.Identifier(duckgres_schema),
             sql.Identifier(duckgres_table),
-        ),
-        [s3_path],
+            _read_parquet_expr(paths),
+        )
     )
 
 
@@ -378,12 +488,12 @@ def _prune_duckgres_apply_markers(conn: psycopg.Connection[Any], duckgres_schema
         logger.exception("duckgres_apply_marker_prune_failed", duckgres_schema=duckgres_schema)
 
 
-def _read_parquet_columns(conn: psycopg.Connection[Any], s3_path: str) -> list[str]:
-    return [column.name for column in _read_parquet_schema(conn, s3_path)]
+def _read_parquet_columns(conn: psycopg.Connection[Any], paths: list[str]) -> list[str]:
+    return [column.name for column in _read_parquet_schema(conn, paths)]
 
 
-def _read_parquet_schema(conn: psycopg.Connection[Any], s3_path: str) -> list[DuckgresColumn]:
-    cursor = conn.execute("DESCRIBE SELECT * FROM read_parquet(%s) LIMIT 0", [s3_path])
+def _read_parquet_schema(conn: psycopg.Connection[Any], paths: list[str]) -> list[DuckgresColumn]:
+    cursor = conn.execute(sql.SQL("DESCRIBE SELECT * FROM {} LIMIT 0").format(_read_parquet_expr(paths)))
     rows = cursor.fetchall()
     if not rows:
         raise ValueError("Duckgres could not read parquet column metadata")
@@ -426,22 +536,22 @@ def _apply_batch_operation(
     *,
     duckgres_schema: str,
     duckgres_table: str,
-    s3_path: str,
+    paths: list[str],
     columns: list[str],
 ) -> None:
     if operation.kind == "replace":
-        _replace_table(conn, duckgres_schema, duckgres_table, s3_path)
+        _replace_table(conn, duckgres_schema, duckgres_table, paths)
         return
     if operation.kind == "create":
-        _create_table_from_parquet(conn, duckgres_schema, duckgres_table, s3_path)
+        _create_table_from_parquet(conn, duckgres_schema, duckgres_table, paths)
         return
     if operation.kind == "insert":
-        _insert_batch(conn, duckgres_schema, duckgres_table, s3_path, columns)
+        _insert_batch(conn, duckgres_schema, duckgres_table, paths, columns)
         return
     if operation.kind == "merge":
         if operation.primary_keys is None:
             raise ValueError("Duckgres merge operation requires primary keys")
-        _merge_batch(conn, duckgres_schema, duckgres_table, s3_path, columns, operation.primary_keys)
+        _merge_batch(conn, duckgres_schema, duckgres_table, paths, columns, operation.primary_keys)
         return
     raise ValueError(f"Unsupported Duckgres apply operation: {operation.kind}")
 
@@ -450,19 +560,19 @@ def _insert_batch(
     conn: psycopg.Connection[Any],
     duckgres_schema: str,
     duckgres_table: str,
-    s3_path: str,
+    paths: list[str],
     columns: list[str],
 ) -> None:
     insert_columns = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
     select_columns = sql.SQL(", ").join(sql.SQL("source.{}").format(sql.Identifier(column)) for column in columns)
     conn.execute(
-        sql.SQL("INSERT INTO {}.{} ({}) SELECT {} FROM read_parquet(%s) AS source").format(
+        sql.SQL("INSERT INTO {}.{} ({}) SELECT {} FROM {} AS source").format(
             sql.Identifier(duckgres_schema),
             sql.Identifier(duckgres_table),
             insert_columns,
             select_columns,
-        ),
-        [s3_path],
+            _read_parquet_expr(paths),
+        )
     )
 
 
@@ -470,7 +580,7 @@ def _merge_batch(
     conn: psycopg.Connection[Any],
     duckgres_schema: str,
     duckgres_table: str,
-    s3_path: str,
+    paths: list[str],
     columns: list[str],
     primary_keys: list[str],
 ) -> None:
@@ -497,7 +607,7 @@ def _merge_batch(
     query = sql.SQL(
         """
         MERGE INTO {}.{} AS target
-        USING read_parquet(%s) AS source
+        USING {} AS source
         ON {}
         {}
         WHEN NOT MATCHED THEN INSERT ({}) VALUES ({})
@@ -505,12 +615,13 @@ def _merge_batch(
     ).format(
         sql.Identifier(duckgres_schema),
         sql.Identifier(duckgres_table),
+        _read_parquet_expr(paths),
         on_clause,
         matched_clause,
         insert_columns,
         insert_values,
     )
-    conn.execute(query, [s3_path])
+    conn.execute(query)
 
 
 def _primary_keys(batch: PendingBatch) -> list[str]:

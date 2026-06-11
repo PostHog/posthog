@@ -142,3 +142,45 @@ class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         db_table = "posthog_ducklakebackfill"
         verbose_name = "DuckLake backfill"
         verbose_name_plural = "DuckLake backfills"
+
+
+class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    r"""Per-schema lifecycle of the Duckgres v3 batch sink.
+
+    The sink only applies live batches for a schema once its history has been
+    primed into duckgres (or it needs no priming). The backfill planner owns
+    the transitions:
+
+    PENDING_BACKFILL -> BACKFILLING -> PRIMED
+                              \-> (superseded by a live full refresh) -> PRIMED
+    PRIMED -> NEEDS_RESYNC (retention-loss gap) -> PENDING_BACKFILL
+    """
+
+    class State(models.TextChoices):
+        PENDING_BACKFILL = "pending_backfill", "Pending backfill"
+        BACKFILLING = "backfilling", "Backfilling"
+        PRIMED = "primed", "Primed"
+        NEEDS_RESYNC = "needs_resync", "Needs resync"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_sink_schema_states",
+    )
+    # ExternalDataSchema id. Not a FK: the queue addresses schemas by string id
+    # and the schema row may be soft-deleted while sink state must survive for
+    # cleanup decisions.
+    schema_id = models.UUIDField(unique=True)
+    state = models.CharField(max_length=32, choices=State.choices, default=State.PENDING_BACKFILL)
+    # Delta table version the backfill is pinned to.
+    snapshot_version = models.BigIntegerField(null=True, blank=True)
+    backfill_run_uuid = models.CharField(max_length=200, null=True, blank=True)
+    chunk_count = models.IntegerField(null=True, blank=True)
+    chunks_applied = models.IntegerField(default=0)
+    last_error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_duckgressinkschemastate"
+        verbose_name = "Duckgres sink schema state"
+        verbose_name_plural = "Duckgres sink schema states"
+        indexes = [models.Index(fields=["team", "state"], name="duckgres_sink_team_state_idx")]

@@ -19,6 +19,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     ProcessBatchFn,
     _group_by_key,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    blocked_schema_ids as compute_blocked_schema_ids,
+    run_backfill_planner,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import duckgres_sink_team_ids
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import DuckgresBatchQueue
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
@@ -63,6 +67,9 @@ class DuckgresBatchConsumerAdapter:
         self._team_ids: list[int] | None = None
         self._team_ids_fetched_at: float | None = None
         self._last_maintenance_at = 0.0
+        # None = not yet computed; the fetch claims nothing until the first
+        # successful planner pass so unprimed schemas can't sneak live batches in.
+        self._blocked_schema_ids: list[str] | None = None
 
     async def _enabled_team_ids(self) -> list[int] | None:
         """Cached duckgres-enabled team set; keeps the previous set on app-DB errors."""
@@ -97,6 +104,17 @@ class DuckgresBatchConsumerAdapter:
         SINK_ELIGIBLE_BACKLOG.set(backlog)
         SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
 
+        try:
+            # Backfill planner: bootstrap/plan/reconcile schema priming, then
+            # refresh the live-batch block list it derives from.
+            await sync_to_async(run_backfill_planner, thread_sensitive=False)(team_ids)
+            self._blocked_schema_ids = await sync_to_async(compute_blocked_schema_ids, thread_sensitive=False)(team_ids)
+        except Exception as e:
+            # An app-DB blip must not crash the poll loop; keep the previous
+            # block list (or keep claiming nothing if we never had one).
+            logger.exception("duckgres_backfill_planner_failed")
+            capture_exception(e)
+
     async def fetch_and_lock(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -110,11 +128,17 @@ class DuckgresBatchConsumerAdapter:
 
         await self._run_maintenance(conn, team_ids)
 
+        if self._blocked_schema_ids is None:
+            # Planner has not succeeded yet: claiming live batches now could
+            # write partial history for unprimed schemas. Wait for it.
+            return []
+
         return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
+            blocked_schema_ids=self._blocked_schema_ids,
         )
 
     async def unlock(

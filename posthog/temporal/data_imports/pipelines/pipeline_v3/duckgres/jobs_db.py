@@ -81,6 +81,7 @@ class DuckgresBatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         team_ids: list[int] | None = None,
+        blocked_schema_ids: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -93,6 +94,10 @@ class DuckgresBatchQueue:
         ``team_ids`` restricts eligibility to duckgres-enabled teams (None = no
         filter, for tests/dev). The sink must never claim batches for orgs without
         a Duckgres deployment — they would burn retries and fail runs for nothing.
+
+        ``blocked_schema_ids`` excludes LIVE batches for schemas whose history is
+        not yet primed into duckgres (backfill pending/in-flight) — the schema's
+        own backfill-run batches (metadata.duckgres_backfill) pass through.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -116,6 +121,11 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND NOT (
+                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
+                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
+                            AND (b.metadata->>'duckgres_backfill') IS NULL
+                        )
                         AND ds.job_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
@@ -174,7 +184,12 @@ class DuckgresBatchQueue:
                 )
                 ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds, "team_ids": team_ids},
+                {
+                    "limit": limit,
+                    "backoff": retry_backoff_base_seconds,
+                    "team_ids": team_ids,
+                    "blocked_schema_ids": blocked_schema_ids,
+                },
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]

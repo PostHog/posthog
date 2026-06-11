@@ -363,3 +363,47 @@ class TestDuckgresTeamFilterAndBacklog:
         count, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn)
         assert count == 0
         assert oldest_age is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillGating:
+    @pytest.mark.asyncio
+    async def test_blocked_schema_live_batches_are_excluded(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"]) == []
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["other"])) == 1
+
+    @pytest.mark.asyncio
+    async def test_backfill_batches_pass_the_block(self, conn):
+        batch_id = await _insert_batch(
+            conn,
+            run_uuid="duckgres-backfill-schema-1-v7",
+            job_id="duckgres-backfill",
+            is_resume=True,
+            metadata={"duckgres_backfill": True, "chunk_paths": ["s3://b/c0.parquet"], "chunk_count": 1},
+        )
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+
+        assert [b.run_uuid for b in batches] == ["duckgres-backfill-schema-1-v7"]
+
+    @pytest.mark.asyncio
+    async def test_backfill_run_never_plans_as_replace_head(self, conn):
+        # is_resume=True keeps the synthetic full_refresh run out of supersede's
+        # replace-head set: a backfill must never retire other runs.
+        batch_id = await _insert_batch(
+            conn,
+            run_uuid="duckgres-backfill-schema-1-v7",
+            job_id="duckgres-backfill",
+            is_resume=True,
+            metadata={"duckgres_backfill": True},
+        )
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        old = await _insert_batch(conn, run_uuid="run-0")
+        await BatchQueue.update_status(conn, batch_id=old, job_state="succeeded", attempt=1)
+
+        assert await DuckgresBatchQueue.supersede_replaced_runs(conn) == 0
