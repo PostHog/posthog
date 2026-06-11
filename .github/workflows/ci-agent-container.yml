@@ -162,6 +162,7 @@ jobs:
             - name: Build and push container image (retry)
               id: build_retry
               if: steps.build.outcome == 'failure'
+              continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: ${{ matrix.context }}
@@ -177,11 +178,13 @@ jobs:
 
             - name: Fail if both build attempts failed
               if: steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
-              run: exit 1
+              run: |
+                  echo "::error::Both build attempts failed. First attempt and retry both unsuccessful."
+                  exit 1
 
             - name: Container image digest
               env:
-                  IMAGE_DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
+                  IMAGE_DIGEST: ${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}
                   ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
                   PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
@@ -208,7 +211,7 @@ jobs:
             # SHA per release. Same idiom as _rust-build-images.yml.
             - name: Save digest to file
               env:
-                  DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
+                  DIGEST: ${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}
               run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
 
             - name: Upload digest
@@ -227,7 +230,7 @@ jobs:
               env:
                   ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
-                  IMAGE_DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
+                  IMAGE_DIGEST: ${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}
                   PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
               run: |
                   set -euo pipefail
