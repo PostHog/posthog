@@ -19,7 +19,12 @@ from posthog.clickhouse.client.connection import Workload
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
-from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval, attribute_field
+from products.metrics.backend.metric_query_runner import (
+    MetricQueryRunner,
+    _histogram_quantile,
+    _pick_interval,
+    attribute_field,
+)
 from products.metrics.backend.tests._seeder import seed_metric
 
 
@@ -751,3 +756,140 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             [p["value"] for p in response.json()["results"][0]["points"]],
             [30.0],
         )
+
+
+class TestHistogramQuantileInterpolation:
+    @parameterized.expand(
+        [
+            # bounds [0.1, 0.5, 1.0], counts [10, 10, 10, 0] (no overflow):
+            # p50 -> rank 15, second bucket [0.1, 0.5], 5/10 through -> 0.3
+            ("p50_mid_bucket", 0.5, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.3),
+            # p25 -> rank 7.5, first bucket [0, 0.1], 7.5/10 through -> 0.075
+            ("p25_first_bucket", 0.25, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.075),
+            # rank lands in the overflow bucket -> clamp to highest bound
+            ("overflow_clamps", 0.99, [0.1, 0.5, 1.0], [1.0, 1.0, 1.0, 10.0], 1.0),
+            ("empty_counts", 0.5, [0.1, 0.5], [0.0, 0.0, 0.0], 0.0),
+            ("no_bounds", 0.5, [], [10.0], 0.0),
+        ]
+    )
+    def test_interpolation(self, _name, q, bounds, counts, expected):
+        assert abs(_histogram_quantile(q, bounds, counts) - expected) < 1e-9
+
+
+class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    BOUNDS = [0.1, 0.5, 1.0]
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_histogram(self, points_with_counts, temporality="cumulative", bounds=None, **kwargs):
+        for timestamp, counts in points_with_counts:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="latency",
+                metric_type="histogram",
+                aggregation_temporality=temporality,
+                histogram_bounds=bounds or self.BOUNDS,
+                histogram_counts=counts,
+                points=[(timestamp, 0.0)],
+                **kwargs,
+            )
+
+    def _run(self, quantile=0.5, **overrides):
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "metric_name": "latency",
+            "aggregation": "histogram_quantile",
+            "quantile": quantile,
+            "date_from": self.anchor - dt.timedelta(minutes=1),
+            "date_to": self.anchor + dt.timedelta(minutes=2),
+            "interval": "minute",
+        }
+        defaults.update(overrides)
+        return MetricQueryRunner(**defaults).run()
+
+    def test_requires_quantile(self):
+        with self.assertRaises(ValueError):
+            self._run(quantile=None)
+        with self.assertRaises(ValueError):
+            self._run(quantile=1.5)
+
+    def test_delta_histogram_p50(self):
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [10, 10, 10, 0]),
+            ],
+            temporality="delta",
+        )
+        rows = self._run(0.5)
+        # combined counts [20, 20, 20, 0]: rank 30, mid of second bucket
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+
+    def test_cumulative_histogram_diffs_per_series(self):
+        # Cumulative counts grow; first sample contributes nothing.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(0.5)
+        # window contribution [10, 10, 10, 0] -> p50 = 0.3
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+
+    def test_mismatched_bounds_raise(self):
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
+            temporality="delta",
+            bounds=[0.2, 0.6, 2.0],
+            resource_labels={"k8s.pod.name": "other"},
+        )
+        with self.assertRaises(ValueError):
+            self._run(0.5)
+
+    def test_histogram_quantile_via_api(self):
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0])],
+            temporality="delta",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "latency",
+                    "aggregation": "histogram_quantile",
+                    "quantile": 0.5,
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        points = response.json()["results"][0]["points"]
+        self.assertEqual(len(points), 1)
+        self.assertAlmostEqual(points[0]["value"], 0.3)
+
+    def test_histogram_quantile_via_api_requires_quantile(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "latency",
+                    "aggregation": "histogram_quantile",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

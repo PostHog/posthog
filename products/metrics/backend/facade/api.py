@@ -83,6 +83,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
 
     if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
         runner_aggregation = "p95"
+    elif clause.aggregation == MetricAggregation.HISTOGRAM_QUANTILE:
+        runner_aggregation = "histogram_quantile"
     elif clause.aggregation in _RUNNER_AGGREGATIONS:
         runner_aggregation = _RUNNER_AGGREGATIONS[clause.aggregation]
     else:
@@ -97,6 +99,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         filters=clause.filters,
         group_by=clause.group_by,
         interval=request.interval,
+        quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
     )
     rows = runner.run()
     if not rows:

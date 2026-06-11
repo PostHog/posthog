@@ -30,6 +30,7 @@ export interface AppMetricsTotalsResponseApi {
  * * `p95` - p95
  * * `rate` - rate
  * * `increase` - increase
+ * * `histogram_quantile` - histogram_quantile
  */
 export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
 
@@ -40,6 +41,7 @@ export const AggregationEnumApi = {
     P95: 'p95',
     Rate: 'rate',
     Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
 } as const
 
 /**
@@ -136,15 +138,23 @@ export interface _MetricQueryBodyApi {
      * @maxLength 255
      */
     metricName: string
-    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
+    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
      *
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
      * * `rate` - rate
-     * * `increase` - increase */
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile */
     aggregation?: AggregationEnumApi
+    /**
+     * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */

@@ -12,6 +12,9 @@ import * as zod from 'zod'
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
+export const metricsQueryCreateBodyQueryOneQuantileMin = 0
+export const metricsQueryCreateBodyQueryOneQuantileMax = 1
+
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
@@ -28,14 +31,20 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .max(metricsQueryCreateBodyQueryOneMetricNameMax)
                 .describe("Exact metric name to query (e.g. 'http.server.duration')."),
             aggregation: zod
-                .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase'])
+                .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
                 .describe(
-                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase'
+                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
                 .default(metricsQueryCreateBodyQueryOneAggregationDefault)
                 .describe(
-                    "Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase"
+                    "Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
+            quantile: zod
+                .number()
+                .min(metricsQueryCreateBodyQueryOneQuantileMin)
+                .max(metricsQueryCreateBodyQueryOneQuantileMax)
+                .nullish()
+                .describe("Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations."),
             filters: zod
                 .array(
                     zod.object({
