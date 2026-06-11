@@ -139,7 +139,11 @@ fn get_byte(buf: &[u8], pos: &mut usize) -> Result<u8, DecodeError> {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
+    use crate::producer::Outgoing;
+    use crate::types::IngestableEvent;
 
     fn round_trip(team_id: i64, pt: PropertyType, key: &str, value: &str, count: u64) {
         let buf = encode(team_id, pt, key, value, count);
@@ -223,5 +227,91 @@ mod tests {
             binary < json / 2,
             "binary {binary} should be under half of json {json}"
         );
+    }
+
+    fn arb_property_type() -> impl Strategy<Value = PropertyType> {
+        prop_oneof![
+            Just(PropertyType::Event),
+            Just(PropertyType::Person),
+            any::<u8>().prop_map(PropertyType::Group),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn round_trips_any_message(
+            team_id: i64,
+            property_type in arb_property_type(),
+            key in ".*",
+            value in ".*",
+            count: u64,
+        ) {
+            let decoded = decode(&encode(team_id, property_type, &key, &value, count)).unwrap();
+            prop_assert_eq!(decoded.team_id, team_id);
+            prop_assert_eq!(decoded.property_type, property_type);
+            prop_assert_eq!(decoded.property_key, key);
+            prop_assert_eq!(decoded.property_value, value);
+            prop_assert_eq!(decoded.property_count, count);
+        }
+
+        // Flipping the producer's wire format must not change what the
+        // merger sees: both encodings of a message decode identically.
+        #[test]
+        fn binary_and_json_decode_agree(
+            team_id: i64,
+            property_type in arb_property_type(),
+            key in ".*",
+            value in ".*",
+            count: u64,
+        ) {
+            let json = serde_json::to_vec(&Outgoing {
+                team_id,
+                property_type,
+                property_key: &key,
+                property_value: &value,
+                property_count: count,
+            })
+            .unwrap();
+            let binary = encode(team_id, property_type, &key, &value, count);
+
+            let from_json = PropertyValueMessage::decode(&json).unwrap();
+            let from_binary = PropertyValueMessage::decode(&binary).unwrap();
+            prop_assert_eq!(&from_json.team_id, &from_binary.team_id);
+            prop_assert_eq!(&from_json.property_type, &from_binary.property_type);
+            prop_assert_eq!(&from_json.property_key, &from_binary.property_key);
+            prop_assert_eq!(&from_json.property_value, &from_binary.property_value);
+            prop_assert_eq!(&from_json.property_count, &from_binary.property_count);
+        }
+
+        // Random bytes after a valid magic drive the parser deep into the
+        // varint/string paths; it must reject or accept, never panic.
+        #[test]
+        fn decode_never_panics(garbage in proptest::collection::vec(any::<u8>(), 0..256)) {
+            drop(decode(&garbage));
+            let mut with_magic = MAGIC.to_vec();
+            with_magic.extend_from_slice(&garbage);
+            drop(decode(&with_magic));
+        }
+
+        #[test]
+        fn corrupted_encodings_never_panic_and_truncations_error(
+            team_id: i64,
+            property_type in arb_property_type(),
+            key in ".*",
+            value in ".*",
+            count: u64,
+            flipped_byte in any::<prop::sample::Index>(),
+            flipped_bit in 0u8..8,
+        ) {
+            let buf = encode(team_id, property_type, &key, &value, count);
+
+            let mut corrupted = buf.clone();
+            let i = flipped_byte.index(corrupted.len());
+            corrupted[i] ^= 1 << flipped_bit;
+            drop(decode(&corrupted));
+
+            let cut = flipped_byte.index(buf.len());
+            prop_assert!(decode(&buf[..cut]).is_err(), "truncation at {} must error", cut);
+        }
     }
 }
