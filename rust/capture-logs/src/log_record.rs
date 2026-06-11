@@ -64,14 +64,51 @@ pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
     i64::try_from(total).unwrap_or(i64::MAX)
 }
 
-/// Sum of per-row `bytes_uncompressed` across a batch; rows without the field count as zero.
-/// Feeds the `bytes_uncompressed_records` Kafka header — the records-based counterpart to the
+/// Base64 placeholders produced by `extract_trace_id`/`extract_span_id` when the
+/// client sent no id. Not customer data, so excluded from the billing sum.
+const ZERO_TRACE_ID_B64: &str = "AAAAAAAAAAAAAAAAAAAAAA==";
+const ZERO_SPAN_ID_B64: &str = "AAAAAAAAAAA=";
+
+/// Billing-oriented batch size: sum of customer-sent variable-length content. Feeds the
+/// `bytes_uncompressed_records` Kafka header — the records-based counterpart to the
 /// payload-sized `bytes_uncompressed` header — so the two can be compared before billing
 /// switches to the records-based value.
-pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
-    rows.iter()
-        .map(|row| row.bytes_uncompressed.unwrap_or(0).max(0) as u64)
-        .sum()
+///
+/// Deliberately differs from the per-row `bytes_uncompressed` field (which keeps its
+/// denormalized per-row semantics for drop-rule accounting). Three sources of inflation
+/// that would otherwise push this sum past the payload the client actually sent are
+/// removed:
+/// - server-generated fields are excluded: `uuid`, and `service_name` (a copy of a
+///   resource attribute, which is already counted)
+/// - the base64 placeholder for an absent trace/span id is excluded
+/// - `resource_attributes` are counted once per distinct resource, not per row — OTLP
+///   sends the resource block once per batch; we denormalize it onto every row
+pub fn sum_kafka_log_row_bytes_for_billing(rows: &[KafkaLogRow]) -> u64 {
+    let mut total: usize = 0;
+    let mut counted_resources: Vec<&HashMap<String, String>> = Vec::new();
+    for row in rows {
+        total = total
+            .saturating_add(row.body.len())
+            .saturating_add(row.severity_text.len())
+            .saturating_add(row.instrumentation_scope.len())
+            .saturating_add(row.event_name.len());
+        if row.trace_id != ZERO_TRACE_ID_B64 {
+            total = total.saturating_add(row.trace_id.len());
+        }
+        if row.span_id != ZERO_SPAN_ID_B64 {
+            total = total.saturating_add(row.span_id.len());
+        }
+        for (k, v) in &row.attributes {
+            total = total.saturating_add(k.len()).saturating_add(v.len());
+        }
+        if !counted_resources.contains(&&row.resource_attributes) {
+            counted_resources.push(&row.resource_attributes);
+            for (k, v) in &row.resource_attributes {
+                total = total.saturating_add(k.len()).saturating_add(v.len());
+            }
+        }
+    }
+    u64::try_from(total).unwrap_or(u64::MAX)
 }
 
 impl KafkaLogRow {
@@ -399,35 +436,65 @@ mod tests {
         assert_eq!(compute_kafka_log_row_bytes(&row), 57);
     }
 
-    fn sample_row_bytes() -> u64 {
-        sample_row()
-            .with_computed_bytes()
-            .bytes_uncompressed
-            .unwrap() as u64
+    /// Billable bytes of a single `sample_row()` with non-zero trace/span ids:
+    /// trace_id(3) + span_id(3) + body(5) + severity_text(4) + instrumentation_scope(7)
+    /// + event_name(3) + attributes "k"+"v"(2) = 27 (uuid and service_name excluded);
+    /// resource_attributes "host.name"+"localhost"(18) are counted once per distinct resource.
+    const SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE: u64 = 27;
+    const SAMPLE_ROW_RESOURCE_BYTES: u64 = 18;
+
+    #[test]
+    fn test_billing_sum_empty_slice_is_zero() {
+        assert_eq!(sum_kafka_log_row_bytes_for_billing(&[]), 0);
     }
 
     #[test]
-    fn test_sum_kafka_log_row_bytes_empty_slice_is_zero() {
-        assert_eq!(sum_kafka_log_row_bytes(&[]), 0);
+    fn test_zero_id_placeholders_match_the_extractors_output() {
+        assert_eq!(ZERO_TRACE_ID_B64, BASE64_STANDARD.encode([0u8; 16]));
+        assert_eq!(ZERO_SPAN_ID_B64, BASE64_STANDARD.encode([0u8; 8]));
     }
 
     #[test]
-    fn test_sum_kafka_log_row_bytes_treats_missing_field_as_zero() {
-        let with_bytes = sample_row().with_computed_bytes();
-        let without_bytes = sample_row(); // bytes_uncompressed: None
+    fn test_billing_sum_excludes_uuid_service_name_and_zero_ids() {
+        let mut row = sample_row();
+        row.trace_id = ZERO_TRACE_ID_B64.to_string();
+        row.span_id = ZERO_SPAN_ID_B64.to_string();
+        // uuid, service_name, and the placeholder ids contribute nothing
         assert_eq!(
-            sum_kafka_log_row_bytes(&[with_bytes, without_bytes]),
-            sample_row_bytes()
+            sum_kafka_log_row_bytes_for_billing(&[row]),
+            SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE - 6 + SAMPLE_ROW_RESOURCE_BYTES
         );
     }
 
     #[test]
-    fn test_sum_kafka_log_row_bytes_sums_all_rows() {
-        let rows = [
-            sample_row().with_computed_bytes(),
-            sample_row().with_computed_bytes(),
-        ];
-        assert_eq!(sum_kafka_log_row_bytes(&rows), sample_row_bytes() * 2);
+    fn test_billing_sum_counts_nonzero_ids() {
+        assert_eq!(
+            sum_kafka_log_row_bytes_for_billing(&[sample_row()]),
+            SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE + SAMPLE_ROW_RESOURCE_BYTES
+        );
+    }
+
+    #[test]
+    fn test_billing_sum_counts_duplicate_resources_once() {
+        // Two rows sharing the same resource_attributes: resource counted once, not twice.
+        let rows = [sample_row(), sample_row()];
+        assert_eq!(
+            sum_kafka_log_row_bytes_for_billing(&rows),
+            SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE * 2 + SAMPLE_ROW_RESOURCE_BYTES
+        );
+    }
+
+    #[test]
+    fn test_billing_sum_counts_distinct_resources_separately() {
+        let mut other = sample_row();
+        other
+            .resource_attributes
+            .insert("host.name".to_string(), "otherhost".to_string());
+        let rows = [sample_row(), other];
+        assert_eq!(
+            sum_kafka_log_row_bytes_for_billing(&rows),
+            SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE * 2 + SAMPLE_ROW_RESOURCE_BYTES * 2
+        );
     }
 
     #[test]
