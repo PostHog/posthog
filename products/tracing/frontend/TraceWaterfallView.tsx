@@ -113,7 +113,7 @@ function parseTimestampUs(iso: string): number {
     return ms * 1_000 + subMsUs
 }
 
-function buildServiceColorMap(spans: Span[]): Map<string, number> {
+export function buildServiceColorMap(spans: Span[]): Map<string, number> {
     const services = [...new Set(spans.map((s) => s.service_name))].sort()
     const map = new Map<string, number>()
     services.forEach((service, i) => map.set(service, i))
