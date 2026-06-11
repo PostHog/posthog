@@ -2,13 +2,12 @@
 Gateway credential HyperCache — purpose-built projection for the Go
 ai-gateway's gateway-credential auth path (RFC #1103).
 
-Gateway dispatch authenticates only with a phx_/pha_ gateway credential bound to
+Gateway dispatch authenticates only with a phs_/pha_ gateway credential bound to
 one gateway. A phc_ project token is public and cannot dispatch — it is used only
 for AIO event emitting (stamping the $ai_generation envelope). This blob is
-therefore credential-centric: one per phx_ personal API key / pha_ OAuth access
-token, keyed by the credential's hash so the secret never sits in a Redis key or
-S3 path. (The separate team-centric llm_gateway_policy.json, keyed by the phc_
-project token, is the legacy team-token path — not a dispatch credential here.)
+therefore credential-centric: one per phs_ project secret API key / pha_ OAuth
+access token, keyed by the credential's hash so the secret never sits in a Redis
+key or S3 path.
 
 Shape:
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
@@ -32,7 +31,7 @@ The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex,
 which the gateway derives identically (PostHog/ai-gateway internal/auth).
 team_id and project_token are load-bearing. project_token is the team's phc_ key,
 carried solely so the gateway can stamp the $ai_generation event envelope (AIO
-event emitting) — it never authorizes dispatch; the phx_/pha_ secret does. The
+event emitting) — it never authorizes dispatch; the phs_/pha_ secret does. The
 gateway fails closed if either is missing, so the projection writes a blob only
 for a fully-resolvable credential and clears it otherwise. Written Redis-only (no S3): an OAuth token lives ~1h, and S3's
 fixed lifecycle would outlive it, resurrecting a stale blob on a cold Redis.
@@ -50,11 +49,10 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
-from posthog.constants import AvailableFeature
 from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -79,9 +77,11 @@ _PROJECT_READ_ACCESS_LEVEL = ordered_access_levels("project")[-2]
 GATEWAY_CREDENTIAL_CACHE_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_CACHE_TTL", str(60 * 60 * 24 * 7)))
 GATEWAY_CREDENTIAL_CACHE_MISS_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_CACHE_MISS_TTL", str(60 * 60 * 24)))
 
-# Caps the PAK blob TTL so a signal-bypassing removal (e.g. .update()) self-heals
-# in hours, not the 7-day default. Must stay above the hourly refresh interval.
-GATEWAY_CREDENTIAL_PAK_CACHE_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_PAK_CACHE_TTL", str(60 * 60 * 6)))
+# Caps the secret-key blob TTL so a signal-bypassing removal (e.g. .update())
+# self-heals in hours, not the 7-day default. Must stay above the hourly refresh.
+GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL = int(
+    os.environ.get("GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL", str(60 * 60 * 6))
+)
 
 GATEWAY_CREDENTIAL_FIELDS = [
     "team_id",
@@ -92,11 +92,11 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "revoked_at",
 ]
 
-Credential = PersonalAPIKey | OAuthAccessToken
+Credential = ProjectSecretAPIKey | OAuthAccessToken
 
 
 class _RefreshMemo:
-    """Per-run memo for the batch refresh: the authorization checks in
+    """Per-run memo for the batch refresh: the OAuth authorization checks in
     _policy_for_credential are per (org, user) and (team, user), but a refresh
     re-projects every credential — many sharing a user/team. Caching them collapses
     O(credentials) round trips into O(distinct users). Single-credential callers
@@ -122,11 +122,11 @@ class _RefreshMemo:
 def credential_hash(credential: Credential) -> str | None:
     """The sha256$<hex> cache-key hash for a credential.
 
-    PersonalAPIKey.secure_value already stores hash_key_value(token); OAuth keeps
-    the plaintext token, so hash it the same way (its token_checksum is bare hex,
-    which would not match the gateway's sha256$-prefixed derivation).
+    ProjectSecretAPIKey.secure_value already stores hash_key_value(token); OAuth
+    keeps the plaintext token, so hash it the same way (its token_checksum is bare
+    hex, which would not match the gateway's sha256$-prefixed derivation).
     """
-    if isinstance(credential, PersonalAPIKey):
+    if isinstance(credential, ProjectSecretAPIKey):
         return credential.secure_value
     return hash_key_value(credential.token, mode="sha256")
 
@@ -140,7 +140,7 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
     retired (#60342); granting privileged gateway access off it would be an
     over-grant. A "*" client gets the scope only once it re-auths for the literal.
     """
-    if isinstance(credential, PersonalAPIKey):
+    if isinstance(credential, ProjectSecretAPIKey):
         return GATEWAY_CREDENTIAL_REQUIRED_SCOPE in (credential.scopes or [])
     return GATEWAY_CREDENTIAL_REQUIRED_SCOPE in credential.scope.split()
 
@@ -148,10 +148,10 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
 def _gateway_for_credential(credential: Credential) -> Gateway | None:
     """The gateway this credential is bound to, or None if unbound.
 
-    A personal key binds directly; an OAuth token binds through its application
+    A secret key binds directly; an OAuth token binds through its application
     (stable across token rotation). Callers select_related the join.
     """
-    if isinstance(credential, PersonalAPIKey):
+    if isinstance(credential, ProjectSecretAPIKey):
         return credential.gateway
     application = credential.application
     return application.gateway if application is not None else None
@@ -161,11 +161,60 @@ def _ttl_for_credential(credential: Credential) -> float:
     """Seconds the blob may live. For OAuth, the token's remaining lifetime from a
     single now() read — may be <= 0 if it expired since the policy was computed, in
     which case the caller clears instead of writing (so the expiry decision and the
-    TTL share one now()). Personal keys never expire, so cap them at a short TTL the
+    TTL share one now()). Secret keys never expire, so cap them at a short TTL the
     hourly refresh keeps warm — a missed removal self-heals instead of lasting 7 days."""
     if isinstance(credential, OAuthAccessToken):
         return (credential.expires - timezone.now()).total_seconds()
-    return GATEWAY_CREDENTIAL_PAK_CACHE_TTL
+    return GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
+
+
+def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: int, memo: "_RefreshMemo | None") -> bool:
+    """Authorization checks that only apply to an OAuth credential.
+
+    OAuth tokens carry a user, an expiry, and scoped_* narrowing the gateway can't
+    see — all enforced here, since the gateway authenticates from the cached blob
+    alone (and the hourly refresh re-checks). Returns False to fail closed.
+    """
+    user = credential.user
+    if user is None or not user.is_active:
+        return False
+    if credential.application_id is None:
+        return False
+    if credential.expires <= timezone.now():
+        return False
+
+    # scoped_teams/scoped_organizations narrow a token below the user's full
+    # membership. team_id is the gateway's canonical (project root) team, while
+    # scoped_teams holds environment-level ids and the gateway attributes at the
+    # project level — so a token scoped only to a non-canonical environment of this
+    # project deliberately fails closed here rather than being widened project-wide.
+    if credential.scoped_teams and team_id not in credential.scoped_teams:
+        return False
+    if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
+        return False
+
+    # scoped_organizations is a static ceiling that doesn't track membership changing.
+    def _load_membership() -> Any:
+        return (
+            OrganizationMembership.objects.select_related("organization")
+            .filter(organization_id=team.organization_id, user_id=user.id)
+            .first()
+        )
+
+    membership = memo.membership(team.organization_id, user.id, _load_membership) if memo else _load_membership()
+    if membership is None:
+        return False
+
+    # Project access controls can revoke a member's access to this project without
+    # touching org membership. check_access_level_for_object default-allows for org
+    # admins, creators, and orgs without the access-control feature, so this only
+    # fails closed on an explicit RBAC revocation.
+    def _load_access() -> bool:
+        return UserAccessControl(user=user, team=team).check_access_level_for_object(
+            team, required_level=_PROJECT_READ_ACCESS_LEVEL
+        )
+
+    return memo.access(team_id, user.id, _load_access) if memo else _load_access()
 
 
 def _policy_for_credential(
@@ -173,23 +222,15 @@ def _policy_for_credential(
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
-    The bound gateway is the source of truth for the billed team (not the user's
-    current team), so team_id is deterministic. Fails closed on missing scope,
-    inactive user, expired token, unbound credential, a team with no token, or a
-    user who is no longer a member of the billed team's org.
+    The bound gateway is the source of truth for the billed team (not a user's
+    current team), so team_id is deterministic. Fails closed on missing scope, an
+    unbound credential, a team with no token, an invalid slug, or — for OAuth — an
+    inactive user, expired token, out-of-scope team, or revoked membership/access.
+    A project secret key is a team-owned service credential with no user, so a
+    bound, slug-valid key on a team with a token is sufficient.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
-
-    user = credential.user
-    if user is None or not user.is_active:
-        return HyperCacheStoreMissing()
-
-    if isinstance(credential, OAuthAccessToken):
-        if credential.application_id is None:
-            return HyperCacheStoreMissing()
-        if credential.expires <= timezone.now():
-            return HyperCacheStoreMissing()
 
     gateway = _gateway_for_credential(credential)
     if gateway is None:
@@ -206,58 +247,7 @@ def _policy_for_credential(
     if not _GATEWAY_SLUG_RE.match(gateway.slug):
         return HyperCacheStoreMissing()
 
-    # scoped_teams/scoped_organizations narrow a credential below the user's full
-    # membership. The gateway can't see them, so the projection is the only
-    # enforcement point — fail closed if the bound gateway's team is out of scope.
-    #
-    # team_id is the gateway's canonical (project root) team. scoped_teams holds
-    # environment-level team ids, and the gateway authenticates/attributes at the
-    # project level — it cannot honor a per-environment narrowing. So a credential
-    # scoped only to a non-canonical environment of this project deliberately fails
-    # closed here rather than being silently widened to project-wide access. (A
-    # loud rejection at credential-bind time is the better long-term home for this,
-    # once that API exists.)
-    if credential.scoped_teams and team_id not in credential.scoped_teams:
-        return HyperCacheStoreMissing()
-    if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
-        return HyperCacheStoreMissing()
-
-    # The gateway authenticates from the cached blob alone, so every authorization
-    # input it can't see is enforced here (and re-checked by the hourly refresh).
-    # scoped_organizations is a static ceiling that doesn't track these changing.
-    def _load_membership() -> Any:
-        return (
-            OrganizationMembership.objects.select_related("organization")
-            .filter(organization_id=team.organization_id, user_id=user.id)
-            .first()
-        )
-
-    membership = memo.membership(team.organization_id, user.id, _load_membership) if memo else _load_membership()
-    if membership is None:
-        return HyperCacheStoreMissing()
-
-    # Org security setting can forbid non-admin members from using personal API
-    # keys; OAuth tokens are exempt, mirroring PersonalAPIKeyAuthentication.
-    if isinstance(credential, PersonalAPIKey):
-        org = membership.organization
-        if (
-            org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
-            and not org.members_can_use_personal_api_keys
-            and membership.level < OrganizationMembership.Level.ADMIN
-        ):
-            return HyperCacheStoreMissing()
-
-    # Project access controls can revoke a member's access to this project without
-    # touching org membership. check_access_level_for_object default-allows for org
-    # admins, creators, and orgs without the access-control feature, so this only
-    # fails closed on an explicit RBAC revocation.
-    def _load_access() -> bool:
-        return UserAccessControl(user=user, team=team).check_access_level_for_object(
-            team, required_level=_PROJECT_READ_ACCESS_LEVEL
-        )
-
-    has_access = memo.access(team_id, user.id, _load_access) if memo else _load_access()
-    if not has_access:
+    if isinstance(credential, OAuthAccessToken) and not _oauth_authorization_ok(credential, team, team_id, memo):
         return HyperCacheStoreMissing()
 
     return {
@@ -272,11 +262,13 @@ def _policy_for_credential(
 
 def _resolve_credential(hash_key: str) -> Credential | None:
     """Reverse a cache-key hash back to its credential (Django-side reads only;
-    the gateway never calls Django). PAK.secure_value stores the prefixed hash
-    directly; OAuth.token_checksum is the bare hex, so strip the prefix."""
-    pak = PersonalAPIKey.objects.select_related("user", "gateway__team").filter(secure_value=hash_key).first()
-    if pak is not None:
-        return pak
+    the gateway never calls Django). ProjectSecretAPIKey.secure_value stores the
+    prefixed hash directly; OAuth.token_checksum is the bare hex, so strip the prefix."""
+    secret_key = (
+        ProjectSecretAPIKey.objects.select_related("team", "gateway__team").filter(secure_value=hash_key).first()
+    )
+    if secret_key is not None:
+        return secret_key
     if hash_key.startswith(SHA256_HASH_PREFIX):
         checksum = hash_key[len(SHA256_HASH_PREFIX) :]
         return (
@@ -306,8 +298,8 @@ def _load_gateway_credential(hash_key: KeyType) -> dict[str, Any] | HyperCacheSt
 # Write-only from Django: project_gateway_credential / clear_gateway_credential are
 # the only callers, and the Go gateway reads Redis directly. Do not call
 # get_from_cache on this instance — its lazy-fill ignores _ttl_for_credential and
-# would write the default cache_ttl (7 days), defeating the PAK cap. load_fn exists
-# only because HyperCache requires one.
+# would write the default cache_ttl (7 days), defeating the secret-key cap. load_fn
+# exists only because HyperCache requires one.
 gateway_credential_hypercache = HyperCache(
     namespace="team_metadata",
     value="gateway_credential.json",
@@ -355,20 +347,19 @@ def refresh_all_gateway_credentials() -> int:
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
 
     select_related pulls each credential's bound gateway and team in one query; the
-    per-credential authorization checks (org membership, personal-key restriction,
-    project access control) are memoized by (org, user) / (team, user) across the run
-    so the refresh does O(distinct users) lookups, not O(credentials). The org
-    personal-key setting change propagates through this hourly pass plus the PAK TTL
-    rather than a per-input signal (access-control changes have their own reproject
-    signal). Streamed via .iterator() so the working set stays flat. scope is a
-    space-separated TextField; whitespace-bounded so the literal doesn't substring-match
-    a longer scope.
+    per-OAuth authorization checks (org membership, project access control) are
+    memoized by (org, user) / (team, user) across the run so the refresh does
+    O(distinct users) lookups, not O(credentials). Streamed via .iterator() so the
+    working set stays flat. The secret-key scopes lookup uses the @> array operator,
+    backed by the projectsecretapikey_scopes_gin index; the OAuth scope is a
+    space-separated TextField, whitespace-bounded so the literal doesn't substring-
+    match a longer scope.
     """
     now = timezone.now()
     memo = _RefreshMemo()
     querysets = (
-        PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
-            scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE], user__is_active=True
+        ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
+            scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
         ),
         OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",

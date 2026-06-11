@@ -15,7 +15,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
@@ -28,15 +28,15 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 _NAMESPACE = "gateway_credential"
-_PAK_KIND = "personal_api_key"
+_SECRET_KEY_KIND = "project_secret_api_key"
 _OAUTH_KIND = "oauth_access_token"
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def update_gateway_credential_cache_task(credential_kind: str, credential_id: str) -> None:
-    if credential_kind == _PAK_KIND:
-        credential = PersonalAPIKey.objects.select_related("user", "gateway__team").filter(pk=credential_id).first()
+    if credential_kind == _SECRET_KEY_KIND:
+        credential = ProjectSecretAPIKey.objects.select_related("gateway__team").filter(pk=credential_id).first()
     elif credential_kind == _OAUTH_KIND:
         credential = (
             OAuthAccessToken.objects.select_related("user", "application__gateway__team")
@@ -59,11 +59,9 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
-    """Re-project a user's gateway credentials after an is_active change (deactivation clears)."""
-    for pak in PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
-        user_id=user_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
-    ):
-        project_gateway_credential(pak)
+    """Re-project a user's OAuth gateway credentials after a user/membership change
+    (deactivation, lost membership, or access-control flip clears them). Project
+    secret keys have no user, so they're unaffected and not touched here."""
     for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", user_id=user_id, application_id__isnull=False
     ):
@@ -74,10 +72,10 @@ def reproject_user_gateway_credentials_task(user_id: int) -> None:
 @skip_team_scope_audit
 def reproject_gateway_bound_credentials_task(gateway_id: str) -> None:
     """Re-project every credential bound to a gateway after its slug changed."""
-    for pak in PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
+    for secret_key in ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
         gateway_id=gateway_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
     ):
-        project_gateway_credential(pak)
+        project_gateway_credential(secret_key)
     for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
         application__gateway_id=gateway_id,
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
@@ -100,12 +98,13 @@ def reproject_oauth_application_gateway_credentials_task(application_id: str) ->
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_team_gateway_credentials_task(team_id: int) -> None:
-    """Re-project every credential bound to a gateway on this team after a project
-    access-control change, since that flips the projection's RBAC check."""
-    for pak in PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
+    """Re-project every credential bound to a gateway on this team after a team
+    api_token rotation (project_token changes) or a project access-control change
+    (flips the OAuth RBAC check)."""
+    for secret_key in ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
         gateway__team_id=team_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
     ):
-        project_gateway_credential(pak)
+        project_gateway_credential(secret_key)
     for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
         application__gateway__team_id=team_id,
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
