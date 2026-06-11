@@ -91,7 +91,7 @@ export class FunnelsInsight {
         await addButton.scrollIntoViewIfNeeded()
         await addButton.click()
 
-        const eventButton = exclusions.getByTestId('trend-element-subject-0')
+        const eventButton = exclusions.getByTestId('trend-element-subject-0').last()
         await eventButton.click()
         await this.taxonomicFilter.selectItem(eventName)
         // The exclusion defaults to $pageview; confirm the chosen event actually applied
