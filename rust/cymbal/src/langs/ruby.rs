@@ -56,6 +56,7 @@ impl RawRubyFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
@@ -70,6 +71,44 @@ impl RawRubyFrame {
             line,
             after,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_context_orders_pre_context_adjacent_first() {
+        // Ruby SDKs send pre_context ordered farthest -> adjacent to the context line.
+        let frame = RawRubyFrame {
+            path: None,
+            context_line: Some("    raise \"boom\"".to_string()),
+            filename: "application_service.rb".to_string(),
+            function: "ApplicationService.call".to_string(),
+            lineno: Some(4),
+            pre_context: vec![
+                "# frozen_string_literal: true".to_string(), // farthest (line 1)
+                "".to_string(),                              // line 2
+                "def self.call(**args)".to_string(),         // adjacent (line 3)
+            ],
+            post_context: vec![],
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let context = frame.get_context().unwrap();
+
+        // The line adjacent to the context line is rendered first, with the
+        // highest line number; the farthest line is rendered last.
+        assert_eq!(context.before.len(), 3);
+        assert_eq!(context.before[0].number, 3);
+        assert_eq!(context.before[0].line, "def self.call(**args)");
+        assert_eq!(context.before[2].number, 1);
+        assert_eq!(context.before[2].line, "# frozen_string_literal: true");
+
+        // Numbers strictly increase up to the context line.
+        assert!(context.before[2].number < context.before[0].number);
+        assert_eq!(context.before[0].number + 1, context.line.number);
     }
 }
 

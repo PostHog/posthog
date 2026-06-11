@@ -66,6 +66,7 @@ impl CustomFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .take(10)
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
