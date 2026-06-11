@@ -73,6 +73,15 @@ describe('buildTrendsBarTimeSeries', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
     })
+
+    it.each([
+        { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
+    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
+        expect(series.map((s) => s.yAxisId)).toEqual(expected)
+    })
 })
 
 describe('buildTrendsBarAggregatedSeries', () => {

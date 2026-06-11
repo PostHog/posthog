@@ -12,7 +12,6 @@ No business logic here - that belongs in logic.py via the facade.
 
 import json
 import base64
-import datetime as dt
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -111,9 +110,17 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         help_text="Filter by HTTP status codes.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["latest", "earliest"],
+        choices=["timestamp", "duration"],
         required=False,
-        help_text="Order results by timestamp. Defaults to latest.",
+        help_text=(
+            "Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset "
+            "cursor ('after'); ordering by duration paginates via 'offset'."
+        ),
+    )
+    orderDirection = serializers.ChoiceField(
+        choices=["ASC", "DESC"],
+        required=False,
+        help_text="Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).",
     )
     filterGroup = serializers.ListField(
         child=_SpanPropertyFilterSerializer(),
@@ -132,7 +139,12 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     )
     after = serializers.CharField(
         required=False,
-        help_text="Pagination cursor from previous response.",
+        help_text="Keyset pagination cursor from a previous timestamp-ordered response.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.",
     )
     rootSpans = serializers.BooleanField(
         required=False,
@@ -372,9 +384,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
         order_by = query_data.get("orderBy")
-        if order_by not in ("earliest", "latest"):
-            order_by = "latest"
+        if order_by not in ("timestamp", "duration"):
+            order_by = "timestamp"
+        order_direction = query_data.get("orderDirection")
+        if order_direction not in ("ASC", "DESC"):
+            order_direction = "DESC"
 
+        offset = query_data.get("offset") or 0
         requested_limit = min(query_data.get("limit", 100), 1000)
         prefetch_spans = query_data.get("prefetchSpans", None)
         if prefetch_spans is not None:
@@ -391,9 +407,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             orderBy=order_by,
+            orderDirection=order_direction,
             filterGroup=filter_group,
             traceId=query_data.get("traceId", None),
             limit=requested_limit + 1,
+            offset=offset,
             after=after_cursor,
             rootSpans=query_data.get("rootSpans", True),
             prefetchSpans=prefetch_spans,
@@ -405,25 +423,29 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         all_results = list(response.results)
 
-        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
-        # by start time; decide hasMore on the trace count, drop the spans of the overflow trace,
-        # and emit a cursor pointing at the last kept trace. `trace_start` is the SQL pagination key
-        # carried on every span row (see TraceSpansQueryRunner.to_query) — read it directly rather
-        # than re-deriving min() over the prefetched spans, which can disagree with the SQL key.
-        earliest_first = order_by == "earliest"
-        trace_start: dict[str, dt.datetime] = {span["trace_id"]: span["trace_start"] for span in all_results}
+        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces; decide
+        # hasMore on the trace count and drop the spans of the overflow trace. Ordering by timestamp
+        # emits a keyset cursor pointing at the last kept trace; ordering by duration paginates via
+        # `offset` instead, so no cursor is emitted. The per-trace sort key (`trace_start` /
+        # `trace_duration`) is carried on every span row (see TraceSpansQueryRunner.to_query) — read it
+        # directly rather than re-deriving over the prefetched spans, which can disagree with the SQL key.
+        by_duration = order_by == "duration"
+        descending = order_direction == "DESC"
+        sort_key = "trace_duration" if by_duration else "trace_start"
+        trace_keys: dict[str, object] = {span["trace_id"]: span[sort_key] for span in all_results}
 
         ordered_traces = sorted(
-            trace_start.items(),
+            trace_keys.items(),
             key=lambda item: (item[1], base64.b64encode(bytes.fromhex(item[0])).decode("ascii")),
-            reverse=not earliest_first,
+            reverse=descending,
         )
         has_more = len(ordered_traces) > requested_limit
         kept_trace_ids = {tid for tid, _ in ordered_traces[:requested_limit]}
         results = [span for span in all_results if span["trace_id"] in kept_trace_ids]
 
+        # Duration ordering paginates via `offset`; only the timestamp keyset emits an `after` cursor.
         next_cursor = None
-        if has_more:
+        if has_more and not by_duration:
             boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
             next_cursor = base64.b64encode(
                 json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
@@ -440,7 +462,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "service_names_count": len(query_data.get("serviceNames") or []),
                 "status_codes_count": len(query_data.get("statusCodes") or []),
                 "order_by": order_by,
-                "is_paginated": bool(after_cursor),
+                "order_direction": order_direction,
+                "is_paginated": bool(after_cursor) or bool(offset),
             },
             team=self.team,
             request=request,
