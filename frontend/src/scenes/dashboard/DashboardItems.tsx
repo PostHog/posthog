@@ -493,6 +493,7 @@ export function DashboardItems(): JSX.Element {
                                         placement={placement}
                                         dashboardId={dashboard?.id}
                                         canEditDashboard={canEditDashboard}
+                                        isDashboardEditMode={dashboardMode === DashboardMode.Edit}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
