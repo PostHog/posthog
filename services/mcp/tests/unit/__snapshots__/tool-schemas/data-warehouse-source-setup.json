@@ -15,7 +15,7 @@
         },
         "payload": {
             "additionalProperties": {},
-            "description": "Connection details as flat keys for the source_type (discover required fields with the wizard tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. {'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.",
+            "description": "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.",
             "propertyNames": {
                 "type": "string"
             },

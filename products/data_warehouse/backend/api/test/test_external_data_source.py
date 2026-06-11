@@ -26,6 +26,7 @@ from posthog.schema import (
 )
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -8429,16 +8430,16 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
         assert data["auth_method"] == "oauth"
         assert data["integration_field"] == "hubspot_integration_id"
         assert "/api/integrations/authorize?kind=hubspot" in data["connect_url"]
-        # The post-auth return path deep-links to the prefilled new-source form.
-        assert "data-warehouse%2Fnew-source" in data["connect_url"] or "new-source" in data["connect_url"]
+        # The post-auth return path lands on the minimal connect page, not the full wizard.
+        assert "data-warehouse%2Fconnect" in data["connect_url"]
 
     def test_connect_link_credentials_source(self):
         response = self._connect_link("Postgres")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["auth_method"] == "credentials"
-        assert data["integration_field"] is None
-        assert f"/project/{self.team.pk}/data-warehouse/new-source?kind=Postgres" in data["connect_url"]
+        assert data["integration_field"] == "credential_id"
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind=Postgres" in data["connect_url"]
 
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
@@ -8495,3 +8496,125 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Missing Stripe API key" in response.json()["message"]
         assert not ExternalDataSource.objects.exists()
+
+    def _store_stripe_credential(self, team=None) -> Integration:
+        return Integration.objects.create(
+            team=team or self.team,
+            kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
+            integration_id=str(uuid.uuid4()),
+            config={"source_type": "Stripe"},
+            sensitive_config={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_with_credential_id_merges_stored_payload(self, mock_validate, _mock_sync_views, _mock_person_join):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": credential.pk}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        # The stored secret was merged in server-side and used for validation.
+        validated_config = mock_validate.call_args.args[0]
+        assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
+
+    @parameterized.expand([("missing", 999999), ("not_an_int", "abc")])
+    def test_setup_with_unknown_credential_id_returns_400(self, _name, credential_id):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": credential_id}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+
+    def test_setup_with_other_teams_credential_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        credential = self._store_stripe_credential(team=other_team)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": credential.pk}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in response.json()["message"]
+
+    def test_setup_with_credential_for_other_source_type_returns_400(self):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Postgres", "payload": {"credential_id": credential.pk}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "is for 'Stripe'" in response.json()["message"]
+
+
+class TestExternalDataSourceStoreCredentials(APIBaseTest):
+    def _store(self, source_type: str = "Stripe", payload: dict | None = None):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/store_credentials/",
+            data={
+                "source_type": source_type,
+                "payload": payload
+                if payload is not None
+                else {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_creates_integration_without_source(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["source_type"] == "Stripe"
+
+        integration = Integration.objects.get(pk=data["credential_id"])
+        assert integration.team_id == self.team.pk
+        assert integration.kind == Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE
+        assert integration.config == {"source_type": "Stripe"}
+        assert integration.sensitive_config["auth_method"]["stripe_secret_key"] == "sk_test_123"
+        assert integration.created_by == self.user
+        # Storing credentials must not create a source.
+        assert not ExternalDataSource.objects.exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_store_credentials_rejects_invalid_credentials(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid Stripe API key" in response.json()["message"]
+        assert not Integration.objects.exists()
+
+    def test_store_credentials_rejects_invalid_config(self):
+        response = self._store(source_type="Postgres", payload={"host": "localhost"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid source config" in response.json()["message"]
+        assert not Integration.objects.exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_stored_secrets_are_not_exposed_via_integrations_api(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED
+
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/integrations/?kind=data-warehouse-source")
+        assert list_response.status_code == status.HTTP_200_OK
+        results = list_response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == response.json()["credential_id"]
+        assert results[0]["config"] == {"source_type": "Stripe"}
+        assert "sk_test_123" not in json.dumps(list_response.json())

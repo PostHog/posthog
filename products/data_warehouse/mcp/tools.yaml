@@ -78,11 +78,13 @@ tools:
         description: >
             Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the
             chat. For OAuth sources (Hubspot, Salesforce, Google Ads, …) it returns an authorization URL; for credential
-            sources (Postgres, MySQL, Stripe API key, …) it deep-links to the prefilled PostHog source-setup form. This
-            is the preferred, secure way to collect credentials — share the returned connect_url with the user, have
-            them authenticate in their browser, then call 'data-warehouse-source-setup' (for OAuth, pass the integration
-            id via the returned integration_field; for credentials the UI completes setup) or poll
-            'external-data-sources-list'. Never ask the user to paste raw database passwords or API keys into the chat.
+            sources (Postgres, MySQL, Stripe API key, …) it links to a minimal page where the user enters only their
+            credentials — the page stores them encrypted and does NOT create the source. This is the preferred, secure
+            way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're
+            done, then find the stored reference via 'integrations-list' (OAuth: the source's kind; credentials:
+            kind='data-warehouse-source') and call 'data-warehouse-source-setup' with the returned integration_field key
+            (e.g. {'hubspot_integration_id': 123} or {'credential_id': 45}). Never ask the user to paste raw database
+            passwords or API keys into the chat.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -102,10 +104,10 @@ tools:
             where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. Use this
             for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your
             own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type
-            with 'external-data-sources-wizard'. For credentialed sources, prefer obtaining credentials via the PostHog
-            UI / OAuth handoff and passing the resulting integration id in the payload (e.g. {'hubspot_integration_id':
-            123}) rather than pasting raw secrets. For fine-grained per-table control, use
-            'external-data-sources-create' instead.
+            with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: for OAuth sources
+            pass the integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass
+            {'credential_id': <id>} referencing credentials the user stored via the 'data-warehouse-source-connect-link'
+            page. For fine-grained per-table control, use 'external-data-sources-create' instead.
         exclude_params:
             - client_secret
             - account_id
@@ -460,6 +462,9 @@ tools:
         enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
+        enabled: false
+    external-data-sources-store-credentials-create:
+        operation: external_data_sources_store_credentials_create
         enabled: false
     external-data-sources-update:
         operation: external_data_sources_update

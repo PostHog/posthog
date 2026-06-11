@@ -35,6 +35,13 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.external_data_utils import (
+    get_external_data_source_created_by_info,
+    get_external_data_source_detail_name,
+)
+from posthog.models.integration import Integration
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -997,9 +1004,11 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Connection details as flat keys for the source_type (discover required fields with the wizard "
-            "tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. "
-            "{'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are "
-            "enabled automatically with sensible sync defaults."
+            "tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key "
+            "(e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} "
+            "referencing credentials the user stored via the connect-link page — they are merged in server-side. "
+            "A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible "
+            "sync defaults."
         ),
     )
     prefix = serializers.CharField(
@@ -1032,11 +1041,33 @@ class SourceConnectLinkSerializer(serializers.Serializer):
     integration_field = serializers.CharField(
         allow_null=True,
         help_text=(
-            "For OAuth sources, the payload key to pass to data-warehouse-source-setup with the integration id "
-            "(e.g. 'hubspot_integration_id'). Null for credential sources."
+            "The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration "
+            "id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the "
+            "credentials the user stored via the connect page."
         ),
     )
     instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
+
+
+class SourceCredentialCreateSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type these credentials are for (e.g. 'Stripe', 'Postgres').",
+    )
+    payload = serializers.DictField(
+        help_text=(
+            "Connection details as flat keys for the source_type — the same fields the create flow accepts "
+            "(host, port, password, API key, …). Checked against a live connection before being stored."
+        ),
+    )
+
+
+class SourceCredentialSerializer(serializers.Serializer):
+    credential_id = serializers.IntegerField(
+        help_text="Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source."
+    )
+    source_type = serializers.CharField(help_text="The source type the stored credentials are for.")
+    created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
 
 
 def _find_oauth_field(config: object) -> dict | None:
@@ -1099,6 +1130,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "refresh_schemas",
         "database_schema",
         "setup",
+        "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
         "create_webhook",
@@ -2036,28 +2068,36 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_type = serializer.validated_data["source_type"]
         payload = dict(serializer.validated_data.get("payload") or {})
 
+        credential_id = payload.pop("credential_id", None)
+        if credential_id is not None:
+            try:
+                credential = Integration.objects.get(
+                    id=credential_id,
+                    team_id=self.team_id,
+                    kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
+                )
+            except (Integration.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Stored credential '{credential_id}' not found"},
+                )
+            if credential.config.get("source_type") != source_type:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Stored credential '{credential_id}' is for "
+                        f"'{credential.config.get('source_type')}', not '{source_type}'"
+                    },
+                )
+            # Stored credentials win over inline keys so an agent can't override what the user entered.
+            payload = {**payload, **credential.sensitive_config}
+
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
 
-        is_valid, errors = source.validate_config(payload)
-        if not is_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid source config: {', '.join(errors)}"},
-            )
-        source_config: Config = source.parse_config(payload)
-
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, ExternalDataSource.AccessMethod.WAREHOUSE
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
-        if not credentials_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
-            )
+        error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
+        if error_response is not None or source_config is None:
+            return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
@@ -2085,6 +2125,81 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
             skip_credential_validation=True,
+        )
+
+    def _validate_source_config_and_credentials(
+        self, source: AnySource, source_type_model: ExternalDataSourceType, payload: dict
+    ) -> tuple[Response | None, Config | None]:
+        """Run the config + live credential gate (including the SSRF host check) for a source payload."""
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return (
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid source config: {', '.join(errors)}"},
+                ),
+                None,
+            )
+        source_config: Config = source.parse_config(payload)
+
+        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                cast(Any, source_config), self.team_id, ExternalDataSource.AccessMethod.WAREHOUSE
+            )
+        else:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return (
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                ),
+                None,
+            )
+        return None, source_config
+
+    @extend_schema(request=SourceCredentialCreateSerializer, responses={201: SourceCredentialSerializer})
+    @action(methods=["POST"], detail=False)
+    def store_credentials(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Validate and store credentials for a data warehouse source without creating the source.
+
+        Backs the source connect page: the user enters credentials directly in PostHog, they are
+        checked against a live connection, then stored encrypted. The returned credential id can be
+        passed to `setup` as {'credential_id': <id>} to create the source — so secrets never travel
+        through an agent conversation.
+        """
+        serializer = SourceCredentialCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data["payload"])
+
+        for key, value in payload.items():
+            if isinstance(value, str):
+                payload[key] = value.strip()
+
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+
+        error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
+        if error_response is not None:
+            return error_response
+
+        integration = Integration.objects.create(
+            team_id=self.team_id,
+            kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
+            # The (team, kind, integration_id) unique constraint means this must not collide per team.
+            integration_id=str(uuid.uuid4()),
+            config={"source_type": source_type},
+            sensitive_config=payload,
+            created_by=cast(User, request.user),
+        )
+
+        return Response(
+            status=status.HTTP_201_CREATED,
+            data=SourceCredentialSerializer(
+                {"credential_id": integration.id, "source_type": source_type, "created_at": integration.created_at}
+            ).data,
         )
 
     @extend_schema(
@@ -2639,10 +2754,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def connect_link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return a secure browser link for connecting a data warehouse source.
 
-        For OAuth sources the link starts the OAuth authorize flow; for credential sources it deep-links to the
-        prefilled PostHog source-setup form. Either way the user authenticates in their browser — credentials never
-        pass through the agent. After the user finishes, call data-warehouse-source-setup (OAuth: pass the integration
-        id; credentials: the UI completes setup) or poll external-data-sources-list.
+        For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
+        connect page where the user enters only their credentials — no table selection, no source creation.
+        Either way the user authenticates in their browser, credentials never pass through the agent, and the
+        agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
+        to data-warehouse-source-setup.
         """
         source_type = request.query_params.get("source_type")
         if not source_type:
@@ -2661,7 +2777,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source = SourceRegistry.get_source(source_type_model)
         oauth_field = _find_oauth_field(source.get_source_config.model_dump())
 
-        ui_path = f"/project/{self.team_id}/data-warehouse/new-source?kind={quote(str(source_type))}"
+        # Minimal connect page: credentials only — no table selection, no source creation in the UI.
+        ui_path = f"/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
 
         if oauth_field is not None:
             connect_url = (
@@ -2674,9 +2791,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "connect_url": connect_url,
                 "integration_field": oauth_field["name"],
                 "instructions": (
-                    f"Share this link with the user to authorize {source_type} in their browser. Once authorized, "
-                    f"either let them finish in the opened PostHog form, or call data-warehouse-source-setup with "
-                    f'{{"{oauth_field["name"]}": <integration id>}} (find the id via integrations-list). '
+                    f"Share this link with the user to authorize {source_type} in their browser. Once they confirm "
+                    f"they're done, find the new integration id via integrations-list (kind='{oauth_field['kind']}') "
+                    f'and call data-warehouse-source-setup with {{"{oauth_field["name"]}": <integration id>}}. '
                     "Never ask the user to paste OAuth tokens into the chat."
                 ),
             }
@@ -2685,11 +2802,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "source_type": source_type,
                 "auth_method": "credentials",
                 "connect_url": f"{settings.SITE_URL}{ui_path}",
-                "integration_field": None,
+                "integration_field": "credential_id",
                 "instructions": (
                     f"Share this link with the user. They enter their {source_type} credentials directly in PostHog "
-                    "(over TLS) — never ask them to paste credentials into the chat. The form pre-selects the source "
-                    "type; after they submit, poll external-data-sources-list to confirm the source was created."
+                    "(over TLS) — never ask them to paste credentials into the chat. The page only stores the "
+                    "credentials; it does not create the source. Once the user confirms they're done, find the "
+                    "stored credential id via integrations-list (kind='data-warehouse-source', newest first) and "
+                    'call data-warehouse-source-setup with {"credential_id": <id>} in the payload.'
                 ),
             }
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)

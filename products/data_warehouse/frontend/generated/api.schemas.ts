@@ -1365,7 +1365,7 @@ export interface SourceConnectLinkApi {
     /** Full URL to share with the user. They open it in a browser to authorize or enter credentials directly in PostHog — credentials never pass through the agent or the chat. */
     connect_url: string
     /**
-     * For OAuth sources, the payload key to pass to data-warehouse-source-setup with the integration id (e.g. 'hubspot_integration_id'). Null for credential sources.
+     * The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the credentials the user stored via the connect page.
      * @nullable
      */
     integration_field: string | null
@@ -1634,7 +1634,7 @@ export interface DatabaseSchemaRequestApi {
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. {'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
@@ -1790,7 +1790,7 @@ export interface SourceSetupApi {
   * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. {'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -1804,6 +1804,176 @@ export interface SourceSetupApi {
      * @nullable
      */
     description?: string | null
+}
+
+/**
+ * Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.
+ */
+export type SourceCredentialCreateApiPayload = { [key: string]: unknown }
+
+export interface SourceCredentialCreateApi {
+    /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
+
+  * `Ashby` - Ashby
+  * `Supabase` - Supabase
+  * `CustomerIO` - CustomerIO
+  * `Github` - Github
+  * `Stripe` - Stripe
+  * `Hubspot` - Hubspot
+  * `Postgres` - Postgres
+  * `Zendesk` - Zendesk
+  * `Snowflake` - Snowflake
+  * `Salesforce` - Salesforce
+  * `MySQL` - MySQL
+  * `MongoDB` - MongoDB
+  * `MSSQL` - MSSQL
+  * `Vitally` - Vitally
+  * `BigQuery` - BigQuery
+  * `Chargebee` - Chargebee
+  * `Clerk` - Clerk
+  * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
+  * `TemporalIO` - TemporalIO
+  * `DoIt` - DoIt
+  * `GoogleSheets` - GoogleSheets
+  * `MetaAds` - MetaAds
+  * `Klaviyo` - Klaviyo
+  * `Mailchimp` - Mailchimp
+  * `Braze` - Braze
+  * `Mailjet` - Mailjet
+  * `Redshift` - Redshift
+  * `Polar` - Polar
+  * `RevenueCat` - RevenueCat
+  * `LinkedinAds` - LinkedinAds
+  * `RedditAds` - RedditAds
+  * `TikTokAds` - TikTokAds
+  * `BingAds` - BingAds
+  * `Shopify` - Shopify
+  * `Attio` - Attio
+  * `SnapchatAds` - SnapchatAds
+  * `Linear` - Linear
+  * `Intercom` - Intercom
+  * `Amplitude` - Amplitude
+  * `Mixpanel` - Mixpanel
+  * `Jira` - Jira
+  * `ActiveCampaign` - ActiveCampaign
+  * `Marketo` - Marketo
+  * `Adjust` - Adjust
+  * `AppsFlyer` - AppsFlyer
+  * `Freshdesk` - Freshdesk
+  * `GoogleAnalytics` - GoogleAnalytics
+  * `Pipedrive` - Pipedrive
+  * `SendGrid` - SendGrid
+  * `Slack` - Slack
+  * `PagerDuty` - PagerDuty
+  * `Asana` - Asana
+  * `Notion` - Notion
+  * `Airtable` - Airtable
+  * `Greenhouse` - Greenhouse
+  * `BambooHR` - BambooHR
+  * `Lever` - Lever
+  * `GitLab` - GitLab
+  * `Datadog` - Datadog
+  * `Sentry` - Sentry
+  * `Pendo` - Pendo
+  * `FullStory` - FullStory
+  * `AmazonAds` - AmazonAds
+  * `PinterestAds` - PinterestAds
+  * `AppleSearchAds` - AppleSearchAds
+  * `QuickBooks` - QuickBooks
+  * `Xero` - Xero
+  * `NetSuite` - NetSuite
+  * `WooCommerce` - WooCommerce
+  * `BigCommerce` - BigCommerce
+  * `PayPal` - PayPal
+  * `Square` - Square
+  * `Zoom` - Zoom
+  * `Trello` - Trello
+  * `Monday` - Monday
+  * `ClickUp` - ClickUp
+  * `Confluence` - Confluence
+  * `Recurly` - Recurly
+  * `SalesLoft` - SalesLoft
+  * `Outreach` - Outreach
+  * `Gong` - Gong
+  * `Calendly` - Calendly
+  * `Typeform` - Typeform
+  * `Iterable` - Iterable
+  * `ZohoCRM` - ZohoCRM
+  * `Close` - Close
+  * `Oracle` - Oracle
+  * `DynamoDB` - DynamoDB
+  * `Elasticsearch` - Elasticsearch
+  * `Kafka` - Kafka
+  * `LaunchDarkly` - LaunchDarkly
+  * `Braintree` - Braintree
+  * `Recharge` - Recharge
+  * `HelpScout` - HelpScout
+  * `Gorgias` - Gorgias
+  * `Instagram` - Instagram
+  * `YouTubeAnalytics` - YouTubeAnalytics
+  * `FacebookPages` - FacebookPages
+  * `TwitterAds` - TwitterAds
+  * `Workday` - Workday
+  * `ServiceNow` - ServiceNow
+  * `Pardot` - Pardot
+  * `Copper` - Copper
+  * `Front` - Front
+  * `ChartMogul` - ChartMogul
+  * `Zuora` - Zuora
+  * `Paddle` - Paddle
+  * `CircleCI` - CircleCI
+  * `CockroachDB` - CockroachDB
+  * `Firebase` - Firebase
+  * `AzureBlob` - AzureBlob
+  * `GoogleDrive` - GoogleDrive
+  * `OneDrive` - OneDrive
+  * `SharePoint` - SharePoint
+  * `Box` - Box
+  * `SFTP` - SFTP
+  * `MicrosoftTeams` - MicrosoftTeams
+  * `Aircall` - Aircall
+  * `Webflow` - Webflow
+  * `Okta` - Okta
+  * `Auth0` - Auth0
+  * `Productboard` - Productboard
+  * `Smartsheet` - Smartsheet
+  * `Wrike` - Wrike
+  * `Plaid` - Plaid
+  * `SurveyMonkey` - SurveyMonkey
+  * `Eventbrite` - Eventbrite
+  * `RingCentral` - RingCentral
+  * `Twilio` - Twilio
+  * `Freshsales` - Freshsales
+  * `Shortcut` - Shortcut
+  * `ConvertKit` - ConvertKit
+  * `Drip` - Drip
+  * `CampaignMonitor` - CampaignMonitor
+  * `MailerLite` - MailerLite
+  * `Omnisend` - Omnisend
+  * `Brevo` - Brevo
+  * `Postmark` - Postmark
+  * `Granola` - Granola
+  * `BuildBetter` - BuildBetter
+  * `Convex` - Convex
+  * `ClickHouse` - ClickHouse
+  * `Plain` - Plain
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
+  * `Custom` - Custom */
+    source_type: ExternalDataSourceTypeEnumApi
+    /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
+    payload: SourceCredentialCreateApiPayload
+}
+
+export interface SourceCredentialApi {
+    /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+    credential_id: number
+    /** The source type the stored credentials are for. */
+    source_type: string
+    /** When the credentials were stored. */
+    created_at: string
 }
 
 /**

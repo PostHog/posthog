@@ -49,19 +49,24 @@ missing required fields).
 1. **Discover the source type and its fields** (optional): `external-data-sources-wizard` lists every source type and
    the credential fields each needs. Use it to know what to ask the user for; skip it if the source type is obvious.
 2. **Collect credentials securely**: call `data-warehouse-source-connect-link({source_type})`. It returns a
-   `connect_url` to share with the user:
-   - **OAuth sources** (Hubspot, Salesforce, Google Ads, …) → an authorize URL. After the user authorizes, pass the
-     returned `integration_field` key with the integration id to setup (e.g. `{"hubspot_integration_id": 123}` — find
-     the id via `integrations-list`), or let them finish in the opened PostHog form.
-   - **Credential sources** (Postgres, MySQL, Stripe API key, …) → a deep link to the prefilled PostHog source-setup
-     form where they enter credentials over TLS. Then poll `external-data-sources-list` for the new source.
+   `connect_url` to share with the user. Either way the page is a terminal hand-off: it collects the authorization or
+   credentials and nothing else — the user returns to the chat and you finish setup:
+   - **OAuth sources** (Hubspot, Salesforce, Google Ads, …) → an authorize URL. After the user confirms they've
+     authorized, find the new integration id via `integrations-list` (filter by the source's kind) and pass the
+     returned `integration_field` key to setup (e.g. `{"hubspot_integration_id": 123}`).
+   - **Credential sources** (Postgres, MySQL, Stripe API key, …) → a minimal connect page where they enter only their
+     credentials over TLS. The page validates them against a live connection and stores them encrypted — it does NOT
+     create the source. After the user confirms they're done, find the stored credential id via `integrations-list`
+     (`kind='data-warehouse-source'`, newest first; the page also shows the id to the user) and pass
+     `{"credential_id": <id>}` to setup.
 
    Never ask the user to paste raw database passwords or API keys into the chat.
 
 3. **Create in one call**: `data-warehouse-source-setup({source_type, payload, prefix})`. The server validates
    credentials, discovers all tables, enables them with sync defaults (incremental where a tracking column exists,
    else append, else full_refresh — never CDC), sets `created_via=mcp`, and creates the source. The `payload` carries
-   credentials or the OAuth integration id; no `schemas` array is needed. On success you get the new source `id`; call
+   a credential reference (`{"credential_id": ...}` or the OAuth integration id key) — or inline credentials for
+   headless automation; no `schemas` array is needed. On success you get the new source `id`; call
    `external-data-schemas-list` to show the user what was enabled and how each table will sync.
 
 Notes specific to this path:
@@ -301,8 +306,9 @@ If the user wants near-real-time replication from Postgres:
   something short, descriptive, and not already taken.
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user
   authenticates in their browser — OAuth sources (Hubspot, Salesforce, Google Ads) authorize via PostHog, and
-  credential sources (Postgres, Stripe key, …) enter secrets directly in the PostHog UI. Don't collect OAuth tokens or
-  database passwords in chat; pass an integration id to setup instead, or let the user finish in the UI.
+  credential sources (Postgres, Stripe key, …) enter secrets on the minimal connect page, which stores them without
+  creating the source. Don't collect OAuth tokens or database passwords in chat; pass the integration id or
+  `credential_id` reference to setup — source creation always happens through setup, not the UI.
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
   webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).

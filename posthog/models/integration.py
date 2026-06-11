@@ -156,6 +156,9 @@ class Integration(models.Model):
         CUSTOMERIO_TRACK = "customerio-track"
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
+        # Stored credentials for a data warehouse source, collected via the source connect page so
+        # secrets never pass through an agent chat. Consumed by external_data_sources/setup.
+        DATA_WAREHOUSE_SOURCE = "data-warehouse-source"
         EMAIL = "email"
         FIREBASE = "firebase"
         GITHUB = "github"
@@ -235,6 +238,8 @@ class Integration(models.Model):
             return self.config.get("email", self.integration_id)
         if self.kind == "apns":
             return self.config.get("bundle_id", self.integration_id)
+        if self.kind == "data-warehouse-source":
+            return self.config.get("source_type", self.integration_id)
 
         return f"ID: {self.integration_id}"
 

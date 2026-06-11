@@ -89,7 +89,7 @@ Common join patterns:
 
 - **Don't guess table names.** Always check `posthog:read-data-warehouse-schema` and `posthog:external-data-schemas-list` before saying data doesn't exist.
 - **Check prefixes.** Imported tables are often prefixed (e.g. `stripe_charges` not `charges`). The user might not know the prefix.
-- **Collect credentials securely.** Use `data-warehouse-source-connect-link` to hand the user a browser link — OAuth sources (Google Ads, Meta Ads, Hubspot) authorize via PostHog, and credential sources enter secrets directly in the PostHog UI. Don't collect passwords or OAuth tokens in chat.
+- **Collect credentials securely.** Use `data-warehouse-source-connect-link` to hand the user a browser link — OAuth sources (Google Ads, Meta Ads, Hubspot) authorize via PostHog, and credential sources enter secrets on a minimal connect page that stores them without creating the source. Afterwards pass the integration id or `{"credential_id": <id>}` to `data-warehouse-source-setup`. Don't collect passwords or OAuth tokens in chat.
 - **Not all systems are supported.** If the user's system isn't in the wizard list, suggest using Postgres/MySQL as a bridge if they can export to a database, or mention that custom sources can be requested.
 
 ## Related tools
