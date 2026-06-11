@@ -10,10 +10,8 @@ use crate::utils::auth::{get_token, Token};
 fn find_script() -> Result<PathBuf> {
     if let Ok(path) = env::var("POSTHOG_API_CLI_PATH") {
         let path = PathBuf::from(path);
-        if path.exists() {
-            return path
-                .canonicalize()
-                .context("Failed to canonicalize POSTHOG_API_CLI_PATH");
+        if let Ok(resolved) = path.canonicalize() {
+            return Ok(resolved);
         }
     }
 
@@ -25,10 +23,8 @@ fn find_script() -> Result<PathBuf> {
                 bin_dir.join("../lib/api-cli/posthog-api-cli.mjs"),
                 bin_dir.join("posthog-api-cli.mjs"),
             ] {
-                if candidate.exists() {
-                    return candidate
-                        .canonicalize()
-                        .context("Failed to canonicalize bundled API CLI path");
+                if let Ok(resolved) = candidate.canonicalize() {
+                    return Ok(resolved);
                 }
             }
         }
@@ -44,7 +40,7 @@ fn has_any_env(names: &[&str]) -> bool {
 }
 
 fn inject_credentials(cmd: &mut Command) {
-    let token = match get_token() {
+    let token = match get_token(None) {
         Ok(token) => token,
         Err(_) => return,
     };

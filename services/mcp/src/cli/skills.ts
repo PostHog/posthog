@@ -2,7 +2,7 @@ import { unzipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources'
+import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { errorCode } from './utils'
