@@ -95,13 +95,16 @@ jobs:
             - name: Build preview
               id: build
               run: |
+                  # Build the PR from its own checkout inside the box — no published
+                  # per-PR image. The golden carries a warm Docker + turbo cache from
+                  # master, so this is an incremental build, not a cold one. (The tool's
+                  # --image flag stays as an escape hatch for running a published tag.)
                   out=$(python -m hogbox_preview \
                     --host "$HOG_HOST" \
-                    --image "ghcr.io/posthog/posthog:pr-${PR}" \
                     --name "preview-pr-${PR}" \
                     --snapshot "${{ vars.HOGBOX_GOLDEN_SNAPSHOT }}" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
-                    up --no-seed)   # golden is already seeded; delta-migrate the PR on top
+                    up --branch "pull/${PR}/head" --no-seed)   # checkout PR -> rebuild -> delta-migrate
                   echo "$out"
                   echo "url=$(echo "$out" | sed -n 's/^url=//p')" >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
