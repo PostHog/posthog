@@ -8151,6 +8151,8 @@ export namespace Schemas {
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -8160,6 +8162,8 @@ export namespace Schemas {
       Avg: 'avg',
       Count: 'count',
       P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -45613,12 +45617,14 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
-      /** Aggregation applied per time bucket.
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
-       * * `p95` - p95 */
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase */
       aggregation?: AggregationEnum;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];

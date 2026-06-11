@@ -348,7 +348,7 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
             ("formula", {"formula": "a / b"}),
             (
                 "unsupported_aggregation",
-                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.RATE),)},
+                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.MIN),)},
             ),
         ]
     )
@@ -586,3 +586,168 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             series = self._run()
         self.assertEqual(len(series), 1)
         self.assertEqual(series[0].labels["env"], "dev")
+
+
+class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        # Anchor on a minute boundary so bucket membership is deterministic.
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _run(self, aggregation: str, **runner_overrides):
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "metric_name": "requests_total",
+            "aggregation": aggregation,
+            "date_from": self.anchor - dt.timedelta(minutes=1),
+            "date_to": self.anchor + dt.timedelta(minutes=2),
+            "interval": "minute",
+        }
+        defaults.update(runner_overrides)
+        return MetricQueryRunner(**defaults).run()
+
+    def _seed_counter(self, points, **kwargs):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="requests_total",
+            metric_type="sum",
+            is_monotonic=True,
+            points=points,
+            **kwargs,
+        )
+
+    def test_increase_diffs_cumulative_samples_and_ignores_first(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 100.0),
+                (self.anchor + dt.timedelta(seconds=15), 105.0),
+                (self.anchor + dt.timedelta(seconds=30), 110.0),
+                (self.anchor + dt.timedelta(seconds=45), 115.0),
+                (self.anchor + dt.timedelta(seconds=60), 120.0),
+                (self.anchor + dt.timedelta(seconds=75), 125.0),
+            ]
+        )
+        rows = self._run("increase")
+        by_time = {row["time"]: row["value"] for row in rows}
+        values = list(by_time.values())
+        # bucket 1: first sample contributes 0, then 5+5+5; bucket 2: 5+5
+        self.assertEqual(values, [15.0, 10.0])
+
+    def test_rate_divides_by_bucket_seconds(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 0.0),
+                (self.anchor + dt.timedelta(seconds=30), 30.0),
+            ]
+        )
+        rows = self._run("rate")
+        self.assertEqual([row["value"] for row in rows], [0.5])
+
+    def test_counter_reset_counts_post_reset_value(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 10.0),
+                (self.anchor + dt.timedelta(seconds=15), 20.0),
+                (self.anchor + dt.timedelta(seconds=30), 5.0),
+                (self.anchor + dt.timedelta(seconds=45), 15.0),
+            ]
+        )
+        rows = self._run("increase")
+        # 0 (first) + 10 + 5 (reset: post-reset absolute value) + 10
+        self.assertEqual([row["value"] for row in rows], [25.0])
+
+    def test_delta_temporality_sums_samples_directly(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 3.0),
+                (self.anchor + dt.timedelta(seconds=15), 4.0),
+                (self.anchor + dt.timedelta(seconds=30), 5.0),
+            ],
+            aggregation_temporality="delta",
+        )
+        rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [12.0])
+
+    def test_deltas_are_computed_per_underlying_series(self):
+        # Two pods with interleaved timestamps; naive global diffing would
+        # produce garbage from the cross-series jumps.
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 1000.0),
+                (self.anchor + dt.timedelta(seconds=30), 1010.0),
+            ],
+            resource_labels={"k8s.pod.name": "web-1"},
+        )
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=15), 5.0),
+                (self.anchor + dt.timedelta(seconds=45), 10.0),
+            ],
+            resource_labels={"k8s.pod.name": "web-2"},
+        )
+        rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [15.0])
+
+    def test_rate_composes_with_group_by(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 0.0),
+                (self.anchor + dt.timedelta(seconds=30), 60.0),
+            ],
+            resource_labels={"k8s.pod.name": "web-1"},
+        )
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 0.0),
+                (self.anchor + dt.timedelta(seconds=30), 6.0),
+            ],
+            resource_labels={"k8s.pod.name": "web-2"},
+        )
+        rows = self._run(
+            "increase",
+            group_by=(MetricGroupBy(key="k8s.pod.name", scope=AttributeScope.RESOURCE),),
+        )
+        by_pod = {row["labels"]["k8s.pod.name"]: row["value"] for row in rows}
+        self.assertEqual(by_pod, {"web-1": 60.0, "web-2": 6.0})
+
+    def test_rate_via_facade_and_api(self):
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 0.0),
+                (self.anchor + dt.timedelta(seconds=30), 30.0),
+            ]
+        )
+        series = run_metric_query(
+            team=self.team,
+            request=MetricQueryRequest(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="requests_total", aggregation=MetricAggregation.RATE),
+                ),
+                date_from=self.anchor - dt.timedelta(minutes=1),
+                date_to=self.anchor + dt.timedelta(minutes=2),
+                interval="minute",
+            ),
+        )
+        self.assertEqual([p.value for p in series[0].points], [0.5])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "requests_total",
+                    "aggregation": "increase",
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [p["value"] for p in response.json()["results"][0]["points"]],
+            [30.0],
+        )

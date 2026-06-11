@@ -68,9 +68,9 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Exact metric name to query (e.g. 'http.server.duration').",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95"],
+        choices=["sum", "avg", "count", "p95", "rate", "increase"],
         default="sum",
-        help_text="Aggregation applied per time bucket.",
+        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).",
     )
     filters = _MetricFilterSerializer(
         many=True,
