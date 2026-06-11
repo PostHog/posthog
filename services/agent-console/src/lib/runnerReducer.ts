@@ -275,6 +275,24 @@ function updateActiveAssistant(
     session: ChatSession,
     transform: (parts: AssistantTurnPart[]) => AssistantTurnPart[]
 ): ChatSession {
+    // If the user queued a message mid-stream, the last turn is now a user
+    // bubble sitting BELOW an in-progress assistant turn. Continuing to push
+    // deltas into that assistant turn would render them ABOVE the user's
+    // message — out-of-order vs. a normal chat flow. Spawn a fresh assistant
+    // turn below the bubble instead. The previous turn's streaming flag was
+    // already cleared in `useRealRunner.send` at the queue point, so the
+    // split looks clean.
+    const lastTurn = session.turns.at(-1)
+    if (lastTurn && lastTurn.kind === 'user') {
+        const assistantTurn: AssistantTurn = {
+            kind: 'assistant',
+            id: `assistant-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            streaming: true,
+            parts: transform([]),
+        }
+        return { ...session, state: 'streaming', turns: [...session.turns, assistantTurn] }
+    }
     const lastAssistantIndex = findLastAssistantIndex(session.turns)
     if (lastAssistantIndex === -1) {
         // No assistant turn yet — synthesize one so deltas have somewhere to land.

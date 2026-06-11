@@ -27,6 +27,7 @@ import type {
     ClientToolHandler,
     ClientToolOutcome,
     SessionPrincipal,
+    Turn,
 } from '@posthog/agent-chat'
 import { isRenderHandler } from '@posthog/agent-chat'
 
@@ -660,13 +661,37 @@ export function useRealRunner({
             // also clears pending as a safety net against a missed echo.
             setSession((prev) => {
                 const queued = prev.state === 'streaming' || prev.state === 'awaiting_client_tool'
+                // Mid-stream queue: clear the streaming flag on the
+                // in-progress assistant turn at the tail. Any further
+                // deltas the runner emits for this turn will land in a
+                // fresh assistant turn BELOW the user bubble (see
+                // `updateActiveAssistant` in `runnerReducer`) so the
+                // conversation reads as a normal chat thread split at
+                // the user's interjection, instead of new agent content
+                // piling up above the user's message. If the in-progress
+                // turn hasn't received any content yet (turn_started
+                // placeholder), drop it — leaving an empty `<div>` above
+                // the user bubble is visual noise the user can't act on.
+                const lastIdx = prev.turns.length - 1
+                const last = prev.turns[lastIdx]
+                const splitTurns: Turn[] = (() => {
+                    if (!queued || !last || last.kind !== 'assistant' || !last.streaming) {
+                        return prev.turns
+                    }
+                    if (last.parts.length === 0) {
+                        return prev.turns.slice(0, lastIdx)
+                    }
+                    return prev.turns.map<Turn>((t, i) =>
+                        i === lastIdx && t.kind === 'assistant' ? { ...t, streaming: false } : t
+                    )
+                })()
                 return {
                     ...prev,
                     // Preserve the live state when queuing; only flip to
                     // `streaming` for the first message of a fresh turn.
                     state: queued ? prev.state : 'streaming',
                     turns: [
-                        ...prev.turns,
+                        ...splitTurns,
                         {
                             kind: 'user',
                             id: `user-${Date.now()}`,
