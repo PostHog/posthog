@@ -29,10 +29,4 @@ pnpm test                      # full suite (sharded in CI)
 pnpm jest tests/path/to.test.ts  # single file
 ```
 
-### Destructive helper guard
-
-Test helpers like `resetTestDatabase()` and `clearDatabase()` delete all rows from most tables in the database they connect to. To protect local dev data, the helpers in `tests/helpers/sql.ts` and `tests/helpers/clickhouse.ts` verify (via Postgres `current_database()` / ClickHouse `currentDatabase()`) that the connected database has `test` in its name and refuse to run otherwise — see `tests/helpers/database-guard.ts`.
-
-If your test database legitimately doesn't match (e.g. a custom CI setup), set `ALLOW_NON_TEST_DATABASE_RESET=1` (or `true`/`yes`) to bypass the guard; any other value keeps it active. Do not set this in a local dev environment.
-
-If you hit the guard error locally, it means `DATABASE_URL`, `PERSONS_DATABASE_URL`, `CLICKHOUSE_DATABASE`, or similar leaked into the test process from your shell or IDE — unset them and rely on the test defaults.
+Destructive test helpers refuse to run against a database without `test` in its name — see `tests/helpers/database-guard.ts`. The guard's error message explains how to fix a misconfigured environment.

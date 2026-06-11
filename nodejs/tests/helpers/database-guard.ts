@@ -1,17 +1,9 @@
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 
-/**
- * Escape hatch for environments whose test database legitimately doesn't have
- * "test" in its name. Set to `1`, `true`, or `yes` to skip the guard; any
- * other value (including `0` and `false`) keeps it active.
- */
-export const UNSAFE_DATABASE_RESET_ENV_VAR = 'ALLOW_NON_TEST_DATABASE_RESET'
-
 // Matches "test" only as an underscore- or boundary-delimited token, so real
 // test databases (test_posthog, posthog_test) pass while names that merely
 // embed the substring (latest, posthog_latest) are still refused.
 const TEST_DATABASE_NAME_PATTERN = /(^|_)test(_|$)/i
-const ESCAPE_HATCH_VALUES = new Set(['1', 'true', 'yes'])
 
 /**
  * Throws unless `databaseName` looks like a test database — i.e. it contains
@@ -24,14 +16,7 @@ const ESCAPE_HATCH_VALUES = new Set(['1', 'true', 'yes'])
  * DATABASE_URL pointing at the dev `posthog` database leaking in from a shell
  * or IDE) produces a loud error instead of silently wiping real dev data.
  */
-export function assertTestDatabaseName(
-    databaseName: string,
-    source: string,
-    env: Record<string, string | undefined> = process.env
-): void {
-    if (ESCAPE_HATCH_VALUES.has((env[UNSAFE_DATABASE_RESET_ENV_VAR] ?? '').toLowerCase())) {
-        return
-    }
+export function assertTestDatabaseName(databaseName: string, source: string): void {
     if (TEST_DATABASE_NAME_PATTERN.test(databaseName)) {
         return
     }
@@ -44,8 +29,7 @@ export function assertTestDatabaseName(
             `test_behavioral_cohorts on Postgres; posthog_test on ClickHouse). This error\n` +
             `usually means DATABASE_URL, PERSONS_DATABASE_URL, CLICKHOUSE_DATABASE or similar\n` +
             `leaked in from your shell or IDE. Unset them, or create the test databases with\n` +
-            `\`pnpm --filter=@posthog/nodejs setup:test\`.\n\n` +
-            `If you really do want to wipe "${databaseName}", set ${UNSAFE_DATABASE_RESET_ENV_VAR}=1.`
+            `\`pnpm --filter=@posthog/nodejs setup:test\`.`
     )
 }
 
@@ -54,16 +38,12 @@ export function assertTestDatabaseName(
  * use is a test database. Queries `current_database()` so the check reflects
  * ground truth regardless of how the connection URL was assembled.
  */
-export async function assertRouterTargetsTestDatabase(
-    router: PostgresRouter,
-    use: PostgresUse,
-    env: Record<string, string | undefined> = process.env
-): Promise<void> {
+export async function assertRouterTargetsTestDatabase(router: PostgresRouter, use: PostgresUse): Promise<void> {
     const result = await router.query<{ name: string }>(
         use,
         'SELECT current_database() AS name',
         undefined,
         'database-guard'
     )
-    assertTestDatabaseName(result.rows[0].name, `Postgres ${PostgresUse[use]}`, env)
+    assertTestDatabaseName(result.rows[0].name, `Postgres ${PostgresUse[use]}`)
 }
