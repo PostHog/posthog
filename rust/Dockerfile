@@ -2,8 +2,8 @@
 FROM rust:1.91-bookworm AS base
 # Note - sccache pinned due to problem with depot builds. See https://posthog.slack.com/archives/C0457KENW2E/p1768558484810999?thread_ts=1768497407.301109&cid=C0457KENW2E
 RUN cargo install --locked cargo-chef sccache@0.12.0
-ARG SCCACHE_WEBDAV_KEY_PREFIX=default
-ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache SCCACHE_WEBDAV_KEY_PREFIX=$SCCACHE_WEBDAV_KEY_PREFIX
+ARG SCCACHE_WEBDAV_KEY_PREFIX
+ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
 FROM base AS planner
 WORKDIR /app
