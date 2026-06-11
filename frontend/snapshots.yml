@@ -3881,9 +3881,9 @@ snapshots:
     mcp-apps-trends--area-chart--light:
         hash: v1.k794b7964.6cf42e74cc7686abba8123717fd06198df9cec15b137857ebeff6a41d882f588.bIEusW4n6ate8V8Ujn33aEEEuqxdLQFibt6BcBUnK1g
     mcp-apps-trends--bar-value-few-series--light:
-        hash: v1.k794b7964.3a5ba60751ffd22f1e998cda41e63c30a1948b925de7c7f8861074e3ec572bea.llE1NKWEs58Fm4n5d10r7Tlm72vCzt-ZHubLiOkaIYU
+        hash: v1.k794b7964.0306912db87cc31480193197f8836a77bdb605eddff02f4f3a49513ea0607ffa.7eggN7eGBfu9J82WduiVyY_KMUPBFlus190tJfCKdnc
     mcp-apps-trends--bar-value-many-breakdowns--light:
-        hash: v1.k794b7964.1249026814f2d92f133f9a71e712fc17c7236211a3d1671092a3f8901f8adb22.QE5QFCKypNIrwCkKMrs_UyxYjU_vv-x4fVc5S2dVKg8
+        hash: v1.k794b7964.55d92ceb29c5fedf37ed82999dcb4d0a1122cead487ed73a8e8891cc4ce89ea2.zCQNhUwqzZqBkFs-rbqKBENtndciu2imsafQHGtsrsA
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.2622c6a6026ee9a0afdee272a93207428b6b162319c26f749f720301e95295b3.ud_GEZpQP8zR9kgPkMECKr09f544GEqMjVQzKPe-Zec
     mcp-apps-trends--single-series--light:
@@ -4535,9 +4535,9 @@ snapshots:
     scenes-app-dashboards--access-control-dashboard--light:
         hash: v1.k794b7964.7f321c2ab14a4dd1db4ce4e64aae602bff0cd7612b03f96cf529ee1877758f07.VcsffTezk6l9zVqo58x3o2C2gABrfdtFlKX3ocYXJkY
     scenes-app-dashboards--edit--dark:
-        hash: v1.k794b7964.0b1ba7b96c314d2afb666dc7c230ea6eac5090663cdc92ce18167d2de7f7eb41.Pwp3GyFj-Z6KA6kveXqy6Jq9lAA2IeOaN4F9sEyzOoc
+        hash: v1.k794b7964.6d9f86e5e70c5e104354bf716741e81b21cc9335902be2ae193e056e2c99e990.uVpbwD8wdxAgDlmsHN0MnOyVL94S1R-d1LwyzWPX_HE
     scenes-app-dashboards--edit--light:
-        hash: v1.k794b7964.333fc1e69b2ad21a9850de9517cfa0e3911bc27b8abf94b2ea08e98f72744a27.UBytY8rUYfCPwuhB7B2KApkQG-TFKxJdXhgEEj6I3gg
+        hash: v1.k794b7964.e322c65d35e800f6823a790bfe6d2a8f0ebec20fedac1bcd32c9854f55396698.L8tsLyZSOxLe87SvV_gu6gHsnN36hJ2DJESAG5IUt2E
     scenes-app-dashboards--erroring--dark:
         hash: v1.k794b7964.a356bf2ce40e53018919ebc890579c0ad6e493385f546d26b1f70471bf99f726.UER3Vv5UUZ1POzJv4_TuxrLBcLfLa8WTZ_hyUX9t72s
     scenes-app-dashboards--erroring--light:
@@ -5911,7 +5911,7 @@ snapshots:
     scenes-app-settings-environment--settings-environment-product-analytics--light:
         hash: v1.k794b7964.954d1b340965051ef2d55fd12cba6bf03d86d83a94d5a954d8228cc6981808a5.PSFBSIUBoJybY7J_UCp_hexWD4QskVAgZynfUDBY2WA
     scenes-app-settings-environment--settings-environment-replay--dark:
-        hash: v1.k794b7964.ba60bfbf98de5592216589808ad521f77a07d52ec4a2eed451ddfb83be74e3ce.B4aBNuY2j1-Ffgm71pDC9XnPX0Y9eC5Z818RCyTo8lU
+        hash: v1.k794b7964.2a18472a4a9a98a917057213639dd016117b80d4a1c633716addd15a6415516b.4FJ6JKRzrxSMjjvzatauZl-NxCCZNHSWW5gRQY5o6hs
     scenes-app-settings-environment--settings-environment-replay--light:
         hash: v1.k794b7964.c9478fa31ea024f0f01038d33f41d359ad02c809d0a2eb3868e382c39f7dc91f.9nge5I5MoN-Ugpapm6_HlEOkVI5re05Le1HpeXnyW3A
     scenes-app-settings-environment--settings-environment-revenue-analytics--dark:
