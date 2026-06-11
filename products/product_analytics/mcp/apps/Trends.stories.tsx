@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
+import { CHART_THEME, colorAt } from '@posthog/mcp-ui'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { BarChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { ChartTheme } from '@posthog/quill-charts'
 
 import { buildTrendsBarChartModel } from '../../frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
@@ -17,36 +17,6 @@ import {
     type TrendsResultLike,
 } from '../../frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts (the web's --data-color-1..15)
-const CHART_COLORS = [
-    '#1d4aff',
-    '#621da6',
-    '#42827e',
-    '#ce0e74',
-    '#f14f58',
-    '#7c440e',
-    '#529a0a',
-    '#0476fb',
-    '#fe729e',
-    '#35416b',
-    '#41cbc4',
-    '#b64b02',
-    '#e4a604',
-    '#a56eff',
-    '#30d5c8',
-]
-
-const CHART_THEME: ChartTheme = {
-    colors: CHART_COLORS,
-    backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
-    gridColor: 'rgba(128,128,128,0.2)',
-    crosshairColor: 'rgba(128,128,128,0.5)',
-    tooltipBackground: '#ffffff',
-    tooltipColor: '#111827',
-}
-
-const colorAt = (i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
 const getColor = (_r: TrendsResultLike, i: number): string => colorAt(i)
 
 const DAYS = ['2025-05-26', '2025-05-27', '2025-05-28', '2025-05-29', '2025-05-30', '2025-05-31', '2025-06-01']
