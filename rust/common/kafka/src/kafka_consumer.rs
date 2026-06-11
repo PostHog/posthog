@@ -140,6 +140,17 @@ impl SingleTopicConsumer {
     where
         T: DeserializeOwned,
     {
+        self.recv_with(|payload| serde_json::from_slice(payload))
+            .await
+    }
+
+    /// Like `json_recv`, but the caller supplies the payload decoder. LZ4
+    /// envelope decompression still happens before `decode` runs, so encoded
+    /// and plain messages can coexist on the topic.
+    pub async fn recv_with<T, D>(&self, decode: D) -> Result<(T, Offset), RecvErr>
+    where
+        D: Fn(&[u8]) -> Result<T, serde_json::Error>,
+    {
         let message = self.inner.consumer.recv().await?;
 
         let offset = Offset {
@@ -155,7 +166,8 @@ impl SingleTopicConsumer {
             return Err(RecvErr::Empty);
         };
 
-        let payload = match deserialize_json_payload(payload, &self.inner.topic) {
+        let payload = maybe_decompress_lz4_payload(payload, &self.inner.topic);
+        let payload = match decode(&payload) {
             Ok(p) => p,
             Err(e) => {
                 // We auto-store poison pills, panicking on failure
@@ -204,14 +216,6 @@ impl SingleTopicConsumer {
     pub fn commit(&self) -> Result<(), KafkaError> {
         self.inner.consumer.commit_consumer_state(CommitMode::Sync)
     }
-}
-
-fn deserialize_json_payload<T>(payload: &[u8], topic: &str) -> Result<T, serde_json::Error>
-where
-    T: DeserializeOwned,
-{
-    let payload = maybe_decompress_lz4_payload(payload, topic);
-    serde_json::from_slice(&payload)
 }
 
 fn maybe_decompress_lz4_payload<'a>(payload: &'a [u8], topic: &str) -> Cow<'a, [u8]> {
@@ -348,13 +352,18 @@ mod tests {
     use lz4::EncoderBuilder;
     use serde_json::{json, Value};
 
-    use super::{decompress_lz4_payload, deserialize_json_payload, Lz4PayloadError};
+    use super::{decompress_lz4_payload, maybe_decompress_lz4_payload, Lz4PayloadError};
+
+    fn decode_json_payload(payload: &[u8], topic: &str) -> Result<Value, serde_json::Error> {
+        let payload = maybe_decompress_lz4_payload(payload, topic);
+        serde_json::from_slice(&payload)
+    }
 
     #[test]
     fn deserializes_plain_json_payload() {
         let payload = br#"{"event":"$pageview","team_id":1}"#;
 
-        let parsed: Value = deserialize_json_payload(payload, "test-topic").unwrap();
+        let parsed: Value = decode_json_payload(payload, "test-topic").unwrap();
 
         assert_eq!(parsed["event"], "$pageview");
         assert_eq!(parsed["team_id"], 1);
@@ -365,7 +374,7 @@ mod tests {
         let original = br#"{"event":"$pageview","team_id":1}"#;
         let payload = lz4_payload(original);
 
-        let parsed: Value = deserialize_json_payload(&payload, "test-topic").unwrap();
+        let parsed: Value = decode_json_payload(&payload, "test-topic").unwrap();
 
         assert_eq!(parsed["event"], "$pageview");
         assert_eq!(parsed["team_id"], 1);
@@ -375,7 +384,7 @@ mod tests {
     fn invalid_lz4_payload_falls_back_to_json_error() {
         let payload = [0x04, 0x22, 0x4d, 0x18, b'n', b'o', b'p', b'e'];
 
-        assert!(deserialize_json_payload::<Value>(&payload, "test-topic").is_err());
+        assert!(decode_json_payload(&payload, "test-topic").is_err());
     }
 
     #[test]

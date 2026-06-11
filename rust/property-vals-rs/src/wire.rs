@@ -1,0 +1,196 @@
+use std::fmt;
+
+use crate::types::{PropertyType, PropertyValueMessage};
+
+/// Compact binary wire format for the intermediate topic. Layout after the
+/// magic+version header: varint team_id, type tag (0=event, 1=person,
+/// 2=group followed by the group index byte), then length-prefixed key and
+/// value strings, then varint count. The magic byte distinguishes records
+/// from JSON (`{`) and from the LZ4 frame magic, so all three coexist on the
+/// topic during rollout.
+pub const MAGIC: [u8; 3] = *b"PV\x01";
+
+const TAG_EVENT: u8 = 0;
+const TAG_PERSON: u8 = 1;
+const TAG_GROUP: u8 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DecodeError(&'static str);
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "wire decode error: {}", self.0)
+    }
+}
+
+impl std::error::Error for DecodeError {}
+
+pub fn encode(
+    team_id: i64,
+    property_type: PropertyType,
+    property_key: &str,
+    property_value: &str,
+    property_count: u64,
+) -> Vec<u8> {
+    let mut buf =
+        Vec::with_capacity(3 + 10 + 2 + 5 + property_key.len() + 5 + property_value.len() + 10);
+    buf.extend_from_slice(&MAGIC);
+    put_varint(&mut buf, team_id as u64);
+    match property_type {
+        PropertyType::Event => buf.push(TAG_EVENT),
+        PropertyType::Person => buf.push(TAG_PERSON),
+        PropertyType::Group(n) => {
+            buf.push(TAG_GROUP);
+            buf.push(n);
+        }
+    }
+    put_str(&mut buf, property_key);
+    put_str(&mut buf, property_value);
+    put_varint(&mut buf, property_count);
+    buf
+}
+
+pub fn decode(buf: &[u8]) -> Result<PropertyValueMessage, DecodeError> {
+    if !buf.starts_with(&MAGIC) {
+        return Err(DecodeError("missing magic header"));
+    }
+    let mut pos = MAGIC.len();
+    let team_id = get_varint(buf, &mut pos)? as i64;
+    let property_type = match get_byte(buf, &mut pos)? {
+        TAG_EVENT => PropertyType::Event,
+        TAG_PERSON => PropertyType::Person,
+        TAG_GROUP => PropertyType::Group(get_byte(buf, &mut pos)?),
+        _ => return Err(DecodeError("unknown property type tag")),
+    };
+    let property_key = get_str(buf, &mut pos)?;
+    let property_value = get_str(buf, &mut pos)?;
+    let property_count = get_varint(buf, &mut pos)?;
+    if pos != buf.len() {
+        return Err(DecodeError("trailing bytes"));
+    }
+    Ok(PropertyValueMessage {
+        team_id,
+        property_type,
+        property_key,
+        property_value,
+        property_count,
+    })
+}
+
+fn put_varint(buf: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let byte = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            buf.push(byte);
+            return;
+        }
+        buf.push(byte | 0x80);
+    }
+}
+
+fn get_varint(buf: &[u8], pos: &mut usize) -> Result<u64, DecodeError> {
+    let mut out: u64 = 0;
+    let mut shift = 0u32;
+    loop {
+        let byte = get_byte(buf, pos)?;
+        if shift >= 64 {
+            return Err(DecodeError("varint overflow"));
+        }
+        out |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(out);
+        }
+        shift += 7;
+    }
+}
+
+fn put_str(buf: &mut Vec<u8>, s: &str) {
+    put_varint(buf, s.len() as u64);
+    buf.extend_from_slice(s.as_bytes());
+}
+
+fn get_str(buf: &[u8], pos: &mut usize) -> Result<String, DecodeError> {
+    let len = get_varint(buf, pos)? as usize;
+    let end = pos.checked_add(len).ok_or(DecodeError("length overflow"))?;
+    if end > buf.len() {
+        return Err(DecodeError("string out of bounds"));
+    }
+    let s = std::str::from_utf8(&buf[*pos..end]).map_err(|_| DecodeError("invalid utf8"))?;
+    *pos = end;
+    Ok(s.to_string())
+}
+
+fn get_byte(buf: &[u8], pos: &mut usize) -> Result<u8, DecodeError> {
+    let b = *buf
+        .get(*pos)
+        .ok_or(DecodeError("unexpected end of buffer"))?;
+    *pos += 1;
+    Ok(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round_trip(team_id: i64, pt: PropertyType, key: &str, value: &str, count: u64) {
+        let buf = encode(team_id, pt, key, value, count);
+        let decoded = decode(&buf).unwrap();
+        assert_eq!(decoded.team_id, team_id);
+        assert_eq!(decoded.property_type, pt);
+        assert_eq!(decoded.property_key, key);
+        assert_eq!(decoded.property_value, value);
+        assert_eq!(decoded.property_count, count);
+    }
+
+    #[test]
+    fn round_trips_all_property_types() {
+        round_trip(
+            2,
+            PropertyType::Event,
+            "$current_url",
+            "https://posthog.com/",
+            3,
+        );
+        round_trip(1, PropertyType::Person, "email", "a@b.co", 1);
+        round_trip(i64::MAX, PropertyType::Group(0), "plan", "scale", u64::MAX);
+        round_trip(42, PropertyType::Group(255), "", "", 0);
+        round_trip(7, PropertyType::Event, "ключ", "значение🦔", 12345678901234);
+    }
+
+    #[test]
+    fn rejects_garbage_and_truncation() {
+        assert!(decode(b"not a wire record").is_err());
+        assert!(decode(&[]).is_err());
+        let buf = encode(2, PropertyType::Event, "k", "v", 1);
+        for cut in 0..buf.len() {
+            assert!(
+                decode(&buf[..cut]).is_err(),
+                "truncation at {cut} must error"
+            );
+        }
+        let mut trailing = buf.clone();
+        trailing.push(0);
+        assert!(decode(&trailing).is_err());
+    }
+
+    #[test]
+    fn binary_is_smaller_than_json() {
+        let key = "$current_url";
+        let value = "https://us.posthog.com/project/2/insights/abc123";
+        let binary = encode(2, PropertyType::Event, key, value, 7).len();
+        let json = serde_json::json!({
+            "team_id": 2,
+            "property_type": "event",
+            "property_key": key,
+            "property_value": value,
+            "property_count": 7,
+        })
+        .to_string()
+        .len();
+        assert!(
+            binary < json / 2,
+            "binary {binary} should be under half of json {json}"
+        );
+    }
+}
