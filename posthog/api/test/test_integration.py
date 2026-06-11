@@ -3480,15 +3480,30 @@ class TestIntegrationDeletionWorkflowGuard:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=self.integration.id).exists()
 
-    def test_destroy_blocked_when_function_action_references_integration_via_schema(self, client: HttpClient):
-        HogFunctionTemplate.objects.create(
-            template_id="template-test-slack",
-            sha="abc123",
-            name="Slack",
-            code="return event",
-            inputs_schema=[{"key": "slack_workspace", "type": "integration", "label": "Slack workspace"}],
-            type="destination",
-        )
+    @pytest.mark.parametrize(
+        "reference_kind,template_id",
+        [
+            # Bare-ID inputs are only identifiable as integrations via the template's inputs_schema
+            ("bare_id_via_schema", "template-test-slack"),
+            # Dict-form inputs are caught by the recursive config walk, no template needed
+            ("dict_value", "template-unknown"),
+        ],
+    )
+    def test_destroy_blocked_when_function_action_references_integration(
+        self, reference_kind: str, template_id: str, client: HttpClient
+    ):
+        if reference_kind == "bare_id_via_schema":
+            HogFunctionTemplate.objects.create(
+                template_id=template_id,
+                sha="abc123",
+                name="Slack",
+                code="return event",
+                inputs_schema=[{"key": "slack_workspace", "type": "integration", "label": "Slack workspace"}],
+                type="destination",
+            )
+            input_value = self.integration.id
+        else:
+            input_value = {"integrationId": self.integration.id}
         self._create_flow(
             actions=[
                 {
@@ -3496,8 +3511,8 @@ class TestIntegrationDeletionWorkflowGuard:
                     "name": "Notify Slack",
                     "type": "function",
                     "config": {
-                        "template_id": "template-test-slack",
-                        "inputs": {"slack_workspace": {"value": self.integration.id}},
+                        "template_id": template_id,
+                        "inputs": {"slack_workspace": {"value": input_value}},
                     },
                 },
             ]
@@ -3508,22 +3523,15 @@ class TestIntegrationDeletionWorkflowGuard:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Integration.objects.filter(id=self.integration.id).exists()
 
-    def test_destroy_blocked_when_function_action_references_integration_as_dict(self, client: HttpClient):
-        self._create_flow(
-            actions=[
-                {
-                    "id": "action_function_1",
-                    "name": "Notify Slack",
-                    "type": "function",
-                    "config": {
-                        "template_id": "template-unknown",
-                        "inputs": {"slack_workspace": {"value": {"integrationId": self.integration.id}}},
-                    },
-                },
-            ]
-        )
+    def test_destroy_survives_deeply_nested_action_config(self, client: HttpClient):
+        nested: dict = {"integrationId": self.integration.id}
+        for _ in range(1500):
+            nested = {"_x": nested}
+        self._create_flow(actions=[{"id": "action_function_1", "name": "Evil", "type": "function", "config": nested}])
 
-        response = self._delete(client)
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert Integration.objects.filter(id=self.integration.id).exists()
+        # The reference sits beyond the traversal depth cap: deletion proceeds rather than 500ing
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
