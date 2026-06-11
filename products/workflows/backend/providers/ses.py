@@ -53,7 +53,7 @@ class SESProvider:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
             raise
-        return {t.get("TenantName") for t in resp.get("Tenants", []) if t.get("TenantName")}
+        return {t.get("TenantName") for t in resp.get("ResourceTenants", []) if t.get("TenantName")}
 
     def create_email_domain(
         self,

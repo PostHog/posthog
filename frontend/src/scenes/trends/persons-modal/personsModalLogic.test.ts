@@ -1,9 +1,12 @@
+import { combineUrl } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { personsModalLogic } from './personsModalLogic'
 
@@ -455,6 +458,52 @@ describe('personsModalLogic', () => {
                     expect.objectContaining({ id: 'sign_up', type: 'events' }),
                 ])
             )
+        })
+    })
+
+    describe('insightEventsQueryUrl', () => {
+        it('routes "View events" to the events explorer with the events query in the #q= hash', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    },
+                    includeRecordings: true,
+                },
+                url: null,
+            })
+            logic.mount()
+
+            const url = logic.values.insightEventsQueryUrl
+            expect(url).not.toBeNull()
+
+            // Must target the dedicated events explorer, NOT /insights/new — the explorer reads the query
+            // synchronously and avoids the async upgrade that drops the drill-down to a default Trends insight.
+            const { pathname, hashParams } = combineUrl(url as string)
+            expect(pathname).toEqual(urls.activity(ActivityTab.ExploreEvents))
+            expect(hashParams.q?.kind).toEqual(NodeKind.DataTableNode)
+            expect(hashParams.q?.source?.kind).toEqual(NodeKind.EventsQuery)
+            expect(hashParams.q?.source?.event).toEqual('$pageview')
+            // The embedded InsightActorsQuery (and its TrendsQuery source) is what scopes the events to the
+            // clicked data point rather than showing every event in the project.
+            expect(hashParams.q?.source?.source?.kind).toEqual(NodeKind.InsightActorsQuery)
+            expect(hashParams.q?.source?.source?.source?.kind).toEqual(NodeKind.TrendsQuery)
+        })
+
+        it('returns null for non-Trends actors queries', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, series: [] },
+                    funnelStep: 1,
+                },
+                url: null,
+            })
+            logic.mount()
+
+            expect(logic.values.insightEventsQueryUrl).toBeNull()
         })
     })
 })
