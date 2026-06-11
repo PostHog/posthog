@@ -105,11 +105,16 @@ test.describe('Funnel insights', () => {
 
     // Setting the conversion window right after navigation or entering edit mode can race
     // the editor's hydration — the edit is occasionally swallowed or reverted by a late
-    // insight load. Re-apply until the page registers unsaved changes.
+    // insight load. The page model waits for the insight re-fetch, but a just-received
+    // response can still apply milliseconds after the edit, so require the dirty state to
+    // stick and re-apply if it was reverted.
     async function setConversionWindowUntilDirty(insight: InsightPage, value: string): Promise<void> {
         await expect(async () => {
             await insight.funnels.setConversionWindowInterval(value)
             await expect(insight.saveButton).not.toContainText('No changes', { timeout: 2000 })
+            await insight.page.waitForTimeout(300)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 500 })
+            await expect(insight.saveButton).toBeEnabled({ timeout: 500 })
         }).toPass({ timeout: 30000 })
     }
 
@@ -252,7 +257,8 @@ test.describe('Funnel insights', () => {
 
             const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })
-            await expect(modal).toContainText('firefox-user-1')
+            // The actors query can take well over the local 10s expect default under load
+            await expect(modal).toContainText('firefox-user-1', { timeout: 30000 })
 
             await modal.getByRole('button', { name: 'close' }).click()
             await expect(modal).not.toBeVisible()
