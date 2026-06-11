@@ -377,8 +377,9 @@ pub struct Config {
     pub behavioral_cohorts_read_database_url: String,
 
     // Decryption keys for encrypted remote-config flag payloads (comma-separated, ordered:
-    // first encrypts, all decrypt). Empty falls back to SECRET_KEY, matching Django's
-    // FLAGS_SECRET_KEYS default for self-hosted. See flags::flag_payload_decryptor.
+    // Django encrypts with the first key, this service only decrypts and tries all of them).
+    // Empty falls back to SECRET_KEY, matching Django's FLAGS_SECRET_KEYS default for
+    // self-hosted. See flags::flag_payload_decryptor.
     #[envconfig(from = "FLAGS_SECRET_KEYS", default = "")]
     pub flags_secret_keys: String,
 

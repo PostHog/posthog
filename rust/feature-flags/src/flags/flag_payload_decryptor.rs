@@ -5,8 +5,9 @@
 //! derived by `_prepare_key` (pad/truncate raw key material to 32 bytes, then url-safe
 //! base64), wrapped in a `MultiFernet` so older keys still decrypt during rotation.
 //!
-//! Keys come from `FLAGS_SECRET_KEYS` (comma-separated, ordered; first encrypts, all
-//! decrypt). Matching Django, an empty list falls back to `[SECRET_KEY]` for self-hosted.
+//! Keys come from `FLAGS_SECRET_KEYS` (comma-separated, ordered: Django encrypts with the
+//! first key; this service only decrypts and tries all of them). Matching Django, an empty
+//! list falls back to `[SECRET_KEY]` for self-hosted.
 
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::{Fernet, MultiFernet};
