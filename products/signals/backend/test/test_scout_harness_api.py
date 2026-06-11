@@ -3,13 +3,9 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.conf import settings
-from django.test import override_settings
-
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import (
@@ -19,6 +15,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -28,10 +25,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
-
-# Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
-# default). Same pattern as `posthog/test/test_permissions.py` and the OAuth provider tests.
-_OIDC_RSA_KEY = generate_rsa_key()
 
 
 def _authenticate_as_scout(test: APIBaseTest) -> None:
@@ -52,8 +45,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "client_type": OAuthApplication.CLIENT_PUBLIC,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://app.posthog.com/callback",
-                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint; the
-                # `_OIDC_RSA_KEY` override on the test class satisfies the signing-key requirement.
+                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
                 "algorithm": "RS256",
             },
         )
@@ -152,6 +144,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         expected = emitting if emitted_param == "true" else quiet
         assert ids == [str(expected.id)]
 
+    def test_list_skill_name_filter_scopes_to_one_scout(self) -> None:
+        errors = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-llm")
+        response = self.client.get(f"{self._list_url()}?skill_name=signals-scout-errors")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["run_id"] for row in response.json()]
+        assert ids == [str(errors.id)]
+
+    def test_list_surfaces_error_and_failure_reason_for_failed_run(self) -> None:
+        run = _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["error"] == "boom: sandbox died\nstack line 2"
+        assert row["failure_reason"] == "boom: sandbox died"
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
@@ -246,7 +255,6 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -327,7 +335,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -372,6 +379,20 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
+
+    def test_search_keys_only_blanks_content(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
+        response = self.client.get(f"{self._list_url()}?keys_only=true")
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["key"] == "k1"
+        assert row["content"] == ""
+
+    def test_search_content_max_chars_truncates_preview(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="abcdefghij")
+        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["content"] == "abcd"
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -440,7 +461,6 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """The project profile is the scout's orientation surface — read once at run start.
 
@@ -567,6 +587,59 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 60
+
+    @parameterized.expand(
+        [
+            ("skill_present", "Watches error tracking for new and spiking issues."),
+            ("skill_absent", None),
+        ]
+    )
+    def test_list_surfaces_skill_description(self, _name: str, skill_description: str | None) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        if skill_description is not None:
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-errors", description=skill_description, body="..."
+            )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        # Absent skill (or no description) falls back to "".
+        assert response.json()[0]["description"] == (skill_description or "")
+
+    def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="stale",
+            body="...",
+            version=1,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="current",
+            body="...",
+            version=2,
+            is_latest=True,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other_team, name="signals-scout-errors", description="other team", body="...")
+
+        response = self.client.get(self._list_url())
+
+        assert response.json()[0]["description"] == "current"
+
+    def test_partial_update_surfaces_skill_description(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "Foo scout."
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

@@ -208,6 +208,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
         loadObservationStatsFailure: true,
         deleteScanner: true,
+        toggleEnabled: true,
+        toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
+        toggleEnabledFailure: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
@@ -287,6 +290,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         lemonToast.success('Scanner saved')
+                        router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
@@ -302,6 +306,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 submitScannerSuccess: (_, { scanner }: { scanner: ReplayScanner }) => scanner,
+                toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
+            },
+        ],
+        togglingEnabled: [
+            false,
+            {
+                toggleEnabled: () => true,
+                toggleEnabledSuccess: () => false,
+                toggleEnabledFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -675,6 +688,30 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     router.actions.replace(urls.replayVision())
                 } catch (error: any) {
                     lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
+                }
+            },
+
+            toggleEnabled: async () => {
+                const scanner = values.scanner
+                if (props.id === 'new' || !scanner) {
+                    actions.toggleEnabledFailure()
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.toggleEnabledFailure()
+                    return
+                }
+                const next = !scanner.enabled
+                actions.setScannerValue('enabled', next)
+                try {
+                    await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
+                    actions.toggleEnabledSuccess(next)
+                } catch (error: any) {
+                    actions.setScannerValue('enabled', !next)
+                    const verb = next ? 'enable' : 'disable'
+                    lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.toggleEnabledFailure()
                 }
             },
 
