@@ -5,8 +5,8 @@ import pytest
 from hogli_commands.doctor import (
     _binary_arches,
     _collect_import_targets,
-    _copy_to_clipboard,
     _format_kv_block,
+    _get_process_cwds,
     _is_excluded,
     _normalize_arch,
     _phrocs_info,
@@ -137,25 +137,30 @@ def test_probe_command_imports_flags_missing_attribute() -> None:
     assert failures == [("typo", "missing attribute 'not_a_real_command'")]
 
 
-def test_copy_to_clipboard_returns_none_when_no_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: None)
-    assert _copy_to_clipboard("anything") is None
+def test_get_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        raise AssertionError("lsof must not run for an empty pid list")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fail)
+    assert _get_process_cwds([]) == {}
 
 
-def test_copy_to_clipboard_uses_first_available_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(cmd: list[str], **kwargs: object) -> SimpleNamespace:
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
         captured["cmd"] = cmd
-        captured["input"] = kwargs.get("input")
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=1, stdout="p100\nn/repo/a\np200\nn/repo/b\n")
 
-    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
 
-    assert _copy_to_clipboard("hello") == "pbcopy"
-    assert captured["cmd"] == ["pbcopy"]
-    assert captured["input"] == "hello"
+    # Non-zero rc (a pid vanished) must not discard the records that did resolve.
+    assert _get_process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
+    # One batched, ANDed lsof call covering every pid — not one call per pid.
+    cmd = captured["cmd"]
+    assert isinstance(cmd, list)
+    assert cmd[:2] == ["lsof", "-a"]
+    assert "100,200" in cmd
 
 
 @pytest.mark.parametrize(

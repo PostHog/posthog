@@ -1086,38 +1086,39 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
         click.echo("Failed to run ps command.")
         return []
 
+    parsed = [p for line in result.stdout.strip().splitlines() if (p := _parse_ps_line(line)) is not None]
+
     # Build a full PID→(PPID, args) map for ancestor lookups
-    all_procs: dict[int, tuple[int, str]] = {}
-    for line in result.stdout.strip().splitlines():
-        parsed = _parse_ps_line(line)
-        if parsed is not None:
-            pid, ppid, _, _, _, args = parsed
-            all_procs[pid] = (ppid, args)
+    all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
 
     own_tree = _get_own_process_tree()
     repo_str = str(repo_root)
     repo_prefix = repo_str + "/"
+
+    # Cheap first pass: keep processes that either name the repo path directly, or
+    # are a known dev executable whose cwd still needs checking. Defer the cwd
+    # lookups so they resolve in a single batched lsof call below instead of
+    # spawning lsof once per process — the dominant cost on a busy machine.
+    candidates: list[tuple[_PsLine, bool]] = []
+    cwd_pids: list[int] = []
+    for entry in parsed:
+        pid, _, _, _, _, args = entry
+        if pid in own_tree or _is_excluded(args):
+            continue
+        if _matches_repo_path(args, repo_str, repo_prefix):
+            candidates.append((entry, True))
+        elif _has_known_executable(args):
+            candidates.append((entry, False))
+            cwd_pids.append(pid)
+
+    cwd_by_pid = _get_process_cwds(cwd_pids)
+
     processes: list[DevProcess] = []
+    for entry, repo_match in candidates:
+        pid, ppid, cpu, rss, start_time, args = entry
 
-    for line in result.stdout.strip().splitlines():
-        parsed = _parse_ps_line(line)
-        if parsed is None:
-            continue
-
-        pid, ppid, cpu, rss, start_time, args = parsed
-
-        if pid in own_tree:
-            continue
-
-        if _is_excluded(args):
-            continue
-
-        # Primary check: repo root appears in the command line as an exact path
-        if not _matches_repo_path(args, repo_str, repo_prefix):
-            # Secondary check: cwd is under repo root (for known executable types)
-            if not _has_known_executable(args):
-                continue
-            cwd = _get_process_cwd(pid)
+        if not repo_match:
+            cwd = cwd_by_pid.get(pid)
             if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
                 continue
 
@@ -1203,7 +1204,10 @@ def _identify_manager(args: str) -> str | None:
     return None
 
 
-def _parse_ps_line(line: str) -> tuple[int, int, float, int, str, str] | None:
+_PsLine = tuple[int, int, float, int, str, str]
+
+
+def _parse_ps_line(line: str) -> _PsLine | None:
     """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
 
     parts = line.split()
@@ -1282,25 +1286,39 @@ def _has_known_executable(args: str) -> bool:
     return first_word in known
 
 
-def _get_process_cwd(pid: int) -> str | None:
-    """Get the working directory of a process via lsof."""
+def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
+    """Map each pid to its working directory via a single lsof call.
+
+    ``-a`` ANDs the ``-p`` (pid set) and ``-d cwd`` (fd) selectors; without it
+    lsof ORs them and reports *every* process's cwd — slow (a full-system scan
+    per pid) and wrong (attributing the first process's cwd to the queried pid).
+    ``-Fpn`` emits pid/name fields so each cwd attributes back to its pid; with
+    ``-d cwd`` each process yields exactly one name line.
+    """
+    if not pids:
+        return {}
 
     try:
         result = subprocess.run(
-            ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
+            ["lsof", "-a", "-p", ",".join(str(pid) for pid in pids), "-d", "cwd", "-Fpn"],
             capture_output=True,
             text=True,
             check=False,
         )
     except FileNotFoundError:
-        return None
-    if result.returncode != 0:
-        return None
+        return {}
 
+    # lsof exits non-zero when any queried pid has vanished, but still emits valid
+    # records for the survivors — parse whatever stdout we got.
+    cwds: dict[int, str] = {}
+    current: int | None = None
     for line in result.stdout.splitlines():
-        if line.startswith("n"):
-            return line[1:]
-    return None
+        tag, value = line[:1], line[1:]
+        if tag == "p":
+            current = int(value) if value.isdigit() else None
+        elif tag == "n" and current is not None:
+            cwds[current] = value
+    return cwds
 
 
 def _extract_process_name(args: str) -> str:
@@ -2032,32 +2050,11 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
     return "\n".join(lines)
 
 
-def _copy_to_clipboard(text: str) -> str | None:
-    """Copy text to the system clipboard, returning the tool used (or None)."""
-    candidates: list[tuple[str, list[str]]] = [
-        ("pbcopy", ["pbcopy"]),
-        ("wl-copy", ["wl-copy"]),
-        ("xclip", ["xclip", "-selection", "clipboard"]),
-        ("xsel", ["xsel", "--clipboard", "--input"]),
-    ]
-    for name, cmd in candidates:
-        if shutil.which(cmd[0]) is None:
-            continue
-        try:
-            result = subprocess.run(cmd, input=text, text=True, capture_output=True, check=False)
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if result.returncode == 0:
-            return name
-    return None
-
-
 @click.command(
     name="doctor:report",
     help="Dump a paste-ready dev-environment diagnostics report for devex triage",
 )
-@click.option("--no-copy", is_flag=True, help="Don't copy the report to the clipboard")
-def doctor_report(no_copy: bool) -> None:
+def doctor_report() -> None:
     """Collect environment, toolchain, health-check, and command-import diagnostics
     into a single copy-paste block to share with the devex team."""
     from hogli.manifest import REPO_ROOT, get_manifest
@@ -2068,14 +2065,6 @@ def doctor_report(no_copy: bool) -> None:
     click.echo("```text")
     click.echo(report)
     click.echo("```")
-
-    if not no_copy:
-        tool = _copy_to_clipboard(report)
-        if tool:
-            click.secho(f"\n  Copied to clipboard via {tool}. Paste it into Slack for devex.", fg="green")
-        else:
-            click.secho("\n  Could not copy to clipboard; copy the block above manually.", fg="yellow")
-
     click.echo()
 
     hints.record_check_run("doctor:report")
