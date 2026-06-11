@@ -92,7 +92,7 @@ import {
     UIPayloadAnswer,
     isRenderableUIPayloadTool,
 } from './messages/UIPayloadAnswer'
-import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
+import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
@@ -777,7 +777,7 @@ function Message({
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {
                             return (
-                                <VisualizationArtifactAnswer
+                                <VisualizationArtifact
                                     key={key}
                                     message={message}
                                     content={message.content}
