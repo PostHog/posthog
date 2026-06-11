@@ -110,7 +110,6 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
             name=SchemaExternalDataSourceType.SEND_GRID,
             label="SendGrid",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your SendGrid API key to pull your SendGrid data into the PostHog Data warehouse.
 
 You can create an API key in your [SendGrid account settings](https://app.sendgrid.com/settings/api_keys).
