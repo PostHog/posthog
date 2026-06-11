@@ -1,0 +1,210 @@
+import re
+import json
+from collections.abc import Iterable
+from typing import cast
+
+from posthog.test.base import APIBaseTest
+
+from django.http import HttpResponse
+from django.test import override_settings
+from django.urls import get_resolver
+from django.urls.resolvers import URLPattern, URLResolver
+
+from parameterized import parameterized
+from rest_framework import status
+
+# Tests for EnvironmentsRedirectMiddleware: /api/environments/* must 307-redirect to the
+# equivalent /api/projects/* path (same id — Project ↔ primary Team are 1:1 and share it),
+# preserving method, body, and query string. 307 (not 301/302) is load-bearing: a plain
+# redirect lets clients downgrade writes to GET and drop the body.
+
+ENVIRONMENTS_PREFIX = "api/environments"
+PROJECTS_PREFIX = "api/projects"
+
+# Resources with at least one /api/environments route that has no /api/projects counterpart
+# yet. The middleware skips these (it only redirects paths that resolve project-side), so
+# they keep working unredirected. Shrink this set by registering projects-side counterparts;
+# do NOT grow it — new team-scoped endpoints must register under /api/projects.
+# For `query` and `subscriptions` only specific sub-paths lack counterparts
+# (query/<uuid>/progress and subscriptions/<id>/deliveries) — the rest of those
+# resources is dual-registered and does redirect.
+KNOWN_ENVIRONMENT_ONLY_RESOURCES = {
+    "conversations",
+    "core_memory",
+    "max_hands_free",
+    "max_tools",
+    "mcp_analytics",
+    "messaging",
+    "progress",
+    "property_access_controls",
+    "query",
+    "session_summaries",
+    "subscriptions",
+}
+
+
+def _normalize_route(route: str) -> str:
+    # Neutralize named-group names (parent_lookup_team_id vs parent_lookup_project_id)
+    # and the `[^/.]+` lookup class BEFORE stripping anchors — a bare `^` strip would
+    # corrupt the character class — so structurally identical routes compare equal.
+    route = re.sub(r"\(\?P<[^>]+>", "(", route)
+    route = route.replace("[^/.]+", "[param]")
+    return route.replace("^", "").replace("$", "")
+
+
+def _collect_routes_under(prefix: str) -> set[str]:
+    collected: set[str] = set()
+
+    def walk(patterns: Iterable, base: str) -> None:
+        for entry in patterns:
+            pattern = base + str(entry.pattern)
+            if isinstance(entry, URLResolver):
+                walk(entry.url_patterns, pattern)
+            elif isinstance(entry, URLPattern):
+                collected.add(_normalize_route(pattern))
+
+    walk(get_resolver().url_patterns, "")
+    return {route for route in collected if route.startswith(prefix)}
+
+
+def _resource_of(route_suffix: str) -> str:
+    # Route suffixes look like "/([/.]+)/dashboards/..." or "/<int:team_id>/progress/" —
+    # the resource is the first literal segment after the team id parameter.
+    segments = route_suffix.lstrip("/").split("/")
+    if len(segments) < 2:
+        return ""
+    match = re.match(r"\w+", segments[1])
+    return match.group(0) if match else segments[1]
+
+
+class TestEveryEnvironmentsRouteHasAProjectsCounterpart(APIBaseTest):
+    def test_environment_only_routes_are_known(self):
+        # The middleware only redirects paths whose rewritten /api/projects form resolves,
+        # so an unknown env-only route can't 404 — but it also silently won't redirect.
+        # This pins the gap so it shrinks deliberately instead of growing unnoticed.
+        env_routes = {r.removeprefix(ENVIRONMENTS_PREFIX) for r in _collect_routes_under(ENVIRONMENTS_PREFIX)}
+        project_routes = {r.removeprefix(PROJECTS_PREFIX) for r in _collect_routes_under(PROJECTS_PREFIX)}
+        unknown = {_resource_of(r) for r in env_routes - project_routes} - KNOWN_ENVIRONMENT_ONLY_RESOURCES
+        self.assertEqual(
+            unknown,
+            set(),
+            "new /api/environments routes without a /api/projects counterpart — register them "
+            f"under /api/projects (see posthog/api/rest_router.py) instead of env-only: {sorted(unknown)}",
+        )
+
+
+@override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=True)
+class TestEnvironmentsRedirect(APIBaseTest):
+    def assert_redirected(self, path: str, expected_location: str, method: str = "GET") -> HttpResponse:
+        # cast: the DRF stubs type APIClient.generic via the request-factory side, but at
+        # runtime the client returns the response.
+        response = cast(HttpResponse, self.client.generic(method, path))
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_307_TEMPORARY_REDIRECT,
+            f"{method} {path} should 307-redirect, got {response.status_code}",
+        )
+        self.assertEqual(response["Location"], expected_location)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertIn(f"<{expected_location}>", response["Link"])
+        self.assertIn('rel="successor-version"', response["Link"])
+        return response
+
+    @parameterized.expand(["GET", "POST", "PATCH", "PUT", "DELETE"])
+    def test_detail_redirects_preserving_method(self, method: str):
+        self.assert_redirected(f"/api/environments/{self.team.id}/", f"/api/projects/{self.team.id}/", method)
+
+    @parameterized.expand(["GET", "POST"])
+    def test_root_list_redirects_preserving_method(self, method: str):
+        self.assert_redirected("/api/environments/", "/api/projects/", method)
+
+    def test_current_alias_redirects(self):
+        self.assert_redirected("/api/environments/@current/", "/api/projects/@current/")
+
+    def test_nested_resource_redirects(self):
+        self.assert_redirected(
+            f"/api/environments/{self.team.id}/dashboards/", f"/api/projects/{self.team.id}/dashboards/", "POST"
+        )
+
+    def test_action_redirects_with_query_string(self):
+        self.assert_redirected(
+            f"/api/environments/{self.team.id}/settings_as_of/?at=2026-01-01T00:00:00Z",
+            f"/api/projects/{self.team.id}/settings_as_of/?at=2026-01-01T00:00:00Z",
+        )
+
+    def test_query_string_is_preserved(self):
+        self.assert_redirected(
+            "/api/environments/@current/?limit=10&offset=5&search=a%20b",
+            "/api/projects/@current/?limit=10&offset=5&search=a%20b",
+        )
+
+    def test_followed_patch_reaches_projects_endpoint_with_body_intact(self):
+        # The Django test client preserves method and body across 307, like real clients do —
+        # this proves a write round-trips through the redirect end to end.
+        response = self.client.patch(
+            "/api/environments/@current/",
+            data=json.dumps({"name": "Renamed via redirect"}),
+            content_type="application/json",
+            follow=True,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.redirect_chain, [("/api/projects/@current/", status.HTTP_307_TEMPORARY_REDIRECT)])
+        self.assertEqual(response.json()["name"], "Renamed via redirect")
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Renamed via redirect")
+
+    def test_projects_paths_are_not_redirected(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("Deprecation", response.headers)
+
+    def test_nested_projects_environments_path_is_not_redirected(self):
+        # The deprecated nested route /api/projects/:id/environments/ must not loop.
+        response = self.client.get(f"/api/projects/{self.team.id}/environments/")
+        self.assertNotEqual(response.status_code, status.HTTP_307_TEMPORARY_REDIRECT)
+        self.assertNotIn("Location", response.headers)
+        self.assertNotIn("Deprecation", response.headers)
+
+    def test_environment_only_route_passes_through_unredirected(self):
+        # /api/environments/:id/progress/ has no /api/projects counterpart yet — it must
+        # keep working and must not advertise a successor path that would 404.
+        response = self.client.get(f"/api/environments/{self.team.id}/progress/")
+        self.assertNotEqual(response.status_code, status.HTTP_307_TEMPORARY_REDIRECT)
+        self.assertNotIn("Location", response.headers)
+        self.assertNotIn("Deprecation", response.headers)
+
+    def test_similarly_prefixed_paths_are_not_redirected(self):
+        response = self.client.get("/api/environments_lookalike/")
+        self.assertNotEqual(response.status_code, status.HTTP_307_TEMPORARY_REDIRECT)
+        self.assertNotIn("Deprecation", response.headers)
+
+
+class TestEnvironmentsRedirectKillSwitch(APIBaseTest):
+    def test_redirect_is_off_by_default_but_deprecation_headers_are_present(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertIn(f"</api/projects/{self.team.id}/>", response["Link"])
+        self.assertIn("Sunset", response.headers)
+
+    @override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=True)
+    def test_kill_switch_disables_redirect_without_restart(self):
+        self.assert_redirect_enabled()
+        with override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=False):
+            response = self.client.get(f"/api/environments/{self.team.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assert_redirect_enabled()
+
+    def assert_redirect_enabled(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_307_TEMPORARY_REDIRECT)
+
+    @override_settings(API_ENVIRONMENTS_SUNSET_DATE="2026-12-15")
+    def test_sunset_header_is_http_date(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertEqual(response["Sunset"], "Tue, 15 Dec 2026 00:00:00 GMT")
+
+    @override_settings(API_ENVIRONMENTS_SUNSET_DATE="")
+    def test_sunset_header_is_omitted_when_unset(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertNotIn("Sunset", response.headers)
