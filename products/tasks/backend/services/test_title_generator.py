@@ -6,7 +6,7 @@ from products.tasks.backend.services.title_generator import _fallback_title, gen
 
 
 class TestTitleGenerator:
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_success(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -20,7 +20,7 @@ class TestTitleGenerator:
         assert result == "Fix login bug"
         mock_client_cls.assert_called_once_with(distinct_id="task-title-generator")
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_multipart_response(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -35,7 +35,7 @@ class TestTitleGenerator:
 
         assert result == "Add dashboard metrics"
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_falls_back_on_error(self, mock_client_cls):
         mock_client_cls.side_effect = Exception("API error")
 
@@ -43,21 +43,21 @@ class TestTitleGenerator:
 
         assert result == "This is a test description that should be used as fallback"
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_empty_description(self, mock_client_cls):
         result = generate_task_title("")
 
         assert result == "Untitled Task"
         mock_client_cls.assert_not_called()
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_whitespace_only(self, mock_client_cls):
         result = generate_task_title("   \n\t  ")
 
         assert result == "Untitled Task"
         mock_client_cls.assert_not_called()
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_truncates_long_response(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -72,7 +72,7 @@ class TestTitleGenerator:
         assert len(result) == 60
         assert result == "A" * 60
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_ignores_non_text_chunks(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -86,7 +86,7 @@ class TestTitleGenerator:
 
         assert result == "Valid title"
 
-    @patch("products.tasks.backend.services.title_generator.Client")
+    @patch("products.ai_observability.backend.llm.client.Client")
     def test_generate_task_title_empty_response(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client

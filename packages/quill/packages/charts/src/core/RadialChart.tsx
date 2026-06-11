@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo } from 'react'
 
-import type { PieLayout } from '../charts/PieChart/computePieLayout'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
@@ -11,6 +10,7 @@ import { useRadialInteraction } from './hooks/useRadialInteraction'
 import type { RadialSlicePayload } from './hooks/useRadialInteraction'
 import { RadialLayoutContext } from './radial-context'
 import type { RadialLayoutContextValue } from './radial-context'
+import type { PieLayout } from './radial-layout'
 import type {
     ChartDrawArgs,
     ChartMargins,

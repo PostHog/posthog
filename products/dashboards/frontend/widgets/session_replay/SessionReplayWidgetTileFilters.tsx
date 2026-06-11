@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react'
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/configSchemas'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'

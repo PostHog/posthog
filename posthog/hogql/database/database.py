@@ -34,6 +34,18 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.lazy_join_tags import (
+    DATA_WAREHOUSE,
+    DATA_WAREHOUSE_EXPERIMENTS,
+    ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+    EVENTS_TO_SESSIONS_V2,
+    EVENTS_TO_SESSIONS_V3,
+    PERSON_DISTINCT_ID_OVERRIDES,
+    PERSONS,
+    REPLAY_TO_SESSIONS_V2,
+    REPLAY_TO_SESSIONS_V3,
+)
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -78,12 +90,10 @@ from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesT
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     ErrorTrackingFingerprintIssueStateTable,
     RawErrorTrackingFingerprintIssueStateTable,
-    join_with_error_tracking_fingerprint_issue_state_table,
 )
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
-    join_with_error_tracking_issue_fingerprint_overrides_table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
@@ -106,34 +116,20 @@ from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
     RawPersonDistinctIdOverridesTable,
-    join_with_person_distinct_id_overrides_table,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
-from posthog.hogql.database.schema.session_replay_events import (
-    RawSessionReplayEventsTable,
-    SessionReplayEventsTable,
-    join_replay_table_to_sessions_table_v2,
-    join_replay_table_to_sessions_table_v3,
-)
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
-from posthog.hogql.database.schema.sessions_v2 import (
-    RawSessionsTableV2,
-    SessionsTableV2,
-    join_events_table_to_sessions_table_v2,
-)
-from posthog.hogql.database.schema.sessions_v3 import (
-    RawSessionsTableV3,
-    SessionsTableV3,
-    join_events_table_to_sessions_table_v3,
-)
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
@@ -148,6 +144,7 @@ from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStats
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -158,11 +155,11 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -196,7 +193,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User"]
+    user: Optional["User | SyntheticUser"]
     connection_id: str | None
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
@@ -371,19 +368,22 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _compute_system_table_access_decision(
-    team: "Team", user: Optional["User"]
+    team: "Team", user: Optional["User | SyntheticUser"]
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
     access-control caches make later reads query-free) and the system-node table names to remove."""
     system_children = SystemTables().children
 
-    # No user: remove every access-controlled system table.
-    if user is None:
+    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
+    if user is None or isinstance(user, SyntheticUser):
+        readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, {
             name
             for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable)
+            and table_node.table.access_scope is not None
+            and table_node.table.access_scope not in readable_scopes
         }
 
     user_access_control = UserAccessControl(user=user, team=team)
@@ -922,7 +922,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -945,7 +945,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -1070,6 +1070,10 @@ class Database(BaseModel):
             if not is_direct_query:
                 try:
                     if not is_managed_viewset_enabled:
+                        from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
+                            build_all_revenue_analytics_views,
+                        )
+
                         revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
                     capture_exception(e)
@@ -1213,7 +1217,7 @@ class Database(BaseModel):
                     events_table.fields["person"] = LazyJoin(
                         from_field=["person_id"],
                         join_table=database.get_table("persons"),
-                        join_function=join_with_persons_table,
+                        resolver=PERSONS,
                     )
 
                 _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
@@ -1235,14 +1239,14 @@ class Database(BaseModel):
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
                     join_table=sessions,
-                    join_function=join_events_table_to_sessions_table_v2,
+                    resolver=EVENTS_TO_SESSIONS_V2,
                 )
 
                 replay_events = database.get_table("session_replay_events")
                 replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
+                    resolver=REPLAY_TO_SESSIONS_V2,
                 )
                 cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
 
@@ -1250,7 +1254,7 @@ class Database(BaseModel):
                 raw_replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
+                    resolver=REPLAY_TO_SESSIONS_V2,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
             elif not database._is_direct_query() and modifiers.sessionTableVersion == SessionTableVersion.V3:
@@ -1261,14 +1265,14 @@ class Database(BaseModel):
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
                     join_table=sessions,
-                    join_function=join_events_table_to_sessions_table_v3,
+                    resolver=EVENTS_TO_SESSIONS_V3,
                 )
 
                 replay_events = database.get_table("session_replay_events")
                 replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
+                    resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
 
@@ -1276,7 +1280,7 @@ class Database(BaseModel):
                 raw_replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
+                    resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
@@ -1584,15 +1588,21 @@ class Database(BaseModel):
                         continue
 
                     join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
+                    use_experiments = bool(
+                        join.joining_table_name == "events" and join_configuration.get("experiments_optimized")
+                    )
+                    dw_join_kwargs: dict[str, Any] = {
+                        "source_table_key": join.source_table_key,
+                        "joining_table_key": join.joining_table_key,
+                        "joining_table_name": join.joining_table_name,
+                        "configuration": join_configuration,
+                    }
                     source_table.fields[join.field_name] = LazyJoin(
                         from_field=from_field,
                         to_field=to_field,
                         join_table=joining_table,
-                        join_function=(
-                            join.join_function_for_experiments()
-                            if "events" == join.joining_table_name and join_configuration.get("experiments_optimized")
-                            else join.join_function()
-                        ),
+                        resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
+                        resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                     )
 
                     if not database._is_direct_query() and join.source_table_name == "persons":
@@ -1631,9 +1641,11 @@ class Database(BaseModel):
                                     from_field=from_field,
                                     to_field=to_field,
                                     join_table=joining_table,
-                                    # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                    join_function=join.join_function(
-                                        override_source_table_key=override_source_table_key
+                                    # reusing the data-warehouse resolver but with a different source_table_key
+                                    # since we're joining 'directly' on events
+                                    resolver=DATA_WAREHOUSE,
+                                    resolver_params=data_warehouse_resolver_params(
+                                        **dw_join_kwargs, override_source_table_key=override_source_table_key
                                     ),
                                 )
                             else:
@@ -1641,14 +1653,16 @@ class Database(BaseModel):
                                     from_field=from_field,
                                     to_field=to_field,
                                     join_table=joining_table,
-                                    join_function=join.join_function(),
+                                    resolver=DATA_WAREHOUSE,
+                                    resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                                 )
                         elif isinstance(person_field, ast.LazyJoin):
                             person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
-                                join_function=join.join_function(),
+                                resolver=DATA_WAREHOUSE,
+                                resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
                 except Exception as e:
@@ -1686,7 +1700,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
-        join_function=join_with_person_distinct_id_overrides_table,
+        resolver=PERSON_DISTINCT_ID_OVERRIDES,
     )
     table.fields["person_id"] = ExpressionField(
         name="person_id",
@@ -1728,7 +1742,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     table.fields["exception_issue_override"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingIssueFingerprintOverridesTable(),
-        join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
+        resolver=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     )
     table.fields["issue_id"] = ExpressionField(name="issue_id", expr=exprs["issue_id"])
 
@@ -1736,7 +1750,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     table.fields["fingerprint_issue_state"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingFingerprintIssueStateTable(),
-        join_function=join_with_error_tracking_fingerprint_issue_state_table,
+        resolver=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     )
     table.fields["issue_id_v2"] = ExpressionField(name="issue_id_v2", expr=exprs["issue_id_v2"])
     table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])

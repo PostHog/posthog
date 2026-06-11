@@ -16,7 +16,6 @@ from posthog.utils import (
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
-    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -31,6 +30,14 @@ class PostHogConfig(AppConfig):
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+
+        # Connect core signal receivers at app-population. They used to wire in as an import
+        # side effect of viewset modules; with the lazy API router those no longer load at
+        # django.setup(), so a process that never builds the router (celery, temporal, migrate,
+        # shell) would lose them. They live in dedicated import-light modules — never wire
+        # ready() through an API module, even one that looks light today.
+        import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
+        import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
@@ -50,10 +57,7 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
-            posthoganalytics.capture_exception_code_variables = False
-        else:
-            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
