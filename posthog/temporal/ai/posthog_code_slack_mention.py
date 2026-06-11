@@ -802,16 +802,8 @@ def classify_message_is_agent_directed(
     by ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
     """
     stripped = event_text.strip()
-    # Cheap pre-LLM filters. Emoji-only / reaction-only / one-word replies are
-    # almost never agent-directed and dominate the message volume of a busy
-    # thread.
-    if len(stripped) < 6:
-        logger.info("classify_message_is_agent_directed_heuristic_too_short", event_text=event_text)
-        return False
-    word_count = len(re.findall(r"\w+", stripped))
-    if word_count < 2:
-        logger.info("classify_message_is_agent_directed_heuristic_one_word", event_text=event_text)
-        return False
+    # Emoji-only / reaction-only replies are never agent-directed; drop before
+    # paying for Haiku.
     if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
         logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
         return False

@@ -116,17 +116,6 @@ class TestClassifyMessageIsAgentDirected(TestCase):
     the API module to the workflow module along with the rest of the LLM
     work."""
 
-    def test_too_short_dropped_without_llm(self):
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed("ok", "do thing", []) is False
-            assert classify_message_is_agent_directed("k", "do thing", []) is False
-        mock_client.assert_not_called()
-
-    def test_one_word_dropped_without_llm(self):
-        with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed("thanksverymuch", "do thing", []) is False
-        mock_client.assert_not_called()
-
     def test_emoji_only_dropped_without_llm(self):
         with patch("posthog.temporal.ai.posthog_code_slack_mention.get_llm_client") as mock_client:
             assert classify_message_is_agent_directed(":thumbsup: :tada:", "do thing", []) is False
