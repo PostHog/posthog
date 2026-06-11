@@ -26,7 +26,8 @@ You are the fleet's follow-up scout. The other scouts and signal sources find pr
 the team ships fixes; you close the loop: **after a fix ships, did the problem actually
 stop?** Your watched surface is the inbox itself — reports that recently transitioned
 to `resolved` (set automatically when a linked implementation PR merges) — and,
-secondarily, recently dismissed reports whose underlying problem is escalating.
+secondarily, recently dismissed reports (status `suppressed` in the API) whose
+underlying problem is escalating.
 
 **Resolution-vs-reality is the signal-vs-noise discriminator.** A resolved report is a
 promise: "the merged PR fixed this". A resolved report whose underlying data stream goes
@@ -54,7 +55,7 @@ reach users — extend the soak rather than calling those failed (see Disqualifi
 
 Two cheap reads decide whether this run does any work:
 
-- `signals-scout-scratchpad-search` (`text=inbox_validation`) — the validation queue:
+- `signals-scout-scratchpad-search` (`text=inbox_validation`, `limit=100`) — the validation queue:
   `pending:` entries with their validate-after timestamps, plus `addressed:` / `dedupe:`
   / `noise:` entries gating reports already closed out.
 - `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}` —
@@ -74,12 +75,17 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-- `signals-scout-scratchpad-search` (`text=inbox_validation`) — queue + verdict memory.
+- `signals-scout-scratchpad-search` (`text=inbox_validation`, `limit=100`) — queue +
+  verdict memory. The search caps at 100 rows — keep the working set under it (see
+  Save memory).
 - `signals-scout-runs-list` (`skill_name=signals-scout-inbox-validation`, last 7d) —
   what prior runs enqueued, validated, and ruled out.
 - `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}` —
   diff against the queue: any report not covered by a `pending:` / `addressed:` /
-  `dedupe:` / `noise:` entry is newly resolved.
+  `dedupe:` / `noise:` entry is newly resolved. If the whole page is already covered
+  and its oldest row is still inside the 14-day window, page with `offset` until you
+  cross the window boundary — otherwise resolved report #21 silently ages out
+  unvalidated.
 
 ### Stage 1 — enqueue newly resolved reports (cheap, every run)
 
@@ -129,7 +135,11 @@ how many you deferred in the close-out. For each report you enqueue:
    single-occurrence child fingerprint while the summary names the dominant rolled-up
    issue carrying the real volume — resolve a truncated id via
    `query-error-tracking-issues-list` `searchQuery` on the message or file, and prefer
-   the highest-volume entity as the primary probe. **Capture the pre-fix baseline
+   the highest-volume entity as the primary probe. When a signal's `source_product` is
+   `signals_scout`, its `source_id` is a `run:<id>:finding:<id>` ref — not probeable;
+   re-query those rows adding `argMax(metadata.extra, inserted_at) AS extra` to the
+   subquery: the finding's `evidence` and `dedupe_keys` in `extra` (plus entity ids
+   cited in the signal `content`) carry the real probe targets. **Capture the pre-fix baseline
    now**, while the report's active window is fresh — e.g. the error issue's
    occurrences/day and distinct users over the week before the merge, the log
    pattern's hourly rate, the metric's level. A validation without a "before" number
@@ -145,6 +155,13 @@ If the report is plainly non-measurable (a docs change, a process recommendation
 one-off data correction), skip the queue: write
 `noise:inbox_validation:report-<id8>` ("unverifiable: <why> — no measurable probe") and
 move on. Honest unverifiability beats a fake probe.
+
+One more sweep: a fast-failing fix can leave `status=resolved` before you ever see it —
+any new matching signal re-promotes a resolved report back into the pipeline. So also
+glance at the default inbox list for **non-resolved reports carrying an
+`implementation_pr_url`**: one whose PR actually merged (verify the merge when you can
+fetch it — an open PR doesn't count) re-opened after its fix, which is the failed-fix
+case with the recurrence already in hand. Treat it as immediately due in Stage 2.
 
 ### Stage 2 — validate due reports (the deep pass, cap ~3 per run)
 
@@ -164,11 +181,17 @@ strongest first:
    project timezone and can shift the window by hours.
 2. **Fresh-signal recurrence.** Re-run the signals SQL above without the `report_id`
    filter, restricted to `signal_ts > '<resolved_at>' + soak`, filtering on the same
-   `source_id` values (or, for fuzzier matches, ordering by
-   `cosineDistance(embedding, embedText('<report title + gist>',
-'text-embedding-3-small-1536'))` ascending and reading the top ~10 — treat distance
-   as relative, not a threshold). New post-fix signals on the same entities mean the
-   pipeline itself re-detected the problem.
+   `source_id` values. For fuzzier matches, add
+   `argMax(embedding, inserted_at) AS embedding` to the dedup subquery (the default
+   query omits it — the vectors are big), then order ascending by
+
+   ```sql
+   cosineDistance(embedding, embedText('<report title + gist>', 'text-embedding-3-small-1536'))
+   ```
+
+   and read the top ~10 — treat distance as relative, not a threshold. New post-fix
+   signals on the same entities mean the pipeline itself re-detected the problem.
+
 3. **Sibling-report recurrence.** `inbox-reports-list {"search": "<key terms>"}` — did
    a fresh report appear after the merge covering the same problem? If so, the
    recurrence is already surfaced; your unique contribution is the linkage — "this is
@@ -217,6 +240,9 @@ Encode the category in the key prefix; rewrite a key to update in place:
 
 By steady state the queue should be small and self-describing: every pending entry says
 exactly what to measure and against what baseline, so the deep pass is mechanical.
+Keep the working set under the 100-row search cap: when terminal verdicts pile up,
+`scratchpad-forget` ones whose reports are older than ~30 days — they're cold backlog
+by then and can't be re-enqueued anyway.
 
 ### Decide
 
@@ -234,7 +260,11 @@ exactly what to measure and against what baseline, so the deep pass is mechanica
   one `inbox` entry citing the report id, one per live entity re-probed, plus any
   sibling report or prior finding.
 - **Remember** everything else — held, unverifiable, extended.
-- **Skip** anything already covered by an `addressed:` / `dedupe:` / `noise:` entry.
+- **Skip** anything already covered by an `addressed:` / `dedupe:` / `noise:` entry —
+  unless the report's resolution is _newer_ than the verdict (a new fix PR merged
+  since: compare the report's `updated_at` / PR URL against what the verdict entry
+  records, and date your verdict entries so this comparison works). Then re-enqueue
+  fresh.
 
 Fix confirmations are deliberately memory-only: a "it worked" finding per merged PR
 would swamp the inbox. A team that wants positive confirmations can flip that in their
@@ -244,12 +274,16 @@ own copy of this scout.
 
 Dismissal rationale isn't readable here (the DISMISSAL artefact has no MCP surface), so
 you cannot tell "dismissed as already fixed" from "dismissed as not worth it" — respect
-the human's call either way and never relitigate a dismissal. The one exception:
+the human's call either way and never relitigate a dismissal. Neither is the dismissal
+_time_: a suppressed report's `updated_at` bumps whenever new matching signals arrive,
+so a fresh `updated_at` means fresh activity on a dismissed topic, not a recent
+dismissal. The one exception to leaving these alone:
 `inbox-reports-list {"status": "suppressed", "ordering": "-updated_at", "limit": 10}` —
-a report suppressed in the last 14 days whose underlying entity has since **escalated
-materially** (≥ 2× the pre-suppression rate at meaningful absolute volume, measured the
-same way as a validation probe). That's new information the dismisser didn't have. Emit
-at most one per run, P3, confidence ≥ 0.7, dedupe key
+a suppressed report with fresh activity whose underlying entity is now **escalated
+materially above its report-era baseline** (≥ 2× the rate the report originally
+described, at meaningful absolute volume, measured the same way as a validation probe).
+That's new information the dismisser didn't have, whenever they dismissed. Emit at most
+one per run, P3, confidence ≥ 0.7, dedupe key
 `signal_report:<report_id>:post-dismissal-escalation`, explicitly noting the report was
 dismissed and what changed since. Anything below that bar: leave dismissed reports
 alone.
