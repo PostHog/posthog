@@ -273,12 +273,12 @@ describe('engineeringAnalyticsLogic', () => {
     it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {
         const runs = workflowRuns([
             { kind: 'opened', at: '2026-06-01T00:00:00Z' },
-            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
+            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI', run_id: 9001 },
             { kind: 'ci_started', at: '2026-06-01T00:01:30Z', detail: 'Frontend CI' },
-            { kind: 'ci_started', at: '2026-06-01T01:00:00Z', detail: 'Backend CI' },
-            { kind: 'ci_finished', at: '2026-06-01T00:31:00Z', detail: 'Backend CI: failure' },
-            { kind: 'ci_finished', at: '2026-06-01T01:20:00Z', detail: 'Backend CI: success' },
-            { kind: 'ci_finished', at: '2026-06-01T00:10:00Z', detail: 'Orphan CI: success' },
+            { kind: 'ci_started', at: '2026-06-01T01:00:00Z', detail: 'Backend CI', run_id: 9002 },
+            { kind: 'ci_finished', at: '2026-06-01T00:31:00Z', detail: 'Backend CI: failure', run_id: 9001 },
+            { kind: 'ci_finished', at: '2026-06-01T01:20:00Z', detail: 'Backend CI: success', run_id: 9002 },
+            { kind: 'ci_finished', at: '2026-06-01T00:10:00Z', detail: 'Orphan CI: success', run_id: 9003 },
         ])
         expect(runs).toEqual([
             // First Backend CI start pairs with the first Backend CI finish (FIFO across re-runs).
@@ -288,6 +288,7 @@ describe('engineeringAnalyticsLogic', () => {
                 startedAt: '2026-06-01T00:01:00Z',
                 finishedAt: '2026-06-01T00:31:00Z',
                 durationSeconds: 1800,
+                runId: 9001,
             },
             {
                 workflow: 'Frontend CI',
@@ -295,6 +296,7 @@ describe('engineeringAnalyticsLogic', () => {
                 startedAt: '2026-06-01T00:01:30Z',
                 finishedAt: null,
                 durationSeconds: null,
+                runId: null,
             },
             {
                 workflow: 'Backend CI',
@@ -302,6 +304,7 @@ describe('engineeringAnalyticsLogic', () => {
                 startedAt: '2026-06-01T01:00:00Z',
                 finishedAt: '2026-06-01T01:20:00Z',
                 durationSeconds: 1200,
+                runId: 9002,
             },
             // A finish without a matching start (outside the window) still yields a row.
             {
@@ -310,6 +313,7 @@ describe('engineeringAnalyticsLogic', () => {
                 startedAt: null,
                 finishedAt: '2026-06-01T00:10:00Z',
                 durationSeconds: null,
+                runId: 9003,
             },
         ])
         // The detail page triages: failures first, then still-running, then passes.

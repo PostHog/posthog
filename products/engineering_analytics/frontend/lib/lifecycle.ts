@@ -30,6 +30,8 @@ export interface WorkflowRun {
     startedAt: string | null
     finishedAt: string | null
     durationSeconds: number | null
+    /** GitHub Actions run id — links straight to the run page when present. */
+    runId: number | null
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
@@ -73,6 +75,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 startedAt: event.at,
                 finishedAt: null,
                 durationSeconds: null,
+                runId: event.run_id ?? null,
             }
             runs.push(run)
             const queue = unfinishedByWorkflow.get(workflow) ?? []
@@ -95,6 +98,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                     startedAt: null,
                     finishedAt: event.at,
                     durationSeconds: null,
+                    runId: event.run_id ?? null,
                 })
             }
         }

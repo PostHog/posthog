@@ -118,6 +118,11 @@ export interface PRLifecycleEventApi {
      * @nullable
      */
     detail?: string | null
+    /**
+     * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+     * @nullable
+     */
+    run_id?: number | null
 }
 
 /**

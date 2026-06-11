@@ -73,6 +73,10 @@ class PRLifecycleEventSerializer(DataclassSerializer):
                 "help_text": "Optional detail, e.g. workflow name and conclusion for CI events.",
                 "allow_null": True,
             },
+            "run_id": {
+                "help_text": "GitHub Actions run id for ci_started/ci_finished events, null otherwise.",
+                "allow_null": True,
+            },
         }
 
 

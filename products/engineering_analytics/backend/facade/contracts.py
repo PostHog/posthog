@@ -129,6 +129,8 @@ class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
     detail: str | None = None
+    # GitHub Actions run id for ci_* events — links straight to the run page.
+    run_id: int | None = None
 
 
 @dataclass(frozen=True)

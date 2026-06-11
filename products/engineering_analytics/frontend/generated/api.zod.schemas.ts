@@ -103,6 +103,10 @@ export const PRLifecycleEventApi = zod.object({
         ),
     at: zod.iso.datetime({ offset: true }).describe('When the event occurred.'),
     detail: zod.string().nullish().describe('Optional detail, e.g. workflow name and conclusion for CI events.'),
+    run_id: zod
+        .number()
+        .nullish()
+        .describe('GitHub Actions run id for ci_started\/ci_finished events, null otherwise.'),
 })
 
 export type PRLifecycleEventApi = zod.input<typeof PRLifecycleEventApi>
@@ -172,6 +176,10 @@ export const PRLifecycleApi = zod.object({
                     .string()
                     .nullish()
                     .describe('Optional detail, e.g. workflow name and conclusion for CI events.'),
+                run_id: zod
+                    .number()
+                    .nullish()
+                    .describe('GitHub Actions run id for ci_started\/ci_finished events, null otherwise.'),
             })
         )
         .describe('Lifecycle events ordered by time.'),

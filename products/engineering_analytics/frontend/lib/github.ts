@@ -6,3 +6,7 @@ export function githubPrUrl(repoOwner: string, repoName: string, number: number)
 export function githubWorkflowUrl(repoOwner: string, repoName: string, workflowName: string): string {
     return `https://github.com/${repoOwner}/${repoName}/actions?query=${encodeURIComponent(`workflow:"${workflowName}"`)}`
 }
+
+export function githubRunUrl(repoOwner: string, repoName: string, runId: number): string {
+    return `https://github.com/${repoOwner}/${repoName}/actions/runs/${runId}`
+}

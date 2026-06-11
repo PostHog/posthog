@@ -115,7 +115,7 @@ class TestPRLifecycleMapping(BaseTest):
 
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
-        runs = [("CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
         with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
             lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
@@ -131,6 +131,7 @@ class TestPRLifecycleMapping(BaseTest):
             PRLifecycleEventKind.CI_FINISHED,
             PRLifecycleEventKind.MERGED,
         ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
@@ -321,6 +322,7 @@ class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
             PRLifecycleEventKind.CI_FINISHED,
             PRLifecycleEventKind.MERGED,
         ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
