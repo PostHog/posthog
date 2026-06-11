@@ -65,6 +65,10 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        durationHistogramData,
+        durationHistogramLoading,
+        visibleRowDurationRange,
+        isDurationMode,
         expandedSpanIds,
     } = useValues(tracingSceneLogic())
     const {
@@ -149,11 +153,13 @@ function TracingSceneContents(): JSX.Element {
             <TracingSetupPrompt>
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
+                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
+                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    visibleRowDurationRange={visibleRowDurationRange}
                 />
                 <SceneDivider />
                 <TracingFilterBar />
