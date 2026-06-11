@@ -2,10 +2,10 @@ import { urls } from 'scenes/urls'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 
+import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
-import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from './configSchemas'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -103,7 +103,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultConfig: errorTrackingWidgetConfigSchema.parse({
             dateRange: { date_from: '-7d' },
         }),
-        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'error_tracking',
         titleHref: urls.errorTracking(),
         sharedPlaceholder: {
@@ -114,6 +114,13 @@ export const DASHBOARD_WIDGET_CATALOG = {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
         },
+        availability: {
+            requirement: 'exception_autocapture',
+            unavailableTitle: "You haven't captured any exceptions",
+            unavailableReason: 'Enable exception autocapture to get started.',
+            setupActionLabel: 'Enable exception autocapture',
+            docsHref: 'https://posthog.com/docs/error-tracking',
+        },
     },
     session_replay_list: {
         groupId: 'session_replay',
@@ -123,7 +130,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultConfig: sessionReplayWidgetConfigSchema.parse({
             dateRange: { date_from: '-7d' },
         }),
-        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'session_recording',
         titleHref: urls.replay(),
         sharedPlaceholder: {
@@ -193,7 +200,7 @@ export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): Re
         label: widgetType,
         description: '',
         defaultConfig: {},
-        defaultLayout: { w: 6, h: 5, minW: 6 },
+        defaultLayout: { w: 6, h: 5, minW: 3 },
         headerTitle: widgetType,
         headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
         headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,

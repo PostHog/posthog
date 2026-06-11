@@ -6,14 +6,11 @@ description: >
   trace-correlated bursts via the logs ingestion pipeline. Emits findings only when
   they clear the confidence bar; otherwise writes durable memory and closes out empty.
   Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
-  Picked uniformly at random by the coordinator alongside `signals-scout-general` and
-  other specialists.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  the logs tool family (logs-count, logs-count-ranges, logs-sparkline-query, query-logs,
-  logs-attributes-list, logs-attribute-values-list, logs-alerts-list).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the logs tool family listed in the body's MCP
+  tools section.
 metadata:
   owner_team: signals
   scope: logs
@@ -27,13 +24,36 @@ only when they clear the confidence bar. Logs live in their own ingestion pipeli
 distinct from `top_events`, so the project profile won't tell you whether logs are
 loud today; you have to ask.
 
+## The stream is a firehose — never count it unfiltered
+
+On a busy project the log stream runs to hundreds of millions of lines/hour, the bulk of
+it `info`/`warn`. So an **unfiltered `logs-count` times out with a 500 at _any_ window** —
+it 500s even over a few minutes, so it is never a safe pre-flight. **Always bound every
+count** by `severityLevels` and/or `serviceNames`. `fatal`-only over 24h is cheap (often
+< 100 rows) and a great first probe. For an _all-severity_ read (total volume / "is
+anything logging"), use **`logs-services-create`** — it's an aggregation that survives the
+firehose where a raw count 500s (read its `services` list, ignore the `sparkline`).
+
+**Date footgun:** relative units are `h` (hour) / `d` (day) / `m` (**month**) — there is
+**no minute unit**. `-30m` parses as 30 _months_ and silently returns a huge wrong count,
+not an error. For sub-hour precision pass explicit ISO `date_from`/`date_to`.
+
+Carry the team's baselines in `pattern:` memory (total lines/hour, error+fatal/hour, the
+busiest services) so future runs skip rediscovery.
+
 ## Quick close-out: are logs even in use?
 
-If `logs-count` over the last 24h returns zero or near-zero, this team isn't using
-logs. Write one scratchpad entry:
+Check with **`logs-services-create`** over `-24h` (`m` = month and there is no minute unit,
+so don't write `-15m`; `-24h`/`-7d` or explicit ISO are the safe forms) — it's an
+all-severity aggregation that survives the firehose. **Zero services back = genuinely not
+using logs.** Use a day-plus window, not minutes, so a batch/sparse project that only logs
+periodically isn't misread as silent. Do _not_ decide this from error/fatal counts alone: a
+team that logs only at `info`/`warn` (common — one line per request) would read as "no logs"
+and get permanently short-circuited. And don't read a `logs-count` 500 as "no logs" — that's
+the firehose, not silence. Write one scratchpad entry:
 
 - key: `not-in-use:logs:team{team_id}`
-- content: brief note ("checked at {timestamp}, logs-count over 24h ≈ 0")
+- content: brief note ("checked at {timestamp}, logs-services-create returned 0 services")
 
 Close out empty. Future logs runs will read this entry cold and short-circuit in
 seconds. Re-running with the same key idempotently refreshes the timestamp — the entry
@@ -52,8 +72,27 @@ Three cheap reads cold-start a run:
   from past logs-focused runs. **Entries with `pattern:`, `noise:`, `addressed:`, or
   `dedupe:` key prefixes tell you what's normal, what's already surfaced, what to skip.**
 - `signals-scout-runs-list` (last 7d) — what prior logs scouts found and ruled out.
-- `logs-count` over 24h vs `logs-count` over 7d-prior 24h baseline — the cheap
-  is-anything-loud-today check. `logs-count-ranges` adds severity / service breakdown.
+- **The cheap tripwire set** (runs in seconds, no firehose) — this is the
+  is-anything-loud-today check, _not_ an unfiltered baseline diff:
+  1. `logs-services-create` over `-1h` (read the `services` list, ignore the `sparkline`;
+     `-1h`/`-24h` are valid, `-Nm` is months) — the **all-severity** volume + per-service
+     share in one call, vs the team's lines/hour + busiest-services baseline. This is what
+     catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that the
+     severity-filtered probes below would miss, and it names the hot service for localization.
+  2. `logs-count` `severityLevels=["fatal"]` over 24h (add a `searchTerm` for a specific
+     crash signature) — fatal is rare, so this is cheap and catches crash loops.
+  3. `logs-count` `severityLevels=["error","fatal"]` over the last 1h vs the team's
+     error+fatal/hr baseline — a severity-shift proxy.
+  4. `logs-alerts-list` — only a _new_ firing alert beyond known-noise ones is interesting.
+
+  **Cold start (no `pattern:` baseline yet):** the comparison tripwires — #1 (all-severity
+  volume / per-service share) _and_ #3 (error+fatal/hr) — have nothing to diff against on a
+  first run. Derive each baseline from the same clock hour 24h (or 7d) ago via explicit ISO
+  `date_from`/`date_to` before judging; don't assume the current window is normal.
+
+  If all are at baseline, close out empty. To localize a spike, **scope `logs-count-ranges`
+  to the hot service** from step 1 — a severity-only range still buckets the whole stream
+  and can 500 — then `query-logs`.
 
 ### Explore
 
@@ -61,10 +100,11 @@ Patterns to watch — these are starting points, not a checklist.
 
 #### Volume burst
 
-`logs-count` over 24h is materially above the 7d-prior baseline (≥ 2x). Localize by
-re-running `logs-count` (or `logs-count-ranges` for the time-bucketed shape) filtered
-by `severity` and by `service` — these tools count a filter, they don't group, so
-narrow with the filter and compare. Common causes: a stuck retry loop logging at
+A bounded `logs-count` (severity- or service-filtered) is materially above its baseline
+(≥ 2x). Localize by re-running `logs-count` (or `logs-count-ranges` for the time-bucketed
+shape) filtered by `severity` and by `service` — these tools count a filter, they don't
+group, so narrow with the filter and compare. Never widen to an unfiltered count to
+"see everything" — that 500s. Common causes: a stuck retry loop logging at
 `info`, a feature deploy that bumped log verbosity, a misconfigured logger emitting
 at `debug` in prod.
 
@@ -78,9 +118,16 @@ Total volume flat but `error` / `fatal` proportion rising. Captures the kind of 
 error tracking misses: caught-and-logged exceptions, retry-with-eventual-success patterns,
 degraded-but-functional dependencies (slow DB, cold cache, partial third-party outage).
 
-Validate via `query-logs` filtered to `severity ∈ {error, fatal}` over the recent window,
-grouped by `service` or `module`. A single service accounting for the rise is
-high-confidence; a uniform rise across services suggests an upstream platform issue.
+Validate in one call with `logs-services-create` (read-only despite the name) over the
+recent window — it returns the top-25 services with `error_count`, `error_rate`, and
+`volume_share_pct`, so you see _which_ service carries the rise without walking
+per-service counts. **Read only the `services` list and ignore the bundled `sparkline`** —
+the sparkline is hundreds of KB and overflows the budget to a file; the `services` list
+itself is tiny. Call it _without_ a severity filter to get each service's `error_rate`,
+or _with_ `severityLevels=["error","fatal"]` to rank services by error volume. A single
+service accounting for the rise is high-confidence; a uniform rise across services
+suggests an upstream platform issue. Drop to `query-logs` only for module-level detail
+within the culprit service.
 
 #### Service silence
 
@@ -88,9 +135,12 @@ A service that normally accounts for a meaningful share of total log volume drop
 near-zero. Different shape from error tracking entirely — there's no exception, the
 service is just gone.
 
-Validate: `logs-attribute-values-list` on `service` for active services, then
-`logs-count-ranges` per service over today vs 7d-prior to confirm the missing service
-was active before. Cross-check `top_events` for the service's expected user-facing
+Validate: `logs-services-create` (read-only; read the `services` list, ignore the
+`sparkline`) ranks active services by `volume_share_pct` in one call — a service that
+held meaningful share before and is now absent from the list is the signal. Confirm with
+`logs-count-ranges` for that service over today vs 7d-prior (use `logs-count-ranges`, not
+`logs-sparkline-query` — the sparkline endpoint 500s on busy services over multi-hour
+windows). Cross-check `top_events` for the service's expected user-facing
 events — if those also dropped, the service is genuinely down.
 
 #### Fresh message pattern
@@ -115,6 +165,16 @@ convergence pattern logs enables.
 `logs-alerts-list` exposes the team's configured alerts. An alert with `state =
 firing` whose underlying condition isn't already in `inbox-reports-list` is a
 high-confidence finding — the team has the alert plumbing but not the inbox surface.
+
+Before trusting a `firing` state, check the alert's history with `logs-alerts-events-list`
+(`id` = the alert's UUID) — it returns fires/resolves/flaps/threshold changes. A _fresh_
+fire (a new fire event in the recent window) is real; an alert that has sat `firing`
+indefinitely is usually a misconfigured always-on threshold (record it under a `noise:`
+key), not a new signal. (This endpoint rejects personal API keys with a 403; the scout's
+internal token should reach it — if it 403s for you too, read the alert's filter with
+`logs-alerts-retrieve` (`logs-alerts-list` returns only id/name/state/threshold, not
+`filters`), then run a bounded `logs-count` over that filter to gauge whether it's
+genuinely firing.)
 
 ### Save memory as you go
 
@@ -178,15 +238,24 @@ When in doubt, write a memory entry instead of emitting.
 
 Direct calls (read-only):
 
-- `logs-count` — start here. Total volume over a window.
-- `logs-count-ranges` — compare windows (today vs 7d-prior, this hour vs same hour
-  yesterday); supports breakdowns.
-- `logs-sparkline-query` — sparkline shape; useful for spotting a sharp burst vs a
-  sustained shift.
+- `logs-count` — bounded volume over a window. **Always** severity- and/or
+  service-filtered; an unfiltered count 500s at any window (even minutes), so a filter is
+  mandatory, not window length — see the firehose note above.
+- `logs-count-ranges` — locate _when_ in a window the volume sits (today vs 7d-prior,
+  this hour vs same hour yesterday). The robust localizer — survives busy services where
+  `logs-sparkline-query` 500s.
+- `logs-services-create` — **read-only despite the name** (it's a POST-backed aggregation,
+  not a write). One call returns the top-25 services with `error_count` / `error_rate` /
+  `volume_share_pct` — the cheap entry point for service-level triage. Read the `services`
+  list and **ignore the oversized `sparkline`** it bundles (overflows to a file).
+- `logs-sparkline-query` — severity/service sparkline. Use sparingly: 500s on busy
+  services over multi-hour windows — prefer `logs-count-ranges` for the time-bucketed shape.
 - `query-logs` — drill into individual records. Filter by severity, service, message
   text, attribute values, time range.
 - `logs-attributes-list` / `logs-attribute-values-list` — discover the team's log shape.
 - `logs-alerts-list` / `logs-alerts-retrieve` — configured alerts and current state.
+- `logs-alerts-events-list` — an alert's firing history (fires/resolves/flaps); tells a
+  fresh fire from a chronically-firing misconfigured one. May 403 on a personal key.
 - `inbox-reports-list` — verify a finding isn't already in the inbox.
 - `query-error-tracking-issues-list` — cross-check whether a log error already has an issue;
   error tracking owns those findings.

@@ -16,7 +16,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
@@ -37,7 +37,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.date_util import thirty_days_ago
@@ -55,7 +55,7 @@ from posthog.models.person.point_in_time_properties import (
 )
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.permissions import ProjectSecretAPITokenPermission
+from posthog.permissions import TeamSecretTokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -636,6 +636,11 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
     )
+    is_remote_configuration = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -656,6 +661,20 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
+    )
+    is_remote_configuration = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+
+
+class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the experiment linked to this flag.")
+    name = serializers.CharField(help_text="Name of the experiment linked to this flag.")
+    is_running = serializers.BooleanField(
+        help_text="Whether the experiment is currently running (started and not yet stopped). "
+        "A running experiment blocks deletion of the linked flag."
     )
 
 
@@ -1257,23 +1276,20 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
         for key, value in payloads.items():
-            if isinstance(value, dict):
-                # Normalize JSON object payloads (e.g. from the API) to strings,
-                # matching what the UI sends.
-                try:
-                    payloads[key] = json.dumps(value)
-                except (TypeError, ValueError):
-                    raise serializers.ValidationError("Payload value is not valid JSON")
-            elif isinstance(value, str):
-                try:
+            try:
+                if isinstance(value, str):
+                    # An incoming string is already the canonical stored form; just check it parses.
                     json.loads(value)
-                except json.JSONDecodeError:
-                    raise serializers.ValidationError("Payload value is not valid JSON")
-            else:
-                try:
-                    json.dumps(value)
-                except (TypeError, ValueError):
-                    raise serializers.ValidationError("Payload value is not valid JSON")
+                else:
+                    # Normalize any non-string JSON value (objects, arrays, numbers, booleans, null)
+                    # to a JSON string, matching what the UI sends.
+                    payloads[key] = json.dumps(value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Payload value is not valid JSON")
+            except (TypeError, ValueError):
+                # Defensive: request bodies are JSON-parsed, so values are always JSON-native
+                # (str/int/float/bool/None/dict/list) and serializable. Unreachable via the API.
+                raise serializers.ValidationError("Payload value could not be serialized to JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -1466,7 +1482,7 @@ class FeatureFlagSerializer(
                         f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
                         f"referenced by {' and '.join(blockers)}. Please contact support."
                     )
-                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -1549,12 +1565,14 @@ class FeatureFlagSerializer(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
 
-            # Check for linked active (non-deleted) experiments
-            active_experiments = instance.experiment_set.filter(deleted=False)
-            if active_experiments.exists():
-                experiment_ids = list(active_experiments.values_list("id", flat=True))
+            # Check for linked running experiments. Draft, stopped, and completed
+            # experiments may keep the flag so their historical results are preserved;
+            # only a currently running experiment blocks deletion.
+            running_experiments = [exp for exp in instance.experiment_set.filter(deleted=False) if exp.is_running]
+            if running_experiments:
+                experiment_ids = [exp.id for exp in running_experiments]
                 raise exceptions.ValidationError(
-                    f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
+                    f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please stop the experiment(s) before deleting the flag."
                 )
 
             # Check for other flags that depend on this flag
@@ -1577,19 +1595,18 @@ class FeatureFlagSerializer(
                     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
                 )
 
-            # If all experiments are soft-deleted, rename the key to free it up
-            # Append ID to the key when soft-deleting to prevent key conflicts
-            # This allows the original key to be reused while preserving referential integrity for deleted experiments
-            if instance.experiment_set.filter(deleted=True).exists():
-                validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
+            # If the flag is linked to any experiment, rename the key to free it up.
+            # Append ID to the key when soft-deleting to prevent key conflicts.
+            # Experiments reference the flag by FK, so referential integrity is preserved.
+            if instance.experiment_set.exists():
+                validated_data["key"] = instance.tombstoned_key()
 
         if "deleted" in validated_data and validated_data["deleted"] is False:
             # Restoring a soft-deleted flag — if the key was renamed during
             # soft-delete, restore the original key. If the original key has
             # been claimed by another flag, append a numeric suffix.
-            deleted_suffix = f":deleted:{instance.id}"
-            if instance.key.endswith(deleted_suffix):
-                original_key = instance.key[: -len(deleted_suffix)]
+            original_key = instance.key_without_tombstone()
+            if original_key != instance.key:
                 candidate = original_key
                 counter = 2
                 while (
@@ -1931,11 +1948,15 @@ class FeatureFlagSerializer(
             return [exp.id for exp in obj._active_experiments]
         return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
 
+    @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
         # Use the prefetched active experiments
         if hasattr(obj, "_active_experiments"):
-            return [{"id": exp.id, "name": exp.name} for exp in obj._active_experiments]
-        return [{"id": exp.id, "name": exp.name} for exp in obj.experiment_set.filter(deleted=False)]
+            experiments = obj._active_experiments
+        else:
+            experiments = obj.experiment_set.filter(deleted=False)
+        # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
@@ -3077,15 +3098,17 @@ class FeatureFlagViewSet(
                 )
                 continue
 
-            # Check for linked active experiments
-            active_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted]
-            if active_experiments:
-                experiment_ids = [exp.id for exp in active_experiments]
+            # Check for linked running experiments. Draft/stopped/completed experiments
+            # may keep the flag so their historical results are preserved; only a
+            # currently running experiment blocks deletion.
+            running_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted and exp.is_running]
+            if running_experiments:
+                experiment_ids = [exp.id for exp in running_experiments]
                 errors.append(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": f"Cannot delete a feature flag linked to active experiment(s): {', '.join(map(str, experiment_ids))}",
+                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {', '.join(map(str, experiment_ids))}",
                     }
                 )
                 continue
@@ -3110,9 +3133,11 @@ class FeatureFlagViewSet(
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
 
-            # Determine if key rename is needed
-            has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
-            if has_deleted_experiments:
+            # Rename the key if the flag is linked to any experiment, to free it up.
+            # Use the prefetched experiment_set cache (see queryset above) rather than
+            # .exists(), which would issue a fresh query per flag.
+            has_linked_experiments = bool(flag.experiment_set.all())
+            if has_linked_experiments:
                 flags_to_delete_with_rename.append(flag)
             else:
                 flags_to_delete_normal.append(flag)
@@ -3161,7 +3186,7 @@ class FeatureFlagViewSet(
                         flag.deleted = True
                         flag.last_modified_by = current_user
                         flag.updated_at = now_timestamp
-                        flag.key = f"{flag.key}:deleted:{flag.id}"
+                        flag.key = flag.tombstoned_key()
                     FeatureFlag.objects.bulk_update(
                         flags_to_delete_with_rename,
                         ["deleted", "last_modified_by", "updated_at", "key"],
@@ -3787,9 +3812,9 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            ProjectSecretAPIKeyAuthentication,
+            TeamSecretTokenAuthentication,
         ],
-        permission_classes=[ProjectSecretAPITokenPermission],
+        permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
