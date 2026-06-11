@@ -1136,19 +1136,16 @@
     }
 
     a:focus-visible,
-    button:focus-visible,
-    [data-highlighted]:not(:hover) {
+    button:focus-visible {
         outline: 2px solid var(--color-accent);
     }
 
-    /* Radix menus highlight items on pointer-move; only show the outline for
-       keyboard focus, and render it inset so the container's rounded
+    /* Radix sets data-highlighted on pointer-move and clears it a frame later;
+       gating the outline on :not(:hover) made it flash on hover-exit. Drive it
+       off keyboard focus only, and render it inset so a container's rounded
        overflow:hidden mask can't clip the corners */
-    .primitive-menu-content [data-highlighted]:not(:focus-visible) {
-        outline: none;
-    }
-
-    .primitive-menu-content [data-highlighted]:focus-visible {
+    [data-highlighted]:focus-visible {
+        outline: 2px solid var(--color-accent);
         outline-offset: -2px;
     }
 
