@@ -44,6 +44,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeDateLoader,
     _build_count_query,
     _build_query,
+    _connect_with_dropped_retry,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -203,6 +204,54 @@ class TestIsConnectionDroppedError:
     )
     def test_unrelated_errors_are_not_detected(self, error):
         assert _is_connection_dropped_error(error) is False
+
+
+class TestConnectWithDroppedRetry:
+    @pytest.fixture
+    def logger(self):
+        return structlog.get_logger()
+
+    def test_retries_dropped_connection_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The exact error surfaced in production: a mid-stream SSL EOF on
+                # the reconnect that bootstraps offset-chunking recovery.
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
+
+    def test_permanent_error_is_not_retried(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            )
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert connect.call_count == 1
+
+    def test_gives_up_after_max_attempts(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=3)
+
+        assert connect.call_count == 3
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
