@@ -25,11 +25,13 @@ export function getNotebookStringProp(value: NotebookPropValue | undefined): str
     return typeof value === 'string' ? value : undefined
 }
 
+export type MarkdownNotebookTextSurface = 'text' | 'quote' | 'code'
+
 export type MarkdownNotebookVisualGroup =
     | {
           type: 'text'
           key: string
-          items: { node: NotebookBlockNode; index: number; quote: boolean }[]
+          items: { node: NotebookBlockNode; index: number; surface: MarkdownNotebookTextSurface }[]
       }
     | {
           type: 'block'
@@ -46,7 +48,7 @@ export function getMarkdownNotebookVisualGroups(
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
 
     nodes.forEach((node, index) => {
-        if ((isTextBlockNode(node) || node.type === 'list') && node.id !== insertMenuNodeId) {
+        if ((isTextBlockNode(node) || node.type === 'list' || node.type === 'code') && node.id !== insertMenuNodeId) {
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -56,7 +58,11 @@ export function getMarkdownNotebookVisualGroups(
                 groups.push(currentTextGroup)
             }
 
-            currentTextGroup.items.push({ node, index, quote: isGroupedBlockquoteNode(node) })
+            currentTextGroup.items.push({
+                node,
+                index,
+                surface: node.type === 'code' ? 'code' : isGroupedBlockquoteNode(node) ? 'quote' : 'text',
+            })
             return
         }
 

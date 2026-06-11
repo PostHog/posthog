@@ -32,6 +32,7 @@ import {
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import {
+    MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
     ensureEditableNotebookDocument,
     getAskAISelectionQuery,
@@ -1446,6 +1447,41 @@ export function MarkdownNotebook({
         [commitDocument, mergeTextBlockIntoPreviousBlock]
     )
 
+    // Chrome's default insertParagraph inside the code <pre> appends <br> elements, which are
+    // invisible to textContent and therefore never reach the document model. Insert a literal
+    // newline through the model instead.
+    const insertNewlineInCodeBlockAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'code') {
+            return false
+        }
+
+        const range = getSelectionRange(element, nodeId)
+        const textLength = node.text.length
+        const start = range ? Math.max(0, Math.min(Math.min(range.start, range.end), textLength)) : textLength
+        const end = range ? Math.max(start, Math.min(Math.max(range.start, range.end), textLength)) : textLength
+        const nextText = `${node.text.slice(0, start)}\n${node.text.slice(end)}`
+
+        restoreSelectionRef.current = { nodeId, start: start + 1, end: start + 1 }
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.map((currentNode) =>
+                currentNode.id === nodeId && currentNode.type === 'code'
+                    ? { ...currentNode, text: nextText }
+                    : currentNode
+            ),
+        })
+        return true
+    }, [commitDocument])
+
     useEffect(() => {
         const notebookElement = notebookRef.current
         if (!notebookElement) {
@@ -1465,6 +1501,15 @@ export function MarkdownNotebook({
             }
 
             const nativeEvent = event as InputEvent
+            if (
+                (nativeEvent.inputType === 'insertParagraph' || nativeEvent.inputType === 'insertLineBreak') &&
+                insertNewlineInCodeBlockAtCurrentSelection()
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
             if (
                 nativeEvent.inputType === 'insertParagraph' &&
                 (splitListItemAtCurrentSelection() ||
@@ -1542,6 +1587,7 @@ export function MarkdownNotebook({
         deleteListItemAtCurrentSelection,
         deleteSelectedNotebookBlocks,
         deleteTextAtCurrentSelection,
+        insertNewlineInCodeBlockAtCurrentSelection,
         insertTableRowAtCurrentSelection,
         mode,
         redoHistory,
@@ -2941,6 +2987,29 @@ export function MarkdownNotebook({
         return true
     }, [commitDocument, requestFocusAfterRemovingNode])
 
+    const insertParagraphBelowTrailingCodeBlockAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const nodeIndex = nodes.findIndex((currentNode) => currentNode.id === nodeId)
+        const node = nodes[nodeIndex]
+        if (!node || node.type !== 'code' || nodeIndex !== nodes.length - 1) {
+            return false
+        }
+
+        const range = getCollapsedSelectionRange(element, nodeId)
+        if (!range || range.end < node.text.lastIndexOf('\n') + 1) {
+            return false
+        }
+
+        insertEmptyParagraphAfterNode(nodeId)
+        return true
+    }, [insertEmptyParagraphAfterNode])
+
     const deleteNodeAndFocusPrevious = useCallback(
         (nodeId: string): boolean => {
             const currentDocument = documentRef.current
@@ -3838,6 +3907,20 @@ export function MarkdownNotebook({
         }
 
         if (
+            mode === 'edit' &&
+            event.key === 'ArrowDown' &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            insertParagraphBelowTrailingCodeBlockAtCurrentSelection()
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
+        if (
             mode !== 'edit' ||
             event.target !== event.currentTarget ||
             event.key !== 'Enter' ||
@@ -4106,13 +4189,15 @@ export function MarkdownNotebook({
                         {renderedNodeGroups.map((group) => {
                             if (group.type === 'text') {
                                 const lastItem = group.items[group.items.length - 1]
-                                const chunks: { quote: boolean; items: typeof group.items }[] = []
+                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
                                 for (const item of group.items) {
                                     const lastChunk = chunks[chunks.length - 1]
-                                    if (lastChunk && lastChunk.quote === item.quote) {
+                                    // Code blocks never merge: each one is its own surface with its own line
+                                    // numbers and copy button.
+                                    if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
                                         lastChunk.items.push(item)
                                     } else {
-                                        chunks.push({ quote: item.quote, items: [item] })
+                                        chunks.push({ surface: item.surface, items: [item] })
                                     }
                                 }
 
@@ -4124,7 +4209,7 @@ export function MarkdownNotebook({
                                                 const rows = chunk.items.map(({ node, index }) => (
                                                     <Fragment key={node.id}>
                                                         {renderNotebookRow(node, index)}
-                                                        {!chunk.quote && index < chunkLastIndex
+                                                        {chunk.surface === 'text' && index < chunkLastIndex
                                                             ? renderInsertBoundaryButton(index + 1, {
                                                                   isGapClickable: false,
                                                               })
@@ -4134,10 +4219,12 @@ export function MarkdownNotebook({
 
                                                 return (
                                                     <Fragment key={chunk.items[0].node.id}>
-                                                        {chunk.quote ? (
+                                                        {chunk.surface === 'quote' ? (
                                                             <div className="MarkdownNotebook__blockquote-group">
                                                                 {rows}
                                                             </div>
+                                                        ) : chunk.surface === 'code' ? (
+                                                            <div className="MarkdownNotebook__code-group">{rows}</div>
                                                         ) : (
                                                             rows
                                                         )}

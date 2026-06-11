@@ -18,6 +18,15 @@ Activation improved after the onboarding changes. **Signup completion** is up, *
 > - Activation is trending up
 > - Onboarding drop-off needs a deeper look
 
+\`\`\`
+SELECT properties.$browser AS browser, count() AS pageview_count
+FROM events
+WHERE event = '$pageview' AND timestamp > now() - INTERVAL 7 DAY AND properties.$browser IS NOT NULL
+GROUP BY browser
+
+ORDER BY pageview_count DESC
+\`\`\`
+
 [Open dashboard](/dashboard/123)`
 
 const queryNotebook = `# Product analytics

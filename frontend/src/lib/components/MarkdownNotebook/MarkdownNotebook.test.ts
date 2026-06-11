@@ -5751,6 +5751,179 @@ Outro paragraph`),
         )
     })
 
+    it('renders code blocks inside grouped text surfaces', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Intro paragraph
+
+\`\`\`
+const a = 1
+\`\`\`
+
+Outro paragraph`),
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block')
+        const paragraphs = Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block'))
+
+        expect(codeBlock).toBeInstanceOf(HTMLElement)
+        expect(codeBlock?.closest('.MarkdownNotebook__code-group')).toBeInstanceOf(HTMLElement)
+        expect(codeBlock?.closest('.MarkdownNotebook__text-group')).toBeInstanceOf(HTMLElement)
+        expect(codeBlock?.closest('.MarkdownNotebook__text-group')).toEqual(
+            paragraphs[paragraphs.length - 1].closest('.MarkdownNotebook__text-group')
+        )
+    })
+
+    it('renders consecutive code blocks as separate code groups', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```\nfirst\n```\n\n```\nsecond\n```'),
+            })
+        )
+        const codeBlocks = Array.from(container.querySelectorAll('.MarkdownNotebook__code-block')) as HTMLElement[]
+        const codeGroups = Array.from(container.querySelectorAll('.MarkdownNotebook__code-group'))
+
+        expect(codeBlocks).toHaveLength(2)
+        expect(codeGroups).toHaveLength(2)
+        expect(codeBlocks[0].closest('.MarkdownNotebook__code-group')).not.toEqual(
+            codeBlocks[1].closest('.MarkdownNotebook__code-group')
+        )
+        expect(codeBlocks[0].closest('.MarkdownNotebook__text-group')).toEqual(
+            codeBlocks[1].closest('.MarkdownNotebook__text-group')
+        )
+    })
+
+    it('renders one line number per code line outside the editable code text', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```\nline one\nline two\n\nline four\n```'),
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+        const gutter = container.querySelector('.MarkdownNotebook__code-block-gutter') as HTMLElement
+        const lineNumbers = Array.from(gutter.querySelectorAll('.MarkdownNotebook__code-block-line-number'))
+
+        expect(lineNumbers.map((lineNumber) => lineNumber.textContent)).toEqual(['1', '2', '3', '4'])
+        expect(gutter.getAttribute('contenteditable')).toEqual('false')
+        expect(codeBlock.textContent).toEqual('line one\nline two\n\nline four')
+    })
+
+    it('preserves trailing blank lines in code blocks and renders them in the gutter', () => {
+        const markdown = withNotebookTitle('```\nabc\n\n\n```')
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+        const lineNumbers = Array.from(container.querySelectorAll('.MarkdownNotebook__code-block-line-number'))
+
+        expect(codeBlock.textContent).toEqual('abc\n\n')
+        expect(codeBlock.lastChild).toBeInstanceOf(HTMLBRElement)
+        expect(lineNumbers.map((lineNumber) => lineNumber.textContent)).toEqual(['1', '2', '3'])
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+    })
+
+    it('copies the whole code block from the copy button', () => {
+        const writeText = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(window.navigator, 'clipboard', {
+            value: { writeText },
+            configurable: true,
+        })
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```\nconst a = 1\nconst b = 2\n```'),
+            })
+        )
+        const copyButton = container.querySelector('.MarkdownNotebook__code-block-actions button') as HTMLButtonElement
+
+        fireEvent.click(copyButton)
+
+        expect(writeText).toHaveBeenCalledWith('const a = 1\nconst b = 2')
+    })
+
+    it('inserts a newline inside a code block on native insertParagraph', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('```\nabcdef\n```'), onChange })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 'abc'.length, 'abc'.length)
+        fireBeforeInput(canvas, 'insertParagraph')
+
+        expect(codeBlock.textContent).toEqual('abc\ndef')
+        expect(container.querySelectorAll('.MarkdownNotebook__code-block')).toHaveLength(1)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`\nabc\ndef\n\`\`\``)
+    })
+
+    it('keeps trailing newlines inserted at the end of a code block', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('```\nabc\n```'), onChange })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 'abc'.length, 'abc'.length)
+        fireBeforeInput(canvas, 'insertParagraph')
+        fireBeforeInput(canvas, 'insertParagraph')
+
+        expect(codeBlock.textContent).toEqual('abc\n\n')
+        expect(codeBlock.lastChild).toBeInstanceOf(HTMLBRElement)
+        expect(
+            codeBlock
+                .closest('.MarkdownNotebook__code-block-frame')
+                ?.querySelectorAll('.MarkdownNotebook__code-block-line-number')
+        ).toHaveLength(3)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`\nabc\n\n\n\`\`\``)
+    })
+
+    it('adds a paragraph below a trailing code block when pressing arrow down on its last line', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('```\nabc\ndef\n```'), onChange })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 'abc\nde'.length, 'abc\nde'.length)
+        fireEvent.keyDown(codeBlock, { key: 'ArrowDown' })
+
+        const paragraphs = Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block')) as HTMLElement[]
+        expect(paragraphs).toHaveLength(1)
+        expect(paragraphs[0].textContent).toEqual('')
+        expect(document.activeElement).toEqual(paragraphs[0])
+        expect(onChange).toHaveBeenCalled()
+    })
+
+    it('does not add a paragraph when pressing arrow down above the last code line', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('```\nabc\ndef\n```'), onChange })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 1, 1)
+        fireEvent.keyDown(codeBlock, { key: 'ArrowDown' })
+
+        expect(container.querySelectorAll('p.MarkdownNotebook__text-block')).toHaveLength(0)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('does not add a paragraph on arrow down when the code block is not the last node', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```\nabc\n```\n\nOutro paragraph'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextInElement(codeBlock, 'abc'.length, 'abc'.length)
+        fireEvent.keyDown(codeBlock, { key: 'ArrowDown' })
+
+        expect(container.querySelectorAll('p.MarkdownNotebook__text-block')).toHaveLength(1)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('continues a blockquote inside one visual quote group when pressing Enter', () => {
         const onChange = jest.fn()
         const { container } = render(
