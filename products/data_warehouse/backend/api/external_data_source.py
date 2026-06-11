@@ -1289,27 +1289,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
             )
         source = SourceRegistry.get_source(source_type_model)
-        if not skip_credential_validation:
-            is_valid, errors = source.validate_config(payload)
-            if not is_valid:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Invalid source config: {', '.join(errors)}"},
-                )
-        source_config: Config = source.parse_config(payload)
-
-        if not skip_credential_validation:
-            if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), self.team_id, access_method
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
-            if not credentials_valid:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or "Invalid credentials"},
-                )
+        if skip_credential_validation:
+            source_config: Config = source.parse_config(payload)
+        else:
+            error_response, validated_config = self._validate_source_config_and_credentials(
+                source, source_type_model, payload, access_method=access_method
+            )
+            if error_response is not None or validated_config is None:
+                return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
+            source_config = validated_config
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -2128,7 +2116,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
     def _validate_source_config_and_credentials(
-        self, source: AnySource, source_type_model: ExternalDataSourceType, payload: dict
+        self,
+        source: AnySource,
+        source_type_model: ExternalDataSourceType,
+        payload: dict,
+        access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:
         """Run the config + live credential gate (including the SSRF host check) for a source payload."""
         is_valid, errors = source.validate_config(payload)
@@ -2144,7 +2136,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, ExternalDataSource.AccessMethod.WAREHOUSE
+                cast(Any, source_config), self.team_id, access_method
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
