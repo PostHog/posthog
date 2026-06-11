@@ -26,13 +26,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
-from products.signals.backend.task_run_artefacts import (
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
-    ahas_signals_task_run,
-    append_task_run_artefact,
-    has_signals_task_run,
-)
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
@@ -98,24 +92,24 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
 ) -> Task | None:
-    """Create the implementation task, its association, and its `task_run` artefact, serialized per report.
+    """Create the implementation task and record it (gate column + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
     the agentic pipeline, and custom agents — so two evaluations can race. A bare check-then-create
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the
-    implementation `task_run` artefact (written in the same transaction as the task) and returns
+    `implementation_task` gate column (set in the same transaction as the task) and returns
     ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report is gone.
     """
     with transaction.atomic():
-        if SignalReport.objects.select_for_update().filter(id=report_id).first() is None:
+        report = SignalReport.objects.select_for_update().filter(id=report_id).first()
+        if report is None:
             return None
-        # "Implementation already started" is derived from the report's task_run artefacts —
-        # the association rows are unlabelled, so they can't distinguish research from
-        # implementation. This pipeline (and the manual start-task API) is the only writer of
-        # signals/implementation task_run artefacts, always in the same transaction as the task.
-        if has_signals_task_run(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION):
+        # The gate is a real column, not the artefact log: task_run artefacts are freeform
+        # (any agent can append or delete them via the API), so they can't be trusted as the
+        # decision for whether an implementation has started.
+        if report.implementation_task_id is not None:
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
         task = Task.create_and_run(
@@ -127,19 +121,19 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
-            posthog_mcp_scopes="signals_report",
+            # Full scopes so the implementation agent can log its work on the report (notes,
+            # code references) via the task:write artefact tools.
+            posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
         )
         task_run = task.runs.order_by("-created_at").first()
         if task_run is None:
             raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
-        # Written inside the lock so the existence check above and this insert are serialized —
-        # the artefact is the idempotency marker, so it must be visible before the lock releases.
-        append_task_run_artefact(
+        # Written inside the lock so the gate check above and this write are serialized — the
+        # `implementation_task` column must be visible before the lock releases.
+        record_implementation_task(
             team_id=team_id,
             report_id=report_id,
-            product=SIGNALS_PRODUCT,
-            type=TASK_RUN_TYPE_IMPLEMENTATION,
             task_id=str(task.id),
             run_id=str(task_run.id),
         )
@@ -235,7 +229,7 @@ async def maybe_autostart_implementation_task(
     """
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = await ahas_signals_task_run(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION)
+    task_exists = await SignalReport.objects.filter(id=report_id, implementation_task__isnull=False).aexists()
     if (
         actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         or actionability.already_addressed

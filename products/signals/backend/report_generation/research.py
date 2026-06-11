@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
 # persisted as artefacts); re-exported here because this module is where research callers and
@@ -96,6 +96,85 @@ class ReportResearchOutput(BaseModel):
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
     )
+    # Newness markers: the fields above are the *effective* state (reused + new), so downstream
+    # consumers (auto-start, the workflow output) never have to merge with previous research.
+    # Persistence appends artefacts only for the new values — a re-research that confirms the
+    # existing artefacts produces no new rows.
+    new_finding_signal_ids: list[str] | None = Field(
+        default=None,
+        description="signal_ids of findings (re)produced this run. None means every finding is new "
+        "(first run / saved fixtures). Findings confirmed unchanged are excluded.",
+    )
+    actionability_is_new: bool = Field(
+        default=True, description="False when the previous actionability assessment was confirmed unchanged."
+    )
+    priority_is_new: bool = Field(
+        default=True, description="False when the previous priority assessment was confirmed unchanged."
+    )
+
+
+# On re-research, the agent confirms still-valid prior artefacts instead of regenerating them —
+# a confirmation persists nothing, so the report log only grows when something actually changed.
+# These wrappers are session output shapes only; they are never stored.
+
+
+class SignalFindingUpdate(BaseModel):
+    """Re-research response for a signal that already has a finding: confirm it or replace it."""
+
+    previous_finding_correct: bool = Field(
+        description="True when the previous finding is still accurate as-is. It will be kept unchanged "
+        "and no new finding recorded."
+    )
+    finding: SignalFinding | None = Field(
+        default=None,
+        description="The replacement finding. Required when previous_finding_correct is false; omit when it is true.",
+    )
+
+    @model_validator(mode="after")
+    def finding_required_when_changed(self) -> SignalFindingUpdate:
+        if not self.previous_finding_correct and self.finding is None:
+            raise ValueError("finding is required when previous_finding_correct is false")
+        return self
+
+
+class ActionabilityUpdate(BaseModel):
+    """Re-assessment response when a previous actionability assessment exists."""
+
+    previous_assessment_correct: bool = Field(
+        description="True when the previous actionability assessment still holds as-is. It will be kept "
+        "unchanged and no new assessment recorded."
+    )
+    assessment: ActionabilityAssessment | None = Field(
+        default=None,
+        description="The replacement assessment. Required when previous_assessment_correct is false; "
+        "omit when it is true.",
+    )
+
+    @model_validator(mode="after")
+    def assessment_required_when_changed(self) -> ActionabilityUpdate:
+        if not self.previous_assessment_correct and self.assessment is None:
+            raise ValueError("assessment is required when previous_assessment_correct is false")
+        return self
+
+
+class PriorityUpdate(BaseModel):
+    """Re-assessment response when a previous priority assessment exists."""
+
+    previous_assessment_correct: bool = Field(
+        description="True when the previous priority assessment still holds as-is. It will be kept "
+        "unchanged and no new assessment recorded."
+    )
+    assessment: PriorityAssessment | None = Field(
+        default=None,
+        description="The replacement assessment. Required when previous_assessment_correct is false; "
+        "omit when it is true.",
+    )
+
+    @model_validator(mode="after")
+    def assessment_required_when_changed(self) -> PriorityUpdate:
+        if not self.previous_assessment_correct and self.assessment is None:
+            raise ValueError("assessment is required when previous_assessment_correct is false")
+        return self
 
 
 def _render_existing_report_context(previous_report_id: str | None) -> str:
@@ -122,8 +201,8 @@ def _render_previous_finding_context(previous_finding: SignalFinding | None) -> 
 This signal was already analyzed in an earlier report run.
 
 - First, lightly validate whether the cited code paths still exist and whether the previous claim still appears true.
-- If the previous finding is still valid, reuse it with only minimal edits and avoid deep re-research.
-- If the old code paths are stale or the evidence no longer holds, investigate the signal as new.
+- If the previous finding is still valid, respond with `previous_finding_correct: true` and no new finding — it will be kept as-is.
+- If the old code paths are stale or the evidence no longer holds, investigate the signal as new and return the replacement in `finding`.
 - When lightly validating a previous finding, aim to spend fewer tool calls than a fresh investigation.
 
 Previous finding:
@@ -148,8 +227,8 @@ This report was previously assessed as:
 
 Decide whether the updated set of signal findings changes that assessment.
 
-- If it still holds, keep the assessment materially the same and update the explanation only as much as needed.
-- If it changed, return the new assessment and explain what changed.
+- If it still holds, respond with `previous_assessment_correct: true` and no new assessment — it will be kept as-is.
+- If it changed, return the new assessment in `assessment` and explain what changed.
 """
 
 
@@ -168,8 +247,8 @@ This report was previously prioritized as:
 
 Decide whether the updated set of signal findings changes that priority.
 
-- If it still holds, keep the priority materially the same and update the explanation only as much as needed.
-- If it changed, return the new priority and explain what changed.
+- If it still holds, respond with `previous_assessment_correct: true` and no new assessment — it will be kept as-is.
+- If it changed, return the new priority in `assessment` and explain what changed.
 """
 
 
@@ -229,6 +308,8 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
+The report's history lives in its artefacts (prior findings, judgments, notes, task runs). You can list them with the `inbox-report-artefacts-list` MCP tool when prior context would help. Do not create or modify artefacts yourself — at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
+
 When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
 
 When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP, and verify the fix (e.g. query whether the expected events now arrive)."""
@@ -266,7 +347,10 @@ def build_initial_research_prompt(
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
-    finding_schema = json.dumps(SignalFinding.model_json_schema(), indent=2)
+    # With a previous finding the agent answers with the update wrapper, so it can confirm the
+    # existing finding instead of regenerating it.
+    finding_model = SignalFindingUpdate if previous_finding else SignalFinding
+    finding_schema = json.dumps(finding_model.model_json_schema(), indent=2)
 
     report_context = ""
     if title or summary:
@@ -324,7 +408,8 @@ def build_signal_investigation_prompt(
 ) -> str:
     """Build a follow-up prompt for signal N (2..total)."""
     signal_block = _render_signal_for_research(signal, index, total)
-    finding_schema = json.dumps(SignalFinding.model_json_schema(), indent=2)
+    finding_model = SignalFindingUpdate if previous_finding else SignalFinding
+    finding_schema = json.dumps(finding_model.model_json_schema(), indent=2)
     previous_finding_context = _render_previous_finding_context(previous_finding)
 
     return f"""## Signal {index} of {total}
@@ -349,7 +434,8 @@ def build_actionability_prompt(
     previous_actionability: ActionabilityAssessment | None = None,
 ) -> str:
     """Build the prompt asking for an actionability assessment after all signals are investigated."""
-    schema = json.dumps(ActionabilityAssessment.model_json_schema(), indent=2)
+    model = ActionabilityUpdate if previous_actionability else ActionabilityAssessment
+    schema = json.dumps(model.model_json_schema(), indent=2)
     previous_actionability_context = _render_previous_actionability_context(previous_actionability)
 
     return f"""You have investigated all {total_signals} signal(s). Now assess: **is this report actionable?**
@@ -376,7 +462,8 @@ def build_priority_prompt(
     previous_priority: PriorityAssessment | None = None,
 ) -> str:
     """Build the prompt asking for a priority assessment (only sent when actionable)."""
-    schema = json.dumps(PriorityAssessment.model_json_schema(), indent=2)
+    model = PriorityUpdate if previous_priority else PriorityAssessment
+    schema = json.dumps(model.model_json_schema(), indent=2)
     previous_priority_context = _render_previous_priority_context(previous_priority)
 
     return f"""Now assess the **priority** of this report based on your research across all {total_signals} signal(s).
@@ -445,6 +532,21 @@ def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFindin
     return finding
 
 
+def _resolve_finding_response(
+    response: SignalFinding | SignalFindingUpdate,
+    previous_finding: SignalFinding | None,
+    expected_id: str,
+) -> tuple[SignalFinding, bool]:
+    """Collapse a per-signal research response to (effective finding, is_new)."""
+    if isinstance(response, SignalFindingUpdate):
+        if response.previous_finding_correct and previous_finding is not None:
+            return previous_finding, False
+        if response.finding is None:  # unreachable: the model validator requires it
+            raise ValueError("SignalFindingUpdate carried no finding")
+        return _enforce_signal_id(response.finding, expected_id), True
+    return _enforce_signal_id(response, expected_id), True
+
+
 async def run_multi_turn_research(
     signals: list[SignalData],
     context: CustomPromptSandboxContext,
@@ -479,18 +581,19 @@ async def run_multi_turn_research(
             output_fn(f"Starting multi-turn research: {total} signal(s)")
 
     # Turn 1: initial prompt + signal 1
+    first_previous = previous_findings_by_signal_id.get(signals[0].signal_id)
     initial_prompt = build_initial_research_prompt(
         signals[0],
         total,
         title=title,
         summary=summary,
         previous_report_id=previous_report_id,
-        previous_finding=previous_findings_by_signal_id.get(signals[0].signal_id),
+        previous_finding=first_previous,
     )
-    session, first_finding = await MultiTurnSession.start(
+    session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,
-        model=SignalFinding,
+        model=SignalFindingUpdate if first_previous else SignalFinding,
         branch=branch,
         step_name="report_research",
         verbose=verbose,
@@ -521,62 +624,90 @@ async def run_multi_turn_research(
                 task_id=str(session.task.id),
             )
 
-        first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
+        first_finding, first_is_new = _resolve_finding_response(first_response, first_previous, signals[0].signal_id)
         findings: list[SignalFinding] = [first_finding]
+        new_finding_signal_ids: list[str] = [first_finding.signal_id] if first_is_new else []
         if output_fn:
-            output_fn(f"Signal 1/{total} done: {first_finding.signal_id}")
+            output_fn(
+                f"Signal 1/{total} done: {first_finding.signal_id}"
+                + ("" if first_is_new else " (previous finding confirmed)")
+            )
 
         # Turns 2..N: one follow-up per remaining signal
         for i, signal in enumerate(signals[1:], start=2):
             if output_fn:
                 output_fn(f"Investigating signal {i}/{total}...")
+            previous_finding = previous_findings_by_signal_id.get(signal.signal_id)
             followup_prompt = build_signal_investigation_prompt(
                 signal,
                 i,
                 total,
-                previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
+                previous_finding=previous_finding,
             )
-            finding = await session.send_followup(
+            response = await session.send_followup(
                 followup_prompt,
-                SignalFinding,
+                SignalFindingUpdate if previous_finding else SignalFinding,
                 label=f"signal_{i}_of_{total}",
             )
-            finding = _enforce_signal_id(finding, signal.signal_id)
+            finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             findings.append(finding)
+            if is_new:
+                new_finding_signal_ids.append(finding.signal_id)
             if output_fn:
-                output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
+                output_fn(
+                    f"Signal {i}/{total} done: {finding.signal_id}"
+                    + ("" if is_new else " (previous finding confirmed)")
+                )
 
         # Actionability assessment
         if output_fn:
             output_fn("Assessing actionability...")
-        actionability_prompt = build_actionability_prompt(
-            total,
-            previous_actionability=previous_report_research.actionability if previous_report_research else None,
-        )
-        actionability_result = await session.send_followup(
+        previous_actionability = previous_report_research.actionability if previous_report_research else None
+        actionability_prompt = build_actionability_prompt(total, previous_actionability=previous_actionability)
+        actionability_response = await session.send_followup(
             actionability_prompt,
-            ActionabilityAssessment,
+            ActionabilityUpdate if previous_actionability else ActionabilityAssessment,
             label="actionability",
         )
+        if isinstance(actionability_response, ActionabilityUpdate):
+            if actionability_response.previous_assessment_correct and previous_actionability is not None:
+                actionability_result, actionability_is_new = previous_actionability, False
+            elif actionability_response.assessment is None:  # unreachable: the model validator requires it
+                raise ValueError("ActionabilityUpdate carried no assessment")
+            else:
+                actionability_result, actionability_is_new = actionability_response.assessment, True
+        else:
+            actionability_result, actionability_is_new = actionability_response, True
         if output_fn:
-            output_fn(f"Actionability: {actionability_result.actionability.value}")
+            output_fn(
+                f"Actionability: {actionability_result.actionability.value}"
+                + ("" if actionability_is_new else " (unchanged)")
+            )
 
         # Priority assessment (only when actionable)
         priority_result: PriorityAssessment | None = None
+        priority_is_new = False
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Assessing priority...")
-            priority_prompt = build_priority_prompt(
-                total,
-                previous_priority=previous_report_research.priority if previous_report_research else None,
-            )
-            priority_result = await session.send_followup(
+            previous_priority = previous_report_research.priority if previous_report_research else None
+            priority_prompt = build_priority_prompt(total, previous_priority=previous_priority)
+            priority_response = await session.send_followup(
                 priority_prompt,
-                PriorityAssessment,
+                PriorityUpdate if previous_priority else PriorityAssessment,
                 label="priority",
             )
+            if isinstance(priority_response, PriorityUpdate):
+                if priority_response.previous_assessment_correct and previous_priority is not None:
+                    priority_result, priority_is_new = previous_priority, False
+                elif priority_response.assessment is None:  # unreachable: the model validator requires it
+                    raise ValueError("PriorityUpdate carried no assessment")
+                else:
+                    priority_result, priority_is_new = priority_response.assessment, True
+            else:
+                priority_result, priority_is_new = priority_response, True
             if output_fn:
-                output_fn(f"Priority: {priority_result.priority.value}")
+                output_fn(f"Priority: {priority_result.priority.value}" + ("" if priority_is_new else " (unchanged)"))
 
         if output_fn:
             output_fn("Generating title and summary...")
@@ -599,7 +730,7 @@ async def run_multi_turn_research(
         await asyncio.shield(session.end(status="failed", error=str(e)))
         raise
 
-    logger.info("multi_turn_research: completed with %d findings", len(findings))
+    logger.info("multi_turn_research: completed with %d findings (%d new)", len(findings), len(new_finding_signal_ids))
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
@@ -607,4 +738,7 @@ async def run_multi_turn_research(
         actionability=actionability_result,
         priority=priority_result,
         research_task_id=str(session.task.id),
+        new_finding_signal_ids=new_finding_signal_ids,
+        actionability_is_new=actionability_is_new,
+        priority_is_new=priority_is_new,
     )

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from django.db import transaction
 
+from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
     ArtefactAttribution,
     InvalidStatusTransition,
@@ -49,7 +49,7 @@ def suppress_report_from_slack(team_id: int, report_id: str, *, slack_user_id: s
         SignalReportArtefact.append_dismissal(
             team_id=team_id,
             report_id=str(report.id),
-            content=json.dumps({"reason": "slack_dismiss", "note": None, "slack_user_id": slack_user_id}),
+            content=Dismissal(reason="slack_dismiss", slack_user_id=slack_user_id),
             attribution=ArtefactAttribution.system(),
         )
     return True

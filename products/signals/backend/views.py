@@ -44,14 +44,19 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
-from posthog.models.integration import GitHubIntegration, Integration, _is_safe_github_ref
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError
+from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
+    Dismissal,
+    SuggestedReviewers,
+    parse_artefact_content,
+)
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -962,18 +967,17 @@ class SignalReportViewSet(
             # Captured for both suppress and snooze (transition to potential) flows.
             if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
                 user = request.user
-                artefact_content = {
-                    "reason": dismissal_reason,
-                    "note": dismissal_note,
-                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
-                    "user_uuid": str(user.uuid)
-                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
-                    else None,
-                }
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
-                    content=artefact_content,
+                    content=Dismissal(
+                        reason=dismissal_reason,
+                        note=dismissal_note,
+                        user_id=getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+                        user_uuid=str(user.uuid)
+                        if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
+                        else None,
+                    ),
                     attribution=resolve_request_attribution(request, self.team.id),
                 )
 
@@ -1016,7 +1020,7 @@ class SignalReportViewSet(
             "List every artefact on a report — the full work log: signal findings (the evidence "
             "behind the report), status judgments (safety / actionability / priority, repo "
             "selection, suggested reviewers — the newest row of each status type is canonical), "
-            "and log entries (code references, diffs, commits, task runs, notes). "
+            "and log entries (code references, commits, task runs, notes). "
             "`suggested_reviewers` content is enriched with PostHog user info at read time."
         ),
         responses={200: SignalReportArtefactSerializer(many=True)},
@@ -1215,8 +1219,7 @@ class SignalReportArtefactViewSet(
             new_artefact = SignalReportArtefact.append_status(
                 team_id=self.team.id,
                 report_id=str(artefact.report_id),
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=new_content,
+                content=SuggestedReviewers.model_validate(new_content),
                 attribution=attribution,
             )
 
@@ -1275,7 +1278,7 @@ class SignalReportArtefactViewSet(
         summary="Append an artefact to a report",
         description=(
             "Append an artefact of any type to a report. Everything is append-only: log entries "
-            "(code reference, code diff, line reference, commit, task run, note) accumulate, while "
+            "(code reference, line reference, commit, task run, note) accumulate, while "
             "status types (safety / actionability / priority judgments, repo selection, suggested "
             "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
             "report's canonical status. Content is validated against the type's schema."
@@ -1344,19 +1347,21 @@ class SignalReportArtefactViewSet(
             if existing is not None:
                 return Response(self._write_response_data(existing), status=status.HTTP_200_OK)
             attribution = ArtefactAttribution.from_task(str(task_id))
+        # The write boundary: parse the raw payload into the type's content model once; the
+        # typed model is what flows into the append helpers.
         try:
-            artefact = SignalReportArtefact.append(
-                team_id=self.team.id,
-                report_id=report_id,
-                type=artefact_type,
-                content=content,
-                attribution=attribution,
-            )
+            parsed_content = parse_artefact_content(artefact_type, content)
         except ArtefactContentValidationError as e:
             return Response(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        artefact = SignalReportArtefact.append(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=parsed_content,
+            attribution=attribution,
+        )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -1443,17 +1448,6 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # These reach the GitHub API URL path (the repo also via `first_for_team_repository`'s
-        # access check, before `get_commit_diff` runs its own validation). Validate here too so a
-        # crafted artefact value can't redirect the authenticated request (path traversal / query
-        # injection). The same charset/anti-traversal rule covers a bare name or `owner/repo`;
-        # the SHA's hex shape is enforced by `get_commit_diff`.
-        if not _is_safe_github_ref(repository) or not _is_safe_github_ref(str(commit_sha)):
-            return Response(
-                {"error": "Invalid repository or commit SHA."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
         if github is None:
             return Response(
@@ -1483,12 +1477,6 @@ class SignalReportArtefactViewSet(
                         "the commit may have been rewritten away, or the branch deleted."
                     },
                     status=status.HTTP_404_NOT_FOUND,
-                )
-            if result.get("status_code") == 400:
-                # Malformed repository / SHA in the artefact content — surface our own message.
-                return Response(
-                    {"error": result.get("error", "Invalid repository or commit SHA.")},
-                    status=status.HTTP_400_BAD_REQUEST,
                 )
             logger.warning(
                 "signals commit diff fetch failed",

@@ -1,1 +1,1 @@
-0040_signalreportartefact_created_by_and_more
+0039_signalreportartefact_latest_index

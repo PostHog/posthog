@@ -5,10 +5,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
-from parameterized import parameterized
-from pydantic import ValidationError
 
-from products.signals.backend.artefact_schemas import CodeReference, Commit, NoteArtefact
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError, CodeReference, NoteArtefact
 from products.signals.backend.custom_agent.base import NO_REPO, CustomSignalAgent
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
@@ -60,75 +58,29 @@ class TestCustomAgentLogArtefacts(BaseTest):
             priority=PriorityAssessment(explanation="e", priority=Priority.P1),
         )
 
-    @parameterized.expand(
-        [
-            (
-                "register_note",
-                {"note": "hello", "author": "agent"},
-                "note",
-                {"note": "hello", "author": "agent"},
-            ),
-            (
-                "register_code_reference",
-                {
-                    "file_path": "src/a.py",
-                    "start_line": 1,
-                    "end_line": 2,
-                    "contents": "x=1\ny=2",
-                    "relevance_note": "r",
-                },
-                "code_reference",
-                {
-                    "file_path": "src/a.py",
-                    "start_line": 1,
-                    "end_line": 2,
-                    "contents": "x=1\ny=2",
-                    "relevance_note": "r",
-                },
-            ),
-            (
-                "register_code_diff",
-                {"file_path": "src/a.py", "diff": "--- a\n+++ b", "relevance_note": "r"},
-                "code_diff",
-                {"file_path": "src/a.py", "diff": "--- a\n+++ b", "relevance_note": "r"},
-            ),
-            (
-                "register_line_reference",
-                {"file_path": "src/a.py", "line": 3, "note": "this line"},
-                "line_reference",
-                {"file_path": "src/a.py", "line": 3, "note": "this line", "contents": None},
-            ),
+    def test_register_artefact_queues_any_content_model(self):
+        agent = self._agent()
+
+        agent.register_artefact(NoteArtefact(note="hello", author="agent"))
+        agent.register_artefact(
+            CodeReference(file_path="src/a.py", start_line=1, end_line=2, contents="x=1\ny=2", relevance_note="r")
+        )
+        # Status types are registerable too — they route through latest-wins on persistence.
+        agent.register_artefact(PriorityAssessment(explanation="e", priority=Priority.P1))
+
+        assert [type(a).__name__ for a in agent._registered_artefacts] == [
+            "NoteArtefact",
+            "CodeReference",
+            "PriorityAssessment",
         ]
-    )
-    def test_typed_helpers_queue_log_artefacts(self, method, kwargs, expected_type, expected_content):
+
+    def test_register_artefact_rejects_non_content_models(self):
         agent = self._agent()
 
-        getattr(agent, method)(**kwargs)
+        with self.assertRaises(ArtefactContentValidationError):
+            agent.register_artefact(RepoSelectionResult(repository="a/b", reason="not a content schema"))  # type: ignore[arg-type]
 
-        assert len(agent._log_artefacts) == 1
-        artefact_type, content_json = agent._log_artefacts[0]
-        assert artefact_type == expected_type
-        assert json.loads(content_json) == expected_content
-
-    def test_register_artefact_accepts_content_models_and_rejects_unregisterable_types(self):
-        agent = self._agent()
-
-        agent.register_artefact(NoteArtefact(note="n"))
-        assert [artefact_type for artefact_type, _ in agent._log_artefacts] == ["note"]
-
-        commit = Commit(repository="acme/repo", branch="main", commit_sha="a" * 7, message="m")
-        with self.assertRaises(TypeError):
-            agent.register_artefact(commit)  # type: ignore[arg-type]
-
-    def test_helper_validation_fails_at_the_call_site(self):
-        agent = self._agent()
-
-        with self.assertRaises(ValidationError):
-            agent.register_note("   ")
-        with self.assertRaises(ValidationError):
-            agent.register_code_reference(file_path="a.py", start_line=5, end_line=2, contents="x", relevance_note="r")
-
-        assert agent._log_artefacts == []
+        assert agent._registered_artefacts == []
 
     def test_report_and_continue_persists_queue_and_clears_it(self):
         agent = self._agent()
@@ -144,7 +96,7 @@ class TestCustomAgentLogArtefacts(BaseTest):
         )
         agent.register_priority(PriorityAssessment(explanation="e", priority=Priority.P1))
         agent.register_assignees([])
-        agent.register_note("first")
+        agent.register_artefact(NoteArtefact(note="first"))
 
         with (
             patch(
@@ -158,10 +110,10 @@ class TestCustomAgentLogArtefacts(BaseTest):
         ):
             async_to_sync(agent.report_and_continue)()
 
-        assert create_mock.call_args.kwargs["log_artefacts"] == [("note", NoteArtefact(note="first").model_dump_json())]
-        assert agent._log_artefacts == []
+        assert create_mock.call_args.kwargs["registered_artefacts"] == [NoteArtefact(note="first")]
+        assert agent._registered_artefacts == []
 
-    def test_create_report_writes_log_artefacts_attributed_to_the_task(self):
+    def test_create_report_writes_registered_artefacts_attributed_to_the_task(self):
         task = self._task()
         code_reference = CodeReference(
             file_path="src/a.py", start_line=1, end_line=1, contents="x = 1", relevance_note="r"
@@ -173,10 +125,7 @@ class TestCustomAgentLogArtefacts(BaseTest):
             repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
             task_id=str(task.id),
             agent_identifier=("billing", "anomaly_scan"),
-            log_artefacts=[
-                ("note", NoteArtefact(note="hello").model_dump_json()),
-                ("code_reference", code_reference.model_dump_json()),
-            ],
+            registered_artefacts=[NoteArtefact(note="hello"), code_reference],
         )
 
         rows = SignalReportArtefact.objects.filter(
@@ -188,14 +137,14 @@ class TestCustomAgentLogArtefacts(BaseTest):
             assert str(row.task_id) == str(task.id)
             assert row.created_by_id is None
 
-    def test_create_report_without_task_writes_system_attributed_log_artefacts(self):
+    def test_create_report_without_task_writes_system_attributed_artefacts(self):
         persisted = create_custom_agent_ready_report(
             team_id=self.team.id,
             final_report=self._final_report(),
             repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
             task_id=None,
             agent_identifier=("billing", "anomaly_scan"),
-            log_artefacts=[("note", NoteArtefact(note="hello").model_dump_json())],
+            registered_artefacts=[NoteArtefact(note="hello")],
         )
 
         row = SignalReportArtefact.objects.get(
@@ -204,3 +153,23 @@ class TestCustomAgentLogArtefacts(BaseTest):
         assert json.loads(row.content) == {"note": "hello", "author": None}
         assert row.task_id is None
         assert row.created_by_id is None
+
+    def test_create_report_routes_registered_status_artefacts_latest_wins(self):
+        # A registered status artefact appends a new version on top of the one the final report
+        # itself writes — the registered (later) row is the report's current status.
+        persisted = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+            task_id=None,
+            agent_identifier=("billing", "anomaly_scan"),
+            registered_artefacts=[PriorityAssessment(explanation="raised", priority=Priority.P0)],
+        )
+
+        rows = list(
+            SignalReportArtefact.objects.filter(
+                report_id=persisted.report_id, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+            ).order_by("created_at")
+        )
+        assert len(rows) == 2
+        assert json.loads(rows[-1].content)["priority"] == "P0"

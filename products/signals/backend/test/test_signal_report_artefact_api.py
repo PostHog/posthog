@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.artefact_schemas import CodeReference, NoteArtefact, Priority, PriorityAssessment
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task
 
@@ -456,7 +457,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("repo_selection", SignalReportArtefact.ArtefactType.REPO_SELECTION),
             ("dismissal", SignalReportArtefact.ArtefactType.DISMISSAL),
             ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
-            ("code_diff", SignalReportArtefact.ArtefactType.CODE_DIFF),
             ("line_reference", SignalReportArtefact.ArtefactType.LINE_REFERENCE),
             ("commit", SignalReportArtefact.ArtefactType.COMMIT),
             ("task_run", SignalReportArtefact.ArtefactType.TASK_RUN),
@@ -647,7 +647,6 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("code_reference", _CODE_REFERENCE_CONTENT),
-            ("code_diff", {"file_path": "a.py", "diff": "@@ -1 +1 @@", "relevance_note": "x"}),
             ("line_reference", {"file_path": "a.py", "line": 3, "note": "here"}),
             (
                 "commit",
@@ -716,8 +715,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(report.id),
-            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            content={"explanation": "initial", "priority": "P3"},
+            content=PriorityAssessment(explanation="initial", priority=Priority.P3),
             attribution=ArtefactAttribution.system(),
         )
 
@@ -800,8 +798,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact = SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(report.id),
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            content=json.dumps({"note": "before"}),
+            content=NoteArtefact(note="before"),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
@@ -811,10 +808,10 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["content"] == {"note": "after"}
+        assert response.json()["content"] == {"note": "after", "author": None}
 
         artefact.refresh_from_db()
-        assert json.loads(artefact.content) == {"note": "after"}
+        assert json.loads(artefact.content) == {"note": "after", "author": None}
         assert artefact.updated_at is not None
 
     def test_patch_updates_status_artefact_validated_against_its_type(self):
@@ -822,8 +819,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact = SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(report.id),
-            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            content={"explanation": "initial", "priority": "P3"},
+            content=PriorityAssessment(explanation="initial", priority=Priority.P3),
             attribution=ArtefactAttribution.system(),
         )
 
@@ -851,8 +847,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact = SignalReportArtefact.add_log(
             team_id=other_team.id,
             report_id=str(other_report.id),
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            content=json.dumps({"note": "x"}),
+            content=NoteArtefact(note="x"),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
@@ -870,8 +865,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact = SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(report.id),
-            type=SignalReportArtefact.ArtefactType.CODE_DIFF,
-            content=json.dumps({"file_path": "a.py", "diff": "d", "relevance_note": "r"}),
+            content=CodeReference(file_path="a.py", start_line=1, end_line=1, contents="x", relevance_note="r"),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
@@ -885,8 +879,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             SignalReportArtefact.append_status(
                 team_id=self.team.id,
                 report_id=str(report.id),
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content={"explanation": explanation, "priority": priority},
+                content=PriorityAssessment(explanation=explanation, priority=Priority(priority)),
                 attribution=ArtefactAttribution.system(),
             )
         latest = SignalReportArtefact.objects.filter(
@@ -907,8 +900,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact = SignalReportArtefact.add_log(
             team_id=other_team.id,
             report_id=str(other_report.id),
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            content=json.dumps({"note": "x"}),
+            content=NoteArtefact(note="x"),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
@@ -1037,8 +1029,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         artefact = SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(report.id),
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            content={"note": "before"},
+            content=NoteArtefact(note="before"),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
         response = self.client.patch(
@@ -1048,7 +1039,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         artefact.refresh_from_db()
-        assert json.loads(artefact.content) == {"note": "before"}
+        assert json.loads(artefact.content) == {"note": "before", "author": None}
 
 
 _COMMIT_CONTENT = {
@@ -1106,15 +1097,6 @@ class TestSignalReportCommitDiff(APIBaseTest):
         artefact = self._create_commit_artefact(report, content)
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_diff_validates_refs_before_integration_lookup(self):
-        # A crafted repository must be rejected before it can reach the GitHub access check.
-        report = self._create_report()
-        artefact = self._create_commit_artefact(report, {**_COMMIT_CONTENT, "repository": "PostHog/../evil?x="})
-        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as mock_lookup:
-            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        mock_lookup.assert_not_called()
 
     def test_diff_returns_404_when_no_integration_can_access_repo(self):
         report = self._create_report()

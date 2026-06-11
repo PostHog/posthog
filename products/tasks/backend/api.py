@@ -345,17 +345,15 @@ def _slack_repo_research_payload(
     }
 
 
-_FULL_MCP_RUN_SOURCES: frozenset[RunSource | None] = frozenset({None, RunSource.MANUAL})
+# SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
+# via the task:write artefact tools.
+_FULL_MCP_RUN_SOURCES: frozenset[RunSource | None] = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
 
 
 def _resolve_posthog_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     run_source = parse_run_state(task_run.state).run_source
     if run_source in _FULL_MCP_RUN_SOURCES:
         return "full"
-    if run_source == RunSource.SIGNAL_REPORT:
-        # Signal-report runs need the task:write signals tool surface (record report artefacts,
-        # associate their task with reports) — same scopes as read_only, without read-only mode.
-        return "signals_report"
     return "read_only"
 
 

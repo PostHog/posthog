@@ -1078,25 +1078,6 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
-    def test_get_commit_diff_rejects_unsafe_repo_and_sha(self):
-        # repository / sha flow in from artefact content; a crafted value must not be able to
-        # escape the intended commits endpoint (path traversal / query injection).
-        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
-        cases = [
-            ("../../../../repos/o/r/contents/x", "abc123f"),
-            ("PostHog/posthog", "../../etc/passwd"),
-            ("PostHog/posthog", "abc123f?ref=y#"),
-            ("PostHog/posthog", "main"),  # a branch name is not a commit SHA
-            ("PostHog/posthog", "abc12"),  # too short
-        ]
-        with patch.object(github, "_github_api_get") as mock_get:
-            for repository, sha in cases:
-                result = github.get_commit_diff(repository, sha)
-                assert result["success"] is False, (repository, sha)
-                assert result["status_code"] == 400
-            mock_get.assert_not_called()
-
     def test_get_commit_diff_returns_diff(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

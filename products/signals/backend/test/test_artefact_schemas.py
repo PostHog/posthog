@@ -3,19 +3,19 @@ import json
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ArtefactContentValidationError,
-    CodeDiff,
     CodeReference,
     Commit,
     LineReference,
     NoteArtefact,
     RepoSelection,
     TaskRunArtefact,
-    validate_artefact_content,
+    artefact_type_for,
+    parse_artefact_content,
 )
 from products.signals.backend.models import SignalReportArtefact
 from products.tasks.backend.repo_selection import RepoSelectionResult
@@ -45,9 +45,32 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             CodeReference(**kwargs)
 
-    def test_code_diff_round_trips(self):
-        diff = CodeDiff(file_path="a.py", diff="@@ -1 +1 @@", relevance_note="why")
-        assert diff.file_path == "a.py"
+    @parameterized.expand(
+        [
+            ("line_too_long", {"contents": "x" * 1001}),
+            ("too_many_lines", {"contents": "\n".join(["x"] * 21), "end_line": 21}),
+            ("span_too_wide", {"end_line": 22}),
+        ]
+    )
+    def test_code_reference_rejects_unbounded_contents(self, _name, overrides):
+        kwargs = {"file_path": "a.py", "start_line": 1, "end_line": 2, "contents": "x\ny", "relevance_note": "why"}
+        kwargs.update(overrides)
+        with self.assertRaises(ValidationError):
+            CodeReference(**kwargs)
+
+    def test_code_reference_accepts_bounded_contents(self):
+        ref = CodeReference(
+            file_path="a.py",
+            start_line=1,
+            end_line=20,
+            contents="\n".join(["x" * 1000] * 20),
+            relevance_note="why",
+        )
+        assert ref.end_line == 20
+
+    def test_line_reference_rejects_overlong_contents(self):
+        with self.assertRaises(ValidationError):
+            LineReference(file_path="a.py", line=1, note="n", contents="x" * 1001)
 
     def test_line_reference_defaults_contents_to_none(self):
         ref = LineReference(file_path="a.py", line=10, note="look here")
@@ -57,24 +80,11 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             LineReference(file_path="a.py", line=0, note="x")
 
-    def test_commit_normalizes_sha_and_defaults_note(self):
-        commit = Commit(repository="PostHog/posthog", branch="fix/foo", commit_sha="ABC123F", message="fix: foo")
-        assert commit.commit_sha == "abc123f"
+    def test_commit_defaults_note_to_none(self):
+        commit = Commit(repository="PostHog/posthog", branch="fix/foo", commit_sha="abc123f", message="fix: foo")
         assert commit.note is None
 
-    @parameterized.expand(
-        [
-            ("too_short", "abc12"),
-            ("not_hex", "zzzz9999"),
-            ("traversal", "../etc/passwd"),
-            ("blank", "   "),
-        ]
-    )
-    def test_commit_rejects_invalid_sha(self, _name, sha):
-        with self.assertRaises(ValidationError):
-            Commit(repository="PostHog/posthog", branch="fix/foo", commit_sha=sha, message="fix: foo")
-
-    @parameterized.expand([("repository",), ("branch",), ("message",)])
+    @parameterized.expand([("repository",), ("branch",), ("commit_sha",), ("message",)])
     def test_commit_rejects_blank_strings(self, field):
         kwargs = {"repository": "PostHog/posthog", "branch": "fix/foo", "commit_sha": "abc123f", "message": "m"}
         kwargs[field] = "   "
@@ -125,8 +135,10 @@ class TestValidateArtefactContent(SimpleTestCase):
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
-        normalized = validate_artefact_content(artefact_type, content)
-        assert json.loads(normalized) == content
+        parsed = parse_artefact_content(artefact_type, content)
+        assert artefact_type_for(parsed) == artefact_type
+        # The typed model round-trips through its stored JSON representation.
+        assert parse_artefact_content(artefact_type, parsed.model_dump_json()) == parsed
 
     @parameterized.expand(
         [
@@ -137,21 +149,29 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
             ("note", {"note": "   "}),
-            ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "nope", "message": "m"}),
+            ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
         with self.assertRaises(ArtefactContentValidationError):
-            validate_artefact_content(artefact_type, content)
+            parse_artefact_content(artefact_type, content)
 
-    def test_accepts_json_text_and_preserves_extra_keys(self):
-        # Validation is a gate, not a rewrite — forward-compatible extra keys survive.
-        text = json.dumps({"note": "hello", "future_field": 42})
-        assert json.loads(validate_artefact_content("note", text)) == {"note": "hello", "future_field": 42}
+    def test_parsing_normalizes_to_the_schema(self):
+        # Parsing into the typed model is the boundary: unknown keys are not persisted, and
+        # omitted optional fields are stored with their defaults.
+        parsed = parse_artefact_content("note", json.dumps({"note": "hello", "future_field": 42}))
+        assert json.loads(parsed.model_dump_json()) == {"note": "hello", "author": None}
 
     def test_rejects_unknown_type_and_malformed_json(self):
         with self.assertRaises(ArtefactContentValidationError):
-            validate_artefact_content("pushed_branch", {"repository": "a/b", "branch": "c"})
+            parse_artefact_content("pushed_branch", {"repository": "a/b", "branch": "c"})
         with self.assertRaises(ArtefactContentValidationError):
-            validate_artefact_content("note", "{not json")
+            parse_artefact_content("note", "{not json")
+
+    def test_artefact_type_for_rejects_non_content_models(self):
+        class NotAnArtefact(BaseModel):
+            x: int = 1
+
+        with self.assertRaises(ArtefactContentValidationError):
+            artefact_type_for(NotAnArtefact())

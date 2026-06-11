@@ -66,13 +66,6 @@ class TestResolveScopes(SimpleTestCase):
         for scope in INTERNAL_SCOPES:
             assert scope not in result
 
-    def test_signals_report_preset_matches_read_only_scopes(self) -> None:
-        # `signals_report` grants no extra scope — it exists purely to disable read-only mode
-        # so the `task:write`-gated signals tools (artefacts, associations) stay available.
-        assert set(resolve_scopes("signals_report")) == set(resolve_scopes("read_only"))
-        assert "signal_scout_internal:write" not in resolve_scopes("signals_report")
-        assert "notebook:write" not in resolve_scopes("signals_report")
-
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
         result = resolve_scopes(custom)
@@ -125,7 +118,6 @@ class TestHasWriteScopes(SimpleTestCase):
             ("read_only_preset", "read_only", False),
             ("full_preset", "full", True),
             ("signals_scout_preset", "signals_scout", True),
-            ("signals_report_preset", "signals_report", True),
             ("custom_with_mcp_write", ["feature_flag:read", "feature_flag:write"], True),
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),

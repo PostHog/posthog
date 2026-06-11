@@ -13,12 +13,10 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 
 from __future__ import annotations
 
-import json
+from pydantic import ValidationError
 
-from posthog.sync import database_sync_to_async
-
-from products.signals.backend.artefact_schemas import TaskRunArtefact, validate_artefact_content
-from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.artefact_schemas import TaskRunArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 
 # Product identifier for task runs driven by the built-in signals pipeline (research /
 # implementation / repo-selection). Custom agents supply their own product via `identifier()`.
@@ -30,13 +28,13 @@ TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
 
 
-def _task_run_content(product: str, type: str, task_id: str, run_id: str | None) -> str:
+def _task_run_content(product: str, type: str, task_id: str, run_id: str | None) -> TaskRunArtefact:
     return TaskRunArtefact(
         task_id=str(task_id),
         run_id=str(run_id) if run_id is not None else None,
         product=product,
         type=type,
-    ).model_dump_json()
+    )
 
 
 def append_task_run_artefact(
@@ -49,7 +47,6 @@ def append_task_run_artefact(
     return SignalReportArtefact.add_log(
         team_id=team_id,
         report_id=str(report_id),
-        type=SignalReportArtefact.ArtefactType.TASK_RUN,
         content=_task_run_content(product, type, task_id, run_id),
         attribution=ArtefactAttribution.from_task(task_id),
     )
@@ -68,9 +65,7 @@ async def aappend_task_run_artefact(
         team_id=team_id,
         report_id=str(report_id),
         type=SignalReportArtefact.ArtefactType.TASK_RUN,
-        content=validate_artefact_content(
-            SignalReportArtefact.ArtefactType.TASK_RUN, _task_run_content(product, type, task_id, run_id)
-        ),
+        content=_task_run_content(product, type, task_id, run_id).model_dump_json(),
         task_id=str(task_id),
     )
 
@@ -90,26 +85,30 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
         .values_list("content", flat=True)
     ):
         try:
-            parsed = json.loads(content)
-        except (json.JSONDecodeError, ValueError):
+            run = TaskRunArtefact.model_validate_json(content)
+        except ValidationError:
             continue
-        if (
-            isinstance(parsed, dict)
-            and parsed.get("product") == SIGNALS_PRODUCT
-            and parsed.get("type") == type
-            and parsed.get("task_id")
-        ):
-            task_ids.append(str(parsed["task_id"]))
+        if run.product == SIGNALS_PRODUCT and run.type == type:
+            task_ids.append(run.task_id)
     return task_ids
 
 
-def has_signals_task_run(*, report_id: str, type: str) -> bool:
-    """True when a `task_run` artefact from the built-in signals pipeline with the given `type`
-    exists for the report — e.g. the auto-start "has an implementation started?" idempotency check.
+def record_implementation_task(
+    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None
+) -> SignalReportArtefact:
+    """Record a started implementation task: the report's `implementation_task` gate column plus
+    the `task_run` work-log artefact.
+
+    The column is the auto-start idempotency gate — a compare-and-set (first writer wins), so the
+    gate never depends on the freeform, API-mutable artefact log. Call inside the transaction
+    that created the task. Shared by auto-start and the manual start-task API.
     """
-    return bool(signals_task_ids(report_id=report_id, type=type))
-
-
-async def ahas_signals_task_run(*, report_id: str, type: str) -> bool:
-    """Async wrapper for `has_signals_task_run`."""
-    return await database_sync_to_async(has_signals_task_run, thread_sensitive=False)(report_id=report_id, type=type)
+    SignalReport.objects.filter(id=report_id, implementation_task__isnull=True).update(implementation_task_id=task_id)
+    return append_task_run_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_IMPLEMENTATION,
+        task_id=task_id,
+        run_id=run_id,
+    )

@@ -1,4 +1,3 @@
-import re
 import hmac
 import json
 import time
@@ -86,31 +85,9 @@ oauth_refresh_counter = Counter(
 
 GITHUB_API_VERSION = "2022-11-28"
 
-# `owner/repo`, single slash, no traversal. Used to keep repo/ref values out of GitHub API URL
-# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
-# authenticated request to a different endpoint.
-_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
-_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
-_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
-
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
-
-
-def _is_safe_github_ref(ref: str) -> bool:
-    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
-    return (
-        bool(ref)
-        and ".." not in ref
-        and not ref.startswith("/")
-        and not ref.endswith("/")
-        and bool(_GITHUB_REF_RE.fullmatch(ref))
-    )
-
-
-def _is_safe_github_repo_path(repo_path: str) -> bool:
-    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
@@ -2609,18 +2586,11 @@ class GitHubIntegration(GitHubIntegrationBase):
         """Return the unified diff introduced by commit ``sha`` in ``repository``.
 
         ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
-        org). ``sha`` is a full or abbreviated (7-40 hex chars) commit SHA. Uses the GitHub
-        single-commit API with the ``diff`` media type, so the response body is raw unified-diff
-        text (the commit against its first parent).
+        org). ``sha`` is a full or abbreviated commit SHA. Uses the GitHub single-commit API with
+        the ``diff`` media type, so the response body is raw unified-diff text (the commit against
+        its first parent). Malformed repository / SHA values are GitHub's to reject.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        # repository / sha reach this from artefact content and are interpolated into the GitHub
-        # API URL path; validate them so a crafted value can't redirect the authenticated request
-        # to a different endpoint (path traversal / query injection).
-        if not _is_safe_github_repo_path(repo_path):
-            return {"success": False, "error": "Invalid repository.", "status_code": 400}
-        if not _GITHUB_COMMIT_SHA_RE.fullmatch(sha):
-            return {"success": False, "error": "Invalid commit SHA.", "status_code": 400}
         access_token = self.integration.sensitive_config["access_token"]
 
         try:

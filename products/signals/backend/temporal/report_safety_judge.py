@@ -10,6 +10,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
@@ -131,13 +132,7 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
         await database_sync_to_async(SignalReportArtefact.append_status, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,
-            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            content=json.dumps(
-                {
-                    "choice": result.choice,
-                    "explanation": result.explanation,
-                }
-            ),
+            content=SafetyJudgment(choice=result.choice, explanation=result.explanation),
             attribution=ArtefactAttribution.system(),
         )
 

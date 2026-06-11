@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -13,6 +12,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.artefact_schemas import ArtefactContent, RepoSelection, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -146,6 +146,15 @@ _AGENTIC_ARTEFACT_TYPES = [
 ]
 
 
+@dataclass(frozen=True)
+class ArtefactDraft:
+    """An artefact pending append: its typed content (the row's type derives from the model
+    class) and who produced it."""
+
+    content: ArtefactContent
+    attribution: ArtefactAttribution
+
+
 def _build_reviewers_content(
     team_id: int,
     repository: str,
@@ -192,74 +201,23 @@ def _build_reviewers_content(
     return reviewers_content
 
 
-def _append_agentic_report_artefacts(
-    *,
-    team_id: int,
-    report_id: str,
-    repo_selection_json: str,
-    repo_selection_task_id: str | None,
-    finding_jsons: list[str],
-    actionability_json: str,
-    priority_json: str | None,
-    reviewers_json: str | None,
-    research_task_id: str | None,
-) -> None:
+def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
     # Prior versions are intentionally retained as report-log history. `_AGENTIC_ARTEFACT_TYPES`
     # is kept as the documented set these versions belong to (and is asserted disjoint from the
-    # log types in tests). Written through the model helpers (the single artefact write path) in
-    # one transaction; the caller orchestrates auto-start explicitly, so the suggested_reviewers
-    # append opts out of the model's auto-start re-evaluation hook.
-    #
-    # Attribution: the research findings / judgments / reviewers were produced by the research
-    # sandbox agent, so they're attributed to its task. Repo selection has its own task when a
-    # selection agent ran (N candidates); the 0/1-candidate shortcuts and reused selections fall
-    # back to system. These activities run on the Temporal worker but only *persist* what the
-    # sandbox agents produced.
-    research_attribution = (
-        ArtefactAttribution.from_task(research_task_id) if research_task_id else ArtefactAttribution.system()
-    )
-    repo_selection_attribution = (
-        ArtefactAttribution.from_task(repo_selection_task_id)
-        if repo_selection_task_id
-        else ArtefactAttribution.system()
-    )
+    # log types in tests). Written through `SignalReportArtefact.append` (the single artefact
+    # write path, routing each type to its append semantics) in one transaction; the caller
+    # orchestrates auto-start explicitly, so appends opt out of the model's auto-start
+    # re-evaluation hook.
     with transaction.atomic():
-        SignalReportArtefact.append_status(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=repo_selection_json,
-            attribution=repo_selection_attribution,
-        )
-        for finding_json in finding_jsons:
-            SignalReportArtefact.append_finding(
-                team_id=team_id, report_id=report_id, content=finding_json, attribution=research_attribution
-            )
-        SignalReportArtefact.append_status(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=actionability_json,
-            attribution=research_attribution,
-        )
-        if priority_json is not None:
-            SignalReportArtefact.append_status(
+        for draft in artefacts:
+            SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content=priority_json,
-                attribution=research_attribution,
-            )
-        if reviewers_json is not None:
-            SignalReportArtefact.append_status(
-                team_id=team_id,
-                report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=reviewers_json,
-                attribution=research_attribution,
+                content=draft.content,
+                attribution=draft.attribution,
                 reevaluate_autostart=False,
             )
 
@@ -267,23 +225,64 @@ def _append_agentic_report_artefacts(
 async def _persist_agentic_report_artefacts(
     team_id: int, report_id: str, result: ReportResearchOutput, repo_selection: RepoSelectionResult
 ) -> None:
-    # Resolve suggested reviewers from commit hashes
+    # Resolve suggested reviewers from commit hashes (always, from the effective findings —
+    # auto-start below needs them even when nothing is persisted this run)
     reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
         repository=repo_selection.repository or "",
         findings=result.findings,
     )
 
+    # Persist only what's new this run; values the agent confirmed unchanged keep their latest
+    # persisted row. Reviewers are derived purely from findings, so they're only re-persisted
+    # when at least one finding changed.
+    #
+    # Attribution: the research findings / judgments / reviewers were produced by the research
+    # sandbox agent, so they're attributed to its task. Repo selection has its own task when a
+    # selection agent ran (N candidates); the 0/1-candidate shortcuts and reused selections fall
+    # back to system. These activities run on the Temporal worker but only *persist* what the
+    # sandbox agents produced.
+    research_attribution = (
+        ArtefactAttribution.from_task(result.research_task_id)
+        if result.research_task_id
+        else ArtefactAttribution.system()
+    )
+    repo_selection_attribution = (
+        ArtefactAttribution.from_task(repo_selection.task_id)
+        if repo_selection.task_id
+        else ArtefactAttribution.system()
+    )
+    new_findings = (
+        result.findings
+        if result.new_finding_signal_ids is None
+        else [f for f in result.findings if f.signal_id in set(result.new_finding_signal_ids)]
+    )
+
+    artefacts = [
+        # The signals-owned RepoSelection schema mirrors the tasks product's RepoSelectionResult
+        # (parity-tested) — convert at the product boundary so the stored model is signals' own.
+        ArtefactDraft(
+            content=RepoSelection.model_validate(repo_selection.model_dump()),
+            attribution=repo_selection_attribution,
+        ),
+        *(ArtefactDraft(content=finding, attribution=research_attribution) for finding in new_findings),
+    ]
+    if result.actionability_is_new:
+        artefacts.append(ArtefactDraft(content=result.actionability, attribution=research_attribution))
+    if result.priority and result.priority_is_new:
+        artefacts.append(ArtefactDraft(content=result.priority, attribution=research_attribution))
+    if reviewers_content and new_findings:
+        artefacts.append(
+            ArtefactDraft(
+                content=SuggestedReviewers.model_validate(list(reviewers_content)),
+                attribution=research_attribution,
+            )
+        )
+
     await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
-        repo_selection_json=repo_selection.model_dump_json(),
-        repo_selection_task_id=repo_selection.task_id,
-        finding_jsons=[finding.model_dump_json() for finding in result.findings],
-        actionability_json=result.actionability.model_dump_json(),
-        priority_json=result.priority.model_dump_json() if result.priority else None,
-        reviewers_json=json.dumps(reviewers_content) if reviewers_content else None,
-        research_task_id=result.research_task_id,
+        artefacts=artefacts,
     )
 
     try:
@@ -329,9 +328,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Read for queries/insights, plus the signals artefact write surface so the
-                # research agent can record artefacts (notes, code references, associations).
-                posthog_mcp_scopes="signals_report",
+                # Reads only: the research agent queries data/insights and can list the report's
+                # artefacts, but never writes artefacts itself — the pipeline persists its
+                # structured outputs after the session.
+                posthog_mcp_scopes="read_only",
             )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)

@@ -1,12 +1,11 @@
 """Decides when (and whether) to send a report's inbox Slack notification.
 
 A notification is only sent when the report has an implementation PR to link — otherwise
-there's nothing actionable, so it's suppressed (it still appears in the inbox UI). A report
-that auto-starts an implementation task waits for the PR to open (so the card can carry a
-"Review PR" button), bounded by a timeout; if that task never opens a PR (it fails, is
-cancelled, or the wait times out) the notification is suppressed. A report with no auto-start
-task can never produce a PR, so it's suppressed immediately without waiting. Posting itself
-stays in `dispatch_inbox_item_notifications`; this governs timing and suppression.
+there's nothing actionable, so it's suppressed (it still appears in the inbox UI). The gate is
+simply PR presence: task↔report associations are free-form artefacts (any task can associate
+and open a PR), so the workflow polls for a PR from any associated task, bounded by a timeout,
+then sends (with a "Review PR" button) or suppresses. Posting itself stays in
+`dispatch_inbox_item_notifications`; this governs timing and suppression.
 """
 
 from __future__ import annotations
@@ -42,19 +41,22 @@ class InboxNotificationInput:
 
 @dataclass
 class InboxNotificationState:
+    # The gate is `pr_available` alone. The task-derived fields only serve workflows in flight
+    # from before the `signals-inbox-wait-for-any-pr` patch (their wait loop reads them) — drop
+    # them, and the labeled-task derivation below, when that patch is deprecated.
     has_implementation_task: bool
     pr_available: bool
     task_terminal: bool
 
 
 def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNotificationState:
-    # Which tasks are implementations is derived from the report's task_run artefacts — the
-    # task↔report association rows are unlabelled.
+    # PR presence is association-agnostic: any task linked to the report via a task_run artefact
+    # counts. The labeled `(signals, implementation)` lookup only feeds the legacy fields.
+    pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
+
     implementation_task_ids = signals_task_ids(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION)
     if not implementation_task_ids:
-        return InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
-
-    pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
+        return InboxNotificationState(has_implementation_task=False, pr_available=pr_available, task_terminal=False)
     latest_run = (
         TaskRun.objects.filter(
             task__team_id=team_id,
@@ -125,27 +127,35 @@ class SignalReportInboxNotificationWorkflow:
         timeout_seconds = settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS
         poll_seconds = max(1, settings.SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS)
 
-        state = await self._fetch_state(inputs)
-        if state.has_implementation_task and not state.pr_available and not state.task_terminal:
+        # Send iff a PR shows up within the timeout, from any task associated with the report —
+        # associations are free-form artefacts, so no task-shape heuristics decide the wait. The
+        # older patch branches keep workflows already in flight at deploy on their prior behavior
+        # (replay determinism): they only waited while a labeled implementation task was running,
+        # and the oldest never suppressed at all.
+        if workflow.patched("signals-inbox-wait-for-any-pr"):
+            state = await self._fetch_state(inputs)
             elapsed = 0
-            while elapsed < timeout_seconds:
+            while not state.pr_available and elapsed < timeout_seconds:
                 await workflow.sleep(timedelta(seconds=poll_seconds))
                 elapsed += poll_seconds
                 state = await self._fetch_state(inputs)
-                if state.pr_available or state.task_terminal:
-                    break
-
-        # A report with no implementation PR has nothing actionable to link, so suppress its
-        # notification (it still shows in the inbox). The patch guards keep workflows already in
-        # flight at deploy on their prior, narrower behavior to preserve replay determinism:
-        # `signals-inbox-skip-any-no-pr` suppresses any PR-less report; the older
-        # `signals-inbox-skip-no-pr` only suppressed reports whose implementation task produced no PR.
-        if workflow.patched("signals-inbox-skip-any-no-pr"):
             should_skip = not state.pr_available
-        elif workflow.patched("signals-inbox-skip-no-pr"):
-            should_skip = state.has_implementation_task and not state.pr_available
         else:
-            should_skip = False
+            state = await self._fetch_state(inputs)
+            if state.has_implementation_task and not state.pr_available and not state.task_terminal:
+                elapsed = 0
+                while elapsed < timeout_seconds:
+                    await workflow.sleep(timedelta(seconds=poll_seconds))
+                    elapsed += poll_seconds
+                    state = await self._fetch_state(inputs)
+                    if state.pr_available or state.task_terminal:
+                        break
+            if workflow.patched("signals-inbox-skip-any-no-pr"):
+                should_skip = not state.pr_available
+            elif workflow.patched("signals-inbox-skip-no-pr"):
+                should_skip = state.has_implementation_task and not state.pr_available
+            else:
+                should_skip = False
 
         if should_skip:
             workflow.logger.info(

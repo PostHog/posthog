@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
 
+from products.signals.backend.artefact_schemas import ArtefactContent, RepoSelection, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -25,13 +25,14 @@ def create_custom_agent_ready_report(
     repo_selection: RepoSelectionResult,
     task_id: str | None = None,
     agent_identifier: tuple[str, str],
-    log_artefacts: Sequence[tuple[str, str]] = (),
+    registered_artefacts: Sequence[ArtefactContent] = (),
 ) -> PersistedCustomAgentReport:
     """Create a final READY report plus compatible artefacts in one transaction.
 
     `agent_identifier` is the agent's `(product, type)` pair; it labels the `task_run` artefact
-    when this run produced a task. `log_artefacts` are `(type, content_json)` work-log entries
-    queued during the run via the agent's `register_artefact` helpers, written in queue order.
+    when this run produced a task. `registered_artefacts` are typed content models of any
+    artefact type, queued during the run via the agent's `register_artefact`, written in queue
+    order (status types route through their latest-wins append semantics).
     """
     with transaction.atomic():
         report = SignalReport.objects.create(
@@ -53,42 +54,42 @@ def create_custom_agent_ready_report(
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=repo_selection.model_dump_json(),
+            # Signals-owned mirror of the tasks product's RepoSelectionResult (parity-tested) —
+            # convert at the product boundary so the stored model is signals' own.
+            content=RepoSelection.model_validate(repo_selection.model_dump()),
             attribution=attribution,
         )
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=final_report.actionability.model_dump_json(),
+            content=final_report.actionability,
             attribution=attribution,
         )
         if final_report.priority is not None:
             SignalReportArtefact.append_status(
                 team_id=team_id,
                 report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content=final_report.priority.model_dump_json(),
+                content=final_report.priority,
                 attribution=attribution,
             )
         if final_report.assignees:
             SignalReportArtefact.append_status(
                 team_id=team_id,
                 report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
+                content=SuggestedReviewers.model_validate(
+                    [assignee.model_dump(mode="json") for assignee in final_report.assignees]
+                ),
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
 
-        for artefact_type, artefact_content in log_artefacts:
-            SignalReportArtefact.add_log(
+        for artefact_content in registered_artefacts:
+            SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                type=artefact_type,
                 content=artefact_content,
                 attribution=attribution,
+                reevaluate_autostart=False,
             )
 
         if task_id is not None:

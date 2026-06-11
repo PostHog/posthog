@@ -15,11 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
-from products.signals.backend.task_run_artefacts import (
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
-    append_task_run_artefact,
-)
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -239,17 +235,15 @@ class TaskSerializer(serializers.ModelSerializer):
             validated_data.setdefault("title_manually_set", True)
 
         # Inbox / PostHog Code: a task created via this API with a signal report is a manual
-        # "start implementation". Associate it with the report and record the implementation
-        # task_run artefact in the same transaction — the artefact is what derives the task's
-        # purpose and what blocks the auto-start pipeline from double-starting.
+        # "start implementation". Record it in the same transaction — the report's
+        # `implementation_task` gate column blocks the auto-start pipeline from double-starting,
+        # and the task_run artefact is the work-log entry that derives the task's purpose.
         with transaction.atomic():
             task = super().create(validated_data)
             if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-                append_task_run_artefact(
+                record_implementation_task(
                     team_id=task.team_id,
                     report_id=str(task.signal_report_id),
-                    product=SIGNALS_PRODUCT,
-                    type=TASK_RUN_TYPE_IMPLEMENTATION,
                     task_id=str(task.id),
                 )
             return task

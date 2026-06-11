@@ -29,7 +29,7 @@ Everything is append-only; the sets classify what an entry _means_:
 - **`status` artefacts** describe the report's current state — `safety_judgment`,
   `actionability_judgment`, `priority_judgment`, `repo_selection`, `suggested_reviewers`.
   Each (re)assessment appends a row; the current status is the latest row of that type.
-- **`log` artefacts** record discrete work — `code_reference`, `code_diff`, `line_reference`,
+- **`log` artefacts** record discrete work — `code_reference`, `line_reference`,
   `commit`, `task_run`, `note`. They accumulate and are addressable by UUID (update/delete).
 - `signal_finding` is keyed by `(report, content.signal_id)` (latest per signal wins); `dismissal`
   entries stack. Both have dedicated appenders.
@@ -37,10 +37,12 @@ Everything is append-only; the sets classify what an entry _means_:
 ### Unified content schemas
 
 `artefact_schemas.py` is the canonical, pydantic-only home of **every** content shape, collected
-in `ARTEFACT_CONTENT_SCHEMAS` (one schema per `ArtefactType`; a test asserts exact coverage).
-`validate_artefact_content(type, content)` is the single write gate — called by the model helpers
-and the API serializers. Validation is a gate, not a rewrite: forward-compatible extra keys are
-preserved. Reads stay legacy-tolerant — old rows are never re-validated.
+in `ARTEFACT_CONTENT_SCHEMAS` (one model per `ArtefactType`; a test asserts exact coverage). Raw
+payloads become typed models once, at the boundaries — `parse_artefact_content(type, content)`
+for API writes and reads that consume stored rows — and everything in between passes the model
+around; the model helpers derive a row's type from the content model's class
+(`artefact_type_for`) and store `model_dump_json()`, so a type can never mismatch its content.
+Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
 The judgment models (`SignalFinding`, `ActionabilityAssessment`, `PriorityAssessment`) double as
 LLM output schemas; `report_generation/research.py` re-exports them. `RepoSelection` mirrors the
@@ -89,9 +91,13 @@ supply their own `identifier()` pair; free-form associations default to `tasks/a
   entry). The reports list accepts `?task_id=` (artefact-derived) so an agent or the commit hook
   can find the reports a task works against.
 - **Auto-start idempotency** (`auto_start.py`): "implementation already started" :=
-  an implementation `task_run` artefact exists (`has_signals_task_run`), checked and written
-  inside the report-row `select_for_update` transaction so concurrent evaluations can't double-start.
-  The manual "start implementation" path (tasks API with a `signal_report`) writes the same artefact.
+  `SignalReport.implementation_task` is set — a real gate column, checked and written inside the
+  report-row `select_for_update` transaction so concurrent evaluations can't double-start. The
+  gate deliberately does NOT key on the artefact log: task_run artefacts are freeform and
+  API-mutable (any agent can append or delete them), so they can't carry a spend-controlling
+  decision. Both writers (auto-start and the manual tasks-API path) go through
+  `record_implementation_task`, which compare-and-sets the column and appends the `task_run`
+  work-log artefact.
 - **`implementation_pr_url`** is the newest PR produced by any associated task's runs
   (artefact-derived, both in the viewset annotation and `implementation_pr.py`).
 - `SignalReportTask` is deprecated: no longer read or written; `backfill_task_run_artefacts`
@@ -109,18 +115,19 @@ status row reverts the canonical status to the previous version. Per-type schema
 everywhere, plus the bespoke `suggested_reviewers` PUT (reviewer enrichment) and the commit
 `diff` action. All gated by `scope_object = "task"` (`task:write`).
 
-Custom agents queue log artefacts during a run via `CustomSignalAgent.register_artefact` (or the
-typed `register_note` / `register_code_reference` / `register_code_diff` / `register_line_reference`
-conveniences — `commit` and `task_run` are excluded, owned by the signed-commit hook and report
-persistence respectively). Queued entries are validated at the call site and persisted in the same
-transaction as the report, attributed to the agent's task.
+Custom agents queue artefacts of any type during a run via `CustomSignalAgent.register_artefact`
+(`commit` and `task_run` never need registering — they're written by the signed-commit hook and
+report persistence respectively). Queued entries are validated against their type's schema at the
+call site and persisted in the same transaction as the report, attributed to the agent's task;
+status types route through their latest-wins append semantics.
 
 MCP tools (`products/signals/mcp/tools.yaml`): `inbox-report-artefacts-create` / `-update` /
-`-delete`, `inbox-report-tasks-create`, plus the read tools. Sandbox agents reach the write tools
-via the `signals_report` MCP preset (`posthog/temporal/oauth.py`) — scope-wise identical to
-`read_only`, but `has_write_scopes` reports True so read-only mode doesn't strip the
-`task:write`-gated tools. Used by auto-started implementation tasks, the research sandbox, and
-signal-report runs started from the API.
+`-delete`, `inbox-report-tasks-create`, plus the read tools. Implementation sandboxes
+(auto-started tasks and signal-report runs started from the API) run with `full` scopes, so the
+write tools are available for logging their work on the report. The research sandbox runs plain
+`read_only`: it can list artefacts but never writes them via MCP — the pipeline persists its
+artefacts deterministically from the session's structured outputs, and the harness records commit
+artefacts via the direct API (the token's `task:write` scope is internal and preset-independent).
 
 ## Backfill
 
@@ -143,4 +150,4 @@ written at creation time).
 - Dropping the `relationship` column (and the redundant `signals_sig_report_type_idx`) once the
   rolling deploy completes.
 - Commit artefacts for `git_signed_rewrite` (force-push rewrites).
-- A tool-surface review of everything `task:write` exposes under the `signals_report` preset.
+- Tightening the implementation sandbox's `full` MCP scopes to a narrower write surface.

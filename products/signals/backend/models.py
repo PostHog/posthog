@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -15,7 +15,15 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
-from products.signals.backend.artefact_schemas import validate_artefact_content
+from products.signals.backend.artefact_schemas import (
+    ArtefactContent,
+    Dismissal,
+    LogArtefactContent,
+    SignalFinding,
+    StatusArtefactContent,
+    artefact_type_for,
+    parse_artefact_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +181,17 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+
+    # The implementation task started for this report (auto-start or the manual start-task API) —
+    # the auto-start idempotency gate. A real column, set in the same transaction as the task
+    # under the report-row lock, because the gate must not depend on the freeform artefact log:
+    # task_run artefacts are unconstrained (any agent can append or delete them via the API) and
+    # matching on their content's (product, type) labels is a magic-string check. The task_run
+    # artefact is still written alongside, as the work-log entry. SET_NULL: deleting the task
+    # re-arms auto-start, which is the explicit, visible behavior.
+    implementation_task = models.ForeignKey(
+        "tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -389,7 +408,6 @@ class SignalReportArtefact(UUIDModel):
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
-        CODE_DIFF = "code_diff"
         LINE_REFERENCE = "line_reference"
         COMMIT = "commit"
         TASK_RUN = "task_run"
@@ -401,7 +419,7 @@ class SignalReportArtefact(UUIDModel):
     #     suggested reviewers). They are appended on each (re)assessment via `append_status`; the
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
-    #   - log artefacts record discrete work done on a report (code references, diffs, branches,
+    #   - log artefacts record discrete work done on a report (code references, commits,
     #     task runs, notes). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
     # a new signal yields a new entry, re-researching an existing signal appends a new version
@@ -418,7 +436,6 @@ class SignalReportArtefact(UUIDModel):
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CODE_REFERENCE,
-            ArtefactType.CODE_DIFF,
             ArtefactType.LINE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
@@ -453,24 +470,24 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
-    def _create_validated(
+    def _create(
         cls,
         *,
         team_id: int,
         report_id: str,
-        type: str,
-        content: str | dict | list,
+        content: ArtefactContent,
         attribution: ArtefactAttribution,
     ) -> "SignalReportArtefact":
-        """Single write funnel: validate content against the type's schema, map attribution to
-        columns, and insert. All public append helpers go through here so no row can be written
-        unvalidated or unattributed. Raises `ArtefactContentValidationError` on schema mismatch.
+        """Single write funnel: derive the row's type from the content model's class, map
+        attribution to columns, and insert. Content is a typed model (parsed at the API boundary
+        or constructed directly), so a row's type can never mismatch its content shape and no row
+        can be written unattributed.
         """
         return cls.objects.create(
             team_id=team_id,
             report_id=report_id,
-            type=type,
-            content=validate_artefact_content(type, content),
+            type=artefact_type_for(content),
+            content=content.model_dump_json(),
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
         )
@@ -481,34 +498,30 @@ class SignalReportArtefact(UUIDModel):
         *,
         team_id: int,
         report_id: str,
-        type: str,
-        content: str | dict | list,
+        content: StatusArtefactContent,
         attribution: ArtefactAttribution,
         reevaluate_autostart: bool = True,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
         Status artefacts are append-only: each (re)assessment creates a new row, and the report's
-        current status is the latest row of that type (by `created_at`). `content` is JSON text or
-        a JSON-serializable object, validated against the type's schema on write.
+        current status is the latest row of that type (by `created_at`).
 
         Appending a `suggested_reviewers` status re-evaluates auto-start on commit (idempotent),
         since changing reviewers can newly satisfy it. Callers that orchestrate auto-start
         themselves with full in-hand context — the agentic pipeline / custom agents, which run on
         the async worker and call it directly — pass ``reevaluate_autostart=False``.
         """
-        if type not in cls.STATUS_ARTEFACT_TYPES:
-            raise ValueError(f"{type!r} is not a status artefact type")
-        artefact = cls._create_validated(
-            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
-        )
-        if reevaluate_autostart and type == cls.ArtefactType.SUGGESTED_REVIEWERS:
+        if artefact_type_for(content) not in cls.STATUS_ARTEFACT_TYPES:
+            raise ValueError(f"{type(content).__name__} is not a status artefact content model")
+        artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
 
     @classmethod
     def append_finding(
-        cls, *, team_id: int, report_id: str, content: str | dict | list, attribution: ArtefactAttribution
+        cls, *, team_id: int, report_id: str, content: SignalFinding, attribution: ArtefactAttribution
     ) -> "SignalReportArtefact":
         """Append a `signal_finding` artefact (one investigation result; latest per `signal_id` wins).
 
@@ -516,30 +529,18 @@ class SignalReportArtefact(UUIDModel):
         finding's `signal_id` — so it gets a dedicated appender rather than going through
         `append_status` / `add_log`.
         """
-        return cls._create_validated(
-            team_id=team_id,
-            report_id=report_id,
-            type=cls.ArtefactType.SIGNAL_FINDING,
-            content=content,
-            attribution=attribution,
-        )
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
     def append_dismissal(
-        cls, *, team_id: int, report_id: str, content: str | dict | list, attribution: ArtefactAttribution
+        cls, *, team_id: int, report_id: str, content: Dismissal, attribution: ArtefactAttribution
     ) -> "SignalReportArtefact":
         """Append a `dismissal` artefact (dismissal/snooze feedback; entries stack over time).
 
         `dismissal` is neither a status nor a log type — each dismissal is its own point-in-time
         record — so it gets a dedicated appender.
         """
-        return cls._create_validated(
-            team_id=team_id,
-            report_id=report_id,
-            type=cls.ArtefactType.DISMISSAL,
-            content=content,
-            attribution=attribution,
-        )
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @staticmethod
     def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
@@ -566,17 +567,15 @@ class SignalReportArtefact(UUIDModel):
 
     @classmethod
     def add_log(
-        cls, *, team_id: int, report_id: str, type: str, content: str | dict | list, attribution: ArtefactAttribution
+        cls, *, team_id: int, report_id: str, content: LogArtefactContent, attribution: ArtefactAttribution
     ) -> "SignalReportArtefact":
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
         Log artefacts accumulate — each call creates a new row.
         """
-        if type not in cls.LOG_ARTEFACT_TYPES:
-            raise ValueError(f"{type!r} is not a log artefact type")
-        return cls._create_validated(
-            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
-        )
+        if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
+            raise ValueError(f"{type(content).__name__} is not a log artefact content model")
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
     def append(
@@ -584,47 +583,36 @@ class SignalReportArtefact(UUIDModel):
         *,
         team_id: int,
         report_id: str,
-        type: str,
-        content: str | dict | list,
+        content: ArtefactContent,
         attribution: ArtefactAttribution,
         reevaluate_autostart: bool = True,
     ) -> "SignalReportArtefact":
-        """Append an artefact of any known type, routing to that type's append semantics.
+        """Append an artefact of any content model, routing to its type's append semantics.
 
         Status types are latest-wins (`append_status`), `signal_finding` is keyed by signal_id,
         `dismissal` entries stack, log types accumulate (`add_log`), and anything else
-        (`video_segment`) is a plain validated append. No type is writer-restricted: an agent
-        can append a new status version just like the pipeline — the newest row of a status
-        type is the report's canonical status.
+        (`video_segment`) is a plain append. No type is writer-restricted: an agent can append a
+        new status version just like the pipeline — the newest row of a status type is the
+        report's canonical status.
         """
-        if type in cls.STATUS_ARTEFACT_TYPES:
+        artefact_type = artefact_type_for(content)
+        if artefact_type in cls.STATUS_ARTEFACT_TYPES:
             return cls.append_status(
                 team_id=team_id,
                 report_id=report_id,
-                type=type,
-                content=content,
+                content=cast(StatusArtefactContent, content),
                 attribution=attribution,
                 reevaluate_autostart=reevaluate_autostart,
             )
-        if type == cls.ArtefactType.SIGNAL_FINDING:
-            return cls.append_finding(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
-        if type == cls.ArtefactType.DISMISSAL:
-            return cls.append_dismissal(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
-        if type in cls.LOG_ARTEFACT_TYPES:
-            return cls.add_log(
-                team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
-            )
-        return cls._create_validated(
-            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
-        )
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     def update_content(self, content: str | dict | list) -> None:
-        """Replace this artefact's content in place (bumps `updated_at`), validated against the
-        row's type. Attribution is creation-time only — edits don't reassign it.
+        """Replace this artefact's content in place (bumps `updated_at`), parsed and validated
+        against the row's type. Attribution is creation-time only — edits don't reassign it.
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
-        self.content = validate_artefact_content(self.type, content)
+        self.content = parse_artefact_content(self.type, content).model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))

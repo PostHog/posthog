@@ -20,7 +20,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_RESEARCH,
     aappend_task_run_artefact,
     append_task_run_artefact,
-    has_signals_task_run,
+    record_implementation_task,
     signals_task_ids,
 )
 from products.tasks.backend.models import Task
@@ -121,7 +121,7 @@ class TestTaskRunArtefacts(BaseTest):
         assert content["product"] == "signals"
         assert content["type"] == "implementation"
 
-    def test_signals_task_ids_and_has_signals_task_run_filter_by_product_and_type(self):
+    def test_signals_task_ids_filters_by_product_and_type(self):
         report = self._report()
         task = self._task()
         append_task_run_artefact(
@@ -141,9 +141,23 @@ class TestTaskRunArtefacts(BaseTest):
         )
 
         assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_RESEARCH) == [str(task.id)]
-        assert has_signals_task_run(report_id=str(report.id), type=TASK_RUN_TYPE_RESEARCH)
         # The custom product's "implementation" row doesn't count as a signals implementation.
-        assert not has_signals_task_run(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION)
+        assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == []
+
+    def test_record_implementation_task_sets_gate_column_first_writer_wins(self):
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        report.refresh_from_db()
+        assert report.implementation_task_id == task.id
+        assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(task.id)]
+
+        # A second recording appends another log entry but never reassigns the gate.
+        other_task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(other_task.id))
+        report.refresh_from_db()
+        assert report.implementation_task_id == task.id
 
     def _final_report(self) -> CustomAgentFinalReport:
         return CustomAgentFinalReport(

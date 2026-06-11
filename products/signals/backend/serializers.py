@@ -9,7 +9,6 @@ from rest_framework import serializers
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
-from .artefact_schemas import ArtefactContentValidationError, validate_artefact_content
 from .models import (
     AutonomyPriority,
     SignalReport,
@@ -495,24 +494,9 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
     )
 
     def validate_content(self, value: object) -> dict | list:
+        # Shape-only here: the view is the schema boundary — it parses the payload into the
+        # type's content model (after normalizing task_run defaults) and 400s on a mismatch.
         return _validate_artefact_content_is_container(value)
-
-    def validate(self, attrs: dict) -> dict:
-        # Per-type schema validation, for known types only — unknown types get the view's
-        # dedicated "unknown artefact type" 400 rather than a schema error here. task_run is
-        # also skipped: the view normalizes it first (task_id from the header, default
-        # product/type) and the model helper validates the normalized content. The model
-        # helper re-validates everything as a backstop for non-API writers.
-        artefact_type = attrs.get("artefact_type")
-        if (
-            artefact_type in SignalReportArtefact.ArtefactType.values
-            and artefact_type != SignalReportArtefact.ArtefactType.TASK_RUN
-        ):
-            try:
-                validate_artefact_content(artefact_type, attrs["content"])
-            except ArtefactContentValidationError as e:
-                raise serializers.ValidationError({"content": str(e)})
-        return attrs
 
 
 class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):

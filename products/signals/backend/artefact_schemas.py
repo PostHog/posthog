@@ -1,23 +1,23 @@
 """Pydantic content schemas for `SignalReportArtefact` rows.
 
 Each `SignalReportArtefact` stores its typed payload as JSON text in `content`. This module is
-the canonical home of every artefact content shape: one schema per artefact type, collected in
-`ARTEFACT_CONTENT_SCHEMAS`, with `validate_artefact_content` as the single write-path gate
-(called by the model helpers and the API serializers). It is kept deliberately dependency-light
-(pydantic only) so models, views, and temporal code can all import it without pulling in the
-report-research / sandbox machinery.
+the canonical home of every artefact content shape: one model per artefact type. Raw payloads
+are parsed into these models once, at the boundaries — `parse_artefact_content` for API writes
+and for reads that consume stored rows — and everything in between passes the typed model
+around; the model helpers derive a row's type from the content model's class. The module is
+kept deliberately dependency-light (pydantic only) so models, views, and temporal code can all
+import it without pulling in the report-research / sandbox machinery.
 
-Validation applies on write only — read paths stay tolerant of legacy rows that predate these
-schemas.
+Reads of legacy rows that predate these schemas stay tolerant (parse failures are skipped or
+degraded, never raised to users).
 """
 
 from __future__ import annotations
 
 import re
-import json
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, RootModel, ValidationError, field_validator, model_validator
 
@@ -25,8 +25,6 @@ from pydantic import BaseModel, Field, RootModel, ValidationError, field_validat
 # contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays
 # dependency-light (pydantic only).
 _IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 class ArtefactContentValidationError(ValueError):
@@ -206,6 +204,9 @@ class Dismissal(BaseModel):
     note: str | None = Field(default=None, description="Free-form dismissal note.")
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
     user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
+    slack_user_id: str | None = Field(
+        default=None, description="Slack user who dismissed via a Slack action, when that's where the click came from."
+    )
 
 
 class VideoSegment(RootModel[dict[str, Any] | list[Any]]):
@@ -221,13 +222,22 @@ class VideoSegment(RootModel[dict[str, Any] | list[Any]]):
 # Log artefacts record discrete work done on a report; they accumulate and are addressable by id.
 
 
+# Bounds for referenced source text: references are pointers with a small excerpt, not a vehicle
+# for shipping file contents into the report log.
+_MAX_CODE_LINE_LENGTH = 1000
+_MAX_CODE_REFERENCE_LINES = 20
+
+
 class CodeReference(BaseModel):
     """Content schema for a `code_reference` artefact: a contiguous span of source lines."""
 
     file_path: str = Field(description="Repository-relative path to the referenced file.")
     start_line: int = Field(ge=1, description="First line of the referenced range (1-indexed, inclusive).")
     end_line: int = Field(ge=1, description="Last line of the referenced range (1-indexed, inclusive).")
-    contents: str = Field(description="The exact source text of lines start_line through end_line.")
+    contents: str = Field(
+        description=f"The exact source text of lines start_line through end_line. At most "
+        f"{_MAX_CODE_REFERENCE_LINES} lines of at most {_MAX_CODE_LINE_LENGTH} characters each."
+    )
     relevance_note: str = Field(
         description="Short note on why this code is relevant to the report.",
     )
@@ -239,28 +249,23 @@ class CodeReference(BaseModel):
             raise ValueError("must not be empty or whitespace-only")
         return v
 
+    @field_validator("contents")
+    @classmethod
+    def contents_must_be_bounded(cls, v: str) -> str:
+        lines = v.split("\n")
+        if len(lines) > _MAX_CODE_REFERENCE_LINES:
+            raise ValueError(f"must not exceed {_MAX_CODE_REFERENCE_LINES} lines")
+        if any(len(line) > _MAX_CODE_LINE_LENGTH for line in lines):
+            raise ValueError(f"lines must not exceed {_MAX_CODE_LINE_LENGTH} characters")
+        return v
+
     @model_validator(mode="after")
-    def end_line_must_not_precede_start_line(self) -> CodeReference:
+    def line_span_must_be_valid(self) -> CodeReference:
         if self.end_line < self.start_line:
             raise ValueError("end_line must be greater than or equal to start_line")
+        if self.end_line - self.start_line + 1 > _MAX_CODE_REFERENCE_LINES:
+            raise ValueError(f"the referenced range must not exceed {_MAX_CODE_REFERENCE_LINES} lines")
         return self
-
-
-class CodeDiff(BaseModel):
-    """Content schema for a `code_diff` artefact: a unified diff for a single file."""
-
-    file_path: str = Field(description="Repository-relative path to the file the diff applies to.")
-    diff: str = Field(description="Unified diff (patch) text for the file.")
-    relevance_note: str = Field(
-        description="Short note on why this diff is relevant to the report.",
-    )
-
-    @field_validator("file_path", "diff", "relevance_note")
-    @classmethod
-    def fields_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("must not be empty or whitespace-only")
-        return v
 
 
 class LineReference(BaseModel):
@@ -274,7 +279,10 @@ class LineReference(BaseModel):
     line: int = Field(ge=1, description="The referenced line number (1-indexed).")
     note: str = Field(description="Short note on what this line shows or why it matters.")
     contents: str | None = Field(
-        default=None, description="The exact source text of the referenced line, if available."
+        default=None,
+        max_length=_MAX_CODE_LINE_LENGTH,
+        description=f"The exact source text of the referenced line, if available "
+        f"(at most {_MAX_CODE_LINE_LENGTH} characters).",
     )
 
     @field_validator("file_path", "note")
@@ -294,24 +302,16 @@ class Commit(BaseModel):
 
     repository: str = Field(description="GitHub repository the commit was pushed to, as `owner/repo`.")
     branch: str = Field(description="Branch the commit was pushed to.")
-    commit_sha: str = Field(description="Full or abbreviated (7-40 hex chars) SHA of the pushed commit.")
+    commit_sha: str = Field(description="Full or abbreviated SHA of the pushed commit.")
     message: str = Field(description="The commit message headline.")
     note: str | None = Field(default=None, description="Optional short note on what this commit does.")
 
-    @field_validator("repository", "branch", "message")
+    @field_validator("repository", "branch", "commit_sha", "message")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
-
-    @field_validator("commit_sha")
-    @classmethod
-    def commit_sha_must_be_hex(cls, v: str) -> str:
-        normalized = v.strip().lower()
-        if not _COMMIT_SHA_RE.fullmatch(normalized):
-            raise ValueError("must be a 7-40 character hex commit SHA")
-        return normalized
 
 
 class TaskRunArtefact(BaseModel):
@@ -368,7 +368,16 @@ class NoteArtefact(BaseModel):
         return v
 
 
-# ── Registry ─────────────────────────────────────────────────────────────────────
+# ── Type mapping ─────────────────────────────────────────────────────────────────
+
+# Content models that describe the report's current state (latest row of each type wins) vs
+# entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
+# `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
+StatusArtefactContent = (
+    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelection | SuggestedReviewers
+)
+LogArtefactContent = CodeReference | LineReference | Commit | TaskRunArtefact | NoteArtefact
+ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
 # Django-free; a test asserts the key set matches the model enum exactly.
@@ -382,33 +391,40 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "suggested_reviewers": SuggestedReviewers,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
-    "code_diff": CodeDiff,
     "line_reference": LineReference,
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
 }
 
+_ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 
-def validate_artefact_content(artefact_type: str, content: str | dict | list) -> str:
-    """Validate `content` against the schema registered for `artefact_type`; return JSON text.
 
-    Validation is a gate, not a rewrite: the original payload (including forward-compatible extra
-    keys pydantic ignores) is what gets stored, re-serialized to compact JSON. Raises
-    `ArtefactContentValidationError` on an unknown type, malformed JSON text, or schema mismatch.
+def artefact_type_for(content: BaseModel) -> str:
+    """The artefact type a content model persists as (exact class match).
+
+    Deriving the row's type from the model class makes a type/content mismatch unrepresentable.
+    Raises `ArtefactContentValidationError` for models that aren't artefact content schemas.
+    """
+    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(type(content))
+    if artefact_type is None:
+        raise ArtefactContentValidationError(f"{type(content).__name__} is not an artefact content model")
+    return artefact_type
+
+
+def parse_artefact_content(artefact_type: str, content: str | dict | list) -> ArtefactContent:
+    """Parse a raw payload (JSON text or deserialized JSON) into `artefact_type`'s content model.
+
+    The boundary parser: API writes and reads of stored rows come through here once, and
+    everything past the boundary passes the typed model around. Raises
+    `ArtefactContentValidationError` on an unknown type, malformed JSON, or schema mismatch.
     """
     schema = ARTEFACT_CONTENT_SCHEMAS.get(artefact_type)
     if schema is None:
         raise ArtefactContentValidationError(f"Unknown artefact type {artefact_type!r}")
-    if isinstance(content, str):
-        try:
-            parsed = json.loads(content)
-        except (json.JSONDecodeError, ValueError) as e:
-            raise ArtefactContentValidationError(f"content is not valid JSON: {e}") from e
-    else:
-        parsed = content
     try:
-        schema.model_validate(parsed)
+        if isinstance(content, str):
+            return cast(ArtefactContent, schema.model_validate_json(content))
+        return cast(ArtefactContent, schema.model_validate(content))
     except ValidationError as e:
         raise ArtefactContentValidationError(str(e)) from e
-    return json.dumps(parsed)

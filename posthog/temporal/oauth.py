@@ -12,7 +12,7 @@ ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_report"]
+McpScopePreset = Literal["read_only", "full", "signals_scout"]
 
 
 INTERNAL_SCOPES: list[str] = [
@@ -73,7 +73,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_report")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout")
 
 
 def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
@@ -92,15 +92,6 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
             # as not-read-only).
             scout_internal = list(SCOUT_INTERNAL_SCOPES) if include_internal_scopes else []
             resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *SCOUT_USER_WRITE_SCOPES]
-        elif scopes == "signals_report":
-            # Signals report research/implementation sandboxes: scope-wise identical to
-            # "read_only" (reads + shared internal scopes — `task:write` is already internal),
-            # but `has_write_scopes("signals_report")` reports True so the MCP server doesn't
-            # enable read-only mode. Read-only mode is a tool-annotation filter that would strip
-            # the `task:write`-gated signals tools these agents exist to use (record report
-            # artefacts, associate their task with reports). Net new exposure vs "read_only" is
-            # exactly the task:write tool surface — no other :write scope is granted.
-            resolved = [*MCP_READ_SCOPES, *internal]
         else:
             # "read_only": reads + shared internal scopes only — no scout write scope.
             resolved = [*MCP_READ_SCOPES, *internal]
@@ -111,13 +102,12 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
-        # `signals_scout` / `signals_report` report True so the MCP server doesn't enable
-        # read-only mode for those sandboxes — the agents ARE allowed to call the write tools
-        # their preset exists for (scout: remember/forget/emit_finding + the narrow
-        # `SCOUT_USER_WRITE_SCOPES`; report: the `task:write`-gated signals artefact tools).
-        # Read-only mode is a tool-annotation filter, not a scope filter, and would strip those
-        # tools categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_report")
+        # `signals_scout` reports True so the MCP server doesn't enable read-only mode for the
+        # scout sandbox — the agent IS allowed to call the write tools its preset exists for
+        # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
+        # is a tool-annotation filter, not a scope filter, and would strip those tools
+        # categorically without this opt-out.
+        return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 

@@ -77,6 +77,24 @@ def test_state_task_with_pr(team):
 
 
 @pytest.mark.django_db
+def test_state_freeform_associated_task_with_pr(team):
+    # Associations are free-form: a PR counts no matter what (product, type) the task_run
+    # artefact carries — only the legacy fields care about the labeled implementation rows.
+    report = _make_report(team)
+    task = Task.objects.create(
+        team=team, title="freeform", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+    )
+    TaskRun.objects.create(
+        team=team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://github.com/o/r/pull/2"}
+    )
+    append_task_run_artefact(
+        team_id=team.id, report_id=str(report.id), product="tasks", type="agent_run", task_id=str(task.id)
+    )
+    state = _compute_inbox_notification_state(team.id, str(report.id))
+    assert state == InboxNotificationState(has_implementation_task=False, pr_available=True, task_terminal=False)
+
+
+@pytest.mark.django_db
 def test_state_task_running_no_pr(team):
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.IN_PROGRESS)
@@ -142,13 +160,23 @@ async def _run_workflow(recorder: _Recorder) -> int:
 WAIT = InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=False)
 NO_TASK = InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 PR_READY = InboxNotificationState(has_implementation_task=True, pr_available=True, task_terminal=False)
+PR_FREEFORM = InboxNotificationState(has_implementation_task=False, pr_available=True, task_terminal=False)
 TERMINAL = InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=True)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "states",
+    [
+        [WAIT, WAIT, PR_READY],
+        # Associations are free-form: a PR from a task that associated itself mid-run counts,
+        # even though no labeled implementation task ever existed.
+        [NO_TASK, NO_TASK, PR_FREEFORM],
+    ],
+)
 @override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
-async def test_workflow_waits_then_notifies_when_pr_opens():
-    recorder = _Recorder([WAIT, WAIT, PR_READY])
+async def test_workflow_waits_then_notifies_when_pr_opens(states):
+    recorder = _Recorder(states)
     sent = await _run_workflow(recorder)
     assert sent == 1
     assert recorder.state_calls == 3
@@ -157,23 +185,20 @@ async def test_workflow_waits_then_notifies_when_pr_opens():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "states,timeout_seconds,polls",
+    "states",
     [
-        ([NO_TASK], 10, False),  # a task-less report can never produce a PR, so skip on the first fetch
-        ([WAIT, TERMINAL], 10, True),  # task reaches a terminal state without ever opening a PR
-        ([WAIT], 3, True),  # PR never opens, so the wait runs out the timeout
+        [NO_TASK],  # nothing ever associates and opens a PR — the wait runs out the timeout
+        [WAIT, TERMINAL],  # task state doesn't gate the wait; no PR ever appears, so timeout
+        [WAIT],  # PR never opens, so the wait runs out the timeout
     ],
 )
-async def test_workflow_skips_when_no_pr_is_produced(states, timeout_seconds, polls):
+async def test_workflow_skips_when_no_pr_is_produced(states):
     recorder = _Recorder(states)
     with override_settings(
-        SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=timeout_seconds,
+        SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=3,
         SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1,
     ):
         sent = await _run_workflow(recorder)
     assert sent == 0
     assert recorder.dispatch_calls == 0
-    if polls:
-        assert recorder.state_calls >= 2  # initial fetch + at least one poll before giving up
-    else:
-        assert recorder.state_calls == 1  # decided on the first fetch — no task means no polling
+    assert recorder.state_calls >= 2  # initial fetch + polls until the timeout gives up

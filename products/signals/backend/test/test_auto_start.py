@@ -103,8 +103,10 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert first is not None
     assert second is None
     assert mock_create.call_count == 1
-    # One (unlabelled) association, and one implementation task_run artefact — the artefact is
-    # both the work-log entry and the idempotency marker the second evaluation observed.
+    # The gate the second evaluation observed is the report's implementation_task column, set in
+    # the same transaction as the task; the task_run artefact is the work-log entry alongside.
+    report.refresh_from_db()
+    assert report.implementation_task_id == first.id
     assert (
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
