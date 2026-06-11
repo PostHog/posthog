@@ -32,6 +32,13 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.COMMERCETOOLS
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host and `project_key` the project the stored client secret (and
+        # minted bearer token) are sent to; retargeting either must re-require the secret so it
+        # can't be aimed at a different commercetools project or region.
+        return ["region", "project_key"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://auth.": "commercetools authentication failed. Please check your client ID and client secret.",

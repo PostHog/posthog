@@ -26,6 +26,9 @@ class TestCommercetoolsSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.COMMERCETOOLS
 
+    def test_connection_host_fields_cover_region_and_project(self):
+        assert self.source.connection_host_fields == ["region", "project_key"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
