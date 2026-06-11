@@ -158,7 +158,6 @@ export interface RoleLookupResponseApi {
  * * `customerio-track` - Customerio Track
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
- * * `data-warehouse-source` - Data Warehouse Source
  * * `email` - Email
  * * `firebase` - Firebase
  * * `github` - Github
@@ -199,7 +198,6 @@ export const IntegrationKindEnumApi = {
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
-    DataWarehouseSource: 'data-warehouse-source',
     Email: 'email',
     Firebase: 'firebase',
     Github: 'github',
@@ -381,7 +379,6 @@ export type IntegrationsListParams = {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
-     * * `data-warehouse-source` - Data Warehouse Source
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -432,7 +429,6 @@ export const IntegrationsListKind = {
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
-    DataWarehouseSource: 'data-warehouse-source',
     Databricks: 'databricks',
     Email: 'email',
     Firebase: 'firebase',

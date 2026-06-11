@@ -126,10 +126,13 @@ describe('sourceConnectSceneLogic', () => {
     it('starts with no stored credential and records one after setStoredCredential', () => {
         expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
         sourceConnectSceneLogic.actions.setStoredCredential({
-            credential_id: 42,
+            credential_id: 'ba07775f-8eaf-4d09-aa6f-50e37f17f243',
             source_type: 'Postgres',
             created_at: '2026-06-10T00:00:00Z',
+            expires_at: '2026-06-11T00:00:00Z',
         })
-        expect(sourceConnectSceneLogic.values.storedCredential?.credential_id).toEqual(42)
+        expect(sourceConnectSceneLogic.values.storedCredential?.credential_id).toEqual(
+            'ba07775f-8eaf-4d09-aa6f-50e37f17f243'
+        )
     })
 })

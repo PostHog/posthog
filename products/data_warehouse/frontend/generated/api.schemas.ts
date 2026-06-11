@@ -1634,7 +1634,7 @@ export interface DatabaseSchemaRequestApi {
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
@@ -1869,7 +1869,7 @@ export interface SourceSetupApi {
      * * `OracleFusion` - OracleFusion
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -2127,11 +2127,13 @@ export interface SourceCredentialCreateApi {
 
 export interface SourceCredentialApi {
     /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
-    credential_id: number
+    credential_id: string
     /** The source type the stored credentials are for. */
     source_type: string
     /** When the credentials were stored. */
     created_at: string
+    /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
+    expires_at: string
 }
 
 /**
@@ -2987,6 +2989,17 @@ export type ExternalDataSourcesConnectionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string
 }
 
 export type FixHogqlListParams = {

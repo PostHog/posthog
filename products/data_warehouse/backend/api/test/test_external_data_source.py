@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+from datetime import timedelta
 from typing import cast
 
 from freezegun import freeze_time
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 import psycopg
 from parameterized import parameterized
@@ -26,7 +28,6 @@ from posthog.schema import (
 )
 
 from posthog.models import Team
-from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -70,6 +71,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -8497,13 +8499,13 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert "Missing Stripe API key" in response.json()["message"]
         assert not ExternalDataSource.objects.exists()
 
-    def _store_stripe_credential(self, team=None) -> Integration:
-        return Integration.objects.create(
-            team=team or self.team,
-            kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
-            integration_id=str(uuid.uuid4()),
-            config={"source_type": "Stripe"},
-            sensitive_config={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+    def _store_stripe_credential(self, team=None, **kwargs) -> PendingSourceCredential:
+        team = team or self.team
+        return PendingSourceCredential.objects.for_team(team.pk).create(
+            team=team,
+            source_type="Stripe",
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+            **kwargs,
         )
 
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
@@ -8516,7 +8518,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         credential = self._store_stripe_credential()
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "Stripe", "payload": {"credential_id": credential.pk}},
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -8525,8 +8527,29 @@ class TestExternalDataSourceSetup(APIBaseTest):
         # The stored secret was merged in server-side and used for validation.
         validated_config = mock_validate.call_args.args[0]
         assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
+        # Stored credentials are single-use — consumed on successful setup.
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([("missing", 999999), ("not_an_int", "abc")])
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_setup_failure_keeps_stored_credential(self, _mock_validate):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
+    @parameterized.expand(
+        [
+            ("missing", "ba07775f-8eaf-4d09-aa6f-50e37f17f243"),
+            ("not_a_uuid", "abc"),
+            ("not_a_string", 999999),
+        ]
+    )
     def test_setup_with_unknown_credential_id_returns_400(self, _name, credential_id):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
@@ -8536,12 +8559,22 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert "not found" in response.json()["message"]
         assert not ExternalDataSource.objects.exists()
 
+    def test_setup_with_expired_credential_returns_400(self):
+        credential = self._store_stripe_credential(expires_at=timezone.now() - timedelta(minutes=1))
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or expired" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+
     def test_setup_with_other_teams_credential_returns_400(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
         credential = self._store_stripe_credential(team=other_team)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "Stripe", "payload": {"credential_id": credential.pk}},
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in response.json()["message"]
@@ -8550,7 +8583,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         credential = self._store_stripe_credential()
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "Postgres", "payload": {"credential_id": credential.pk}},
+            data={"source_type": "Postgres", "payload": {"credential_id": str(credential.pk)}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
@@ -8572,20 +8605,35 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_store_credentials_creates_integration_without_source(self, _mock_validate):
+    def test_store_credentials_creates_pending_credential_without_source(self, _mock_validate):
         response = self._store()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
         assert data["source_type"] == "Stripe"
 
-        integration = Integration.objects.get(pk=data["credential_id"])
-        assert integration.team_id == self.team.pk
-        assert integration.kind == Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE
-        assert integration.config == {"source_type": "Stripe"}
-        assert integration.sensitive_config["auth_method"]["stripe_secret_key"] == "sk_test_123"
-        assert integration.created_by == self.user
+        credential = PendingSourceCredential.objects.for_team(self.team.pk).get(pk=data["credential_id"])
+        assert credential.team_id == self.team.pk
+        assert credential.source_type == "Stripe"
+        assert credential.payload["auth_method"]["stripe_secret_key"] == "sk_test_123"
+        assert credential.created_by == self.user
+        assert credential.expires_at > timezone.now()
         # Storing credentials must not create a source.
         assert not ExternalDataSource.objects.exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_purges_expired_credentials(self, _mock_validate):
+        expired = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team,
+            source_type="Stripe",
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_old"}},
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=expired.pk).exists()
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -8595,26 +8643,60 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self._store()
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid Stripe API key" in response.json()["message"]
-        assert not Integration.objects.exists()
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
     def test_store_credentials_rejects_invalid_config(self):
         response = self._store(source_type="Postgres", payload={"host": "localhost"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid source config" in response.json()["message"]
-        assert not Integration.objects.exists()
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_stored_secrets_are_not_exposed_via_integrations_api(self, _mock_validate):
+    def test_stored_credentials_list_returns_metadata_only(self, _mock_validate):
         response = self._store()
         assert response.status_code == status.HTTP_201_CREATED
 
-        list_response = self.client.get(f"/api/projects/{self.team.pk}/integrations/?kind=data-warehouse-source")
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert list_response.status_code == status.HTTP_200_OK
-        results = list_response.json()["results"]
+        results = list_response.json()
         assert len(results) == 1
-        assert results[0]["id"] == response.json()["credential_id"]
-        assert results[0]["config"] == {"source_type": "Stripe"}
+        assert results[0]["credential_id"] == response.json()["credential_id"]
+        assert results[0]["source_type"] == "Stripe"
         assert "sk_test_123" not in json.dumps(list_response.json())
+
+    def test_stored_credentials_list_filters_by_source_type_and_hides_expired_and_other_teams(self):
+        def _create(team, source_type, **kwargs):
+            return PendingSourceCredential.objects.for_team(team.pk).create(
+                team=team, source_type=source_type, payload={"key": "secret"}, **kwargs
+            )
+
+        stripe_credential = _create(self.team, "Stripe")
+        _create(self.team, "Postgres")
+        _create(self.team, "Stripe", expires_at=timezone.now() - timedelta(minutes=1))
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        _create(other_team, "Stripe")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/?source_type=Stripe"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()
+        assert [result["credential_id"] for result in results] == [str(stripe_credential.pk)]
+
+    def test_stored_credentials_list_orders_newest_first(self):
+        older = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team, source_type="Stripe", payload={"key": "secret"}
+        )
+        newer = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team, source_type="Stripe", payload={"key": "secret"}
+        )
+        PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=older.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]

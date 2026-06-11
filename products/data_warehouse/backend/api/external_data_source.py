@@ -8,8 +8,10 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -35,7 +37,6 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -100,6 +101,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 
@@ -1000,7 +1002,8 @@ class SourceSetupSerializer(serializers.Serializer):
             "Connection details as flat keys for the source_type (discover required fields with the wizard "
             "tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key "
             "(e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} "
-            "referencing credentials the user stored via the connect-link page — they are merged in server-side. "
+            "referencing credentials the user stored via the connect-link page (discover ids with the "
+            "stored_credentials endpoint) — they are merged in server-side and deleted once consumed. "
             "A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible "
             "sync defaults."
         ),
@@ -1057,11 +1060,14 @@ class SourceCredentialCreateSerializer(serializers.Serializer):
 
 
 class SourceCredentialSerializer(serializers.Serializer):
-    credential_id = serializers.IntegerField(
+    credential_id = serializers.UUIDField(
         help_text="Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source."
     )
     source_type = serializers.CharField(help_text="The source type the stored credentials are for.")
     created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
+    expires_at = serializers.DateTimeField(
+        help_text="When the stored credentials expire. Unconsumed credentials are unusable past this time."
+    )
 
 
 def _find_oauth_field(config: object) -> dict | None:
@@ -1142,6 +1148,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "jobs",
         "wizard",
         "connect_link",
+        "stored_credentials",
         "webhook_info",
         "connections",
         "cdc_status",
@@ -2050,29 +2057,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_type = serializer.validated_data["source_type"]
         payload = dict(serializer.validated_data.get("payload") or {})
 
+        credential: PendingSourceCredential | None = None
         credential_id = payload.pop("credential_id", None)
         if credential_id is not None:
             try:
-                credential = Integration.objects.get(
-                    id=credential_id,
-                    team_id=self.team_id,
-                    kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
+                credential = PendingSourceCredential.objects.for_team(self.team_id).get(
+                    id=credential_id, expires_at__gt=timezone.now()
                 )
-            except (Integration.DoesNotExist, ValueError, TypeError):
+            except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found"},
+                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
                 )
-            if credential.config.get("source_type") != source_type:
+            if credential.source_type != source_type:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.config.get('source_type')}', not '{source_type}'"
+                        f"'{credential.source_type}', not '{source_type}'"
                     },
                 )
             # Stored credentials win over inline keys so an agent can't override what the user entered.
-            payload = {**payload, **credential.sensitive_config}
+            payload = {**payload, **credential.payload}
 
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
@@ -2098,7 +2104,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
         payload["schemas"] = build_default_schemas(source_schemas)
 
-        return self._create_external_data_source(
+        response = self._create_external_data_source(
             request,
             source_type=source_type,
             payload=payload,
@@ -2108,6 +2114,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             created_via=ExternalDataSource.CreatedVia.MCP,
             skip_credential_validation=True,
         )
+        # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
+        if credential is not None and response.status_code == status.HTTP_201_CREATED:
+            credential.delete()
+        return response
 
     def _validate_source_config_and_credentials(
         self,
@@ -2150,9 +2160,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """Validate and store credentials for a data warehouse source without creating the source.
 
         Backs the source connect page: the user enters credentials directly in PostHog, they are
-        checked against a live connection, then stored encrypted. The returned credential id can be
-        passed to `setup` as {'credential_id': <id>} to create the source — so secrets never travel
-        through an agent conversation.
+        checked against a live connection, then stashed encrypted in a temporary store. The returned
+        credential id can be passed to `setup` as {'credential_id': <id>} to create the source — so
+        secrets never travel through an agent conversation. The stash is single-use: it is deleted
+        as soon as `setup` consumes it, and expires after 24 hours if never consumed.
         """
         serializer = SourceCredentialCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2171,22 +2182,68 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if error_response is not None:
             return error_response
 
-        integration = Integration.objects.create(
+        # Opportunistically purge expired stashes — there is no separate cleanup job.
+        PendingSourceCredential.objects.for_team(self.team_id).filter(expires_at__lte=timezone.now()).delete()
+
+        credential = PendingSourceCredential.objects.create(
             team_id=self.team_id,
-            kind=Integration.IntegrationKind.DATA_WAREHOUSE_SOURCE,
-            # The (team, kind, integration_id) unique constraint means this must not collide per team.
-            integration_id=str(uuid.uuid4()),
-            config={"source_type": source_type},
-            sensitive_config=payload,
+            source_type=source_type,
+            payload=payload,
             created_by=cast(User, request.user),
         )
 
         return Response(
             status=status.HTTP_201_CREATED,
             data=SourceCredentialSerializer(
-                {"credential_id": integration.id, "source_type": source_type, "created_at": integration.created_at}
+                {
+                    "credential_id": credential.id,
+                    "source_type": source_type,
+                    "created_at": credential.created_at,
+                    "expires_at": credential.expires_at,
+                }
             ).data,
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').",
+            )
+        ],
+        responses=SourceCredentialSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def stored_credentials(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List credentials stored via the source connect page that haven't been consumed yet.
+
+        Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
+        credentials are temporary: they disappear once consumed by `setup` or when they expire.
+        Newest first, so after a user confirms they've finished the connect page, the first entry
+        for the source type is the one to pass to `setup`.
+        """
+        queryset = (
+            PendingSourceCredential.objects.for_team(self.team_id)
+            .filter(expires_at__gt=timezone.now())
+            .order_by("-created_at")
+        )
+        source_type = request.query_params.get("source_type")
+        if source_type:
+            queryset = queryset.filter(source_type=source_type)
+
+        data = [
+            {
+                "credential_id": credential.id,
+                "source_type": credential.source_type,
+                "created_at": credential.created_at,
+                "expires_at": credential.expires_at,
+            }
+            for credential in queryset
+        ]
+        return Response(status=status.HTTP_200_OK, data=SourceCredentialSerializer(data, many=True).data)
 
     @extend_schema(
         request=None,
@@ -2793,8 +2850,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     f"Share this link with the user. They enter their {source_type} credentials directly in PostHog "
                     "(over TLS) — never ask them to paste credentials into the chat. The page only stores the "
                     "credentials; it does not create the source. Once the user confirms they're done, find the "
-                    "stored credential id via integrations-list (kind='data-warehouse-source', newest first) and "
-                    'call data-warehouse-source-setup with {"credential_id": <id>} in the payload.'
+                    f"stored credential id via data-warehouse-stored-credentials-list (source_type='{source_type}', "
+                    'newest first) and call data-warehouse-source-setup with {"credential_id": <id>} in the payload. '
+                    "Stored credentials are single-use and expire after 24 hours."
                 ),
             }
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)

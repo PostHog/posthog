@@ -1710,7 +1710,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()
@@ -1754,9 +1754,10 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
  * Validate and store credentials for a data warehouse source without creating the source.
  *
  * Backs the source connect page: the user enters credentials directly in PostHog, they are
- * checked against a live connection, then stored encrypted. The returned credential id can be
- * passed to `setup` as {'credential_id': <id>} to create the source — so secrets never travel
- * through an agent conversation.
+ * checked against a live connection, then stashed encrypted in a temporary store. The returned
+ * credential id can be passed to `setup` as {'credential_id': <id>} to create the source — so
+ * secrets never travel through an agent conversation. The stash is single-use: it is deleted
+ * as soon as `setup` consumes it, and expires after 24 hours if never consumed.
  */
 export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod

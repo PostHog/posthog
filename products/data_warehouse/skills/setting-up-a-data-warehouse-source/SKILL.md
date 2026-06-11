@@ -55,10 +55,11 @@ missing required fields).
      authorized, find the new integration id via `integrations-list` (filter by the source's kind) and pass the
      returned `integration_field` key to setup (e.g. `{"hubspot_integration_id": 123}`).
    - **Credential sources** (Postgres, MySQL, Stripe API key, …) → a minimal connect page where they enter only their
-     credentials over TLS. The page validates them against a live connection and stores them encrypted — it does NOT
-     create the source. After the user confirms they're done, find the stored credential id via `integrations-list`
-     (`kind='data-warehouse-source'`, newest first; the page also shows the id to the user) and pass
-     `{"credential_id": <id>}` to setup.
+     credentials over TLS. The page validates them against a live connection and stashes them encrypted in a temporary
+     store — it does NOT create the source. After the user confirms they're done, find the stored credential id via
+     `data-warehouse-stored-credentials-list` (filter by `source_type`, newest first; the page also shows the id to
+     the user) and pass `{"credential_id": <id>}` to setup. Stored credentials are single-use — deleted as soon as
+     setup consumes them — and expire after 24 hours.
 
    Never ask the user to paste raw database passwords or API keys into the chat.
 

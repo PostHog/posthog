@@ -181,6 +181,7 @@ rules:
                               |Notebook
                               |ObjectMediaPreview
                               |ParserRecipe
+                              |PendingSourceCredential
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -420,6 +421,7 @@ rules:
                         |Notebook
                         |ObjectMediaPreview
                         |ParserRecipe
+                        |PendingSourceCredential
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey

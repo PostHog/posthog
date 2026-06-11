@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 37 enabled ops
+ * PostHog API - MCP 38 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1304,7 +1304,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()
@@ -1316,6 +1316,30 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSourcesSetupCreateBodyDescriptionMax)
         .nullish()
         .describe('Human-readable description.'),
+})
+
+/**
+ * List credentials stored via the source connect page that haven't been consumed yet.
+ *
+ * Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
+ * credentials are temporary: they disappear once consumed by `setup` or when they expire.
+ * Newest first, so after a user confirms they've finished the connect page, the first entry
+ * for the source type is the one to pass to `setup`.
+ */
+export const ExternalDataSourcesStoredCredentialsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSourcesStoredCredentialsListQueryParams = /* @__PURE__ */ zod.object({
+    search: zod.string().optional().describe('A search term.'),
+    source_type: zod
+        .string()
+        .optional()
+        .describe("Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres')."),
 })
 
 /**

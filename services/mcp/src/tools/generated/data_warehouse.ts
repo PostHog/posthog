@@ -33,6 +33,7 @@ import {
     ExternalDataSourcesReloadCreateParams,
     ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesSetupCreateBody,
+    ExternalDataSourcesStoredCredentialsListQueryParams,
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
@@ -131,6 +132,28 @@ const dataWarehouseSourceSetup = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const DataWarehouseStoredCredentialsListSchema = ExternalDataSourcesStoredCredentialsListQueryParams
+
+const dataWarehouseStoredCredentialsList = (): ToolBase<
+    typeof DataWarehouseStoredCredentialsListSchema,
+    WithPostHogUrl<Schemas.SourceCredential[]>
+> => ({
+    name: 'data-warehouse-stored-credentials-list',
+    schema: DataWarehouseStoredCredentialsListSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseStoredCredentialsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceCredential[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/stored_credentials/`,
+            query: {
+                search: params.search,
+                source_type: params.source_type,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -1188,6 +1211,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
     'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
     'data-warehouse-source-setup': dataWarehouseSourceSetup,
+    'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,

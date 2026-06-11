@@ -21675,7 +21675,6 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
-     * * `data-warehouse-source` - Data Warehouse Source
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -21717,7 +21716,6 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
-      DataWarehouseSource: 'data-warehouse-source',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',
@@ -40202,11 +40200,13 @@ export namespace Schemas {
 
     export interface SourceCredential {
       /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
-      credential_id: number;
+      credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
       /** When the credentials were stored. */
       created_at: string;
+      /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
+      expires_at: string;
     }
 
     /**
@@ -40475,7 +40475,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
@@ -40710,7 +40710,7 @@ export namespace Schemas {
        * * `OracleFusion` - OracleFusion
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page — they are merged in server-side. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
          * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -44762,6 +44762,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
     export type EnvironmentsFileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -45953,7 +45964,6 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
-     * * `data-warehouse-source` - Data Warehouse Source
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -46005,7 +46015,6 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
-      DataWarehouseSource: 'data-warehouse-source',
       Databricks: 'databricks',
       Email: 'email',
       Firebase: 'firebase',
@@ -50430,6 +50439,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
@@ -51780,7 +51800,6 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
-     * * `data-warehouse-source` - Data Warehouse Source
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -51832,7 +51851,6 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
-      DataWarehouseSource: 'data-warehouse-source',
       Databricks: 'databricks',
       Email: 'email',
       Firebase: 'firebase',

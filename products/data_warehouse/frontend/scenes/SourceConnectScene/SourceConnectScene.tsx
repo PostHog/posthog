@@ -54,7 +54,7 @@ export function SourceConnectScene(): JSX.Element {
                 description={
                     isOauthSource || storedCredential
                         ? undefined
-                        : `Enter your ${sourceLabel} credentials. They are stored encrypted and never shared with anyone — including the assistant that sent you here.`
+                        : `Enter your ${sourceLabel} credentials. They are stored encrypted, kept only until the source is created (at most 24 hours), and never shared with anyone — including the assistant that sent you here.`
                 }
             />
             <div className="max-w-200">
