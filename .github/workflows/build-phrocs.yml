@@ -21,8 +21,8 @@ on:
             - '.github/workflows/build-phrocs.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: write
@@ -55,7 +55,22 @@ jobs:
                   cd tools/phrocs/dist
                   sha256sum phrocs-* > checksums.txt
 
+            - name: Check current master
+              id: current-master
+              if: github.event_name == 'push'
+              env:
+                  GIT_SHA: ${{ github.sha }}
+              run: |
+                  CURRENT_MASTER=$(git ls-remote origin refs/heads/master | awk '{print $1}')
+                  if [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
+                      echo "is_current=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "is_current=false" >> "$GITHUB_OUTPUT"
+                      echo "Skipping phrocs-latest release for stale master SHA $GIT_SHA"
+                  fi
+
             - name: Update latest release
+              if: github.event_name == 'workflow_dispatch' || steps.current-master.outputs.is_current == 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   GIT_SHA: ${{ github.sha }}
