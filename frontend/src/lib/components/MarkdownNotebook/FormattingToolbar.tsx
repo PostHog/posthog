@@ -213,6 +213,14 @@ export function FormattingToolbar({
                     </LemonButton>
                     <LemonButton
                         size="xsmall"
+                        tooltip="Strikethrough"
+                        aria-label="Strikethrough"
+                        onClick={() => applyInlineMark('strike')}
+                    >
+                        <span className="font-semibold line-through">S</span>
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
                         icon={<IconCode />}
                         tooltip="Inline code"
                         aria-label="Inline code"

@@ -6,6 +6,7 @@ export type NotebookInlineMark =
     | { type: 'bold' }
     | { type: 'italic' }
     | { type: 'underline' }
+    | { type: 'strike' }
     | { type: 'code' }
     | { type: 'link'; href: string }
 

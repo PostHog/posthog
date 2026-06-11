@@ -2,13 +2,14 @@ import './MarkdownNotebook.scss'
 
 import clsx from 'clsx'
 import {
-    ChangeEvent as ReactChangeEvent,
     ClipboardEvent as ReactClipboardEvent,
     FocusEvent as ReactFocusEvent,
     FormEvent,
     Fragment,
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
+    Suspense,
+    lazy,
     useCallback,
     useEffect,
     useId,
@@ -20,6 +21,11 @@ import {
 
 import { IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+// Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
+const LazyCodeEditor = lazy(() => import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor })))
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -211,19 +217,19 @@ export type MarkdownNotebookAskAIRequest = {
     selectedMarkdown?: string
 }
 
-type DebugTextareaSelection = {
-    start: number
-    end: number
-    direction: 'forward' | 'backward' | 'none'
-}
-
 type CommitDocumentOptions = {
     addToHistory?: boolean
 }
 
+type NotebookHistoryEntry = {
+    document: NotebookDocument
+    /** Where the cursor was while this document was current, so undo/redo can return to the edit point. */
+    selection: RestoreSelectionRequest | null
+}
+
 type NotebookHistoryState = {
-    undo: NotebookDocument[]
-    redo: NotebookDocument[]
+    undo: NotebookHistoryEntry[]
+    redo: NotebookHistoryEntry[]
 }
 
 function createDefaultAIChatId(): string {
@@ -269,8 +275,6 @@ export function MarkdownNotebook({
     const [isDebugOpen, setIsDebugOpen] = useState(false)
     const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
     const debugDrawerId = useId()
-    const debugTextareaRef = useRef<HTMLTextAreaElement | null>(null)
-    const pendingDebugSelectionRef = useRef<DebugTextareaSelection | null>(null)
     const notebookRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLDivElement | null>(null)
     const documentRef = useRef(document)
@@ -359,18 +363,6 @@ export function MarkdownNotebook({
     }, [value])
 
     useLayoutEffect(() => {
-        const debugSelection = pendingDebugSelectionRef.current
-        const debugTextarea = debugTextareaRef.current
-        if (debugSelection) {
-            pendingDebugSelectionRef.current = null
-            if (debugTextarea && window.document.activeElement === debugTextarea) {
-                const selectionStart = Math.min(debugSelection.start, debugTextarea.value.length)
-                const selectionEnd = Math.min(debugSelection.end, debugTextarea.value.length)
-                debugTextarea.setSelectionRange(selectionStart, selectionEnd, debugSelection.direction)
-                return
-            }
-        }
-
         const request = restoreSelectionRef.current
         if (request) {
             restoreSelectionRef.current = null
@@ -435,6 +427,12 @@ export function MarkdownNotebook({
         // oxlint-disable-next-line exhaustive-deps
     }, [initialInsertMenu, mode])
 
+    const captureHistorySelection = useCallback((): RestoreSelectionRequest | null => {
+        return notebookRef.current
+            ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
+            : null
+    }, [])
+
     const commitDocument = useCallback(
         (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
@@ -443,7 +441,7 @@ export function MarkdownNotebook({
                 historyRef.current = {
                     undo: [
                         ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                        cloneNotebookDocument(previousDocument),
+                        { document: cloneNotebookDocument(previousDocument), selection: captureHistorySelection() },
                     ],
                     redo: [],
                 }
@@ -456,7 +454,7 @@ export function MarkdownNotebook({
             setDocument(editableDocument)
             onChange?.(serialized)
         },
-        [onChange]
+        [onChange, captureHistorySelection]
     )
 
     const applyRemoteValue = useCallback(
@@ -527,17 +525,24 @@ export function MarkdownNotebook({
     }, [isTransientInteractionActive, onInteractionStateChange])
 
     const restoreHistoryDocument = useCallback(
-        (targetDocument: NotebookDocument): void => {
-            const editableDocument = ensureEditableNotebookDocument(cloneNotebookDocument(targetDocument))
-            restoreSelectionRef.current = getHistoryRestoreSelection(editableDocument)
+        (entry: NotebookHistoryEntry): void => {
+            const editableDocument = ensureEditableNotebookDocument(cloneNotebookDocument(entry.document))
+            const selection = entry.selection
+            const entrySelection =
+                selection &&
+                'nodeId' in selection &&
+                editableDocument.nodes.some((node) => node.id === selection.nodeId)
+                    ? selection
+                    : null
+            restoreSelectionRef.current = entrySelection ?? getHistoryRestoreSelection(editableDocument)
             commitDocument(editableDocument, { addToHistory: false })
         },
         [commitDocument]
     )
 
     const undoHistory = useCallback((): boolean => {
-        const previousDocument = historyRef.current.undo[historyRef.current.undo.length - 1]
-        if (!previousDocument) {
+        const previousEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
+        if (!previousEntry) {
             return false
         }
 
@@ -545,29 +550,29 @@ export function MarkdownNotebook({
             undo: historyRef.current.undo.slice(0, -1),
             redo: [
                 ...historyRef.current.redo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                cloneNotebookDocument(documentRef.current),
+                { document: cloneNotebookDocument(documentRef.current), selection: captureHistorySelection() },
             ],
         }
-        restoreHistoryDocument(previousDocument)
+        restoreHistoryDocument(previousEntry)
         return true
-    }, [restoreHistoryDocument])
+    }, [restoreHistoryDocument, captureHistorySelection])
 
     const redoHistory = useCallback((): boolean => {
-        const nextDocument = historyRef.current.redo[historyRef.current.redo.length - 1]
-        if (!nextDocument) {
+        const nextEntry = historyRef.current.redo[historyRef.current.redo.length - 1]
+        if (!nextEntry) {
             return false
         }
 
         historyRef.current = {
             undo: [
                 ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                cloneNotebookDocument(documentRef.current),
+                { document: cloneNotebookDocument(documentRef.current), selection: captureHistorySelection() },
             ],
             redo: historyRef.current.redo.slice(0, -1),
         }
-        restoreHistoryDocument(nextDocument)
+        restoreHistoryDocument(nextEntry)
         return true
-    }, [restoreHistoryDocument])
+    }, [restoreHistoryDocument, captureHistorySelection])
 
     const deleteSelectedNotebookBlocks = useCallback(
         (replacementText: string = ''): boolean => {
@@ -2342,13 +2347,7 @@ export function MarkdownNotebook({
         event.stopPropagation()
     }
 
-    const handleDebugMarkdownChange = (event: ReactChangeEvent<HTMLTextAreaElement>): void => {
-        pendingDebugSelectionRef.current = {
-            start: event.currentTarget.selectionStart,
-            end: event.currentTarget.selectionEnd,
-            direction: event.currentTarget.selectionDirection,
-        }
-        const nextMarkdown = event.currentTarget.value
+    const handleDebugMarkdownChange = (nextMarkdown: string): void => {
         const nextDocument = parseMarkdownNotebook(nextMarkdown)
         const reconciledDocument = ensureEditableNotebookDocument(
             reconcileNotebookDocuments(documentRef.current, nextDocument).document
@@ -3344,6 +3343,9 @@ export function MarkdownNotebook({
             i: 'italic',
             u: 'underline',
         }
+        const shiftInlineMarkShortcuts: Partial<Record<string, NotebookInlineMark['type']>> = {
+            x: 'strike',
+        }
 
         if (!event.shiftKey && key === 'a') {
             if (selectAIPromptContents(event.target)) {
@@ -3369,7 +3371,7 @@ export function MarkdownNotebook({
             return
         }
 
-        const inlineMarkType = event.shiftKey ? null : inlineMarkShortcuts[key]
+        const inlineMarkType = event.shiftKey ? shiftInlineMarkShortcuts[key] : inlineMarkShortcuts[key]
         if (inlineMarkType) {
             if (insertMenu) {
                 return
@@ -4157,15 +4159,15 @@ export function MarkdownNotebook({
                     {showDebug ? (
                         <div className="MarkdownNotebook__debug-toolbar">
                             <LemonButton
-                                size="xsmall"
+                                size="small"
                                 icon={<IconCode />}
                                 active={isDebugOpen}
+                                tooltip="Edit markdown source"
+                                aria-label="Edit markdown source"
                                 aria-controls={debugDrawerId}
                                 aria-expanded={isDebugOpen}
                                 onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
-                            >
-                                Debug
-                            </LemonButton>
+                            />
                         </div>
                     ) : null}
                     {document.errors.length ? (
@@ -4283,13 +4285,31 @@ export function MarkdownNotebook({
                                 Close
                             </LemonButton>
                         </div>
-                        <textarea
-                            ref={debugTextareaRef}
-                            className="MarkdownNotebook__debug-markdown"
-                            aria-label="Markdown debug output"
-                            value={debugMarkdown}
-                            onChange={handleDebugMarkdownChange}
-                        />
+                        <div className="MarkdownNotebook__debug-markdown" aria-label="Markdown debug output">
+                            <Suspense
+                                fallback={
+                                    <div className="MarkdownNotebook__debug-markdown-loading">
+                                        <Spinner />
+                                    </div>
+                                }
+                            >
+                                <LazyCodeEditor
+                                    language="markdown"
+                                    value={debugMarkdown}
+                                    onChange={(nextMarkdown) => handleDebugMarkdownChange(nextMarkdown ?? '')}
+                                    height="100%"
+                                    options={{
+                                        minimap: { enabled: false },
+                                        wordWrap: 'on',
+                                        lineNumbers: 'on',
+                                        folding: false,
+                                        scrollBeyondLastLine: false,
+                                        automaticLayout: true,
+                                        fontSize: 12,
+                                    }}
+                                />
+                            </Suspense>
+                        </div>
                     </aside>
                 ) : null}
             </div>

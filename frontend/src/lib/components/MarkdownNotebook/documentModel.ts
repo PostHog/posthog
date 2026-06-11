@@ -1,5 +1,11 @@
 import { RestoreSelectionRequest } from './editorTypes'
-import { makeEmptyParagraph, makeListItemId, parseMarkdownNotebook, serializeMarkdownNotebook } from './markdown'
+import {
+    DIVIDER_COMPONENT_TAG,
+    makeEmptyParagraph,
+    makeListItemId,
+    parseMarkdownNotebook,
+    serializeMarkdownNotebook,
+} from './markdown'
 import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
 import {
     NotebookBlockNode,
@@ -90,6 +96,10 @@ export function isGroupedBlockquoteNode(
 
 export function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === 'Prompt'
+}
+
+export function isDividerComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG
 }
 
 export function getPromptSource(value: NotebookPropValue | undefined): 'slash' | 'selection' {
@@ -247,6 +257,22 @@ export function getTextBlockShortcutReplacement(
         }
     }
 
+    if (getDividerShortcut(text)) {
+        const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
+        return {
+            nodes: [
+                {
+                    id: node.id,
+                    type: 'component',
+                    tagName: DIVIDER_COMPONENT_TAG,
+                    props: {},
+                },
+                trailingParagraph,
+            ],
+            restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+        }
+    }
+
     const listShortcut = getListShortcut(text)
     if (listShortcut) {
         const listItemId = makeListItemId(`shortcut-${node.id}`)
@@ -292,6 +318,10 @@ export function getBlockquoteShortcut(text: string): boolean {
 
 export function getCodeBlockShortcut(text: string): boolean {
     return /^```\s?$/.test(text)
+}
+
+export function getDividerShortcut(text: string): boolean {
+    return /^-{3}\s?$/.test(text)
 }
 
 export function ensureEditableNotebookDocument(document: NotebookDocument): NotebookDocument {

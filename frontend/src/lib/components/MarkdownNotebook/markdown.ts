@@ -40,6 +40,8 @@ const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
+const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
+export const DIVIDER_COMPONENT_TAG = 'Divider'
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
 let generatedNodeIdCounter = 0
@@ -151,6 +153,9 @@ export function serializeNode(node: NotebookBlockNode): string {
     if (node.type === 'code') {
         return `\`\`\`${node.language ?? ''}\n${node.text}\n\`\`\``
     }
+    if (node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG) {
+        return '---'
+    }
     if (node.type === 'component' && node.tagName === 'Image') {
         return serializeImageNode(node)
     }
@@ -207,6 +212,15 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
             if (end !== -1) {
                 nodes.push(...parseInlineMarkdown(markdown.slice(index + 3, end), [...marks, { type: 'underline' }]))
                 index = end + 4
+                continue
+            }
+        }
+
+        if (markdown.startsWith('~~', index)) {
+            const end = markdown.indexOf('~~', index + 2)
+            if (end !== -1) {
+                nodes.push(...parseInlineMarkdown(markdown.slice(index + 2, end), [...marks, { type: 'strike' }]))
+                index = end + 2
                 continue
             }
         }
@@ -293,6 +307,13 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         return parseImageBlock(lines, lineIndex)
     }
 
+    if (DIVIDER_BLOCK_REGEX.test(trimmed)) {
+        return {
+            node: { id: '', type: 'component', tagName: DIVIDER_COMPONENT_TAG, props: {} },
+            nextLineIndex: lineIndex + 1,
+        }
+    }
+
     if (COMPONENT_START_REGEX.test(trimmed)) {
         return parseComponentBlock(lines, lineIndex)
     }
@@ -357,6 +378,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             !trimmed ||
             trimmed.startsWith('```') ||
             IMAGE_BLOCK_REGEX.test(trimmed) ||
+            DIVIDER_BLOCK_REGEX.test(trimmed) ||
             COMPONENT_START_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
             isTableStart(lines, nextLineIndex) ||
@@ -937,6 +959,9 @@ function wrapInlineText(text: string, mark: NotebookInlineMark): string {
     if (mark.type === 'underline') {
         return `<u>${text}</u>`
     }
+    if (mark.type === 'strike') {
+        return `~~${text}~~`
+    }
     if (mark.type === 'code') {
         return `\`${text.replace(/`/g, '\\`')}\``
     }
@@ -951,7 +976,7 @@ function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: Not
 }
 
 function findNextInlineToken(markdown: string, startIndex: number): number {
-    const indexes = ['**', '*', '<u>', '`', '[', '\n']
+    const indexes = ['**', '*', '<u>', '~~', '`', '[', '\n']
         .map((token) => markdown.indexOf(token, startIndex))
         .filter((index) => index !== -1)
     return indexes.length ? Math.min(...indexes) : markdown.length
@@ -996,6 +1021,9 @@ function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): No
     }
     if (tagName === 'u') {
         nextMarks.push({ type: 'underline' })
+    }
+    if (tagName === 's' || tagName === 'del' || tagName === 'strike') {
+        nextMarks.push({ type: 'strike' })
     }
     if (tagName === 'code') {
         nextMarks.push({ type: 'code' })
@@ -1045,6 +1073,9 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
     }
     if (mark.type === 'underline') {
         return `<u>${html}</u>`
+    }
+    if (mark.type === 'strike') {
+        return `<s>${html}</s>`
     }
     if (mark.type === 'code') {
         return `<code>${html}</code>`

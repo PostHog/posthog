@@ -219,7 +219,10 @@ function getInlineMarkOrder(mark: NotebookInlineMark): number {
     if (mark.type === 'underline') {
         return 3
     }
-    return 4
+    if (mark.type === 'strike') {
+        return 4
+    }
+    return 5
 }
 
 export function normalizeInlineNodes(nodes: NotebookInlineNode[]): NotebookInlineNode[] {

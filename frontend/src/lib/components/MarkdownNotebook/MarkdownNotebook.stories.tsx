@@ -162,7 +162,11 @@ export const HeadingsAndInlineFormatting: Story = {
 
 ### Heading 3
 
-Normal text with **bold**, *italic*, <u>underline</u>, \`code\`, and [a link](https://posthog.com).`,
+Normal text with **bold**, *italic*, <u>underline</u>, ~~strikethrough~~, \`code\`, and [a link](https://posthog.com).
+
+---
+
+Text below a divider.`,
     },
 }
 

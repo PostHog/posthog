@@ -7,6 +7,7 @@ import {
     IconFlask,
     IconGraph,
     IconMap,
+    IconMinus,
     IconPeople,
     IconPencil,
     IconRewindPlay,
@@ -71,6 +72,19 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             getTitle: getImageComponentTitle,
             ViewComponent: ImageView,
             EditComponent: ImageEdit,
+        }),
+        makeDefinition({
+            tagName: 'Divider',
+            label: 'Divider',
+            category: 'Text',
+            description: 'Horizontal rule',
+            aliases: ['hr', 'horizontal rule', 'separator', 'line'],
+            icon: <IconMinus />,
+            defaultProps: {},
+            getTitle: () => null,
+            hideModeActions: true,
+            ViewComponent: DividerView,
+            insertCommand: {},
         }),
         makeDefinition({
             tagName: 'Embed',
@@ -270,6 +284,10 @@ function QueryView({ node }: NotebookComponentRenderProps): JSX.Element {
             <pre>{JSON.stringify(query, null, 2)}</pre>
         </div>
     )
+}
+
+function DividerView(_: NotebookComponentRenderProps): JSX.Element {
+    return <hr className="MarkdownNotebook__divider" />
 }
 
 function ImageView({ node }: NotebookComponentRenderProps): JSX.Element {

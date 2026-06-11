@@ -265,7 +265,8 @@ after`)
 
         const parsed = parseMarkdownNotebook(convertNotebookContentToMarkdown(content))
         expect(parsed.errors).toEqual([])
-        expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'paragraph', 'blockquote'])
+        // The legacy horizontal rule round-trips into the markdown notebook divider component
+        expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
     })
 
     it('converts notebook artifacts to markdown notebook content', () => {

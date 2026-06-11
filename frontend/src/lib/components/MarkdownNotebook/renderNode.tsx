@@ -1,7 +1,8 @@
 import { MutableRefObject } from 'react'
 
 import { ComponentPanel, ComponentPanelVisibility } from './componentPanels'
-import { isPromptComponentNode } from './documentModel'
+import { DividerBlock } from './DividerBlock'
+import { isDividerComponentNode, isPromptComponentNode } from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
 import { EditableListBlock } from './EditableListBlock'
 import { EditablePromptComponent } from './EditablePromptComponent'
@@ -105,6 +106,21 @@ export function renderNode({
     rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
     if (node.type === 'component') {
+        if (isDividerComponentNode(node)) {
+            return (
+                <DividerBlock
+                    node={node}
+                    mode={mode}
+                    isSelected={isSelected}
+                    setBlockRef={setBlockRef}
+                    deleteNode={deleteNode}
+                    deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
+                    insertParagraphAfterNode={insertParagraphAfterNode}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                />
+            )
+        }
+
         if (isPromptComponentNode(node)) {
             return (
                 <EditablePromptComponent

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
-import { createElement, useEffect, useState, type FormEvent } from 'react'
+import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -12,6 +12,20 @@ import {
 import { MarkdownNotebook } from './MarkdownNotebook'
 import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
+
+// Monaco cannot run in jsdom; stand in with a plain textarea that honors value/onChange.
+jest.mock('lib/monaco/CodeEditor', () => {
+    // oxlint-disable-next-line no-require-imports
+    const react = require('react') as typeof import('react')
+    return {
+        CodeEditor: ({ value, onChange }: { value?: string; onChange?: (value: string | undefined) => void }) =>
+            react.createElement('textarea', {
+                'data-attr': 'mock-code-editor',
+                value: value ?? '',
+                onChange: (event: ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value),
+            }),
+    }
+})
 
 const NOTEBOOK_TEST_EDITABLE_SELECTOR =
     '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
@@ -409,6 +423,45 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
 > Quote`
 
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+    })
+
+    it('round-trips strikethrough text as an inline mark', () => {
+        const markdown = 'Keep ~~this struck~~ and ~~**bold struck**~~ text.'
+        const document = parseMarkdownNotebook(markdown)
+        const firstNode = document.nodes[0]
+
+        expect(firstNode.type).toEqual('paragraph')
+        expect(firstNode.type === 'paragraph' && firstNode.children).toEqual([
+            { type: 'text', text: 'Keep ' },
+            { type: 'text', text: 'this struck', marks: [{ type: 'strike' }] },
+            { type: 'text', text: ' and ' },
+            { type: 'text', text: 'bold struck', marks: [{ type: 'bold' }, { type: 'strike' }] },
+            { type: 'text', text: ' text.' },
+        ])
+        expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it('parses divider lines into divider components and serializes them back', () => {
+        const document = parseMarkdownNotebook('Before\n\n---\n\nAfter')
+
+        expect(document.errors).toEqual([])
+        expect(document.nodes.map((node) => node.type)).toEqual(['paragraph', 'component', 'paragraph'])
+        expect(document.nodes[1]).toMatchObject({ type: 'component', tagName: 'Divider', props: {} })
+        expect(serializeMarkdownNotebook(document)).toEqual('Before\n\n---\n\nAfter')
+    })
+
+    it.each([['***'], ['___'], ['-----']])('parses %s as a divider', (line) => {
+        const document = parseMarkdownNotebook(line)
+
+        expect(document.nodes).toHaveLength(1)
+        expect(document.nodes[0]).toMatchObject({ type: 'component', tagName: 'Divider' })
+        expect(serializeMarkdownNotebook(document)).toEqual('---')
+    })
+
+    it('terminates a paragraph at a divider line without a blank separator', () => {
+        const document = parseMarkdownNotebook('Some text\n---\nMore text')
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['paragraph', 'component', 'paragraph'])
     })
 
     it('preserves literal backslashes when serializing markdown text', () => {
@@ -1356,6 +1409,32 @@ Repeated block`),
         expect(editableTextBlock.textContent).toEqual('hello world')
     })
 
+    it('returns the cursor to the edited block on undo instead of the first line', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nfirst paragraph\n\nsecond paragraph', onChange })
+        )
+        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const lastBlock = blocks[blocks.length - 1] as HTMLElement
+
+        expect(lastBlock.textContent).toEqual('second paragraph')
+        placeCaretInElement(lastBlock, lastBlock.childNodes.length)
+        lastBlock.textContent = 'second paragraph edited'
+        fireEvent.input(lastBlock)
+
+        fireEvent.keyDown(lastBlock, { key: 'z', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nfirst paragraph\n\nsecond paragraph')
+        const blocksAfterUndo = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        expect(document.activeElement).toEqual(blocksAfterUndo[blocksAfterUndo.length - 1])
+
+        fireEvent.keyDown(lastBlock, { key: 'z', metaKey: true, shiftKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nfirst paragraph\n\nsecond paragraph edited')
+        const blocksAfterRedo = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        expect(document.activeElement).toEqual(blocksAfterRedo[blocksAfterRedo.length - 1])
+    })
+
     it('undoes and redoes replacing a canvas Cmd+A notebook selection with typed text', () => {
         const onChange = jest.fn()
         const originalMarkdown = withNotebookTitle(`Intro paragraph
@@ -1963,20 +2042,24 @@ Tail paragraph`
         expect(container.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(0)
     })
 
-    it('opens a synced markdown debug drawer when enabled', () => {
+    it('opens a synced markdown source drawer from the source button', async () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph', showDebug: true }))
-        const debugButton = Array.from(container.querySelectorAll('button')).find((button) =>
-            button.textContent?.includes('Debug')
-        )
+        const debugButton = container.querySelector('button[aria-label="Edit markdown source"]')
 
         expect(debugButton).toBeInstanceOf(HTMLButtonElement)
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
 
         fireEvent.click(debugButton as HTMLButtonElement)
 
-        const debugTextarea = container.querySelector('.MarkdownNotebook__debug-markdown') as HTMLTextAreaElement
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
-        expect(debugTextarea).toBeInstanceOf(HTMLTextAreaElement)
+        await waitFor(() => {
+            expect(container.querySelector('.MarkdownNotebook__debug-markdown textarea')).toBeInstanceOf(
+                HTMLTextAreaElement
+            )
+        })
+        const debugTextarea = container.querySelector(
+            '.MarkdownNotebook__debug-markdown textarea'
+        ) as HTMLTextAreaElement
         expect(debugTextarea.value).toEqual('# First paragraph')
 
         const editableTextBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
@@ -1990,22 +2073,6 @@ Tail paragraph`
         expect(debugTextarea.value).toEqual('# Edited from debug')
         expect(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)?.textContent).toEqual('Edited from debug')
 
-        debugTextarea.focus()
-        debugTextarea.setSelectionRange(4, 4)
-        fireEvent.change(debugTextarea, {
-            target: {
-                value: '# EdXited from debug',
-                selectionStart: 5,
-                selectionEnd: 5,
-                selectionDirection: 'none',
-            },
-        })
-
-        expect(debugTextarea.value).toEqual('# EdXited from debug')
-        expect(debugTextarea.selectionStart).toEqual(5)
-        expect(debugTextarea.selectionEnd).toEqual(5)
-        expect(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)?.textContent).toEqual('EdXited from debug')
-
         const closeButton = Array.from(container.querySelectorAll('.MarkdownNotebook__debug-drawer button')).find(
             (button) => button.textContent?.includes('Close')
         )
@@ -2015,24 +2082,29 @@ Tail paragraph`
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
     })
 
-    it('syncs Ask AI prompt edits into the markdown debug drawer while typing', () => {
+    it('syncs Ask AI prompt edits into the markdown debug drawer while typing', async () => {
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI: jest.fn(), showDebug: true })
         )
-        const debugButton = Array.from(container.querySelectorAll('button')).find((button) =>
-            button.textContent?.includes('Debug')
-        )
+        const debugButton = container.querySelector('button[aria-label="Edit markdown source"]')
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(debugButton).toBeInstanceOf(HTMLButtonElement)
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.click(debugButton as HTMLButtonElement)
+        await waitFor(() => {
+            expect(container.querySelector('.MarkdownNotebook__debug-markdown textarea')).toBeInstanceOf(
+                HTMLTextAreaElement
+            )
+        })
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
 
         const promptBlock = getAIPromptInput(container)
-        const debugTextarea = container.querySelector('.MarkdownNotebook__debug-markdown') as HTMLTextAreaElement
+        const debugTextarea = container.querySelector(
+            '.MarkdownNotebook__debug-markdown textarea'
+        ) as HTMLTextAreaElement
         updateAIPromptInput(promptBlock, 'Summarize this notebook')
 
         expect(debugTextarea.value).toEqual(
@@ -5728,6 +5800,36 @@ Tail with **bold** text`)
         expect(codeBlock).toBeInstanceOf(HTMLElement)
         expect(document.activeElement).toEqual(codeBlock)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`\n\n\`\`\``)
+    })
+
+    it('converts a --- shortcut at the start of a text row into a divider', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = '---'
+        fireEvent.input(textBlock)
+
+        const divider = container.querySelector('.MarkdownNotebook__divider-block')
+
+        expect(divider).toBeInstanceOf(HTMLElement)
+        expect(divider?.querySelector('hr')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n---`)
+    })
+
+    it('renders dividers from markdown and deletes them with backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Above\n\n---\n\nBelow'), onChange })
+        )
+        const divider = container.querySelector('.MarkdownNotebook__divider-block') as HTMLElement
+
+        expect(divider).toBeInstanceOf(HTMLElement)
+        divider.focus()
+        fireEvent.keyDown(divider, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__divider-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nAbove\n\nBelow`)
     })
 
     it('renders blockquotes inside grouped text surfaces', () => {
