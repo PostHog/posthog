@@ -396,7 +396,9 @@ class TestMarkdownCollabStream(BaseTest):
     def test_submit_at_old_baseline_returns_missed_updates_in_order(self):
         base = ""
         for i, text in enumerate(["one", "one two", "one two three"]):
-            diff = MarkdownDiff(changes=[utf16_single_span_diff(base, text)], base_crc=markdown_crc(base))
+            change = utf16_single_span_diff(base, text)
+            assert change is not None
+            diff = MarkdownDiff(changes=[change], base_crc=markdown_crc(base))
             result = submit_markdown_update(
                 self.team.pk, "md2", client_id=f"client{i}", diff=diff, last_seen_version=i, last_saved_version=i
             )

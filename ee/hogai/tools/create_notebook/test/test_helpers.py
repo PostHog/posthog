@@ -191,6 +191,7 @@ class TestSaveNotebookToDb(BaseTest):
 
         notebook.refresh_from_db()
         mock_publish.assert_awaited_once()
+        assert mock_publish.await_args is not None
         publish_args, publish_kwargs = mock_publish.await_args
         self.assertEqual(publish_args, (self.team.id, str(parent.short_id), original_version + 1))
         # Receivers replay the diff instead of refetching; it must transform the old markdown exactly
