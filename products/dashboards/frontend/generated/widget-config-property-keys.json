@@ -17,7 +17,9 @@
             "orderBy",
             "orderDirection",
             "widgetFilters"
-        ]
+        ],
+        "experiments_list": ["createdBy", "limit", "status"],
+        "experiment_results": ["experimentId"]
     },
     "configPropertyTrees": {
         "error_tracking_list": {
@@ -182,6 +184,22 @@
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
+            }
+        },
+        "experiments_list": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "draft", "paused", "running", "stopped"]
+            },
+            "createdBy": {
+                "$type": "integer"
+            }
+        },
+        "experiment_results": {
+            "experimentId": {
+                "$type": "integer"
             }
         }
     }

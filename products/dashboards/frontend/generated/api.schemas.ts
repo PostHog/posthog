@@ -366,6 +366,8 @@ export interface DashboardCollaboratorApi {
 
 /**
  * * `error_tracking_list` - error_tracking_list
+ * * `experiment_results` - experiment_results
+ * * `experiments_list` - experiments_list
  * * `session_replay_list` - session_replay_list
  */
 export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
@@ -373,6 +375,8 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ErrorTrackingList: 'error_tracking_list',
+    ExperimentResults: 'experiment_results',
+    ExperimentsList: 'experiments_list',
     SessionReplayList: 'session_replay_list',
 } as const
 
@@ -562,7 +566,43 @@ export interface SessionReplayListWidgetConfigApi {
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
 }
 
-export type DashboardWidgetConfigApi = ErrorTrackingListWidgetConfigApi | SessionReplayListWidgetConfigApi
+/**
+ * Experiment status filter.
+ */
+export type ExperimentsListWidgetConfigApiStatus =
+    (typeof ExperimentsListWidgetConfigApiStatus)[keyof typeof ExperimentsListWidgetConfigApiStatus]
+
+export const ExperimentsListWidgetConfigApiStatus = {
+    Draft: 'draft',
+    Running: 'running',
+    Paused: 'paused',
+    Stopped: 'stopped',
+    All: 'all',
+} as const
+
+export interface ExperimentsListWidgetConfigApi {
+    /**
+     * Maximum number of experiments to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Experiment status filter. */
+    status?: ExperimentsListWidgetConfigApiStatus
+    /** Filter by creator (user id). Omit for any creator. */
+    createdBy?: number | null
+}
+
+export interface ExperimentResultsWidgetConfigApi {
+    /** Experiment to show results for. Null until the user picks one in the widget settings. */
+    experimentId?: number | null
+}
+
+export type DashboardWidgetConfigApi =
+    | ErrorTrackingListWidgetConfigApi
+    | SessionReplayListWidgetConfigApi
+    | ExperimentsListWidgetConfigApi
+    | ExperimentResultsWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -570,6 +610,8 @@ export interface DashboardPatchWidgetOpenApiApi {
     /** Widget type identifier (cannot be changed on update).
      *
      * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
      * * `session_replay_list` - session_replay_list */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -7952,16 +7994,68 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     config: SessionReplayListWidgetConfigApi
 }
 
+export type ExperimentsListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ExperimentsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetAddRequestOpenApiApiWidgetType]
+
+export const ExperimentsListWidgetAddRequestOpenApiApiWidgetType = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+export interface ExperimentsListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the experiments list widget. */
+    config: ExperimentsListWidgetConfigApi
+}
+
+export type ExperimentResultsWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ExperimentResultsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetAddRequestOpenApiApiWidgetType]
+
+export const ExperimentResultsWidgetAddRequestOpenApiApiWidgetType = {
+    ExperimentResults: 'experiment_results',
+} as const
+
+export interface ExperimentResultsWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the experiment results widget. */
+    config: ExperimentResultsWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
+    | ExperimentsListWidgetAddRequestOpenApiApi
+    | ExperimentResultsWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8055,9 +8149,49 @@ export interface SessionReplayListWidgetCatalogEntryOpenApiApi {
     required_product_access?: string | null
 }
 
+export type ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+export interface ExperimentsListWidgetCatalogEntryOpenApiApi {
+    widget_type: ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ExperimentsListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
+export type ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType = {
+    ExperimentResults: 'experiment_results',
+} as const
+
+export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
+    widget_type: ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ExperimentResultsWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
 export type WidgetCatalogEntryApi =
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
+    | ExperimentsListWidgetCatalogEntryOpenApiApi
+    | ExperimentResultsWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -8113,6 +8247,26 @@ export type SessionReplayListWidgetTypeEnumApi =
 
 export const SessionReplayListWidgetTypeEnumApi = {
     SessionReplayList: 'session_replay_list',
+} as const
+
+/**
+ * * `experiments_list` - experiments_list
+ */
+export type ExperimentsListWidgetTypeEnumApi =
+    (typeof ExperimentsListWidgetTypeEnumApi)[keyof typeof ExperimentsListWidgetTypeEnumApi]
+
+export const ExperimentsListWidgetTypeEnumApi = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+/**
+ * * `experiment_results` - experiment_results
+ */
+export type ExperimentResultsWidgetTypeEnumApi =
+    (typeof ExperimentResultsWidgetTypeEnumApi)[keyof typeof ExperimentResultsWidgetTypeEnumApi]
+
+export const ExperimentResultsWidgetTypeEnumApi = {
+    ExperimentResults: 'experiment_results',
 } as const
 
 export type DashboardTemplatesListParams = {
