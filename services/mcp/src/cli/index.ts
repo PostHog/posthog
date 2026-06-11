@@ -3,6 +3,7 @@ import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
+import { buildAgentHelp } from './agent-help'
 import { installAgentsMdSnippet } from './agents-md'
 import { takeOption } from './args'
 import type { CliConfig } from './config'
@@ -31,6 +32,7 @@ function usage(): string {
 
 Usage:
   posthog-cli api --experimental <command>
+  posthog-cli api --agent-help
   posthog-cli api tools
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
@@ -41,7 +43,8 @@ Usage:
   posthog-cli api agents-md install [--path AGENTS.md]
 
 Experimental: set ${EXPERIMENTAL_API_ENV}=1 or pass --experimental to enable this command group.
-Destructive tools require --confirm when executed. Use --dry-run before mutations.`
+Destructive tools require --confirm when executed. Use --dry-run before mutations.
+Agents: run \`posthog-cli api --agent-help\` and load the output into context before anything else.`
 }
 
 function takeFlag(args: string[], flag: string): boolean {
@@ -64,7 +67,7 @@ function printResult(result: unknown): void {
 async function buildExec(): Promise<BuiltExec> {
     const config = resolveCliConfig()
     const context = await buildCliContext(config)
-    const tools = getCliTools(config.version)
+    const tools = getCliTools()
     const execTool = createExecTool(
         tools,
         context,
@@ -179,6 +182,11 @@ async function main(): Promise<void> {
 
     if (!command || command === 'help' || command === '--help' || command === '-h') {
         process.stdout.write(`${usage()}\n`)
+        return
+    }
+
+    if (command === 'agent-help' || command === '--agent-help') {
+        process.stdout.write(`${buildAgentHelp(getCliTools())}\n`)
         return
     }
 

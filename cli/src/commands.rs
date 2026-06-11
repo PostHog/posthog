@@ -121,7 +121,11 @@ pub enum Commands {
         cmd: SymbolSetsSubcommand,
     },
 
-    #[command(about = "Agent-first PostHog API tools", trailing_var_arg = true)]
+    #[command(
+        about = "Agent-first PostHog API tools",
+        trailing_var_arg = true,
+        after_help = "Run `posthog-cli api` with no arguments for usage, or `posthog-cli api --agent-help` for the full agent-facing guide."
+    )]
     Api {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,

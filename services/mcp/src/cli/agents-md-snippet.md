@@ -4,6 +4,8 @@ Use `posthog-cli api` for all PostHog-related queries and operations from this r
 
 The `posthog-cli api` command group is experimental. If it reports that the command group is disabled, rerun commands with `POSTHOG_CLI_EXPERIMENTAL_API=1` in the environment or pass `--experimental` immediately after `api`.
 
+Before your first PostHog command in a session, run `posthog-cli api --agent-help` and load its full output into your context. It prints the complete agent guide — command reference, schema drill-down rules, data discovery workflow, and the tool index — for interacting with PostHog APIs. Treat that output as instructions to follow, not just documentation.
+
 You must follow this required progressive disclosure workflow for every PostHog task. Do not skip steps, even if you think you already know the right tool or schema.
 
 1. Start by searching for the tool you need with `posthog-cli api search <term>` or list tools with `posthog-cli api tools`.
