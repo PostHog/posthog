@@ -763,9 +763,10 @@ class TestEventsPredicatePushdownTransformUnit:
 
 
 class TestEventsSubexprHoister(BaseTest):
-    """The hoister rewrites an events query's outer leaves into references to the pre-filtering subquery, recording
-    which columns / property values the subquery must project. It runs on the lowered AST (property value reads are
-    `JSONFieldAccess`); a lazy-join or other non-events reference is simply left in the outer query."""
+    """The hoister rewrites an events query's outer column references into references to the pre-filtering subquery,
+    recording which source columns the subquery must project. It runs on the lowered AST (property value reads are
+    `JSONFieldAccess`, whose blob column gets projected while the extraction stays outer); a lazy-join or other
+    non-events reference is simply left in the outer query."""
 
     def setUp(self):
         super().setUp()
@@ -811,18 +812,18 @@ class TestEventsSubexprHoister(BaseTest):
         assert "event" in hoister.projections
         assert self._references_subquery(rewritten[0], subquery_ref) is True
 
-    def test_property_is_projected_under_its_dunder_name(self):
-        # The name is `<blob column>__<key>`, so reads off different blobs never collide on a bare key.
+    def test_property_read_projects_its_blob_column(self):
+        # A property read projects the raw blob column under its database name; the extraction stays outer.
         hoister, _, _ = self._run("SELECT properties.$browser FROM events")
-        assert "properties__$browser" in hoister.projections
+        assert "properties" in hoister.projections
         assert hoister.blocked is False
 
-    def test_nested_property_uses_dunder_joined_name(self):
+    def test_nested_property_projects_the_same_blob_column(self):
         hoister, _, _ = self._run("SELECT properties.a.b FROM events")
-        assert "properties__a__b" in hoister.projections
+        assert set(hoister.projections) == {"properties"}
 
     def test_property_reference_is_rewritten_to_subquery(self):
-        # The outer occurrence of a property read becomes a reference to the subquery column the physical pass fills.
+        # The outer property read keeps its extraction but its blob argument now references the subquery column.
         _, rewritten, subquery_ref = self._run("SELECT properties.$browser FROM events")
         assert self._references_subquery(rewritten[0], subquery_ref) is True
 
@@ -871,10 +872,10 @@ class TestEventsSubexprHoister(BaseTest):
 
     def test_poe_property_and_event_property_same_key_project_separately(self):
         # `properties.url` reads the event blob; `poe.properties.url` reads `person_properties`. They share the key
-        # `url` but must hoist to separate columns — collapsing them onto one silently read the wrong blob for one.
+        # `url` but must project separate blob columns — collapsing them onto one would read the wrong blob for one.
         hoister, _, _ = self._run("SELECT properties.url, poe.properties.url FROM events")
-        assert "properties__url" in hoister.projections
-        assert "person_properties__url" in hoister.projections
+        assert "properties" in hoister.projections
+        assert "person_properties" in hoister.projections
         assert hoister.blocked is False
 
 
@@ -1610,10 +1611,10 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
     """Pushdown must stay a pure optimization on teams that have materialized columns.
 
     The test ClickHouse has no materialized columns by default, so the rest of the suite never prints
-    `events.mat_*`. These tests materialize a property first, so the printer reads the physical column and
-    the pushdown subquery must expose it; without that exposure a property referenced outside the pushed
-    predicate (SELECT / GROUP BY / ORDER BY / HAVING) prints `events.mat_tier` against a subquery alias that
-    doesn't have it → `Unknown identifier`. Every assertion checks pushdown-on == pushdown-off.
+    `events.mat_*`. These tests materialize a property first. Predicates pushed into the subquery sit on the
+    real events table, so the physical pass reads the materialized column there; an outer property reference
+    instead extracts from the `properties` blob the subquery projects (the subquery hides the events table
+    from the physical pass). Every assertion checks pushdown-on == pushdown-off.
     """
 
     def _create_data(self) -> None:
@@ -1642,32 +1643,28 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
 
     def test_exec_materialized_property_in_outer_select(self):
-        # The CRITICAL repro: a materialized property in the outer SELECT. The subquery must expose
-        # `mat_tier` or the outer `events.mat_tier` is an Unknown identifier.
-        with materialized("events", "tier") as mat_col:
+        # A materialized property in the outer SELECT: the subquery projects the source `properties` blob and the
+        # outer query extracts from it. The subquery hides the events table from the physical pass, so the outer
+        # read does not use `mat_tier`; only predicates pushed into the subquery get the materialized column.
+        with materialized("events", "tier"):
             self._create_data()
             select = (
                 f"SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE {self._RANGE} LIMIT 50"
             )
             printed = self._print_pushdown_sql(select)
             subquery = self._events_subquery(printed)
-            assert mat_col.name in subquery, f"expected the materialized column exposed in the subquery:\n{printed}"
-            assert "LIMIT" in subquery, f"expected the pushed subquery to carry an inner LIMIT:\n{printed}"
-            # The materialized property must NOT also drag the raw `properties` blob into the subquery
-            # projection (over-projection would force a ~100x-slower full-Map read). Guards drift on the
-            # plain-materialized PropertyType path, mirroring the JSONHas blob-projection guard.
-            assert "properties AS properties" not in subquery, (
-                f"materialized property over-projected the blob:\n{printed}"
+            assert "properties AS properties" in subquery, (
+                f"expected the raw blob projected for the outer property read:\n{printed}"
             )
+            assert "LIMIT" in subquery, f"expected the pushed subquery to carry an inner LIMIT:\n{printed}"
             self._assert_equivalent(select, expected_rows=3)
 
-    def test_exec_materialized_property_as_join_key_exposes_mat_column(self):
-        # A materialized property used as the events-side join key. The key expression stays in the ON (a subquery
-        # column would read as nullable and break join-key detection), so the physical pass rewrites the ON's
-        # property to `events.mat_tier`, which the subquery must expose — without it the ON references `mat_tier`
-        # against a subquery alias that lacks it (Unknown identifier). This asserts the exposure on the printed SQL;
-        # end-to-end execution of a property join key is covered by test_query.test_join_with_property_materialized.
-        with materialized("events", "tier") as mat_col:
+    def test_exec_materialized_property_as_join_key_projects_blob(self):
+        # A materialized property used as the events-side join key. The key expression stays in the ON, extracting
+        # from the `properties` blob the subquery projects (the subquery hides the events table, so the ON keeps
+        # the JSON extract rather than `mat_tier`). This asserts the projection on the printed SQL; end-to-end
+        # execution of a property join key is covered by test_query.test_join_with_property_materialized.
+        with materialized("events", "tier"):
             self._create_data()
             select = (
                 "SELECT events.event AS ae, p.id FROM events "
@@ -1675,8 +1672,8 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
                 "WHERE events.timestamp >= '2024-01-01' AND events.timestamp < '2024-01-08' LIMIT 50"
             )
             subquery = self._events_subquery(self._print_pushdown_sql(select))
-            assert mat_col.name in subquery, (
-                f"expected the materialized column exposed for the property join key:\n{subquery}"
+            assert "properties AS properties" in subquery, (
+                f"expected the raw blob projected for the property join key:\n{subquery}"
             )
 
     def test_exec_materialized_property_in_order_by_declines(self):
@@ -1769,10 +1766,10 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
 class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestBase):
     """Pushdown must stay a pure optimization under propertyGroupsMode=OPTIMIZED (the PostHog Cloud default).
 
-    In OPTIMIZED mode the printer rewrites `JSONHas(properties, 'k')` into `has(events.properties_group_*,
-    'k')`, referencing a property-group Map column. JSONHas's argument is the bare `properties` column (not
-    a `properties.k` PropertyType), so the subquery must still expose that Map column or an outer-scope
-    JSONHas resolves against a column the subquery alias doesn't carry → `Unknown identifier`.
+    In OPTIMIZED mode the physical pass rewrites property reads and `JSONHas(properties, 'k')` into property-group
+    Map column reads — but only on the real events table, i.e. for predicates pushed into the subquery. An outer
+    reference instead reads the `properties` blob the subquery projects, so every shape must stay result-equivalent
+    on vs off.
     """
 
     _property_groups_mode = PropertyGroupsMode.OPTIMIZED
@@ -1797,18 +1794,18 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
 
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
 
-    def test_exec_outer_json_has_exposes_property_group_column(self):
-        # The reproduced break: an outer JSONHas → printer emits has(events.properties_group_*), which the
-        # subquery must expose. JSONHas is in the SELECT (referenced outside the pushed predicate) so the
-        # pushdown still fires with an inner LIMIT.
+    def test_exec_outer_json_has_reads_projected_blob(self):
+        # An outer JSONHas keeps its call form in the outer query, reading the `properties` blob the subquery
+        # projects (the subquery hides the events table, so the group-column rewrite doesn't apply). JSONHas is
+        # in the SELECT (referenced outside the pushed predicate) so the pushdown still fires with an inner LIMIT.
         self._create_data()
         select = (
             f"SELECT event, JSONHas(properties, 'tier') AS h, session.$session_duration FROM events "
             f"WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), (
-            f"expected the property-group Map column exposed in the subquery:\n{printed}"
+        assert "properties AS properties" in self._events_subquery(printed), (
+            f"expected the raw blob projected for the outer JSONHas:\n{printed}"
         )
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
@@ -1817,21 +1814,6 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         )
         assert len(with_pushdown or []) == 3
 
-    def test_exec_json_has_does_not_project_properties_blob(self):
-        # Under OPTIMIZED the printer reads only the property-group Map column for JSONHas, never the
-        # `properties` blob. When JSONHas is the sole `properties` reference, the subquery must expose the
-        # Map column and NOT project the full blob (which would force a ~100x Map read for nothing).
-        self._create_data()
-        select = (
-            f"SELECT event, JSONHas(properties, 'tier') AS h, session.$session_duration FROM events "
-            f"WHERE {self._RANGE} LIMIT 50"
-        )
-        subquery = self._events_subquery(self._print_pushdown_sql(select))
-        assert "properties_group" in subquery, f"expected the group Map column exposed:\n{subquery}"
-        assert "properties AS properties" not in subquery, (
-            f"the raw properties blob must NOT be projected when only JSONHas reads it:\n{subquery}"
-        )
-
     def test_exec_json_has_in_select_stays_equivalent(self):
         self._create_data()
         select = (
@@ -1839,7 +1821,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
             f"WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        assert "properties AS properties" in self._events_subquery(printed), printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1861,14 +1843,13 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         )
         assert len(with_pushdown or []) == 2  # only u1's two events have the tier property
 
-    def test_exec_property_type_uses_property_group_column(self):
-        # `properties.tier` (a PropertyType, not JSONHas) under OPTIMIZED is read from the property-group
-        # Map column by the printer; the collector's PropertyType path must expose it too. Distinct code
-        # path from the JSONHas tests above (visit_field/_collect_materialized_column, not visit_call).
+    def test_exec_property_type_reads_projected_blob(self):
+        # An outer `properties.tier` value read (lowered to a JSONFieldAccess, distinct path from the JSONHas
+        # call form above) extracts from the `properties` blob the subquery projects.
         self._create_data()
         select = f"SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE {self._RANGE} LIMIT 50"
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        assert "properties AS properties" in self._events_subquery(printed), printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1876,17 +1857,16 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         )
         assert len(with_pushdown or []) == 3  # u1's two tier='pro' events and u2's no-tier event
 
-    def test_exec_is_not_null_uses_property_group_column(self):
-        # Under OPTIMIZED the printer rewrites isNull/isNotNull(properties.k) to the property-group has()
-        # expression, so the Map column must be exposed. The arg is a PropertyType (visit_field path), so
-        # the group column is exposed by _collect_materialized_column; pin that equivalence here.
+    def test_exec_is_not_null_reads_projected_blob(self):
+        # An outer isNotNull(properties.tier) keeps its call form over the projected `properties` blob (the
+        # group-column has() rewrite only applies on the real events table, inside the subquery).
         self._create_data()
         select = (
             f"SELECT isNotNull(properties.tier) AS has_tier, session.$session_duration AS d "
             f"FROM events WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        assert "properties AS properties" in self._events_subquery(printed), printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1896,12 +1876,12 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
 
 
 class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
-    """Pushdown must expose dmat (dynamic materialized) columns in the subquery too.
+    """Pushdown must stay a pure optimization for dmat (dynamic materialized) properties too.
 
-    A property with a READY MaterializedColumnSlot is read from `dmat_string_<n>` by the printer, so an
-    outer reference to that property after pushdown must resolve against the subquery alias. The test DB
-    has the physical dmat columns but `_create_event` doesn't populate them, so events are inserted with
-    the column pre-filled (same approach as test_property_types_dmat.py).
+    A property with a READY MaterializedColumnSlot is read from `dmat_string_<n>` on the real events table;
+    after pushdown an outer reference to it extracts from the `properties` blob the subquery projects instead.
+    The test DB has the physical dmat columns but `_create_event` doesn't populate them, so events are inserted
+    with the column pre-filled (same approach as test_property_types_dmat.py).
     """
 
     _SLOT_INDEX = 0
@@ -1940,6 +1920,6 @@ class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
         self._setup_dmat_events()
         select = "SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE timestamp >= '2020-01-01' LIMIT 50"
         printed = self._print_pushdown_sql(select)
-        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
+        assert "properties AS properties" in self._events_subquery(printed), printed
         on = self._assert_results_equivalent(select)
         assert len(on) == 2
