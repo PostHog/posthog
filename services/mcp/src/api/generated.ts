@@ -33007,6 +33007,8 @@ export namespace Schemas {
       readonly id?: string;
       /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
       readonly skill_name?: string;
+      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+      readonly description?: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -39591,6 +39593,8 @@ export namespace Schemas {
       readonly id: string;
       /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
       readonly skill_name: string;
+      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+      readonly description: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */

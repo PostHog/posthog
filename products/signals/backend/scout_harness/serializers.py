@@ -8,6 +8,8 @@ in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.schema import Severity
@@ -945,6 +947,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
     )
+    description = serializers.SerializerMethodField(
+        help_text=(
+            "Human-readable summary of what this scout investigates, sourced from the scout "
+            "skill's `description` metadata. Use it for a quick steer on the scout's focus "
+            "without loading the full skill body. Empty if the skill is not currently present "
+            "on the team or carries no description."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -965,7 +975,23 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_description(self, obj: SignalScoutConfig) -> str:
+        # Resolved by the view into `skill_descriptions` (skill_name -> description) so the
+        # list endpoint stays a single LLMSkill query rather than one lookup per config row.
+        descriptions = self.context.get("skill_descriptions") or {}
+        return descriptions.get(obj.skill_name, "")
+
     class Meta:
         model = SignalScoutConfig
-        fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
+        fields = [
+            "id",
+            "skill_name",
+            "description",
+            "enabled",
+            "emit",
+            "run_interval_minutes",
+            "last_run_at",
+            "created_at",
+        ]
         read_only_fields = ["id", "created_at"]
