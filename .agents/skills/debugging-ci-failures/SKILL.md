@@ -1,13 +1,16 @@
 ---
 name: debugging-ci-failures
 description: >
-  Debugs failing GitHub Actions CI runs for PostHog PRs, commits, and branches.
-  Use when the user asks why CI is red, mentions a failing check, GitHub Actions
-  run, Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
+  Debugs failing GitHub Actions CI runs for PostHog PRs, commits, and branches,
+  and answers broad CI-health questions ("is CI red?", "is master green today?",
+  "what's broken right now?"). Use when the user asks why CI is red, asks for the
+  current CI or master status, or mentions a failing check, GitHub Actions run,
+  Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Guides read-only inspection, failure classification, smallest
-  local reproduction with hogli, and safe reporting without rerunning CI or
-  posting to GitHub.
+  build failure. Start with the `hogli ci:insights` digest (aggregated cross-run
+  CI intelligence), then guides read-only inspection, failure classification,
+  smallest local reproduction with hogli, and safe reporting without rerunning CI
+  or posting to GitHub.
 ---
 
 # Debugging PostHog CI failures
@@ -15,6 +18,10 @@ description: >
 Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
+
+Always start with the `hogli ci:insights` digest. It is the institutional,
+cross-run source of truth, and it is fresher and more reliable than scraping
+`gh run list` / the GitHub Actions API, which can lag or rate-limit.
 
 ## Safety rules
 
@@ -33,6 +40,36 @@ change local Git state, make sure it is necessary for the task and does not
 overwrite unrelated work.
 
 ## Workflow
+
+### 1. Start with CI insights (always first)
+
+`hogli ci:insights` is the institutional CI-intelligence backend. It aggregates
+cross-run history — recurring flakes, occurrence counts, confidence, and any
+proposed or merged fix — that a single run can't show. Consult it before any raw
+`gh` log archaeology; the raw GitHub Actions API can lag or rate-limit, while the
+insights digest is the freshest aggregated view.
+
+```bash
+hogli ci:insights                                # digest for the current repo + branch
+hogli ci:insights search "<error or test name>"  # match a specific failure
+hogli ci:insights view <id>                       # one insight + its remediation actions
+hogli ci:insights plan <id>                       # print the recommended fix plan (does not apply it)
+```
+
+- Broad question ("is CI red?", "is master green today?", "what's broken right
+  now?"): the no-arg digest answers directly — it lists open / in-progress /
+  resolved counts and the most recent insights with severity and confidence. You
+  often do not need a target PR or run at all; report from the digest.
+- Specific failure: run `search "<error>"` to match it before reading logs. When
+  a matching insight exists, weigh its confidence and occurrence history, and note
+  whether a fix is already merged (the failure may already be resolved on
+  `master`) or proposed (a plan you can adapt).
+
+`hogli ci:insights` prints a setup hint if the backend isn't installed or
+authenticated — if so, fall back to the `gh`-based inspection below. Surface what
+you find per the Safety rules — do not auto-apply a fix.
+
+### 2. Find the failing run (for a specific failure)
 
 Determine the target in this order:
 
@@ -117,9 +154,6 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   that agents can query in this environment.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
-- Shadow workflows are non-blocking even when red. Known shadows:
-  `ci-blacksmith-shadow.yml`, `ci-test-selection-shadow.yml`. Call this out
-  explicitly in the report so the user does not chase a non-blocker.
 - PostHog CI frequently parallelizes the same test class across N shards
   (`backend-tests (3/10)` style). Reproduce from the specific failing test
   path, not the shard index.

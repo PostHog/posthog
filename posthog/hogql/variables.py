@@ -7,8 +7,9 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
+
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 T = TypeVar("T", bound=ast.Expr)
 

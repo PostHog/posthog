@@ -1,8 +1,12 @@
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
+from llm_gateway.main import RequestLoggingMiddleware
+from llm_gateway.request_context import get_posthog_properties
+from tests.conftest import create_test_app
 
 DANGEROUS_PARAMS: list[tuple[str, str]] = [
     ("api_key", "sk-stolen-key"),
@@ -86,6 +90,54 @@ class TestChatCompletionsEndpoint:
         assert data["id"] == "chatcmpl-123"
         assert data["object"] == "chat.completion"
         assert data["usage"]["total_tokens"] == 15
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_posthog_property_headers_reach_request_context(
+        self,
+        mock_completion: MagicMock,
+        mock_db_pool: MagicMock,
+        valid_request_body: dict,
+        mock_openai_response: dict,
+    ) -> None:
+        # Build a prod-like app: RequestLoggingMiddleware establishes the base RequestContext
+        # that apply_posthog_context_from_headers mutates. The shared conftest app omits it.
+        app = create_test_app(mock_db_pool)
+        app.add_middleware(RequestLoggingMiddleware)
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        captured: dict[str, Any] = {}
+
+        def _capture(*args: Any, **kwargs: Any) -> MagicMock:
+            captured["properties"] = get_posthog_properties()
+            return mock_response
+
+        mock_completion.side_effect = _capture
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/chat/completions",
+                json=valid_request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "x-posthog-property-team_id": "42",
+                    "x-posthog-property-$ai_billable": "false",
+                },
+            )
+
+        assert response.status_code == 200
+        assert captured["properties"] == {"team_id": "42", "$ai_billable": "false"}
 
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",

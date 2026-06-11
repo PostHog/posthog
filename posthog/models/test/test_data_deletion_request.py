@@ -1,3 +1,4 @@
+import uuid as uuid_lib
 from datetime import datetime, timedelta
 
 import pytest
@@ -73,9 +74,9 @@ def test_non_event_removal_cannot_set_delete_all_events():
         ("", None),
         ("this is not hogql", "hogql_predicate"),
         ("nonexistent_column = 1", "hogql_predicate"),
-        ("event IN (SELECT event FROM events)", "Subqueries"),
+        ("event IN (SELECT event FROM events)", None),
     ],
-    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery"],
+    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery_allowed"],
 )
 def test_hogql_predicate_validation(team, predicate, error_match):
     request = DataDeletionRequest(
@@ -86,6 +87,62 @@ def test_hogql_predicate_validation(team, predicate, error_match):
     else:
         with pytest.raises(ValidationError, match=error_match):
             request.clean()
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')",
+        "event IN (SELECT event FROM events WHERE timestamp > now() - INTERVAL 1 DAY)",
+    ],
+    ids=["person_subquery", "events_subquery"],
+)
+def test_hogql_predicate_allows_subqueries(team, predicate):
+    """Subqueries against persons / events / cohorts are allowed in deletion predicates.
+
+    HogQL's table resolver injects the ``team_id`` guard into each subquery, so
+    cross-team data cannot leak through; the team-scoping test below is the
+    regression net for that invariant.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate),
+    )
+    request.clean()
+    sql, _ = compile_hogql_predicate(request)
+    assert sql
+
+
+def test_hogql_predicate_subquery_is_team_scoped(db):
+    """Compiling the same person-subquery predicate for two different teams must
+    splice each team's id into the inner WHERE clause — that's how HogQL prevents
+    cross-team leaks via subqueries.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    org = Organization.objects.create(name="scoping-org")
+    team_a = Team.objects.create(organization=org, name="team-a")
+    team_b = Team.objects.create(organization=org, name="team-b")
+    assert team_a.id != team_b.id
+
+    predicate = "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')"
+
+    req_a = DataDeletionRequest(**_base_kwargs(team_id=team_a.id, events=["$pageview"], hogql_predicate=predicate))
+    req_b = DataDeletionRequest(**_base_kwargs(team_id=team_b.id, events=["$pageview"], hogql_predicate=predicate))
+
+    sql_a, _ = compile_hogql_predicate(req_a)
+    sql_b, _ = compile_hogql_predicate(req_b)
+
+    # HogQL inlines ``team_id`` as a literal int (not a parameter), so the bare
+    # team id appears directly in the SQL. Confirm each team's id shows up in
+    # its own SQL but not in the other's, and the standard ``equals(team_id, …)``
+    # guard shape is present — that's HogQL's table resolver wrapping the
+    # ``persons`` subquery with the team scope.
+    assert f"equals(team_id, {team_a.id})" in sql_a
+    assert f"equals(team_id, {team_b.id})" in sql_b
+    assert f"equals(team_id, {team_b.id})" not in sql_a
+    assert f"equals(team_id, {team_a.id})" not in sql_b
 
 
 def test_compile_hogql_predicate_returns_sql_and_values(team):
@@ -111,6 +168,54 @@ def test_compile_hogql_predicate_empty_returns_empty():
 
     request = DataDeletionRequest(**_base_kwargs(hogql_predicate=""))
     assert compile_hogql_predicate(request) == ("", {})
+
+
+def test_compile_hogql_predicate_emits_no_table_qualifier(team, snapshot):
+    """Predicate is spliced into both ``SELECT … FROM events`` and ``DELETE FROM
+    sharded_events WHERE …``, so the compiled SQL must use unqualified column
+    references — neither ``events.`` nor ``sharded_events.``.
+
+    Snapshots the full SQL fragment so any regression that re-introduces a table
+    prefix is caught.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$browser = 'Chrome' AND event = '$pageview'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert sql == snapshot
+
+
+def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, snapshot):
+    """When a property has a materialized column, the printer emits the ``mat_<prop>``
+    column without a table prefix. ClickHouse's lightweight DELETE rewrites the
+    predicate into a mutation whose expression analyzer rejects table-qualified
+    references, so ``sharded_events.mat_$current_url`` would fail with "Missing
+    columns" even when the column exists on every replica.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from ee.clickhouse.materialized_columns.analyze import materialize
+
+    materialize("events", "$current_url")
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$current_url LIKE '%message=%'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert "events.`mat_$current_url`" not in sql
+    assert "sharded_events.`mat_$current_url`" not in sql
+    assert "`mat_$current_url`" in sql
+    assert sql == snapshot
 
 
 def test_rendered_count_query_substitutes_parameters():
@@ -174,3 +279,100 @@ def test_rendered_count_query_includes_hogql_predicate(team):
     assert "AND (" in rendered
     assert "'Chrome'" in rendered
     assert "%(" not in rendered
+
+
+def _person_kwargs(**overrides) -> dict:
+    kwargs = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.PERSON_REMOVAL,
+        "start_time": None,
+        "end_time": None,
+        "person_uuids": [str(uuid_lib.uuid4())],
+        "person_distinct_ids": [],
+        "person_drop_profiles": True,
+        "person_drop_events": False,
+        "person_drop_recordings": False,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_person_removal_clean_passes_minimal():
+    request = DataDeletionRequest(**_person_kwargs())
+    request.clean()
+
+
+def test_person_removal_requires_at_least_one_selector():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[], person_distinct_ids=[]))
+    with pytest.raises(ValidationError, match="person_uuids"):
+        request.clean()
+
+
+def test_person_removal_requires_at_least_one_action():
+    request = DataDeletionRequest(
+        **_person_kwargs(person_drop_profiles=False, person_drop_events=False, person_drop_recordings=False)
+    )
+    with pytest.raises(ValidationError, match="At least one of person_drop"):
+        request.clean()
+
+
+def test_person_removal_caps_total_selectors_at_1000():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4()) for _ in range(1001)]))
+    with pytest.raises(ValidationError, match="1000"):
+        request.clean()
+
+
+def test_person_removal_rejects_both_selectors():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4())], person_distinct_ids=["did-1"]))
+    with pytest.raises(ValidationError, match="not both"):
+        request.clean()
+
+
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        ({"events": ["$pageview"]}, "events"),
+        ({"delete_all_events": True}, "events"),
+        ({"properties": ["$ip"]}, "properties"),
+        ({"hogql_predicate": "properties.$browser = 'Chrome'"}, "hogql_predicate"),
+    ],
+    ids=["events", "delete_all_events", "properties", "hogql_predicate"],
+)
+def test_person_removal_rejects_event_only_fields(overrides, match):
+    request = DataDeletionRequest(**_person_kwargs(**overrides))
+    with pytest.raises(ValidationError, match=match):
+        request.clean()
+
+
+def _property_kwargs(**overrides) -> dict:
+    kwargs = _base_kwargs(
+        request_type=RequestType.PROPERTY_REMOVAL,
+        properties=["$ip"],
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+@pytest.mark.parametrize(
+    "request_type, overrides, match",
+    [
+        (RequestType.EVENT_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+    ],
+)
+def test_event_and_property_removal_rejects_person_fields(request_type, overrides, match):
+    if request_type == RequestType.EVENT_REMOVAL:
+        kwargs = _base_kwargs(events=["$pageview"], **overrides)
+    else:
+        kwargs = _property_kwargs(**overrides)
+    request = DataDeletionRequest(**kwargs)
+    with pytest.raises(ValidationError, match=match):
+        request.clean()

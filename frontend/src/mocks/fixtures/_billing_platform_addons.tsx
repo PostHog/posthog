@@ -109,6 +109,12 @@ const auditLogs = (months: number): AddonPlanFeature =>
         'See who in your organization has accessed or modified entities within PostHog.',
         { limit: months, unit: 'months' }
     )
+const highFrequencyAlerts = feature(
+    'high_frequency_alerts',
+    'High frequency alerts',
+    'Run insight alerts as frequently as every 15 minutes.',
+    { entitlement_only: true }
+)
 const prioritySupport = (note: string = 'Target response time 24 hours'): AddonPlanFeature =>
     feature(
         'priority_support',
@@ -121,12 +127,6 @@ const approvals = feature(
     'approvals',
     'Approvals',
     'Require approval workflows for changes to feature flags and other resources.'
-)
-const productAnalyticsAi = feature(
-    'product_analytics_ai',
-    'Product Analytics AI',
-    'Insight suggestions and other AI features in product analytics.',
-    { entitlement_only: true }
 )
 const supportResponseTime = (note: string): AddonPlanFeature =>
     feature('support_response_time', 'Target support response time', 'Get help from our team!', {
@@ -178,7 +178,7 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
-    productAnalyticsAi,
+    highFrequencyAlerts,
 ]
 
 const BOOST_FEATURES: AddonPlanFeature[] = [
@@ -195,6 +195,7 @@ const BOOST_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
+    highFrequencyAlerts,
 ]
 
 const SCALE_FEATURES: AddonPlanFeature[] = [
@@ -202,7 +203,6 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     prioritySupport(),
     saml,
     approvals,
-    productAnalyticsAi,
     projects,
     ssoEnforcement,
     twoFaEnforcement,
@@ -216,6 +216,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
+    highFrequencyAlerts,
 ]
 
 const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
@@ -242,8 +243,8 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     prioritySupport('Target response time 8 hours'),
     saml,
-    productAnalyticsAi,
     approvals,
+    highFrequencyAlerts,
 ]
 
 type AddonSpec = {

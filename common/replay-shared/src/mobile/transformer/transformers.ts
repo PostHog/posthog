@@ -8,7 +8,7 @@ import {
     metaEvent,
     mutationData,
     removedNodeMutation,
-} from '@posthog/rrweb-types'
+} from 'posthog-js/rrweb-types'
 
 import { ReplayTelemetry } from '../../telemetry'
 import { isObject } from '../../utils'

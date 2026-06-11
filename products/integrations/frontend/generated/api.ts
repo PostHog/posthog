@@ -12,9 +12,12 @@ import type {
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubTeamsResponseApi,
     IntegrationConfigApi,
+    IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
@@ -25,6 +28,7 @@ import type {
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
+    SlackChannelsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -44,24 +48,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
- */
 export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
 }
 
+/**
+ * ViewSet for organization-level integrations.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
+ */
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationIntegrationApi: NonReadonly<PatchedOrganizationIntegrationApi>,
+    patchedOrganizationIntegrationApi?: NonReadonly<PatchedOrganizationIntegrationApi>,
     options?: RequestInit
 ): Promise<OrganizationIntegrationApi> => {
     return apiMutator<OrganizationIntegrationApi>(
@@ -80,7 +84,7 @@ export const getRoleExternalReferencesListUrl = (organizationId: string, params?
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -142,7 +146,7 @@ export const getRoleExternalReferencesLookupRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -169,7 +173,7 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -234,16 +238,78 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/channels/`
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsChannelsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -301,7 +367,7 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedIntegrationConfigApi: NonReadonly<PatchedIntegrationConfigApi>,
+    patchedIntegrationConfigApi?: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
@@ -339,7 +405,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -371,7 +437,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -406,6 +472,38 @@ export const integrationsGithubReposRefreshCreate = async (
     return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getIntegrationsGithubTeamsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_teams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_teams/`
+}
+
+export const integrationsGithubTeamsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubTeamsResponseApi> => {
+    return apiMutator<GitHubTeamsResponseApi>(getIntegrationsGithubTeamsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -525,17 +623,17 @@ export const integrationsAuthorizeRetrieve = async (projectId: string, options?:
     })
 }
 
-/**
- * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
- */
 export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
 }
 
+/**
+ * Unified endpoint for generating Domain Connect apply URLs.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
+ */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -560,5 +658,45 @@ export const integrationsDomainConnectCheckRetrieve = async (
     return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
+}
+
+/**
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
+ */
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
     })
 }

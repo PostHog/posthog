@@ -75,7 +75,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                                       },
                                       sourcemaps: {
                                         enabled: true,
-                                        project: '<ph_project_id>', // Your project ID from PostHog settings https://app.posthog.com/settings/environment#variables
+                                        projectId: '<ph_project_id>', // Your project ID, found in your environment settings: https://app.posthog.com/settings/environment#variables
                                         personalApiKey: '<ph_personal_api_key>', // Your personal API key from PostHog settings https://app.posthog.com/settings/user-api-keys (requires organization:read and error_tracking:write scopes)
                                         releaseName: 'my-application', // Optional: defaults to git repository name
                                         releaseVersion: '1.0.0', // Optional: defaults to current git commit
@@ -86,9 +86,9 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
-                    <CalloutBox type="fyi" title="Personal API Key">
+                    <CalloutBox type="fyi" title="Personal API key">
                         <Markdown>
-                            Your Personal API Key will require `organization:read` and `error_tracking:write` scopes.
+                            Your personal API key will require `organization:read` and `error_tracking:write` scopes.
                         </Markdown>
                     </CalloutBox>
                     <Markdown>

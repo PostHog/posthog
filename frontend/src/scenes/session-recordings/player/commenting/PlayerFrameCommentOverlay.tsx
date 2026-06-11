@@ -22,8 +22,9 @@ export const PlayerCommentModal = (): JSX.Element => {
     const playerCommentOverlayLogicProps = { recordingId: sessionRecordingId, ...logicProps }
     const theBuiltOverlayLogic = playerCommentOverlayLogic(playerCommentOverlayLogicProps)
     const { recordingComment, isRecordingCommentSubmitting, richContentEditor } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingComment, resetRecordingComment, setRichContentEditor, setRichContent } =
+    const { submitRecordingComment, resetRecordingComment, setRichContentEditor, setRichContent, setAsTask } =
         useActions(theBuiltOverlayLogic)
+    const isEditing = !!recordingComment.commentId
 
     return (
         <div className="absolute bottom-4 left-4 z-20 w-90">
@@ -78,16 +79,35 @@ export const PlayerCommentModal = (): JSX.Element => {
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            form="recording-comment-form"
-                            type="primary"
-                            onClick={submitRecordingComment}
-                            data-attr="create-recording-comment-submit"
-                            size="small"
-                            loading={isRecordingCommentSubmitting}
-                        >
-                            {recordingComment.commentId ? 'Update' : 'Save'}
-                        </LemonButton>
+                        <div className="flex gap-2">
+                            {!isEditing && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        setAsTask(true)
+                                        submitRecordingComment()
+                                    }}
+                                    data-attr="create-recording-comment-task-submit"
+                                    size="small"
+                                    loading={isRecordingCommentSubmitting}
+                                >
+                                    Add as task
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                form="recording-comment-form"
+                                type="primary"
+                                onClick={() => {
+                                    setAsTask(false)
+                                    submitRecordingComment()
+                                }}
+                                data-attr="create-recording-comment-submit"
+                                size="small"
+                                loading={isRecordingCommentSubmitting}
+                            >
+                                {isEditing ? 'Update' : 'Save'}
+                            </LemonButton>
+                        </div>
                     </div>
                 </Form>
             </div>

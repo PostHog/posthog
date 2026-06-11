@@ -49,26 +49,56 @@ export function CollapsibleExceptionHeader({
 
     return (
         <div className="pb-1">
-            <div className="flex gap-2 items-center min-w-0">
-                {loading ? (
-                    <LemonSkeleton className="w-[25%] h-2" />
-                ) : (
-                    <>
-                        {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
-                        <Tooltip title={type} delayMs={300}>
-                            <span className="font-semibold text-lg mb-0 truncate">{type}</span>
-                        </Tooltip>
-                        {part && <FingerprintRecordPartDisplay part={part} />}
-                    </>
-                )}
+            <div className="flex gap-2 items-center justify-between min-w-0">
+                <div className="flex gap-2 items-center min-w-0">
+                    {loading ? (
+                        <LemonSkeleton className="w-[25%] h-2" />
+                    ) : (
+                        <>
+                            {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
+                            <Tooltip title={type} delayMs={300}>
+                                <span className="font-semibold text-lg mb-0 truncate">{type}</span>
+                            </Tooltip>
+                            {part && <FingerprintRecordPartDisplay part={part} />}
+                        </>
+                    )}
+                </div>
             </div>
             {(loading || value) && (
                 <div>
                     <div
                         ref={valueRef}
+                        // When clamped, the div itself becomes the primary expand affordance —
+                        // users naturally click the truncated text. The explicit button below
+                        // stays for discoverability. Skip the toggle if the user is selecting text.
+                        onClick={
+                            !truncate && isClamped
+                                ? () => {
+                                      const selection = window.getSelection()
+                                      if (selection && selection.toString().length > 0) {
+                                          return
+                                      }
+                                      setExpanded(!expanded)
+                                  }
+                                : undefined
+                        }
+                        onKeyDown={
+                            !truncate && isClamped
+                                ? (e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault()
+                                          setExpanded(!expanded)
+                                      }
+                                  }
+                                : undefined
+                        }
+                        role={!truncate && isClamped ? 'button' : undefined}
+                        tabIndex={!truncate && isClamped ? 0 : undefined}
+                        aria-expanded={!truncate && isClamped ? expanded : undefined}
                         className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
                             'line-clamp-1': truncate,
                             'line-clamp-3': !truncate && !expanded,
+                            'cursor-pointer': !truncate && isClamped,
                         })}
                     >
                         {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}

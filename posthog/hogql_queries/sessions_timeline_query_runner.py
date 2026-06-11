@@ -132,6 +132,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         query_result = execute_hogql_query(
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,

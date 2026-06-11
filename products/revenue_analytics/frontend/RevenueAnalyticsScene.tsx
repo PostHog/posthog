@@ -60,16 +60,27 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     actions={<RevenueAnalyticsViewStatusIcon />}
                 />
 
-                <LemonBanner type="info" className="mb-4">
-                    <strong>Revenue analytics is currently in maintenance mode.</strong> This product is not being
-                    actively developed at the moment, so bug reports and fixes might be few and far between. Revenue
-                    analytics will be re-released in the future as part of{' '}
-                    {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
-                        <Link to={urls.customerAnalytics()}>Customer analytics</Link>
-                    ) : (
-                        <Link to={urls.settings('user-feature-previews')}>Customer analytics (early access)</Link>
+                <LemonBanner type="warning" className="mb-4">
+                    <strong>Revenue analytics is being deprecated.</strong> We'll remove this page on or after June
+                    30th, 2026.
+                    <br />
+                    <br />
+                    We're not stepping away from revenue in PostHog — we're rethinking how it should work. We don't
+                    believe a single, opinionated Revenue analytics dashboard is the right shape for it. Instead, we're
+                    focusing on exposing revenue properties on persons and groups so you can use them everywhere:
+                    insights, SQL, and persons/groups profiles.
+                    <br />
+                    <br />
+                    Removing the dashboard lets us move faster and ship this in a shape that works across the whole app,
+                    rather than maintaining many bespoke dashboards. Each use-case (ecommerce, SaaS, recurring revenue,
+                    one-off, services, multi-tenant) can then build the dashboard it actually needs — or have PostHog AI
+                    and agents via our MCP build it for you.
+                    {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && (
+                        <>
+                            {' '}
+                            In the meantime, check out <Link to={urls.customerAnalytics()}>Customer analytics</Link>.
+                        </>
                     )}
-                    .
                 </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (

@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
@@ -15,25 +14,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::{Config, ThreadCounts};
+use feature_flags::handler::body_logger::BODY_LOG_TARGET;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
-use feature_flags::server::serve;
+use feature_flags::server::{register_components, serve};
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    tracing::info!("Shutting down gracefully...");
-}
 
 fn init_tracer(
     sink_url: &str,
@@ -114,6 +99,22 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
     };
 
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
+        // Build the OTEL filter explicitly: keep the configured level for
+        // every other target, but drop the body-log target. Body logs go to
+        // stdout (and from there to Loki on a short retention) by design;
+        // routing them through OTEL too would re-sink PII (`distinct_id`,
+        // `person_properties`, `ip_address`) into a tier the body-log
+        // retention budget was not sized for. The directive is parsed at
+        // runtime from `BODY_LOG_TARGET` so the constant stays the single
+        // source of truth.
+        let otel_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::from_level(config.otel_log_level).into())
+            .parse_lossy("")
+            .add_directive(
+                format!("{BODY_LOG_TARGET}=off")
+                    .parse()
+                    .expect("BODY_LOG_TARGET must form a valid tracing directive"),
+            );
         Some(
             OpenTelemetryLayer::new(init_tracer(
                 otel_url,
@@ -121,7 +122,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
                 &config.otel_service_name,
                 config.otel_export_timeout_secs,
             ))
-            .with_filter(LevelFilter::from_level(config.otel_log_level)),
+            .with_filter(otel_filter),
         )
     } else {
         None
@@ -142,12 +143,26 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         }
     };
 
+    let mut manager = lifecycle::Manager::builder("feature-flags")
+        .with_global_shutdown_timeout(Duration::from_secs(45))
+        .build();
+
+    let handles = register_components(&mut manager);
+    let monitor_guard = manager.monitor_background();
+
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, rayon_dispatcher, shutdown()).await;
-    unreachable!("Server exited unexpectedly");
+    serve(config, listener, rayon_dispatcher, handles).await;
+
+    // Exit non-zero on dirty shutdown so `restart: on-failure` policies
+    // (hobby docker-compose, default Docker) restart the container.
+    // Clean shutdown exits 0.
+    if let Err(e) = monitor_guard.wait().await {
+        tracing::error!("Lifecycle monitor reported: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn main() {

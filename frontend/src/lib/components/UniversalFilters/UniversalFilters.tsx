@@ -242,12 +242,14 @@ const PureTaxonomicFilter = ({
     initialSearchQuery,
     hideSearchInput,
     searchQuery,
+    taxonomicFilterLogicKey,
 }: {
     fullWidth?: boolean
     onChange: () => void
     initialSearchQuery?: string
     hideSearchInput?: boolean
     searchQuery?: string
+    taxonomicFilterLogicKey?: string
 }): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
@@ -255,6 +257,7 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
+            taxonomicFilterLogicKey={taxonomicFilterLogicKey}
             onChange={(taxonomicGroup, value, item) => {
                 onChange()
                 addGroupFilter(taxonomicGroup, value, item)

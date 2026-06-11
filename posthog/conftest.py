@@ -1,5 +1,6 @@
 import os
 import subprocess
+from typing import Any
 from urllib.parse import quote_plus
 
 import pytest
@@ -79,7 +80,6 @@ def reset_clickhouse_tables():
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -95,6 +95,7 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
+    from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
@@ -331,40 +332,43 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
-@pytest.fixture(autouse=True)
-def patch_flush_command_for_persons_db(monkeypatch):
+def _patched_flush_handle(self, **options: Any) -> None:
     """
-    Patch Django's flush command to handle persons database properly.
+    Patched Django flush command for two reasons:
 
-    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
-    so we need to skip emitting post_migrate signals that would try to create them.
+    1. Persons database doesn't have Django's built-in tables (contenttypes,
+       permissions), so we skip post_migrate signals by truncating manually.
 
-    This is needed for non-Django test classes (pytest, temporal, async tests).
-    Django test classes handle this in _fixture_teardown in test/base.py.
+    2. The schema cache can be newer than the branch code, introducing tables
+       Django doesn't know about. CASCADE lets TRUNCATE succeed even when
+       unknown FK constraints reference a table being flushed.
+
+    Applied at module level (not via monkeypatch) so it stays active during
+    pytest-django's _post_teardown, which runs flush AFTER function-scoped
+    fixture teardown.
     """
-    original_handle = FlushCommand.handle
+    database = options.get("database")
 
-    def patched_handle(self, **options):
-        database = options.get("database")
+    if database in ("persons_db_writer", "persons_db_reader"):
+        conn = connections[database]
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename NOT LIKE 'pg_%'
+                AND tablename NOT LIKE '_sqlx_%'
+                AND tablename NOT LIKE '_persons_migrations'
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+            if tables:
+                cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+    else:
+        options["allow_cascade"] = True
+        return _original_flush_handle(self, **options)
 
-        if database in ("persons_db_writer", "persons_db_reader"):
-            # Manually truncate persons database tables without emitting signals
-            conn = connections[database]
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                    AND tablename NOT LIKE 'pg_%'
-                    AND tablename NOT LIKE '_sqlx_%'
-                    AND tablename NOT LIKE '_persons_migrations'
-                """)
-                tables = [row[0] for row in cursor.fetchall()]
-                if tables:
-                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-        else:
-            return original_handle(self, **options)
 
-    monkeypatch.setattr(FlushCommand, "handle", patched_handle)
+_original_flush_handle = FlushCommand.handle
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 @pytest.fixture

@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
@@ -21,14 +22,28 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
+from posthog.scopes import (
+    API_SCOPE_ACTIONS,
+    API_SCOPE_OBJECTS,
+    INTERNAL_API_SCOPE_OBJECTS,
+    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 10
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
 
 class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
-    scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
+    scopes = serializers.ListField(
+        child=serializers.CharField(required=True),
+        allow_empty=False,
+        help_text=(
+            "Project-wide API scopes granted to this key. Project secret API keys do not honor object-level "
+            "access controls, so a scope can access resources of that type even when per-resource RBAC would "
+            "hide them from an individual user."
+        ),
+    )
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = ProjectSecretAPIKey
@@ -65,6 +80,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             if (
                 len(scope_parts) != 2
                 or scope_parts[0] not in API_SCOPE_OBJECTS
+                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
@@ -128,9 +144,10 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return project_secret_api_key
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "roll"]
     lookup_field = "id"
     serializer_class = ProjectSecretAPIKeySerializer
     permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]

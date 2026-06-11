@@ -9,17 +9,13 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 
 from products.data_warehouse.backend.s3 import aget_s3_client
-
-WAREHOUSE_WEBHOOK_FLAG = "warehouse-source-webhooks"
 
 
 class WebhookSourceManager:
@@ -36,21 +32,22 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self) -> bool:
-        from posthog.models.hog_functions.hog_function import HogFunction
-
-        from products.data_warehouse.backend.models import ExternalDataSchema
-
-        flag_enabled = await self._is_webhook_feature_flag_enabled()
-
-        if not flag_enabled:
-            return False
+    async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(
             id=self._inputs.schema_id, team_id=self._inputs.team_id
         )
 
-        if not schema.is_webhook or not schema.initial_sync_complete or self._inputs.reset_pipeline:
+        if (
+            not schema.is_webhook
+            or (skip_initial_sync_complete_check is not True and not schema.initial_sync_complete)
+            or self._inputs.reset_pipeline
+        ):
+            await self._logger.adebug(
+                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. schema.initial_sync_complete={schema.initial_sync_complete}. self._inputs.reset_pipeline={self._inputs.reset_pipeline}"
+            )
             return False
 
         has_webhook_function = await database_sync_to_async_pool(
@@ -179,39 +176,3 @@ class WebhookSourceManager:
     def _transform_webhook_table(self, table: pa.Table) -> pa.Table:
         rows = [orjson.loads(str(s)) for s in table.column("payload_json").to_pylist()]
         return table_from_py_list(rows)
-
-    async def _is_webhook_feature_flag_enabled(self) -> bool:
-        from posthog.models import Team
-
-        try:
-            team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(
-                id=self._inputs.team_id
-            )
-        except Team.DoesNotExist:
-            return False
-
-        try:
-            enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
-                WAREHOUSE_WEBHOOK_FLAG,
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-            if enabled:
-                await self._logger.adebug(
-                    f"Feature flag '{WAREHOUSE_WEBHOOK_FLAG}' is enabled for team {self._inputs.team_id}"
-                )
-
-            return bool(enabled)
-        except Exception as e:
-            capture_exception(e)
-            return False

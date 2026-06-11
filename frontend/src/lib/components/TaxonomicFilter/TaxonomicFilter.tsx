@@ -8,7 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import {
     CategoryDropdownVariant,
-    isCategoryDropdownVariant,
+    resolveCategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
@@ -23,10 +23,6 @@ import { urls } from 'scenes/urls'
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
-
-function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}
 
 let uniqueMemoizedIndex = 0
 
@@ -63,6 +59,8 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    excludedOperators,
+    selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -74,11 +72,9 @@ export function TaxonomicFilter({
     const focusInput = (): void => searchInputRef.current?.focus()
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const flagVariant = resolveCategoryDropdownVariant(featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN])
-    // The pill/icon dropdown trigger lives inside the search input's suffix.
-    // When the host hides the input there is nowhere to render it, so fall
-    // back to the control layout so users can still switch categories.
-    const categoryDropdownVariant: CategoryDropdownVariant = hideSearchInput ? 'control' : flagVariant
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
     const resolvedSuggestedFiltersLabel =
         suggestedFiltersLabel ?? (categoryDropdownVariant === 'control' ? 'Suggestions' : 'All')
 
@@ -110,6 +106,8 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        excludedOperators,
+        selectingKeyOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -210,6 +208,8 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        markUserInteraction,
+        recordPaste,
         moveUp,
         moveDown,
         tabLeft,
@@ -218,6 +218,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        // Only the input's onChange path counts as user interaction. The controlled-prop
+        // useEffect above also calls setSearchQuery directly, but that's programmatic and
+        // shouldn't unmute the `taxonomic filter closed` capture — keep this dispatch separate.
+        markUserInteraction()
         setTaxonomicSearchQuery(query)
         onChange?.(query)
     }
@@ -237,11 +241,18 @@ export const TaxonomicFilterSearchInput = forwardRef<
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
             prefix={prefix}
+            onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                if (pasted.length > 0) {
+                    recordPaste(pasted.length)
+                }
+            }}
             suffix={
                 <>
                     {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
+                            interactive
                             title={
                                 <span>
                                     This filter only shows numerical properties. If you're not seeing your property

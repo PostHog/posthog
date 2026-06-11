@@ -37,6 +37,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -376,11 +377,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     return 'minimal'
                 }
                 if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
-                    if (
-                        activeSceneId === Scene.Onboarding &&
-                        featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide'
-                    ) {
-                        return 'none'
+                    if (activeSceneId === Scene.Onboarding) {
+                        // A flow variant can opt to own the whole viewport (no navbar); the
+                        // existing ONBOARDING_NAVBAR='hide' flag stays as a separate override.
+                        const variantHidesNavbar =
+                            onboardingVariantChrome(resolveOnboardingFlowVariant(featureFlags)) === 'none'
+                        if (variantHidesNavbar || featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide') {
+                            return 'none'
+                        }
                     }
                     return 'minimal'
                 }
@@ -597,19 +601,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
                             ? {
                                   identifier: Scene.UserInterviews,
-                                  label: 'User interviews',
+                                  label: 'User research',
                                   icon: <IconChat />,
                                   tag: 'alpha' as const,
                                   to: urls.userInterviews(),
                               }
                             : null,
                         {
-                            identifier: 'LLMAnalytics',
-                            label: 'LLM analytics',
+                            identifier: 'AIObservability',
+                            label: 'AI observability',
                             icon: <IconLlmAnalytics />,
-                            to: urls.llmAnalyticsDashboard(),
-                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                            to: urls.aiObservabilityDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
+                        featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
+                            ? {
+                                  identifier: 'MCPAnalytics',
+                                  label: 'MCP analytics',
+                                  icon: <IconLlmAnalytics />,
+                                  to: urls.mcpAnalyticsDashboard(),
+                                  tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                              }
+                            : null,
                         {
                             identifier: Scene.Logs,
                             label: 'Logs',

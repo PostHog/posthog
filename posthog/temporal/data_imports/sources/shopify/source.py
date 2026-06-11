@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.generated_configs import ShopifySourc
 from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     shopify_source,
@@ -30,6 +31,13 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
+            # Retrying cannot recover; the user must reconnect the integration.
+            SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -46,7 +54,12 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Store id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="my-store-id",
+                        placeholder="my-store",
+                        caption=(
+                            "Your store subdomain — the `my-store` in `my-store.myshopify.com`. "
+                            "Pasting the full store URL works too."
+                        ),
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_id",
@@ -54,6 +67,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="client-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_secret",
@@ -61,6 +75,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="shpss_...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -83,7 +98,12 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():

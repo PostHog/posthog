@@ -211,6 +211,7 @@ def create_resources(
             headers=client_config.get("headers"),
             auth=create_auth(client_config.get("auth")),
             paginator=create_paginator(client_config.get("paginator")),
+            session=client_config.get("session"),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))

@@ -18,6 +18,11 @@ from products.batch_exports.backend.temporal.destinations.databricks_batch_expor
     DatabricksBatchExportWorkflow,
     insert_into_databricks_activity_from_stage,
 )
+from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
+    FileDownloadBatchExportWorkflow,
+    export_to_file_download_bucket_with_temporary_credentials,
+    generate_file_downloads,
+)
 from products.batch_exports.backend.temporal.destinations.http_batch_export import (
     HttpBatchExportWorkflow,
     insert_into_http_activity,
@@ -67,12 +72,15 @@ WORKFLOWS = [
     HttpBatchExportWorkflow,
     BatchExportMonitoringWorkflow,
     WorkflowsBatchExportWorkflow,
+    FileDownloadBatchExportWorkflow,
 ]
 
 ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
     get_backfill_info,
+    generate_file_downloads,
+    export_to_file_download_bucket_with_temporary_credentials,
     start_batch_export_run,
     finish_batch_export_run,
     update_batch_export_backfill_model,

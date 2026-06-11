@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import requests
 import structlog
+import tldextract
 
 from posthog.security.url_validation import is_url_allowed
 
@@ -36,21 +37,48 @@ def _validate_url(url: str) -> None:
 
 
 def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
+    # MCP Authorization §2.3 mandates this exact ordered chain of well-known URLs.
+    # https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery
     parsed = urlparse(auth_server_url)
-    metadata_url = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"
-    if parsed.path and parsed.path != "/":
-        metadata_url = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server{parsed.path}"
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    has_path = parsed.path and parsed.path != "/"
+    path = parsed.path.rstrip("/") if has_path else ""
 
-    _validate_url(metadata_url)
-    metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
-    metadata_resp.raise_for_status()
-    metadata = metadata_resp.json()
+    if path:
+        candidates = [
+            f"{origin}/.well-known/oauth-authorization-server{path}",
+            f"{origin}/.well-known/openid-configuration{path}",
+            f"{origin}{path}/.well-known/openid-configuration",
+        ]
+    else:
+        candidates = [
+            f"{origin}/.well-known/oauth-authorization-server",
+            f"{origin}/.well-known/openid-configuration",
+        ]
 
-    for field in ("authorization_endpoint", "token_endpoint"):
-        if field not in metadata:
-            raise ValueError(f"Missing required field '{field}' in authorization server metadata")
+    # Only fall back on "endpoint not implemented" — transient errors must surface as-is.
+    FALLBACK_STATUSES = {404, 405}
+    last_exc: Exception = RuntimeError("no discovery candidates were attempted")
+    for metadata_url in candidates:
+        _validate_url(metadata_url)
+        metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
+        if metadata_resp.status_code in FALLBACK_STATUSES:
+            last_exc = requests.HTTPError(response=metadata_resp)
+            continue
+        metadata_resp.raise_for_status()
+        metadata = metadata_resp.json()
+        for field in ("authorization_endpoint", "token_endpoint"):
+            if field not in metadata:
+                raise ValueError(f"Missing required field '{field}' in authorization server metadata")
+        if metadata_url != candidates[0]:
+            logger.info(
+                "OAuth auth-server metadata discovered via fallback URL",
+                auth_server_url=auth_server_url,
+                tried_url=metadata_url,
+            )
+        return metadata
 
-    return metadata
+    raise last_exc
 
 
 # When the origin declares a cross-origin issuer (e.g. Atlassian → Cloudflare),
@@ -74,6 +102,65 @@ def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
         return _cross_validate_issuer(declared_issuer)
     metadata.setdefault("issuer", expected_issuer)
     return metadata
+
+
+def _registrable_domain(hostname: str) -> str | None:
+    """Return the eTLD+1 (registrable domain) for a hostname, e.g. `auth.example.co.uk` -> `example.co.uk`."""
+    extracted = tldextract.extract(hostname)
+    if not extracted.domain or not extracted.suffix:
+        return None
+    return f"{extracted.domain}.{extracted.suffix}".lower()
+
+
+def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
+    """Reject metadata where OAuth endpoints live on an unrelated registrable domain from the issuer.
+
+    Without this, a malicious metadata source can mix endpoints from a real
+    provider with an attacker-controlled token_endpoint, exfiltrating
+    authorization codes, PKCE verifiers, and DCR-minted client_secrets while
+    the user authorizes against the legitimate provider.
+
+    Many auth setups (Keycloak, Auth0, Okta, and apps that delegate auth
+    to a dedicated subdomain) publish the issuer on one subdomain and the
+    actual OAuth endpoints on a sibling subdomain — e.g. issuer at
+    `mcp.example.com/oauth` with endpoints on `auth.example.com`.
+    """
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    if not issuer:
+        raise ValueError("OAuth metadata is missing issuer")
+
+    parsed_issuer = urlparse(issuer)
+    if not parsed_issuer.scheme or not parsed_issuer.netloc:
+        raise ValueError("OAuth metadata issuer is not an absolute URL")
+
+    issuer_domain = _registrable_domain(parsed_issuer.hostname or "")
+    if issuer_domain is None:
+        raise ValueError("OAuth metadata issuer has no registrable domain")
+
+    for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+        url = metadata.get(field)
+        if not url:
+            continue
+        parsed = urlparse(url)
+        if parsed.scheme != parsed_issuer.scheme:
+            logger.warning(
+                "OAuth endpoint scheme does not match issuer",
+                issuer=issuer,
+                field=field,
+                endpoint=url,
+            )
+            raise ValueError(f"OAuth endpoint '{field}' scheme does not match issuer")
+        endpoint_domain = _registrable_domain(parsed.hostname or "")
+        if endpoint_domain != issuer_domain:
+            logger.warning(
+                "OAuth endpoint registrable domain does not match issuer",
+                issuer=issuer,
+                field=field,
+                endpoint=url,
+                issuer_domain=issuer_domain,
+                endpoint_domain=endpoint_domain,
+            )
+            raise ValueError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
 
 
 def discover_oauth_metadata(server_url: str) -> dict:
@@ -100,6 +187,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
                 metadata["scopes_supported"] = resource_data["scopes_supported"]
+            _validate_endpoints_bound_to_issuer(metadata)
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
@@ -108,10 +196,19 @@ def discover_oauth_metadata(server_url: str) -> dict:
     logger.info(
         "RFC 9728 protected resource metadata not available, falling back to direct discovery", server_url=server_url
     )
-    return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    metadata = _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    _validate_endpoints_bound_to_issuer(metadata)
+    return metadata
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
+def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None]:
+    """Run RFC 7591 Dynamic Client Registration.
+
+    Returns ``(client_id, client_secret)``. Some servers (e.g. Supabase) ignore
+    our ``token_endpoint_auth_method: "none"`` request and register a
+    confidential client — in which case we must keep the returned secret or
+    token exchange fails with ``Required parameter: client_secret``.
+    """
     registration_endpoint = metadata.get("registration_endpoint")
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
@@ -137,13 +234,15 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
         )
         resp.raise_for_status()
     data = resp.json()
-    data.pop("client_secret", None)  # Not used for public clients; don't store in plaintext
 
     client_id = data.get("client_id")
     if not client_id:
         raise ValueError("No client_id in DCR response")
 
-    return client_id
+    returned_secret = data.get("client_secret")
+    client_secret = returned_secret if returned_secret and data.get("token_endpoint_auth_method") != "none" else None
+
+    return client_id, client_secret
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -181,12 +280,26 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
 
     template = installation.template
     if template is not None:
-        metadata = dict(template.oauth_metadata or {})
         credentials = template.oauth_credentials or {}
-        client_id = credentials.get("client_id", "")
-        client_secret = credentials.get("client_secret") or None
+        shared_client_id = credentials.get("client_id", "")
+        if shared_client_id:
+            # Shared-creds template: every installation of this template
+            # authenticates with the same client against the admin-seeded
+            # metadata on the template.
+            metadata = dict(template.oauth_metadata or {})
+            if not metadata:
+                raise ValueError("Template missing OAuth metadata")
+            client_secret = credentials.get("client_secret") or None
+            return metadata, shared_client_id, client_secret
+        # DCR template: each installation ran discovery + DCR at install
+        # time. Both the metadata and the minted client live on the
+        # installation — the template is never written back to, so a
+        # first-installer can't poison state for other users of the template.
+        metadata = dict(installation.oauth_metadata or {})
+        client_id = sensitive.get("dcr_client_id", "")
+        client_secret = sensitive.get("dcr_client_secret") or None
         if not metadata or not client_id:
-            raise ValueError("Template missing OAuth metadata or client_id")
+            raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
         return metadata, client_id, client_secret
 
     metadata = dict(installation.oauth_metadata or {})
@@ -319,7 +432,8 @@ def exchange_oauth_token(
 
     token_response = requests.post(token_endpoint, data=form, timeout=TIMEOUT)
 
-    if token_response.status_code != 200:
+    # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
+    if not token_response.ok:
         logger.error(
             "OAuth token exchange failed",
             status_code=token_response.status_code,

@@ -3,7 +3,6 @@ import datetime
 from typing import Any, Optional
 
 import pyarrow as pa
-import requests
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
@@ -11,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -55,7 +55,7 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = requests.get(
+    res = make_tracked_session().get(
         "https://api.doit.com/analytics/v1/reports",
         headers={"Authorization": f"Bearer {config.api_key}"},
     )
@@ -139,7 +139,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = requests.get(
+        res = make_tracked_session().get(
             request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )

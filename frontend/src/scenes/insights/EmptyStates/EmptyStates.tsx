@@ -10,6 +10,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
@@ -489,10 +490,12 @@ export function InsightValidationError({
     detail,
     query,
     onRetry,
+    cta,
 }: {
     detail: string
     query?: Record<string, any> | null
     onRetry?: () => void
+    cta?: JSX.Element
 }): JSX.Element {
     return (
         <div
@@ -515,7 +518,7 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
 
-            {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+            {cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">
@@ -837,6 +840,11 @@ export function SavedInsightsEmptyState({
                     </Link>
                 )}
             </div>
+            {!usingFilters && (
+                <div className="mt-4">
+                    <MCPUseCaseCard surfaceKey="insights.create" className="max-w-140" />
+                </div>
+            )}
         </div>
     )
 }

@@ -5,11 +5,11 @@ from posthog.temporal.session_replay.import_recording.activities import (
     import_recording_data,
     import_replay_clickhouse_rows,
 )
-from posthog.temporal.session_replay.import_recording.workflows import ImportRecordingWorkflow
+from posthog.temporal.session_replay.import_recording.workflow import ImportRecordingWorkflow
 
-WORKFLOWS = [ImportRecordingWorkflow]
+IMPORT_RECORDING_WORKFLOWS = [ImportRecordingWorkflow]
 
-ACTIVITIES = [
+IMPORT_RECORDING_ACTIVITIES = [
     build_import_context,
     cleanup_import_data,
     import_event_clickhouse_rows,

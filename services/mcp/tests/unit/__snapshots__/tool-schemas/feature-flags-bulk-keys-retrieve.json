@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "ids": {
+            "description": "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.",
+            "items": {},
+            "type": "array"
+        }
+    },
+    "type": "object"
+}

@@ -3,45 +3,43 @@ import { useActions, useValues } from 'kea'
 import { IconBug } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
-import { EndpointType, EndpointVersionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
 
-export interface EndpointSceneHeaderProps {
-    tabId: string
-}
-
-export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
+export const EndpointSceneHeader = (): JSX.Element => {
     const {
         endpoint,
         endpointLoading,
         localQuery,
-        cacheAge,
-        syncFrequency,
         isMaterialized,
         viewingVersion,
         bucketOverrides,
         debugInfoExpanded,
-    } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const {
-        setLocalQuery,
-        setCacheAge,
-        setSyncFrequency,
-        setIsMaterialized,
-        resetBucketOverrides,
-        setDebugInfoExpanded,
-    } = useActions(endpointSceneLogic({ tabId }))
+        dataFreshness,
+    } = useValues(endpointSceneLogic)
+    const { endpointName, endpointDescription } = useValues(endpointLogic)
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
+    const { setLocalQuery, setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded } =
+        useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+
+    // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
+    // wrap it with AccessControlAction — use the same helper AccessControlAction relies on internally.
+    const editAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
+        AccessControlLevel.Editor
+    )
 
     // When viewing a non-current version, target that version for updates
     const targetVersion =
@@ -53,11 +51,8 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== baseDescription
     const hasQueryChange = localQuery !== null
     // When viewing a version, compare against that version's values
-    const baseCacheAge = viewingVersion?.cache_age_seconds ?? endpoint?.cache_age_seconds ?? null
-    const hasCacheAgeChange = cacheAge !== null && cacheAge !== baseCacheAge
-    const baseSyncFrequency =
-        viewingVersion?.materialization?.sync_frequency ?? endpoint?.materialization?.sync_frequency ?? null
-    const hasSyncFrequencyChange = syncFrequency !== null && syncFrequency !== baseSyncFrequency
+    const baseDataFreshness = viewingVersion?.data_freshness_seconds ?? endpoint?.data_freshness_seconds ?? 86400
+    const hasDataFreshnessChange = dataFreshness !== baseDataFreshness
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint?.is_materialized
     const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
     const baseBucketOverrides = viewingVersion?.bucket_overrides ?? endpoint?.bucket_overrides ?? {}
@@ -66,8 +61,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         hasNameChange ||
         hasDescriptionChange ||
         hasQueryChange ||
-        hasCacheAgeChange ||
-        hasSyncFrequencyChange ||
+        hasDataFreshnessChange ||
         hasIsMaterializedChange ||
         hasBucketOverridesChange
 
@@ -84,10 +78,9 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
 
         const updatePayload: Partial<EndpointRequest> = {
             description: hasDescriptionChange ? endpointDescription : undefined,
-            cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
+            data_freshness_seconds: hasDataFreshnessChange ? dataFreshness : undefined,
             query: hasQueryChange ? queryToSave : undefined,
             is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
-            sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
             bucket_overrides: hasBucketOverridesChange ? bucketOverrides : undefined,
         }
 
@@ -100,12 +93,9 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         }
         // Reset to viewed version values if viewing a specific version
         const sourceDescription = viewingVersion?.description ?? endpoint.description
-        const sourceCacheAge = viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds
-        const sourceSyncFrequency =
-            viewingVersion?.materialization?.sync_frequency ?? endpoint.materialization?.sync_frequency
+        const sourceDataFreshness = viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
         setEndpointDescription(sourceDescription || '')
-        setCacheAge(sourceCacheAge ?? null)
-        setSyncFrequency(sourceSyncFrequency ?? null)
+        setDataFreshness(sourceDataFreshness)
         setIsMaterialized(null)
         setLocalQuery(null)
         resetBucketOverrides(viewingVersion?.bucket_overrides ?? endpoint.bucket_overrides ?? {})
@@ -117,7 +107,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 name={endpointName || endpoint?.name}
                 description={endpointDescription ?? viewingVersion?.description ?? endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
-                canEdit
+                canEdit={!editAccessDisabledReason}
                 // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading && !endpoint}
@@ -147,21 +137,26 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                                 Discard changes
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabledReason={
-                                !endpoint
-                                    ? 'Endpoint not loaded'
-                                    : !hasChanges
-                                      ? 'No changes to save'
-                                      : hasQueryChange && targetVersion
-                                        ? 'Query can only be changed when on the latest version'
-                                        : undefined
-                            }
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Endpoint}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Update
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={
+                                    !endpoint
+                                        ? 'Endpoint not loaded'
+                                        : !hasChanges
+                                          ? 'No changes to save'
+                                          : hasQueryChange && targetVersion
+                                            ? 'Query can only be changed when on the latest version'
+                                            : undefined
+                                }
+                            >
+                                Update
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />

@@ -83,6 +83,7 @@ declare module '@storybook/types' {
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.Spinner',
+    '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
     '.LemonSkeleton',
     '.LemonTableLoader',
     '.Toastify__toast',
@@ -102,6 +103,14 @@ const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
+// Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
+// can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
+// produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
+// Yellow background with default black text keeps the stub legible and obviously intentional in both
+// light and dark snapshot themes; color-scheme:light stops the browser dark-inverting the page.
+const EMBED_STUB_HTML =
+    '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
+
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
@@ -110,6 +119,9 @@ module.exports = {
     },
 
     async preVisit(page, context) {
+        await page.route(/\/(embedded|shared)\//, (route) =>
+            route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
+        )
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
         applyStoryTimeouts(page, viewportWidths)

@@ -1,4 +1,13 @@
-import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
+import {
+    IconBug,
+    IconCheckCircle,
+    IconComment,
+    IconFlask,
+    IconFolder,
+    IconNotification,
+    IconPlug,
+    IconWarning,
+} from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notificationsMenuLogic'
@@ -12,6 +21,8 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
     pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
     issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
+    experiment_concluded: <IconFlask className="size-5 text-primary shrink-0" />,
+    project_created: <IconFolder className="size-5 text-primary shrink-0" />,
 }
 
 export function getNotificationIcon(notificationType: string): JSX.Element {

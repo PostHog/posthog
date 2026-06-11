@@ -5,9 +5,11 @@ from unittest.mock import patch
 
 from django.db import transaction
 
+from parameterized import parameterized
+
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
 
 
@@ -340,3 +342,126 @@ class TestTicketMessageSignals(BaseTest):
         self._create_team_message("Private note", is_private=True)
 
         mock_invalidate.assert_not_called()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketCreatedEventSignal(BaseTest):
+    """Tests for the post_save signal that emits `$conversation_ticket_created`."""
+
+    def _make_ticket(self, **overrides) -> Ticket:
+        defaults = {
+            "team": self.team,
+            "widget_session_id": str(uuid.uuid4()),
+            "distinct_id": "user-123",
+            "channel_source": Channel.WIDGET,
+            "status": "new",
+        }
+        defaults.update(overrides)
+        return Ticket.objects.create_with_number(**defaults)
+
+    @parameterized.expand(
+        [
+            ("widget", Channel.WIDGET, {}),
+            (
+                "email",
+                Channel.EMAIL,
+                {
+                    "distinct_id": "customer@example.com",
+                    "anonymous_traits": {"name": "Customer", "email": "customer@example.com"},
+                    "email_from": "customer@example.com",
+                    "email_subject": "Help",
+                },
+            ),
+            (
+                "slack",
+                Channel.SLACK,
+                {"slack_channel_id": "C123", "slack_thread_ts": "1700000000.000100"},
+            ),
+            (
+                "teams",
+                Channel.TEAMS,
+                {"teams_channel_id": "19:abc@thread.tacv2", "teams_conversation_id": "19:def@thread.tacv2"},
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_creation_emits_event_for_channel(self, _name, channel_source, extra, mock_capture, mock_on_commit):
+        ticket = self._make_ticket(channel_source=channel_source, **extra)
+
+        mock_capture.assert_called_once()
+        emitted = mock_capture.call_args.args[0]
+        assert emitted.id == ticket.id
+        assert emitted.channel_source == channel_source
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_update_does_not_emit_event(self, mock_capture, mock_on_commit):
+        ticket = self._make_ticket()
+        mock_capture.reset_mock()
+
+        ticket.status = "open"
+        ticket.save()
+
+        mock_capture.assert_not_called()
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_emit_swallows_capture_exceptions(self, mock_capture, mock_on_commit):
+        """Analytics failures must not break ticket creation.
+
+        With `transaction.on_commit` mocked to fire synchronously, the RuntimeError
+        would propagate out of `_make_ticket` if the signal handler didn't swallow
+        it — so the assertion that `_make_ticket` returns is the swallow check.
+        """
+        mock_capture.side_effect = RuntimeError("capture is down")
+
+        ticket = self._make_ticket()
+
+        assert ticket.id is not None
+        mock_capture.assert_called_once()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestEmailReplySignalGuard(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="signal0test1",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+        self.email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            email_config=self.config,
+            widget_session_id="",
+            distinct_id="customer@external.com",
+            email_from="customer@external.com",
+            email_subject="Help",
+        )
+
+    @parameterized.expand(
+        [
+            ("inbound_team_email_blocked", "support", True, True, 0),
+            ("in_app_agent_reply_sent", "support", False, True, 1),
+            ("customer_email_blocked", "customer", True, True, 0),
+        ]
+    )
+    def test_email_outbox_guard(self, _mock_on_commit, _name, author_type, from_email, has_created_by, expected_count):
+        ctx: dict = {"author_type": author_type, "is_private": False}
+        if from_email:
+            ctx["from_email"] = True
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="test message",
+            created_by=self.user if has_created_by else None,
+            item_context=ctx,
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count

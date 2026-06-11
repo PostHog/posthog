@@ -15,6 +15,7 @@ from products.mcp_store.backend.oauth import (
     SSRFBlockedError,
     TokenRefreshError,
     _resolve_issuer,
+    _validate_endpoints_bound_to_issuer,
     discover_oauth_metadata,
     exchange_oauth_token,
     refresh_oauth_token,
@@ -217,6 +218,21 @@ class TestIssuerValidation(TestCase):
             return f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server{parsed.path}"
         return f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"
 
+    def _auth_metadata_chain(self, auth_server_url: str) -> list[str]:
+        parsed = urlparse(auth_server_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if parsed.path and parsed.path != "/":
+            path = parsed.path.rstrip("/")
+            return [
+                f"{origin}/.well-known/oauth-authorization-server{path}",
+                f"{origin}/.well-known/openid-configuration{path}",
+                f"{origin}{path}/.well-known/openid-configuration",
+            ]
+        return [
+            f"{origin}/.well-known/oauth-authorization-server",
+            f"{origin}/.well-known/openid-configuration",
+        ]
+
     @parameterized.expand(
         [
             (
@@ -317,9 +333,11 @@ class TestIssuerValidation(TestCase):
         if needs_cross_validation:
             if cross_val_metadata is not None:
                 responses.append(self._make_response(json_data=cross_val_metadata))
+                expected_urls.append(self._auth_metadata_url(declared_issuer))
             else:
-                responses.append(self._make_response(ok=False, status_code=404))
-            expected_urls.append(self._auth_metadata_url(declared_issuer))
+                chain = self._auth_metadata_chain(declared_issuer)
+                responses.extend(self._make_response(ok=False, status_code=404) for _ in chain)
+                expected_urls.extend(chain)
 
         mock_get.side_effect = responses
 
@@ -434,9 +452,11 @@ class TestIssuerValidation(TestCase):
         if needs_cross_validation:
             if cross_val_metadata is not None:
                 responses.append(self._make_response(json_data=cross_val_metadata))
+                expected_urls.append(self._auth_metadata_url(declared_issuer))
             else:
-                responses.append(self._make_response(ok=False, status_code=404))
-            expected_urls.append(self._auth_metadata_url(declared_issuer))
+                chain = self._auth_metadata_chain(declared_issuer)
+                responses.extend(self._make_response(ok=False, status_code=404) for _ in chain)
+                expected_urls.extend(chain)
 
         mock_get.side_effect = responses
 
@@ -451,6 +471,210 @@ class TestIssuerValidation(TestCase):
         for index, expected_url in enumerate(expected_urls):
             assert mock_get.call_args_list[index].args[0] == expected_url
             assert mock_get.call_args_list[index].kwargs["timeout"] == TIMEOUT
+
+    @parameterized.expand(
+        [
+            (
+                "token_endpoint_redirected_to_attacker",
+                {
+                    "issuer": "https://auth.legit.com",
+                    "authorization_endpoint": "https://auth.legit.com/authorize",
+                    "token_endpoint": "https://attacker.com/token",
+                    "registration_endpoint": "https://auth.legit.com/register",
+                },
+            ),
+            (
+                "registration_endpoint_redirected_to_attacker",
+                {
+                    "issuer": "https://auth.legit.com",
+                    "authorization_endpoint": "https://auth.legit.com/authorize",
+                    "token_endpoint": "https://auth.legit.com/token",
+                    "registration_endpoint": "https://attacker.com/register",
+                },
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_rejects_metadata_with_endpoints_off_issuer_origin(self, _name, auth_metadata, mock_get, _allow):
+        """A malicious MCP server cannot mix a legitimate issuer with an attacker-controlled endpoint.
+
+        Otherwise, after the user authorizes against the real provider, the
+        token exchange would ship the code, PKCE verifier, and any DCR-minted
+        client_secret to the attacker.
+        """
+        resource_resp = self._make_response(json_data={"authorization_servers": ["https://auth.legit.com"]})
+        auth_resp = self._make_response(json_data=auth_metadata)
+        mock_get.side_effect = [resource_resp, auth_resp]
+
+        with self.assertRaises(ValueError):
+            discover_oauth_metadata("https://mcp.legit.com/mcp")
+
+
+class TestAuthServerMetadataDiscoveryChain(TestCase):
+    """Verifies the MCP-spec-mandated discovery chain for authorization server metadata.
+
+    Spec: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+    §2.3 "Authorization Server Metadata Discovery".
+    """
+
+    def _make_response(self, *, ok=True, status_code=200, json_data=None):
+        resp = MagicMock()
+        resp.ok = ok
+        resp.status_code = status_code
+        resp.json.return_value = json_data or {}
+        resp.raise_for_status = MagicMock()
+        if status_code >= 400:
+            resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+        return resp
+
+    def _valid_metadata(self, issuer: str) -> dict:
+        return {
+            "issuer": issuer,
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+        }
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_success_makes_no_fallback_calls(self, mock_get, _allow):
+        """Regression guard: when variant 1 succeeds, the loop stops — no fallback URLs are tried."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        auth_resp = self._make_response(json_data=self._valid_metadata(auth_server_url))
+
+        mock_get.side_effect = [resource_resp, auth_resp]
+
+        metadata = discover_oauth_metadata(mcp_url)
+        assert metadata["issuer"] == auth_server_url
+
+        expected_urls = [
+            "https://mcp.example.com/.well-known/oauth-protected-resource",
+            "https://mcp.example.com/.well-known/oauth-authorization-server/oauth",
+        ]
+        assert mock_get.call_count == len(expected_urls)
+        for index, expected_url in enumerate(expected_urls):
+            assert mock_get.call_args_list[index].args[0] == expected_url
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_with_path_falls_back_to_oidc_path_insertion(self, mock_get, _allow):
+        """Variant 1 404s, variant 2 (OIDC path insertion) succeeds."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        not_found = self._make_response(ok=False, status_code=404)
+        auth_resp = self._make_response(json_data=self._valid_metadata(auth_server_url))
+
+        mock_get.side_effect = [resource_resp, not_found, auth_resp]
+
+        metadata = discover_oauth_metadata(mcp_url)
+        assert metadata["issuer"] == auth_server_url
+
+        expected_urls = [
+            "https://mcp.example.com/.well-known/oauth-protected-resource",
+            "https://mcp.example.com/.well-known/oauth-authorization-server/oauth",
+            "https://mcp.example.com/.well-known/openid-configuration/oauth",
+        ]
+        assert mock_get.call_count == len(expected_urls)
+        for index, expected_url in enumerate(expected_urls):
+            assert mock_get.call_args_list[index].args[0] == expected_url
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_with_path_falls_back_to_oidc_path_append(self, mock_get, _allow):
+        """Variants 1 and 2 404, variant 3 (OIDC path append) succeeds — the BuildBetter case."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        not_found = self._make_response(ok=False, status_code=404)
+        auth_resp = self._make_response(json_data=self._valid_metadata(auth_server_url))
+
+        mock_get.side_effect = [resource_resp, not_found, not_found, auth_resp]
+
+        metadata = discover_oauth_metadata(mcp_url)
+        assert metadata["issuer"] == auth_server_url
+
+        expected_urls = [
+            "https://mcp.example.com/.well-known/oauth-protected-resource",
+            "https://mcp.example.com/.well-known/oauth-authorization-server/oauth",
+            "https://mcp.example.com/.well-known/openid-configuration/oauth",
+            "https://mcp.example.com/oauth/.well-known/openid-configuration",
+        ]
+        assert mock_get.call_count == len(expected_urls)
+        for index, expected_url in enumerate(expected_urls):
+            assert mock_get.call_args_list[index].args[0] == expected_url
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_without_path_falls_back_to_oidc(self, mock_get, _allow):
+        """Root auth-server URL: oauth-authorization-server 404, openid-configuration 200."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://auth.example.com"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        not_found = self._make_response(ok=False, status_code=404)
+        auth_resp = self._make_response(json_data=self._valid_metadata(auth_server_url))
+
+        mock_get.side_effect = [resource_resp, not_found, auth_resp]
+
+        metadata = discover_oauth_metadata(mcp_url)
+        assert metadata["issuer"] == auth_server_url
+
+        expected_urls = [
+            "https://mcp.example.com/.well-known/oauth-protected-resource",
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration",
+        ]
+        assert mock_get.call_count == len(expected_urls)
+        for index, expected_url in enumerate(expected_urls):
+            assert mock_get.call_args_list[index].args[0] == expected_url
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_all_discovery_candidates_fail_raises(self, mock_get, _allow):
+        """When every spec-mandated candidate returns 404, discovery raises and the view layer surfaces the 400."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        not_found = self._make_response(ok=False, status_code=404)
+
+        mock_get.side_effect = [resource_resp, not_found, not_found, not_found]
+
+        with self.assertRaises(requests.HTTPError):
+            discover_oauth_metadata(mcp_url)
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_malformed_metadata_does_not_fall_back(self, mock_get, _allow):
+        """A 200 with malformed metadata is a real misconfiguration — surface it instead of probing fallbacks."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        malformed = self._make_response(json_data={"issuer": auth_server_url})
+
+        mock_get.side_effect = [resource_resp, malformed]
+
+        with self.assertRaises(ValueError):
+            discover_oauth_metadata(mcp_url)
+
+        assert mock_get.call_count == 2
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_server_error_does_not_fall_back(self, mock_get, _allow):
+        """A 500 is a transient failure, not 'endpoint not implemented' — surface it without retrying variants."""
+        mcp_url = "https://mcp.example.com"
+        auth_server_url = "https://mcp.example.com/oauth"
+        resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
+        server_error = self._make_response(ok=False, status_code=500)
+
+        mock_get.side_effect = [resource_resp, server_error]
+
+        with self.assertRaises(requests.HTTPError):
+            discover_oauth_metadata(mcp_url)
+
+        assert mock_get.call_count == 2
 
 
 class TestSSRFProtection(TestCase):
@@ -481,6 +705,187 @@ class TestSSRFProtection(TestCase):
             func(**kwargs)  # type: ignore[operator]
 
 
+class TestValidateEndpointsBoundToIssuer(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "all_endpoints_match_issuer_origin",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://auth.example.com/token",
+                    "registration_endpoint": "https://auth.example.com/register",
+                },
+            ),
+            (
+                "missing_registration_endpoint_is_ok",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://auth.example.com/token",
+                },
+            ),
+            (
+                "trailing_slash_on_issuer_tolerated",
+                {
+                    "issuer": "https://auth.example.com/",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://auth.example.com/token",
+                },
+            ),
+            (
+                "sibling_subdomain_endpoints_accepted",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://token.example.com/token",
+                },
+            ),
+            (
+                "buildbetter_shape_endpoints_on_dedicated_auth_subdomain",
+                {
+                    "issuer": "https://mcp.buildbetter.app/oauth",
+                    "authorization_endpoint": "https://auth.buildbetter.app/realms/buildbetter/protocol/openid-connect/auth",
+                    "token_endpoint": "https://auth.buildbetter.app/realms/buildbetter/protocol/openid-connect/token",
+                    "registration_endpoint": "https://mcp.buildbetter.app/register",
+                },
+            ),
+            (
+                "non_standard_port_in_issuer_does_not_break_registrable_domain_extraction",
+                {
+                    "issuer": "https://auth.example.com:8443",
+                    "authorization_endpoint": "https://auth.example.com:8443/authorize",
+                    "token_endpoint": "https://auth.example.com:8443/token",
+                },
+            ),
+        ]
+    )
+    def test_accepts_aligned_metadata(self, _name, metadata):
+        _validate_endpoints_bound_to_issuer(metadata)
+
+    @parameterized.expand(
+        [
+            (
+                "token_endpoint_on_attacker_origin",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://attacker.com/token",
+                },
+                "token_endpoint",
+            ),
+            (
+                "authorization_endpoint_on_attacker_origin",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://attacker.com/authorize",
+                    "token_endpoint": "https://auth.example.com/token",
+                },
+                "authorization_endpoint",
+            ),
+            (
+                "registration_endpoint_on_attacker_origin",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://auth.example.com/token",
+                    "registration_endpoint": "https://attacker.com/register",
+                },
+                "registration_endpoint",
+            ),
+            (
+                "scheme_downgrade_to_http",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "http://auth.example.com/token",
+                },
+                "token_endpoint",
+            ),
+            (
+                "unrelated_registrable_domain_co_uk_lookalike",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://auth.evil.co.uk/token",
+                },
+                "token_endpoint",
+            ),
+        ]
+    )
+    def test_rejects_mismatched_endpoints(self, _name, metadata, offending_field):
+        with self.assertRaises(ValueError) as ctx:
+            _validate_endpoints_bound_to_issuer(metadata)
+        self.assertIn(offending_field, str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("missing_issuer", {"authorization_endpoint": "https://auth.example.com/authorize"}),
+            ("empty_issuer", {"issuer": "", "authorization_endpoint": "https://auth.example.com/authorize"}),
+            ("relative_issuer", {"issuer": "/auth", "authorization_endpoint": "https://auth.example.com/authorize"}),
+        ]
+    )
+    def test_rejects_invalid_issuer(self, _name, metadata):
+        with self.assertRaises(ValueError):
+            _validate_endpoints_bound_to_issuer(metadata)
+
+
+class TestRegisterDCRClient(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "drops_secret_when_server_honors_public_client",
+                {"client_id": "abc", "token_endpoint_auth_method": "none"},
+                ("abc", None),
+            ),
+            (
+                "drops_secret_when_server_omits_it",
+                {"client_id": "abc", "token_endpoint_auth_method": "none", "client_secret": ""},
+                ("abc", None),
+            ),
+            (
+                "keeps_secret_when_server_registered_confidential_client_post",
+                {
+                    "client_id": "abc",
+                    "client_secret": "minted-secret",
+                    "token_endpoint_auth_method": "client_secret_post",
+                },
+                ("abc", "minted-secret"),
+            ),
+            (
+                "keeps_secret_when_server_registered_confidential_client_basic",
+                {
+                    "client_id": "abc",
+                    "client_secret": "minted-secret",
+                    "token_endpoint_auth_method": "client_secret_basic",
+                },
+                ("abc", "minted-secret"),
+            ),
+            (
+                "keeps_secret_when_auth_method_unspecified",
+                {"client_id": "abc", "client_secret": "minted-secret"},
+                ("abc", "minted-secret"),
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_returns_client_secret_only_when_server_requires_it(
+        self, _name, response_body, expected, mock_post, _allow
+    ):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = response_body
+        mock_post.return_value = mock_response
+
+        result = register_dcr_client(
+            {"registration_endpoint": "https://auth.example.com/register"},
+            "https://app.posthog.com/callback",
+        )
+
+        assert result == expected
+
+
 class TestResolveInstallationOauthContext(BaseTest):
     def test_template_backed_install_returns_template_creds(self):
         template = MCPServerTemplate.objects.create(
@@ -507,6 +912,39 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert metadata["token_endpoint"] == "https://auth.template.example.com/token"
         assert client_id == "template-client"
         assert client_secret == "template-secret"
+
+    def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
+        # DCR templates carry no shared client_id AND no trusted metadata —
+        # both were discovered + minted at install time and cached on the
+        # installation (never written back to the template). The resolver
+        # must read both from the installation, matching the custom-install
+        # path.
+        template = MCPServerTemplate.objects.create(
+            name="DCR Template",
+            url="https://mcp.dcr-template.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={},
+            oauth_credentials={},
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.dcr-template.example.com/token"},
+            sensitive_configuration={
+                "dcr_client_id": "minted-for-user",
+                "access_token": "tok",
+            },
+        )
+
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+
+        assert metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
+        assert client_id == "minted-for-user"
+        assert client_secret is None
 
     def test_custom_install_returns_per_installation_dcr_creds(self):
         installation = MCPServerInstallation.objects.create(
@@ -620,3 +1058,48 @@ class TestExchangeOauthToken(BaseTest):
                 redirect_uri="https://app.posthog.com/callback",
                 is_https=lambda url: url.startswith("https://"),
             )
+
+    @parameterized.expand(
+        [
+            ("ok_200", 200, True, False),
+            ("created_201", 201, True, False),
+            ("accepted_202", 202, True, False),
+            ("bad_request_400", 400, False, True),
+            ("unauthorized_401", 401, False, True),
+            ("unprocessable_422", 422, False, True),
+            ("server_error_500", 500, False, True),
+        ]
+    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_accepts_any_2xx_status(self, _name, status_code, ok, should_raise, mock_post, _allow):
+        """Some providers (e.g. Supabase) return 201 on token issue — we must accept it."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.ok = ok
+        mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
+        mock_resp.text = "{}"
+        mock_post.return_value = mock_resp
+
+        installation = self._make_installation(
+            sensitive_configuration={"dcr_client_id": "client"},
+        )
+
+        if should_raise:
+            with self.assertRaises(OAuthTokenExchangeError):
+                exchange_oauth_token(
+                    installation=installation,
+                    code="auth-code",
+                    pkce_verifier="pkce-verifier",
+                    redirect_uri="https://app.posthog.com/callback",
+                    is_https=lambda url: url.startswith("https://"),
+                )
+        else:
+            result = exchange_oauth_token(
+                installation=installation,
+                code="auth-code",
+                pkce_verifier="pkce-verifier",
+                redirect_uri="https://app.posthog.com/callback",
+                is_https=lambda url: url.startswith("https://"),
+            )
+            assert result["access_token"] == "abc"

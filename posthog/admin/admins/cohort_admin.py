@@ -2,9 +2,10 @@ from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import Cohort
+from products.cohorts.backend.models.cohort import Cohort
 
 
+@admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
     list_display = (
         "id",

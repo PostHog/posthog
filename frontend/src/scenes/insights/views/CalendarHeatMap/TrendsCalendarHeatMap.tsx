@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { timeZoneLabel } from 'lib/utils'
@@ -30,15 +30,6 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
 
     return (
         <>
-            <LemonBanner
-                type="info"
-                dismissKey="calendar-heatmap-beta-banner"
-                className="mb-2"
-                action={{ children: 'Send feedback', id: 'calendar-heatmap-feedback-button' }}
-            >
-                Calendar heatmap display is in beta. Please let us know what you'd like to see here and/or report any
-                issues directly to us!
-            </LemonBanner>
             <CalendarHeatMap
                 isLoading={false}
                 thresholdFontSize={thresholdFontSize}

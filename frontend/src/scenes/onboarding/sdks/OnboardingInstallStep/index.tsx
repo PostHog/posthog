@@ -6,10 +6,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
-import { OnboardingStepComponentType } from '../../onboardingLogic'
+import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
+import { INSTALL_DEDUP_KEYS } from '../../types'
+import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
@@ -18,51 +21,35 @@ import { MobileInstallHandoff } from './MobileInstallHandoff'
 import { SDKGrid } from './SDKGrid'
 import { SDKInstructionsModal } from './SDKInstructionsModal'
 import { SDKGridProps, VariantProps } from './types'
-import { WizardHeroVariant } from './variants/WizardHeroVariant'
-import { WizardOnlyVariant } from './variants/WizardOnlyVariant'
-import { WizardTabVariant } from './variants/WizardTabVariant'
+import { WizardInstallStep } from './WizardInstallStep'
 
 interface OnboardingInstallStepProps {
     sdkInstructionMap: SDKInstructionsMap
     sdkTagOverrides?: SDKTagOverrides
     listeningForName?: string
     teamPropertyToVerify?: string
+    /** When true, the realtime check indicator is hidden and Continue is always enabled. */
+    hideInstallationCheck?: boolean
     header?: React.ReactNode
 }
 
 /**
- * Onboarding install step — renders the "Install" screen during onboarding.
+ * Onboarding install step — wizard-centered layout for non-Logs products, bare
+ * SDK grid for Logs (which uses OpenTelemetry, not the PostHog JS wizard).
  *
- * Layout is driven by three growth experiments:
- *
- *   ONBOARDING_WIZARD_PROMINENCE (#team-growth)
- *     control     — SDK grid only (legacy baseline)
- *     wizard-hero — wizard banner prominently above the SDK grid
- *     wizard-tab  — wizard and SDK grid split across two tabs
- *     wizard-only — wizard centered; SDK grid hidden behind a "manual setup" link
- *
- *   ONBOARDING_SKIP_INSTALL_STEP (#team-growth)
- *     Moves the "Skip installation" button to the bottom of the step. Ignored by
- *     wizard variants — those manage their own skip UI via OnboardingStep.showSkip.
- *
- *   ONBOARDING_MOBILE_INSTALL_HELPER (#team-growth)
- *     When the user is on a mobile device (navigator.userAgent check) AND in the
- *     `test` arm, replaces the entire variant dispatch with MobileInstallHandoff,
- *     a screen that offers to share the install URL to the user's computer via
- *     the Web Share API. Users can dismiss it with "continue here anyway" which
- *     falls through to the regular variant dispatch. See the data-driven rationale
- *     in that component's JSDoc.
- *
- * Per-variant implementations live in ./variants. WizardOnlyVariant renders its own
- * SDKInstructionsModal (it needs a nested modal flow: manual-setup → SDK instructions
- * → back to manual-setup), so the shared `instructionsModal` below is not rendered
- * for it.
+ * Two growth experiments overlay this:
+ *   - `ONBOARDING_SKIP_INSTALL_STEP`: moves "Skip installation" to the bottom.
+ *     The wizard variant manages its own skip UI via OnboardingStep.showSkip.
+ *   - `ONBOARDING_MOBILE_INSTALL_HELPER`: on mobile + `test`, swaps the dispatch
+ *     for `MobileInstallHandoff` (Web Share API). Excluded for Logs because the
+ *     handoff's RealtimeCheckIndicator never resolves without an `ingested_event`.
  */
 export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
     sdkTagOverrides,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
+    hideInstallationCheck = false,
     header,
 }) => {
     const { setAvailableSDKInstructionsMap, setSDKTagOverrides, selectSDK, setSearchTerm, setSelectedTag } =
@@ -72,20 +59,24 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
+    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
+    const productName = currentStepProductKey
+        ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
+        : undefined
+    // The shared posthog-js step gets a generic "Install" title — naming it after
+    // the dedup-survivor product would mislead users installing several at once.
+    const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
+    const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
 
-    const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
+    const installationComplete = hideInstallationCheck || installationCompleteFromTeam
     const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
-    const isWizardHero = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-hero')
-    const isWizardTab = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-tab')
-    const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
+    const isLogsProduct = currentStepProductKey === ProductKey.LOGS
 
-    // Double-gated: both the feature flag AND the client-side mobile check must
-    // be true. The flag controls experiment enrollment (targeted to mobile
-    // devices at the flag definition level in PostHog); isMobile() is the hard
-    // guarantee that the mobile-specific UI NEVER appears on desktop, even if
-    // a desktop user somehow ends up in the `test` arm.
+    // Both gates required: the flag controls enrollment (targeted in PostHog),
+    // isMobile() is the hard guarantee the mobile UI never appears on desktop.
     const isMobileHandoffTest = useFeatureFlag('ONBOARDING_MOBILE_INSTALL_HELPER', 'test')
     const showMobileHandoff = isMobileHandoffTest && isMobile() && !mobileHandoffDismissed
 
@@ -94,11 +85,9 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, sdkTagOverrides, setAvailableSDKInstructionsMap, setSDKTagOverrides])
 
-    // Closes the experiment funnel: desktop lands here from a shared link
-    // carrying `?handoff=mobile`. Fires exactly once per mount via a ref
-    // guard (useEffect deps are empty so it would re-run on StrictMode
-    // double-invoke otherwise), then strips the query param from the URL
-    // so refreshes / back-and-forth navigation don't re-capture.
+    // Captures the funnel-close event when desktop arrives via a `?handoff=mobile`
+    // share link, then strips the param so refreshes / back-nav don't re-capture.
+    // The ref guard is required because StrictMode double-invokes effects in dev.
     useEffect(() => {
         if (linkOpenedCapturedRef.current) {
             return
@@ -124,8 +113,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         setInstructionsModalOpen(true)
     }
 
-    const isWizardVariant = isWizardHero || isWizardTab || isWizardOnly
-
     const sdkGridProps: SDKGridProps = {
         filteredSDKs: filteredSDKs ?? [],
         searchTerm,
@@ -137,9 +124,10 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         currentTeam,
         showTopControls: true,
         installationComplete,
-        // Wizard variants rely on OnboardingStep.showSkip for the skip/continue button,
-        // so we suppress SDKGrid's duplicate top-right NextButton to avoid rendering two.
-        showTopSkipButton: isWizardVariant ? false : showTopSkipButton,
+        // The wizard variant uses OnboardingStep.showSkip; suppress SDKGrid's
+        // duplicate top-right button to avoid two next-buttons. Only Logs renders
+        // the bare grid as a primary surface, so it keeps the top button.
+        showTopSkipButton: isLogsProduct ? showTopSkipButton : false,
     }
 
     const variantProps: VariantProps = {
@@ -162,12 +150,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             adblockResult={adblockResult}
             verifyingProperty={teamPropertyToVerify}
             verifyingName={listeningForName}
+            hideInstallationCheck={hideInstallationCheck}
         />
     )
 
-    // Mobile users in the test arm get the handoff screen instead of the regular
-    // variant dispatch. "Continue on this device" dismisses and falls through below.
-    if (showMobileHandoff) {
+    if (showMobileHandoff && !isLogsProduct) {
         return (
             <MobileInstallHandoff
                 listeningForName={listeningForName}
@@ -179,47 +166,31 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         )
     }
 
-    // Route to the appropriate experiment variant. WizardOnlyVariant renders its own SDKInstructionsModal.
-    if (isWizardHero) {
-        return (
-            <>
-                <WizardHeroVariant {...variantProps} />
-                {instructionsModal}
-            </>
-        )
+    // Non-Logs products get the wizard-centered layout, which owns its own SDKInstructionsModal.
+    if (!isLogsProduct) {
+        return <WizardInstallStep {...variantProps} />
     }
 
-    if (isWizardTab) {
-        return (
-            <>
-                <WizardTabVariant {...variantProps} />
-                {instructionsModal}
-            </>
-        )
-    }
-
-    if (isWizardOnly) {
-        return <WizardOnlyVariant {...variantProps} />
-    }
-
-    // Control: existing behavior — SDK grid without the wizard hero
+    // Logs: bare SDK grid — OpenTelemetry, not the PostHog JS wizard.
     return (
         <OnboardingStep
-            title="Install"
+            title={installTitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
             actions={
-                <div className="pr-2">
-                    <RealtimeCheckIndicator
-                        teamPropertyToVerify={teamPropertyToVerify}
-                        listeningForName={listeningForName}
-                    />
-                </div>
+                hideInstallationCheck ? undefined : (
+                    <div className="pr-2">
+                        <RealtimeCheckIndicator
+                            teamPropertyToVerify={teamPropertyToVerify}
+                            listeningForName={listeningForName}
+                        />
+                    </div>
+                )
             }
         >
             {header}
-            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
+            {!hideInstallationCheck && !installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6">
                 <SDKGrid {...sdkGridProps} />
             </div>

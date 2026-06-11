@@ -18,6 +18,8 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.executor import AgentExecutor
@@ -25,7 +27,6 @@ from ee.hogai.stream.redis_stream import get_subagent_stream_key
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 

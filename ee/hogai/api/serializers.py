@@ -8,6 +8,8 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.research_agent.graph import ResearchAgentGraph
@@ -15,12 +17,12 @@ from ee.hogai.tool import PENDING_APPROVAL_STATUS
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
-from ee.models.assistant import Conversation
 
 _conversation_fields = [
     "id",
     "status",
     "title",
+    "topic",
     "user",
     "created_at",
     "updated_at",

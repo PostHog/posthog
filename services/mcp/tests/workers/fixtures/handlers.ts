@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { strToU8, zipSync } from 'fflate'
 import { http, HttpResponse, type JsonBodyType, type RequestHandler, type StrictRequest } from 'msw'
 
 const FIXTURES_DIR = dirname(fileURLToPath(import.meta.url))
@@ -43,6 +44,31 @@ export const handlers: RequestHandler[] = [
     http.get('*/api/projects/:projectId', () => HttpResponse.json(project)),
     http.get('*/api/projects/:projectId/', () => HttpResponse.json(project)),
 ]
+
+const contextMillManifest = {
+    version: '1.0.0',
+    resources: [
+        {
+            id: 'test-guide',
+            name: 'PostHog Getting Started',
+            uri: 'posthog://guide/getting-started',
+            resource: {
+                mimeType: 'text/plain',
+                description: 'A guide to getting started with PostHog',
+                text: 'Welcome to PostHog. This is a test resource.',
+            },
+        },
+    ],
+}
+
+const contextMillZip = zipSync({
+    'manifest.json': strToU8(JSON.stringify(contextMillManifest)),
+})
+
+export const contextMillHandler = http.get(
+    'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip',
+    () => new HttpResponse(contextMillZip, { headers: { 'Content-Type': 'application/zip' } })
+)
 
 /**
  * Dispatch a workerd outbound request to the matching MSW handler. Mirrors

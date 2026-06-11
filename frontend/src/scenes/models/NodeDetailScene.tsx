@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NodeDetailDetails } from './NodeDetailDetails'
 import { NodeDetailHeader } from './NodeDetailHeader'
@@ -22,6 +25,12 @@ export const scene: SceneExport<NodeDetailSceneLogicProps> = {
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
     const { node, nodeLoading, hasMaterialization } = useValues(nodeDetailSceneLogic({ id }))
+
+    if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
+        return (
+            <AccessDenied reason="You don't have access to Data warehouse tables & views, so this page isn't available." />
+        )
+    }
 
     return (
         <SceneContent>

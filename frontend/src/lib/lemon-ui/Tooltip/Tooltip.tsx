@@ -4,10 +4,17 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
 import React, { useEffect, useLayoutEffect, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
+
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
+
+const DEFAULT_OFFSET = 8
+// Smaller targets like the (I) info icon need a tighter gap so the user can
+// reliably move from the trigger into the popup without losing hover.
+const INFO_ICON_OFFSET = 4
 
 export type TooltipTitle = string | React.ReactNode | (() => string)
 
@@ -45,6 +52,17 @@ export type RequiredTooltipProps = (
 type Side = 'top' | 'bottom' | 'left' | 'right'
 type Align = 'start' | 'center' | 'end'
 
+function isInfoIconTrigger(node: React.ReactNode): boolean {
+    if (!React.isValidElement(node)) {
+        return false
+    }
+    if (node.type === IconInfo) {
+        return true
+    }
+    const inner = (node.props as { children?: React.ReactNode } | null | undefined)?.children
+    return React.isValidElement(inner) && inner.type === IconInfo
+}
+
 function placementToSideAlign(placement: Placement): { side: Side; align: Align } {
     const parts = placement.split('-')
     const side = parts[0] as Side
@@ -66,7 +84,7 @@ export function Tooltip({
     className = '',
     placement = 'top',
     fallbackPlacements,
-    offset = 8,
+    offset,
     arrowOffset,
     delayMs = 400,
     closeDelayMs = 0,
@@ -108,6 +126,7 @@ export function Tooltip({
     }
 
     const isInteractive = interactive || !!docLink
+    const resolvedOffset = offset ?? (isInfoIconTrigger(children) ? INFO_ICON_OFFSET : DEFAULT_OFFSET)
     const { side, align } = placementToSideAlign(placement)
 
     const collisionAvoidance = fallbackPlacements
@@ -136,7 +155,7 @@ export function Tooltip({
                     <BaseTooltip.Positioner
                         side={side}
                         align={align}
-                        sideOffset={offset}
+                        sideOffset={resolvedOffset}
                         arrowPadding={typeof arrowOffset === 'number' ? arrowOffset : 5}
                         collisionAvoidance={collisionAvoidance}
                         className={cn('Tooltip max-w-sm', containerClassName)}

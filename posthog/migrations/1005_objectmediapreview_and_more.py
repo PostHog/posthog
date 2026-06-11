@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="objectmediapreview",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(("exported_asset__isnull", True), ("uploaded_media__isnull", False)),
                     models.Q(("exported_asset__isnull", False), ("uploaded_media__isnull", True)),
                     _connector="OR",
@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="objectmediapreview",
             constraint=models.CheckConstraint(
-                check=models.Q(("event_definition__isnull", False)), name="exactly_one_object"
+                condition=models.Q(("event_definition__isnull", False)), name="exactly_one_object"
             ),
         ),
     ]

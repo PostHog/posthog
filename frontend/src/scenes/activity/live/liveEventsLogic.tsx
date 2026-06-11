@@ -23,6 +23,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
     props({} as LiveEventsLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[]) => ({ events }),
@@ -147,7 +148,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 signal: cache.eventSourceController.signal,
                 onMessage: (event) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
-                    const eventData = JSON.parse(event.data)
+                    let eventData: LiveEvent
+                    try {
+                        eventData = JSON.parse(event.data)
+                    } catch {
+                        // Drop malformed stream payloads rather than throwing inside the listener
+                        return
+                    }
                     cache.batch.push(eventData)
                     if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
                         actions.addEvents(cache.batch)
@@ -180,9 +187,20 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 const event = events[0]
                 const eventUrl = event.properties?.$current_url
                 if (eventUrl) {
-                    const eventHost = new URL(eventUrl).host
-                    const eventProtocol = new URL(eventUrl).protocol
-                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                    // Live events can carry a malformed `$current_url`; skip host extraction rather than throw.
+                    try {
+                        const parsedUrl = new URL(eventUrl)
+                        actions.addEventHost(`${parsedUrl.protocol}//${parsedUrl.host}`)
+                    } catch {
+                        // Ignore unparseable URLs
+                    }
+                }
+                // The team's `ingested_event` flag is flipped server-side when the first event is
+                // processed, but only reaches the frontend on the next ~30s team refresh. Refresh
+                // immediately when we observe a live event so banners that depend on the flag
+                // (e.g. the "no events yet" project notice) can't contradict the on-screen feed.
+                if (values.currentTeam && !values.currentTeam.ingested_event) {
+                    actions.loadCurrentTeam()
                 }
             }
         },

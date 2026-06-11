@@ -17,6 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -32,6 +33,7 @@ import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
+import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
@@ -81,6 +83,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         suggestReply,
     } = useActions(logic)
 
+    const { user } = useValues(userLogic)
     const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { preflight } = useValues(preflightLogic)
@@ -229,6 +232,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                               }
                                     }
                                     withIcon
+                                    withComposeTicketButton
                                 />
                                 <div className="my-3 border-t" />
                             </>
@@ -262,13 +266,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 </div>
                             )}
                             {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_team_id &&
                                 ticket?.slack_channel_id &&
                                 ticket?.slack_thread_ts && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-muted-alt">Slack thread</span>
                                         <Link
-                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
                                             target="_blank"
                                             className="text-xs"
                                         >
@@ -313,6 +316,22 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'github' &&
+                                ticket?.github_repo &&
+                                ticket?.github_issue_number && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted-alt">GitHub issue</span>
+                                        <Link
+                                            to={`https://github.com/${ticket.github_repo}/issues/${ticket.github_issue_number}`}
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            <LemonTag type="highlight">
+                                                {ticket.github_repo}#{ticket.github_issue_number}
+                                            </LemonTag>
+                                        </Link>
+                                    </div>
+                                )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
@@ -400,6 +419,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Staff Actions Panel */}
+                    {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* Activity History Panel */}
                     {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}

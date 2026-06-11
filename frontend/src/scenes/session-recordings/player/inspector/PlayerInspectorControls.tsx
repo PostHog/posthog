@@ -10,6 +10,7 @@ import {
     IconDashboard,
     IconGear,
     IconInfo,
+    IconLive,
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
@@ -27,8 +28,7 @@ import {
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
+import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
@@ -141,7 +141,6 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { currentTeam } = useValues(teamLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const hasNetworkItems = allItemsByItemType['network']?.length > 0
 
@@ -166,12 +165,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay-network',
-                                          })
-                                      }
+                                      to={urls.settings('project-replay', 'replay-network')}
                                   >
                                       Configure network capture in settings.
                                   </LemonButton>
@@ -188,7 +182,6 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { currentTeam } = useValues(teamLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const hasConsoleItems = allItemsByItemType['console']?.length > 0
 
@@ -213,12 +206,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay',
-                                          })
-                                      }
+                                      to={urls.settings('project-replay', 'replay')}
                                   >
                                       Configure console log capture in settings.
                                   </LemonButton>
@@ -267,6 +255,31 @@ function CommentsFilterSettingsButton(): JSX.Element {
     )
 }
 
+function LogsFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
+
+    const hasLogItems = allItemsByItemType['logs']?.length > 0
+
+    const disabledReason = logsLoading
+        ? 'Loading logs...'
+        : logsLoadError
+          ? 'Failed to load logs for this session'
+          : !hasLogItems
+            ? 'No logs found for this session'
+            : undefined
+
+    return (
+        <FilterSettingsButton
+            data-attr="player-inspector-logs-toggle-all"
+            type="logs"
+            icon={<IconLive />}
+            disabledReason={disabledReason}
+            label="Logs"
+        />
+    )
+}
+
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
@@ -289,6 +302,8 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
+                {featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
+                    mode !== SessionRecordingPlayerMode.Sharing && <LogsFilterSettingsButton />}
                 {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (

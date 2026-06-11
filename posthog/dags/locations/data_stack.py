@@ -4,7 +4,7 @@ from posthog.dags import events_backfill_to_ducklake, events_backfill_to_ducklin
 
 from products.data_warehouse.dags import managed_viewset_sync
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -24,5 +24,6 @@ defs = dagster.Definitions(
         events_backfill_to_duckling.duckling_persons_daily_backfill_sensor,
         events_backfill_to_duckling.duckling_persons_full_backfill_sensor,
     ],
+    loggers=loggers,
     resources=resources,
 )

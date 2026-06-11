@@ -1,10 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
+
+import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
+import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
 
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
@@ -27,6 +32,7 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         hasValidBreakdown,
         retentionFilter,
@@ -42,6 +48,14 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const selectedInterval = retentionFilter?.selectedInterval ?? null
 
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
+
+    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION]) {
+        if (isBarDisplay) {
+            return <RetentionBarChart inSharedMode={inSharedMode} />
+        }
+        return <RetentionLineChart inSharedMode={inSharedMode} />
+    }
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (

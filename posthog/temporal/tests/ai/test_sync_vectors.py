@@ -22,7 +22,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Action
 from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
 from posthog.temporal.ai.sync_vectors import (
     BatchEmbedAndSyncActionsInputs,
@@ -40,6 +39,8 @@ from posthog.temporal.ai.sync_vectors import (
     sync_action_vectors,
 )
 from posthog.temporal.common.clickhouse import get_client
+
+from products.actions.backend.models.action import Action
 
 
 @pytest.fixture(autouse=True)

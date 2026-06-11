@@ -11,6 +11,7 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import (
@@ -25,9 +26,9 @@ from posthog.hogql.query import (
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -359,6 +360,118 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("icu_collate_nl", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @parameterized.expand(
+        [
+            (
+                "introspected_via_metadata",
+                {"available_table_functions": ["unnest"]},
+                "SELECT * FROM unnest(ARRAY[1, 2, 3])",
+                "unnest(",
+            ),
+            (
+                "hardcoded_range_without_metadata",
+                None,
+                "SELECT range FROM range(10)",
+                "range(10)",
+            ),
+        ]
+    )
+    def test_generate_sql_for_direct_postgres_table_function(
+        self,
+        _name: str,
+        connection_metadata: dict[str, Any] | None,
+        query: str,
+        expected_sql_fragment: str,
+    ):
+        source_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "source_id": "source_id",
+            "connection_id": "connection_id",
+            "status": ExternalDataSource.Status.COMPLETED,
+            "source_type": "Postgres",
+            "access_method": ExternalDataSource.AccessMethod.DIRECT,
+            "prefix": "ph3",
+            "job_inputs": {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        }
+        if connection_metadata is not None:
+            source_kwargs["connection_metadata"] = connection_metadata
+        source = ExternalDataSource.objects.create(**source_kwargs)
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_sql_fragment, sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @parameterized.expand(
+        [
+            ("read_text", "SELECT * FROM read_text('/etc/passwd')"),
+            ("read_csv", "SELECT * FROM read_csv('http://169.254.169.254/latest/meta-data')"),
+            ("glob", "SELECT * FROM glob('/etc/*')"),
+            ("postgres_query", "SELECT * FROM postgres_query('db', 'SELECT 1')"),
+            ("query", "SELECT * FROM query('SELECT * FROM read_text(''/etc/passwd'')')"),
+        ]
+    )
+    def test_generate_sql_rejects_dangerous_table_function_even_if_cached_in_metadata(
+        self, function_name: str, query: str
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_table_functions": [function_name]},
+        )
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        with self.assertRaises((QueryError, ExposedHogQLError)) as ctx:
+            executor.generate_clickhouse_sql()
+
+        # Must fail at resolve time, not as an accepted opaque table (which fails generically at print).
+        self.assertNotIn("is not supported in ClickHouse dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("query", True),
+            ("read_csv", True),
+            ("postgres_query", True),
+            ("glob", True),
+            ("READ_TEXT", True),
+            ("read_anything", True),
+            ("scan_anything", True),
+            ("foo_scan", True),
+            ("foo_attach", True),
+            ("build_query", False),
+            ("get_query", False),
+            ("run_query", False),
+            ("range", False),
+            ("generate_series", False),
+            ("unnest", False),
+        ]
+    )
+    def test_is_dangerous_table_function(self, function_name: str, expected: bool):
+        self.assertEqual(is_dangerous_table_function(function_name), expected)
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(
@@ -1343,7 +1456,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
-    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
     def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()

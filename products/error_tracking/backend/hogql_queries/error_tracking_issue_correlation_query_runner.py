@@ -52,6 +52,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackin
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="ErrorTrackingIssueCorrelationQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,

@@ -10,13 +10,24 @@ import { cn } from 'lib/utils/css-classes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import type { TracingSparklineData } from './tracingDataLogic'
+import { SparklineCompareOverlay } from './SparklineCompareOverlay'
+import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
+
+interface CompareConfig {
+    fullStartMs: number
+    fullEndMs: number
+    currentWindow: { startMs: number; endMs: number }
+    previousWindow: { startMs: number; endMs: number }
+    onChange: (current: { startMs: number; endMs: number }, previous: { startMs: number; endMs: number }) => void
+}
 
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string
+    compare?: CompareConfig
+    visibleRowDateRange?: VisibleSpanTimeRange | null
 }
 
 export function TracingSparkline({
@@ -24,6 +35,8 @@ export function TracingSparkline({
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    compare,
+    visibleRowDateRange,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
 
@@ -84,6 +97,37 @@ export function TracingSparkline({
         return sparklineData.dates.map((date: string) => dayjs(date).toISOString())
     }, [sparklineData.dates])
 
+    // Map the visible-row date range onto bucket indices in `dates`. Buckets are anchored at
+    // their start time; the date_to edge belongs to the bucket whose start is the last one
+    // <= date_to. Suppressed in compare mode, where the list (and its window) isn't shown.
+    const highlightedRange = useMemo(() => {
+        if (compare || !visibleRowDateRange || sparklineData.dates.length === 0) {
+            return null
+        }
+        const fromMs = dayjs(visibleRowDateRange.date_from).valueOf()
+        const toMs = dayjs(visibleRowDateRange.date_to).valueOf()
+        let startIndex = -1
+        let endIndex = -1
+        for (let i = 0; i < sparklineData.dates.length; i++) {
+            const bucketMs = dayjs(sparklineData.dates[i]).valueOf()
+            if (bucketMs <= fromMs) {
+                startIndex = i
+            }
+            if (bucketMs <= toMs) {
+                endIndex = i
+            } else {
+                break
+            }
+        }
+        if (startIndex === -1) {
+            startIndex = 0
+        }
+        if (endIndex === -1 || endIndex < startIndex) {
+            return null
+        }
+        return { startIndex, endIndex }
+    }, [compare, visibleRowDateRange, sparklineData.dates])
+
     const onSelectionChange = useCallback(
         (selection: { startIndex: number; endIndex: number }): void => {
             const dates = sparklineData.dates
@@ -123,18 +167,28 @@ export function TracingSparkline({
                             labels={sparklineLabels}
                             data={sparklineData.data}
                             className="w-full h-full"
-                            onSelectionChange={onSelectionChange}
+                            onSelectionChange={compare ? undefined : onSelectionChange}
                             withXScale={withXScale}
                             renderLabel={renderLabel}
                             tooltipRowCutoff={100}
                             hideZerosInTooltip
                             sortTooltipByCount
+                            highlightedRange={highlightedRange}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters
                         </div>
                     ) : null}
+                    {compare && sparklineData.data.length > 0 && (
+                        <SparklineCompareOverlay
+                            fullStartMs={compare.fullStartMs}
+                            fullEndMs={compare.fullEndMs}
+                            currentWindow={compare.currentWindow}
+                            previousWindow={compare.previousWindow}
+                            onChange={compare.onChange}
+                        />
+                    )}
                     {sparklineLoading && <SpinnerOverlay />}
                 </div>
             )}

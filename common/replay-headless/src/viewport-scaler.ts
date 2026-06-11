@@ -1,4 +1,4 @@
-import type { Replayer } from '@posthog/rrweb'
+import type { Replayer } from 'posthog-js/rrweb'
 
 /**
  * Scales the recording's native resolution to fit within the browser

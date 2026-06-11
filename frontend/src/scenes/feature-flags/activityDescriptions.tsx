@@ -117,7 +117,10 @@ const featureFlagActionsMapping: Record<
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
-                                                    <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                                    <strong className="tabular-nums">
+                                                        {rollout_percentage ?? 100}%
+                                                    </strong>{' '}
+                                                    of{' '}
                                                 </span>
                                             )}
                                             <PropertyFilterButton item={property} />
@@ -127,7 +130,7 @@ const featureFlagActionsMapping: Record<
                             newButtons[0] = (
                                 <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
-                                        <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                        <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
                                     <PropertyFilterButton
                                         key={nonEmptyProperties[0].key}
@@ -139,7 +142,8 @@ const featureFlagActionsMapping: Record<
                         } else {
                             groupAdditions.push(
                                 <>
-                                    <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
+                                    <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
+                                    <strong>all users</strong>
                                 </>
                             )
                         }
@@ -220,7 +224,7 @@ const featureFlagActionsMapping: Record<
                     <SentenceList
                         listParts={changedVariants.map((v) => (
                             <div key={v.key} className="highlighted-activity">
-                                {v.key}: <strong>{v.rollout_percentage}%</strong>
+                                {v.key}: <strong className="tabular-nums">{v.rollout_percentage}%</strong>
                             </div>
                         ))}
                         prefix="changed the rollout percentage for the variants to"

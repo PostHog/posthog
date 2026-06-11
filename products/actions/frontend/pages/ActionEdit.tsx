@@ -9,9 +9,11 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,6 +23,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -30,6 +33,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -61,17 +70,16 @@ export interface ActionEditProps extends ActionEditLogicProps {
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, attachTo }: ActionEditProps): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }: ActionEditProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
         id,
         action: loadedAction,
-        tabId,
     }
     const { isComplete } = useValues(actionLogic)
     const logic = actionEditLogic(logicProps)
-    // Attach to the scene-kept actionLogic so the form state persists across tab switches:
-    // sceneLogic keeps actionLogic mounted per tab, and useAttachedLogic keeps actionEditLogic
-    // alive for as long as actionLogic is mounted, even when this component unmounts.
+    // Attach to the scene-kept actionLogic so the form state persists across React remounts:
+    // useAttachedLogic keeps actionEditLogic alive for as long as actionLogic is mounted, even
+    // when this component unmounts.
     useAttachedLogic(logic, attachTo)
     const { action, actionChanged, isActionSubmitting } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction, setOriginalAction } = useActions(logic)
@@ -88,6 +96,8 @@ export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, att
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     // Check if user can edit this action
     const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
@@ -134,6 +144,39 @@ export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, att
                 enableFormOnSubmit
                 className="flex flex-col gap-y-4"
             >
+                {sceneMenuBarEnabled && action && (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                            {actionId && canCopyToProject && (
+                                <SceneMenuBarItem
+                                    onClick={() => router.actions.push(urls.resourceTransfer('Action', actionId))}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </SceneMenuBarItem>
+                            )}
+                            <SceneMenuBarSeparator />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Action}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                {({ disabledReason }) => (
+                                    <SceneMenuBarItem
+                                        variant="destructive"
+                                        disabled={!!disabledReason}
+                                        onClick={() => deleteAction()}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                    >
+                                        <IconTrash />
+                                        Delete
+                                    </SceneMenuBarItem>
+                                )}
+                            </AccessControlAction>
+                        </SceneMenuBarMenu>
+                    </SceneMenuBar>
+                )}
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags

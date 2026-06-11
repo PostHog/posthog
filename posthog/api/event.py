@@ -26,7 +26,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
@@ -40,11 +40,11 @@ from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition
+from posthog.models import Element, Filter, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import (
@@ -70,7 +70,8 @@ EVENT_VALUES_COUNTER = Counter(
     labelnames=["has_event_name", "auth"],
 )
 
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+QUERY_DEFAULT_EXPORT_LIMIT = 1_000
+EVENT_LIST_MAX_LIMIT = 1_000
 
 # Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
 EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
@@ -259,9 +260,15 @@ class EventViewSet(
                 deprecated=True,
             ),
             PropertiesSerializer(required=False),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for each event. Default: false.",
+            ),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         try:
             is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -272,7 +279,7 @@ class EventViewSet(
             else:
                 limit = DEFAULT_RETURNED_ROWS
 
-            limit = min(limit, MAX_SELECT_RETURNED_ROWS)
+            limit = min(limit, EVENT_LIST_MAX_LIMIT)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
@@ -294,6 +301,9 @@ class EventViewSet(
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
+
+            restricted_context = self._get_restricted_properties_context(request, team)
+            self._reject_restricted_property_references(filter, order_by, restricted_context)
 
             # Progressive time window optimization
             # Start with cached good_period or smallest window
@@ -383,10 +393,14 @@ class EventViewSet(
                         action_id=request.GET.get("action_id"),
                     )
 
+            context = {**restricted_context}
+            if request.query_params.get("include_person", "").lower() in ("true", "1"):
+                context["people"] = self._get_people(query_result, team)
+
             result = ClickhouseEventSerializer(
                 query_result[0:limit],
                 many=True,
-                context={"people": self._get_people(query_result, team)},
+                context=context,
             ).data
 
             next_url: Optional[str] = None
@@ -408,17 +422,19 @@ class EventViewSet(
             capture_exception(ex)
             raise
 
-    def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
-        distinct_ids = [event["distinct_id"] for event in query_result]
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        distinct_to_person: dict[str, Person] = {}
-        for person in persons:
-            for distinct_id in person.distinct_ids:
-                distinct_to_person[distinct_id] = person
-        return distinct_to_person
+    def _get_people(self, query_result: List[dict], team: Team) -> "dict[str, Person]":  # noqa: UP006
+        distinct_ids = list({event["distinct_id"] for event in query_result})
+        return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
-        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for the event. Default: false.",
+            ),
+        ],
         responses={200: OpenApiTypes.OBJECT},
     )
     def retrieve(
@@ -446,8 +462,8 @@ class EventViewSet(
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
-        query_context = {}
-        if request.query_params.get("include_person", False):
+        query_context = {**self._get_restricted_properties_context(request, self.team)}
+        if request.query_params.get("include_person", "").lower() in ("true", "1"):
             query_context["people"] = self._get_people(query_result, self.team)
 
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
@@ -455,6 +471,10 @@ class EventViewSet(
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
+        # `/events/values` is hit from every taxonomic property-value picker across the app, so
+        # tag by the endpoint name rather than a generic introspection feature — that makes load
+        # from this specific path easy to attribute in query log analysis.
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.EVENTS_VALUES_API)
         team = self.team
 
         key = request.GET.get("key")
@@ -492,8 +512,8 @@ class EventViewSet(
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
-            # Check if this property is hidden (enterprise feature)
-            if self._is_property_hidden(key, team):
+            # Check if this property is hidden (enterprise feature) or restricted by field-level access control
+            if self._is_property_hidden(key, team) or self._is_property_restricted(key, team):
                 return self._return_with_short_cache([], refreshing=False)
 
             return self._event_property_values(query_params, refresh=refresh)
@@ -660,6 +680,55 @@ class EventViewSet(
         resp["Cache-Control"] = "max-age=10"
         return resp
 
+    def _reject_restricted_property_references(
+        self,
+        filter: Filter,
+        order_by: builtins.list[str],
+        restricted_context: dict,
+    ) -> None:
+        """
+        Raise a 400 if the request references a property the user can't read.
+        """
+        restricted_event = restricted_context.get("restricted_event_properties") or set()
+        restricted_person = restricted_context.get("restricted_person_properties") or set()
+        if not restricted_event and not restricted_person:
+            return
+
+        for prop in filter.property_groups.flat:
+            if prop.type == "event" and prop.key in restricted_event:
+                raise serializers.ValidationError("Filter references a restricted property")
+            if prop.type == "person" and prop.key in restricted_person:
+                raise serializers.ValidationError("Filter references a restricted property")
+
+        for entry in order_by:
+            if not isinstance(entry, str):
+                continue  # type: ignore
+            field = entry.lstrip("-")
+            # Accept both `properties.foo` (event) and `person.properties.foo` / `person_properties.foo`.
+            if field.startswith("properties."):
+                key = field.split(".", 1)[1]
+                if key in restricted_event:
+                    raise serializers.ValidationError("Order by references a restricted property")
+            elif field.startswith("person.properties.") or field.startswith("person_properties."):
+                key = field.split(".", 1)[1].split(".", 1)[-1]
+                if key in restricted_person:
+                    raise serializers.ValidationError("Order by references a restricted property")
+
+    def _get_restricted_properties_context(self, request: request.Request, team: Team) -> dict:
+        """Returns serializer context entries for field-level access control."""
+        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+
+        user = request.user if request.user.is_authenticated else None
+
+        restricted = get_restricted_properties_for_team(team_id=team.pk, user=cast(User | None, user))
+        restricted_event_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.EVENT}
+        restricted_person_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.PERSON}
+
+        return {
+            "restricted_event_properties": restricted_event_properties,
+            "restricted_person_properties": restricted_person_properties,
+        }
+
     @tracer.start_as_current_span("events_api_is_property_hidden")
     def _is_property_hidden(self, key: str, team: Team) -> bool:
         property_is_hidden = False
@@ -677,6 +746,18 @@ class EventViewSet(
             pass
 
         return property_is_hidden
+
+    def _is_property_restricted(self, key: str, team: Team) -> bool:
+        """Checks if a property key is restricted for the current user."""
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        user = self.request.user if self.request.user.is_authenticated else None
+        restricted = get_restricted_property_names(
+            team_id=team.pk,
+            user=user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        return key in restricted
 
     @tracer.start_as_current_span("events_api_custom_event_values")
     def _custom_event_values(self, query_params: EventValueQueryParams) -> response.Response:

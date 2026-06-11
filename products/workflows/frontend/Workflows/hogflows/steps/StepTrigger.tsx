@@ -11,6 +11,7 @@ import {
     IconPeople,
     IconPlusSmall,
     IconTarget,
+    IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
 import {
@@ -30,6 +31,7 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -37,6 +39,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
@@ -237,12 +240,19 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                       },
                   ]
                 : []),
-            {
-                label: 'Schedule',
-                description: 'Run your workflow on a schedule',
-                value: 'schedule',
-                icon: <IconClock />,
-            },
+            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
+            // current trigger is already a schedule, so existing workflows still render and can be
+            // switched to a different trigger type without crashing.
+            ...(type === 'schedule'
+                ? [
+                      {
+                          label: 'Schedule',
+                          description: 'Run your workflow on a schedule',
+                          value: 'schedule',
+                          icon: <IconClock />,
+                      },
+                  ]
+                : []),
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',
@@ -488,10 +498,28 @@ function StepTriggerConfigurationManual(): JSX.Element {
 
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const logic = batchTriggerLogic({ id: actionId, filters })
-    const { blastRadiusLoading, blastRadius } = useValues(logic)
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
+    }
+
+    if (blastRadiusError) {
+        return (
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
+                <IconWarning className="text-base shrink-0 mt-0.5" />
+                <div>
+                    <div className="font-semibold">
+                        Couldn't validate audience size — this batch will likely fail to run.
+                    </div>
+                    <div>
+                        Your filters could not be evaluated against the audience. Review and adjust them before saving,
+                        otherwise the batch is likely to error when it executes.
+                    </div>
+                    <div className="mt-1 text-muted">Details: {blastRadiusError}</div>
+                </div>
+            </div>
+        )
     }
 
     if (!blastRadius) {
@@ -524,7 +552,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <RecurringSchedulePicker />
         </>
     )
@@ -553,7 +581,7 @@ function StepTriggerConfigurationBatch({
                     orFiltering
                     sendAllKeyUpdates
                     allowRelativeDateOptions
-                    exactMatchFeatureFlagCohortOperators
+                    {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>
@@ -754,6 +782,10 @@ function FrequencySection(): JSX.Element {
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const waitUntilEventEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_WAIT_UNTIL_EVENT]
+    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -785,21 +817,36 @@ function ConversionGoalSection(): JSX.Element {
                     />
                 </div>
 
-                <div className="flex flex-col gap-1 items-start">
+                <div className="flex flex-col gap-1 items-start w-full">
                     <LemonLabel>
                         Detect conversion from events
-                        <LemonTag>Coming soon</LemonTag>
+                        {!waitUntilEventEnabled && <LemonTag>Coming soon</LemonTag>}
                     </LemonLabel>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={() => {
-                            posthog.capture('workflows workflow event conversion clicked')
-                            lemonToast.info('Event targeting coming soon!')
-                        }}
-                    >
-                        Add event conversion
-                    </LemonButton>
+                    {waitUntilEventEnabled ? (
+                        <HogFlowEventFilters
+                            filtersKey="workflow-conversion-events"
+                            filters={conversionEventFilters}
+                            setFilters={(newFilters) =>
+                                setWorkflowValue('conversion', {
+                                    ...workflow.conversion,
+                                    events: newFilters ? [{ filters: newFilters }] : undefined,
+                                })
+                            }
+                            typeKey="workflow-conversion-event"
+                            buttonCopy="Add event"
+                        />
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            onClick={() => {
+                                posthog.capture('workflows workflow event conversion clicked')
+                                lemonToast.info('Event targeting coming soon!')
+                            }}
+                        >
+                            Add event conversion
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </div>

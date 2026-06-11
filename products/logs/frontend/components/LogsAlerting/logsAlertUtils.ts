@@ -1,33 +1,132 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
+import {
+    LOGS_ALERT_AUTO_DISABLED_EVENT_ID,
+    LOGS_ALERT_ERRORED_EVENT_ID,
+    LOGS_ALERT_FIRING_EVENT_ID,
+    LOGS_ALERT_RESOLVED_EVENT_ID,
+} from 'lib/constants'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
-import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+    SlackChannelType,
+} from '~/types'
 
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
-export function withEnableNotificationGuard(
-    alert: LogsAlertConfigurationApi,
-    onConfirm: () => void,
-    onConfigureNotifications: () => void
+export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
+
+export const LOGS_ALERT_EVENT_KIND_ORDER: LogsAlertEventKind[] = ['firing', 'resolved', 'broken', 'errored']
+
+export const LOGS_ALERT_EVENT_KIND_META: Record<LogsAlertEventKind, { label: string; description: string }> = {
+    firing: {
+        label: 'Firing',
+        description: 'Sent when the alert starts firing.',
+    },
+    resolved: {
+        label: 'Resolved',
+        description: 'Sent when a firing alert returns to normal.',
+    },
+    broken: {
+        label: 'Auto-disabled',
+        description: 'Sent if the alert is auto-disabled after repeated check failures.',
+    },
+    errored: {
+        label: 'Errored',
+        description: "Sent when an alert check can't evaluate.",
+    },
+}
+
+export function getHogFunctionEventKind(hf: HogFunctionType): LogsAlertEventKind | null {
+    const eventId = hf.filters?.events?.[0]?.id
+    switch (eventId) {
+        case LOGS_ALERT_FIRING_EVENT_ID:
+            return 'firing'
+        case LOGS_ALERT_RESOLVED_EVENT_ID:
+            return 'resolved'
+        case LOGS_ALERT_AUTO_DISABLED_EVENT_ID:
+            return 'broken'
+        case LOGS_ALERT_ERRORED_EVENT_ID:
+            return 'errored'
+        default:
+            return null
+    }
+}
+
+export type PreEnableFilters = {
+    severityLevels: string[]
+    serviceNames: string[]
+    filterGroup: UniversalFiltersGroup
+}
+
+export type PreEnableCheckResult =
+    | { ok: true }
+    | { blocked: true; reason: string }
+    | {
+          warning: {
+              title: string
+              description: string
+              confirmLabel: string
+          }
+      }
+
+export function runPreEnableChecks(alert: LogsAlertConfigurationApi, filters: PreEnableFilters): PreEnableCheckResult {
+    if (!hasAnyFilter(filters.severityLevels, filters.serviceNames, filters.filterGroup)) {
+        return { blocked: true, reason: 'Add at least one filter to enable' }
+    }
+    if ((alert.destination_types ?? []).length === 0) {
+        return {
+            warning: {
+                title: 'No notifications configured',
+                description:
+                    "This alert has no notification destinations. It will fire silently — you won't receive any alerts when conditions are met.",
+                confirmLabel: 'Enable anyway',
+            },
+        }
+    }
+    return { ok: true }
+}
+
+export function alertFiltersForPreEnableCheck(alert: LogsAlertConfigurationApi): PreEnableFilters {
+    const filters = (alert.filters ?? {}) as Record<string, unknown>
+    const filterGroupWrapper = filters.filterGroup as { values: UniversalFiltersGroup[] } | undefined
+    return {
+        severityLevels: (filters.severityLevels as string[] | undefined) ?? [],
+        serviceNames: (filters.serviceNames as string[] | undefined) ?? [],
+        filterGroup: filterGroupWrapper?.values?.[0] ?? { type: FilterLogicalOperator.And, values: [] },
+    }
+}
+
+export function dispatchPreEnableCheck(
+    result: PreEnableCheckResult,
+    callbacks: { onConfirm: () => void; onConfigureNotifications: () => void }
 ): void {
-    const isEnabling = !(alert.enabled ?? true)
-    if (isEnabling && (alert.destination_types ?? []).length === 0) {
+    if ('blocked' in result) {
+        lemonToast.error(result.reason)
+        return
+    }
+    if ('warning' in result) {
         LemonDialog.open({
-            title: 'No notifications configured',
-            description:
-                "This alert has no notification destinations. It will fire silently — you won't receive any alerts when conditions are met.",
+            title: result.warning.title,
+            description: result.warning.description,
             primaryButton: {
                 children: 'Configure notifications',
-                onClick: onConfigureNotifications,
+                onClick: callbacks.onConfigureNotifications,
+                'data-attr': 'logs-alert-warning-configure-notifications',
             },
             secondaryButton: {
-                children: 'Enable anyway',
-                onClick: onConfirm,
+                children: result.warning.confirmLabel,
+                onClick: callbacks.onConfirm,
+                'data-attr': 'logs-alert-warning-enable-anyway',
             },
         })
         return
     }
-    onConfirm()
+    callbacks.onConfirm()
 }
 
 export const SNOOZE_DURATIONS = [
@@ -109,6 +208,23 @@ export type LogsAlertDestinationGroup = {
     label: string
     hogFunctions: HogFunctionType[]
     enabled: boolean
+}
+
+export function slackChannelLabel(channelValue: string, slackChannels: SlackChannelType[]): string {
+    const channelId = channelValue.split('|')[0]
+    const name = slackChannels.find((c) => c.id === channelId)?.name
+    return name ? `Slack #${name}` : 'Slack'
+}
+
+export function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: SlackChannelType[]): string {
+    if (group.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
+        const hf = group.hogFunctions[0]
+        const channelValue = hf?.inputs?.channel?.value
+        if (typeof channelValue === 'string') {
+            return slackChannelLabel(channelValue, slackChannels)
+        }
+    }
+    return group.label
 }
 
 export function groupLogsAlertDestinations(

@@ -1,12 +1,12 @@
 import type { ApiClient, GroupType } from '@/api/client'
-import { getPostHogClient } from '@/lib/analytics'
-import { ErrorCode, MissingProjectContextError, wrapError } from '@/lib/errors'
+import { hasScope } from '@/lib/api'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
+import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
-
-import type { ScopedCache } from './cache/ScopedCache'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
@@ -38,7 +38,14 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            return apiKeyResult.data
+            const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
+            // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
+            // normalize at the boundary — downstream code treats these as arrays.
+            return {
+                scopes,
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
+            }
         }
 
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
@@ -60,8 +67,8 @@ export class StateManager {
 
         return {
             scopes: scope ? scope.split(' ') : [],
-            scoped_teams,
-            scoped_organizations,
+            scoped_teams: scoped_teams ?? [],
+            scoped_organizations: scoped_organizations ?? [],
         }
     }
 
@@ -110,22 +117,33 @@ export class StateManager {
         // otherwise pick the first scoped team deterministically. The org is
         // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            if (scoped_teams.includes(activeTeam.id)) {
+            if (activeTeam && scoped_teams.includes(activeTeam.id)) {
                 return { projectId: activeTeam.id }
             }
             return { projectId: scoped_teams[0]! }
         }
 
         // No team scoping: prefer the user's active org/team when the scope
-        // allows it.
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+        // allows it. `activeOrganization` / `activeTeam` can be null for users
+        // with no `current_organization` / `current_team` (newly provisioned
+        // accounts, users who left their last org) — fall through to the
+        // scoped-org fallback below when either is missing.
+        if (activeOrganization && (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))) {
+            return activeTeam
+                ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
+                : { organizationId: activeOrganization.id }
         }
 
-        // Active org isn't in the scope. Pick the first allowed org and fall
-        // back to its first project. If the project lookup fails or the org has
-        // no projects, return the org alone and let the agent disambiguate.
-        const organizationId = scoped_organizations[0]!
+        // Active org isn't in the scope (or the user has no active org). Pick
+        // the first allowed org and fall back to its first project. If the
+        // project lookup fails or the org has no projects, return the org alone
+        // and let the agent disambiguate. With no scoped orgs and no active
+        // org, we have nothing to anchor on — return empty and let the caller
+        // surface a recoverable missing-context error.
+        const organizationId = scoped_organizations[0]
+        if (!organizationId) {
+            return {}
+        }
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
@@ -170,15 +188,41 @@ export class StateManager {
         return { organizationId, projectId }
     }
 
-    async getOrgID(): Promise<string | undefined> {
-        const orgId = await this._cache.get('orgId')
+    /**
+     * Resolve an organization id without throwing. Reads the cache, then falls
+     * back to the API key's default-org resolution, then derives the org from
+     * the cached project (matches the team-scoped key path in
+     * `_getDefaultOrganizationAndProject` which intentionally omits the org).
+     *
+     * The derived org id is written back to the cache so subsequent calls
+     * short-circuit on the first read — without this, every team-scoped tool
+     * invocation would re-hit `setDefaultOrganizationAndProject` plus a project
+     * fetch.
+     */
+    private async _resolveOrganizationId(): Promise<string | undefined> {
+        const cached = await this._cache.get('orgId')
+        if (cached) {
+            return cached
+        }
 
-        if (!orgId) {
-            const { organizationId } = await this.setDefaultOrganizationAndProject()
-
+        const { organizationId } = await this.setDefaultOrganizationAndProject()
+        if (organizationId) {
             return organizationId
         }
 
+        const project = await this.getCachedOrFetchProject().catch(() => undefined)
+        const derived = project?.organization
+        if (derived) {
+            await this._cache.set('orgId', derived)
+        }
+        return derived
+    }
+
+    async getOrgID(): Promise<string> {
+        const orgId = await this._resolveOrganizationId()
+        if (!orgId) {
+            throw new MissingOrganizationContextError()
+        }
         return orgId
     }
 
@@ -217,7 +261,7 @@ export class StateManager {
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (cached !== undefined && !this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt)) {
             return cached
         }
 
@@ -230,6 +274,7 @@ export class StateManager {
             return data as State[D]
         } catch (error) {
             this._reportException(error, `get_or_fetch_${opts.name}`)
+            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
     }
@@ -245,7 +290,17 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
-        const orgId = await this.getOrgID()
+        const apiKey = await this.getApiKey()
+        // `/api/organizations/{id}/` is not project-nested. Backend permission
+        // checks reject project-scoped tokens there even when they carry
+        // `organization:read` or `*`, so skip the best-effort fetch entirely.
+        if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
+            return undefined
+        }
+
+        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
+        // consent checks treat "no org" as "skip", not as a hard error.
+        const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined
         }
@@ -297,7 +352,7 @@ export class StateManager {
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project)
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
     }
 
     /**

@@ -146,11 +146,12 @@ export function LogsAlertForm(): JSX.Element {
                     />
                     <LemonInput
                         type="number"
-                        min={1}
+                        min={0}
                         value={alertForm.thresholdCount}
-                        onChange={(val) => setAlertFormValue('thresholdCount', val ?? 1)}
+                        onChange={(val) => setAlertFormValue('thresholdCount', val ?? 0)}
                         className="w-24"
                         size="small"
+                        data-attr="logs-alert-threshold-count"
                     />
                     <span className="text-sm">in the last</span>
                     <LemonSelect

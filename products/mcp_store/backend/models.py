@@ -54,6 +54,11 @@ InstallSource = Literal["posthog", "twig", "posthog-code"]
 INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig"), ("posthog-code", "posthog-code")]
 
 
+def normalize_mcp_template_icon_key(value: str) -> str:
+    """Lowercase, replace runs of whitespace with a single underscore (slug fragment)."""
+    return "_".join((value or "").lower().split())
+
+
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A curated, pre-registered MCP server. PostHog operators register a real
     OAuth app with the provider ahead of time and paste the client_id /
@@ -73,6 +78,12 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs) -> None:
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "icon_key" in update_fields:
+            self.icon_key = normalize_mcp_template_icon_key(self.icon_key or "")
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "mcp_store_mcpservertemplate"

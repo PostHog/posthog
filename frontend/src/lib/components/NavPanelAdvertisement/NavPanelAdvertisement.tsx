@@ -5,13 +5,12 @@ import { useEffect } from 'react'
 import { IconX } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { getTreeItemsProducts } from '~/products'
 import {
     FileSystemImport,
@@ -47,23 +46,17 @@ function isCampaignPayload(value: unknown): value is CampaignPayload {
 export function NavPanelAdvertisement(): JSX.Element | null {
     const logic = navPanelAdvertisementRecommendedLogic()
     const { oldestRecommendedProduct } = useValues(logic)
-    const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
-    const isAIFirst = useFeatureFlag('AI_FIRST')
     const campaignFlagPayload = getFeatureFlagPayload('nav-panel-campaign') as CampaignPayload | undefined
 
     if (isLayoutNavCollapsed) {
         return null
     }
 
-    // Show when custom-products sidebar is active (old sidebar) or AI-first sidebar is enabled
-    if (!isAIFirst && pinnedFolder !== 'custom-products://') {
-        return null
-    }
-
-    // Campaign flag payload takes priority over product recommendations
-    if (isCampaignPayload(campaignFlagPayload)) {
+    // Campaign flag payload takes priority over product recommendations, but campaigns promote cloud features so are not shown on hobby
+    if (isCloudOrDev && isCampaignPayload(campaignFlagPayload)) {
         return <NavPanelCampaignContent campaign={campaignFlagPayload} />
     }
 
@@ -160,7 +153,7 @@ function NavPanelAdvertisementContent({
                     <Content
                         emoji="✨"
                         emojiLabel="sparkles"
-                        title={productInfo.path}
+                        title={productInfo.displayLabel ?? productInfo.path}
                         text={getReasonText(recommendedProduct) ?? ''}
                         onClose={() => {
                             posthog.capture('nav panel advertisement dismissed', {

@@ -7,13 +7,15 @@ from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HumanMessage
+from posthog.schema import AssistantHogQLQuery, DataVisualizationNode, HumanMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
@@ -26,7 +28,6 @@ from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.hogai.utils.warehouse import serialize_database_schema
-from ee.models import Conversation
 
 
 class EvalOutput(BaseModel):
@@ -77,7 +78,11 @@ async def call_graph(entry: DatasetInput, *args):
         return EvalOutput(
             database_schema=database_schema,
             query_kind=content.query.kind,
-            sql_query=content.query.query if isinstance(content.query, AssistantHogQLQuery) else None,
+            sql_query=content.query.source.query
+            if isinstance(content.query, DataVisualizationNode)
+            else content.query.query
+            if isinstance(content.query, AssistantHogQLQuery)
+            else None,
         )
     return EvalOutput(database_schema=database_schema, query_kind=None, sql_query=None)
 

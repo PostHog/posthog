@@ -5,16 +5,12 @@ import hashlib
 import secrets
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthApplication
@@ -26,16 +22,6 @@ WIZARD_CLIENT_ID = "test-wizard-client"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
 def _pkce_pair():
     """Generate a PKCE code_verifier and code_challenge pair."""
     verifier = secrets.token_urlsafe(32)
@@ -43,16 +29,10 @@ def _pkce_pair():
     return verifier, challenge
 
 
-_RSA_KEY = _generate_rsa_key()
-
-
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestProvisioningAuthentication(APIBaseTest):
     def setUp(self):
@@ -115,8 +95,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -137,7 +116,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         data = res.json()
@@ -155,7 +134,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         tokens = res.json()
@@ -168,8 +147,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {tokens['access_token']}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {tokens['access_token']}", "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
@@ -188,7 +166,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -202,7 +180,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 400
         assert res.json()["error"] == "invalid_grant"
@@ -220,7 +198,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -234,7 +212,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -263,7 +241,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "client_id": "disabled-partner",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "forbidden"
@@ -286,11 +264,13 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
 
         user = User.objects.get(email=email)
-        org = user.organization_memberships.first().organization
+        membership = user.organization_memberships.first()
+        assert membership is not None
+        org = membership.organization
         assert org.name == f"Wizard ({email})"
 
     # --- Token expiry ---
@@ -308,7 +288,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -322,7 +302,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.json()["expires_in"] == 3600
 
@@ -341,8 +321,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -364,15 +343,14 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
     # --- PAT scopes ---
 
-    def test_provisioned_pat_created(self):
+    def test_default_off_app_mints_no_provisioned_pat(self):
         from posthog.models.personal_api_key import PersonalAPIKey
 
         verifier, challenge = _pkce_pair()
@@ -388,7 +366,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -402,7 +380,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 }
             ),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         token = res.json()["access_token"]
 
@@ -410,15 +388,15 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {token}", "api-version": "0.1d"},
         )
 
         from posthog.models.user import User
 
         user = User.objects.get(email=email)
+        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
-        assert pat is not None
+        assert pat is None
 
     # --- is_active kill switch ---
 
@@ -438,8 +416,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": sig, "api-version": "0.1d"},
         )
         # Inactive HMAC partner is filtered out of identification, falls through to legacy
         # which still works via verify_provisioning_signature (same secret in settings)
@@ -464,7 +441,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         # Inactive partner not identified -> no partner + no HMAC -> 401
         assert res.status_code == 401
@@ -500,7 +477,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         code = res.json()["oauth"]["code"]
 
@@ -508,7 +485,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/oauth/token",
             data=urlencode({"grant_type": "authorization_code", "code": code, "code_verifier": verifier}),
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         token = res.json()["access_token"]
 
@@ -519,8 +496,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             "/api/agentic/provisioning/resources",
             data=json.dumps({"service_id": "analytics"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            HTTP_API_VERSION="0.1d",
+            headers={"authorization": f"Bearer {token}", "api-version": "0.1d"},
         )
         assert res.status_code == 403
 
@@ -559,7 +535,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
@@ -595,7 +571,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "S256",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -614,7 +590,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "code_challenge_method": "plain",
             },
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 400
         assert "S256" in res.json()["error"]["message"]
@@ -648,14 +624,11 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@pytest.mark.requires_secrets
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 @override_settings(
     STRIPE_APP_SECRET_KEY=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestCimdProvisioningAutoRegistration(APIBaseTest):
     def setUp(self):
@@ -760,11 +733,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             cimd_metadata_url=CIMD_PROV_URL,
         )
         with patch(
-            "ee.api.agentic_provisioning.authentication.CIMD_PROVISIONING_DEFAULTS",
-            new_callable=lambda: MagicMock(
-                items=MagicMock(side_effect=RuntimeError("simulated DB error")),
-                keys=MagicMock(return_value=[]),
-            ),
+            "ee.api.agentic_provisioning.authentication.apply_provisioning_defaults",
+            side_effect=RuntimeError("simulated DB error"),
         ):
             _, challenge = _pkce_pair()
             res = self.client.post(

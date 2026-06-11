@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
@@ -305,23 +307,40 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result == {} or result["exception_count"] == 0
 
-    def test_auto_select_project_picks_busiest(self):
-        team_b = Team.objects.create(organization=self.organization, name="Team B")
+    @parameterized.expand(["engineering", "data", "founder", "Engineering", "DATA", "Founder"])
+    def test_auto_select_project_enrolls_eligible_roles(self, role):
+        self.user.role_at_organization = role
+        self.user.save()
 
         team_exception_counts = {
-            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
-            team_b.pk: {"exception_count": 15, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
         }
 
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert str(self.team.pk) not in project_enabled
-        assert project_enabled[str(team_b.pk)] is True
+        assert project_enabled[str(self.team.pk)] is True
+
+    @parameterized.expand(["marketing", "sales", "leadership", "product", "other", None])
+    def test_auto_select_project_sets_empty_for_ineligible_roles(self, role):
+        self.user.role_at_organization = role
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings or {}
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled == {}
 
     def test_auto_select_project_skips_if_already_configured(self):
+        self.user.role_at_organization = "engineering"
         self.user.partial_notification_settings = {
             "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True},
         }
@@ -334,7 +353,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         assert settings["error_tracking_weekly_digest_project_enabled"] == {str(self.team.pk): True}
 
     def test_auto_select_project_noop_when_no_exceptions(self):

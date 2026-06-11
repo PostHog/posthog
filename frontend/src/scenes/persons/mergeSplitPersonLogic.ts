@@ -22,7 +22,7 @@ export type SplitMode = 'all' | 'partial'
 
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     props({} as SplitPersonLogicProps),
-    key((props) => props.person.id ?? 'new'),
+    key((props) => `${props.person.id ?? 'new'}`),
     path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
     connect((props: SplitPersonLogicProps) => ({
         actions: [

@@ -5,10 +5,12 @@ from freezegun import freeze_time
 
 from django.test import TestCase
 
-from posthog.models import FileSystem, FileSystemViewLog, Insight, Organization, Team, User
+from posthog.models import FileSystem, FileSystemViewLog, Organization, Team, User
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, log_file_system_view
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class FileSystemWithLastViewed(Protocol):
@@ -102,3 +104,41 @@ class TestFileSystemViewLog(TestCase):
             logs.first().viewed_at if logs.first() else None,  # type: ignore
             datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
         )
+
+    def _representation(self, *, surface: str = "web", ref: str = "ref-1") -> FileSystemRepresentation:
+        return FileSystemRepresentation(base_folder="", type="doc", ref=ref, name="", href="", meta={}, surface=surface)
+
+    def test_view_log_stores_surface_from_representation(self) -> None:
+        log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
+
+        log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(log.surface, "desktop")
+
+    def test_view_log_defaults_to_web_surface(self) -> None:
+        log_file_system_view(user=self.user, obj=self._representation(surface="web"), team_id=self.team.id)
+
+        log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(log.surface, "web")
+
+    def test_view_log_refreshes_surface_on_review_from_another_surface(self) -> None:
+        # The same (type, ref) can exist in two surfaces; the single view-log row must follow the
+        # most recent view's surface rather than keep the surface it was first logged under.
+        log_file_system_view(user=self.user, obj=self._representation(surface="web"), team_id=self.team.id)
+        log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
+
+        logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(logs.first().surface, "desktop")  # type: ignore
+
+    def test_delete_signal_only_drops_view_logs_for_the_deleted_surface(self) -> None:
+        # The (team, user, type, ref) unique constraint allows only one view log per item, so the
+        # surviving surface holds the single row. Deleting the other surface's file must scope its
+        # cleanup by surface and leave this row intact.
+        web_file = FileSystem.objects.create(team=self.team, path="Web", type="doc", ref="R", surface="web")
+        FileSystem.objects.create(team=self.team, path="Desktop", type="doc", ref="R", surface="desktop")
+        web_log = FileSystemViewLog.objects.create(team=self.team, user=self.user, type="doc", ref="R", surface="web")
+
+        FileSystem.objects.get(path="Desktop").delete()
+
+        self.assertTrue(FileSystemViewLog.objects.filter(pk=web_log.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=web_file.pk).exists())

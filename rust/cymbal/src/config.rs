@@ -29,6 +29,19 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    // Optional override for the brokers used to produce `cdp_internal_events`. When set,
+    // cymbal opens a second producer pointed at this host list (used for the warpstream-cyclotron
+    // VC, where the hog-functions consumer reads). When unset, internal events go through the
+    // primary `kafka` producer like everything else.
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_HOSTS")]
+    pub cyclotron_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the cyclotron producer. When unset, the cyclotron producer
+    // inherits `KAFKA_TLS` from the primary kafka config; set this to flip TLS independently
+    // (e.g. primary on plaintext warpstream-shared, secondary on SSL MSK).
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
+    pub cyclotron_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
@@ -85,16 +98,14 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
-    #[envconfig(default = "600")]
-    pub frame_cache_ttl_seconds: u64,
+    // Used by cymbal and cymbal-resolution through the shared symbol resolver config.
+    // Resolved frame results are relatively stable, while unresolved results can become
+    // resolvable after a user uploads missing symbols, so keep them shorter.
+    #[envconfig(default = "1800")]
+    pub frame_resolved_ttl_seconds: u64,
 
-    // When we resolve a frame, we put it in PG, so other instances of cymbal can
-    // use it, or so we can re-use it after a restart. This is the TTL for that,
-    // after this many minutes we'll discard saved resolution results and re-resolve
-    // TODO - 10 minutes is too short for production use, it's only twice as long as
-    // our in-memory caching. We should do at least an hour once we release
-    #[envconfig(default = "10")]
-    pub frame_result_ttl_minutes: u32,
+    #[envconfig(default = "300")]
+    pub frame_unresolved_ttl_seconds: u64,
 
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
@@ -165,6 +176,129 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ----------------------------------------------------------------------
+    // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
+    //
+    // When `remote_resolution_enabled` is true, cymbal routes exception-level
+    // symbol resolution through the configured `cymbal-resolution` service
+    // pool instead of running the local resolver inline. There is no silent
+    // local fallback: if the pool can't satisfy the request, the stage
+    // surfaces the failure to its caller. Local mode (the default) is
+    // unchanged.
+    // ----------------------------------------------------------------------
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ENABLED", default = "false")]
+    pub remote_resolution_enabled: bool,
+
+    /// Hostname of the cymbal-resolution service. Resolved via DNS, then each
+    /// returned address gets its own gRPC channel in the endpoint pool.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_HOST", default = "")]
+    pub remote_resolution_host: String,
+
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_PORT", default = "50061")]
+    pub remote_resolution_port: u16,
+
+    /// How often to re-resolve the configured hostname and refresh the pool.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS", default = "30")]
+    pub remote_resolution_dns_refresh_secs: u64,
+
+    /// Per-call deadline for a single Resolve RPC, in milliseconds. The
+    /// stage enforces this independently of any transport-level keepalive.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS", default = "15000")]
+    pub remote_resolution_deadline_ms: u64,
+
+    /// Connection establishment timeout for a single endpoint, in
+    /// milliseconds. Endpoints that exceed this are skipped for routing.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_CONNECT_TIMEOUT_MS", default = "1000")]
+    pub remote_resolution_connect_timeout_ms: u64,
+
+    /// Maximum number of caller-side retries against the endpoint pool when
+    /// transport, load shedding, or explicit `retry` outcomes are observed.
+    /// `0` disables retries; the first attempt still runs.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_MAX_RETRIES", default = "2")]
+    pub remote_resolution_max_retries: u32,
+
+    /// Initial backoff applied between caller-side retries, in milliseconds.
+    /// Each subsequent attempt doubles the wait (capped at
+    /// `CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS`), plus up to ~50% random
+    /// jitter so a fleet of cymbal pods does not synchronize retries against a
+    /// briefly-overloaded upstream.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_RETRY_BACKOFF_MS", default = "50")]
+    pub remote_resolution_retry_backoff_ms: u64,
+
+    /// Upper bound on the retry backoff window, in milliseconds. The exponential
+    /// schedule never sleeps longer than this between attempts.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS",
+        default = "1000"
+    )]
+    pub remote_resolution_retry_max_backoff_ms: u64,
+
+    /// Initial duration to temporarily remove an endpoint from routing after it
+    /// returns a per-item overload outcome. `0` keeps the legacy per-item-only
+    /// reroute behavior.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS",
+        default = "100"
+    )]
+    pub remote_resolution_overload_ejection_ms: u64,
+
+    /// Maximum endpoint ejection duration after repeated overloads.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS",
+        default = "5000"
+    )]
+    pub remote_resolution_overload_ejection_max_ms: u64,
+
+    /// Quiet window after which an endpoint's overload ejection duration resets
+    /// to the initial value.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS",
+        default = "30000"
+    )]
+    pub remote_resolution_overload_ejection_decay_ms: u64,
+
+    /// Deterministic event-level rollout sample for remote resolution.
+    /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
+    /// alone does not start sending traffic — the rollout has to be ramped
+    /// explicitly. Values outside 0.0..=1.0 are clamped by
+    /// `RemoteResolutionConfig`, matching the defensive normalization used
+    /// by adjacent duration knobs.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
+    pub remote_resolution_sample_rate: f64,
+
+    /// Flattens remote resolution routing across the rendezvous-ranked candidate
+    /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is
+    /// uniform across all candidates, and intermediate values decay by rank.
+    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER", default = "0.0")]
+    pub remote_resolution_routing_jitter: f64,
+
+    /// Maximum number of remote resolution items that can concurrently wait
+    /// for a pod to accept routing ownership.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY",
+        default = "10"
+    )]
+    pub remote_resolution_routing_acceptance_concurrency: usize,
+
+    /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
+    /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds
+    /// (see cymbal-resolution `SUBSCRIBE_MIN_TICK_MS`/`SUBSCRIBE_MAX_TICK_MS`),
+    /// so this is only a hint.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS",
+        default = "1000"
+    )]
+    pub remote_resolution_subscribe_tick_hint_ms: u64,
+
+    /// Backoff between reconnect attempts when a per-endpoint subscription
+    /// stream terminates, in milliseconds. Kept small so a transient blip
+    /// doesn't keep the pool blind for long.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_RECONNECT_BACKOFF_MS",
+        default = "500"
+    )]
+    pub remote_resolution_subscribe_reconnect_backoff_ms: u64,
 }
 
 impl Config {

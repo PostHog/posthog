@@ -12,7 +12,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -68,11 +67,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const isAiFirst = useFeatureFlag('AI_FIRST')
 
-    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
-        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
+        ? currentTeam?.name?.replace(/^\p{Extended_Pictographic}/u, '').trimStart()
         : currentTeam?.name
 
     return (
@@ -113,9 +111,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
                             )}
                             {!isLayoutNavCollapsed && (
-                                <span
-                                    className={cn('truncate', isAiFirst && 'text-secondary group-hover:text-primary')}
-                                >
+                                <span className="truncate text-secondary group-hover:text-primary">
                                     {isAuthenticatedTeam(currentTeam)
                                         ? (projectNameWithoutFirstEmoji ?? 'Project')
                                         : 'Account menu'}
@@ -126,7 +122,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
                                 />
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
                         </ButtonPrimitive>
                     )}
                 />
@@ -234,7 +229,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 tooltipPlacement="right"
                                                 data-attr="new-account-menu-project-settings-button"
                                                 to={urls.project(currentTeam.id, urls.settings('project'))}
-                                                skipContext
                                             >
                                                 <IconGear />
                                                 Project settings
@@ -324,7 +318,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     menuItem: true,
                                                     truncate: true,
                                                 }}
-                                                skipContext
                                             >
                                                 <IconReceipt />
                                                 {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
@@ -346,7 +339,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Organization settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-organization-settings-button"
-                                            skipContext
                                         >
                                             <IconGear />
                                             Organization settings
@@ -370,7 +362,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     }}
                                                     data-attr="new-account-menu-django-admin"
                                                     disableClientSideRouting
-                                                    skipContext
                                                 >
                                                     <IconShieldLock />
                                                     Django admin
@@ -386,7 +377,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-instance-panel"
-                                                    skipContext
                                                 >
                                                     <IconServer />
                                                     Instance panel
@@ -402,7 +392,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-query-performance"
-                                                    skipContext
                                                 >
                                                     <IconDatabase />
                                                     Query performance
@@ -429,7 +418,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="User settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-account-owner-button"
-                                            skipContext
                                         >
                                             <ProfilePicture user={user} size="xs" />
                                             <span className="flex flex-col truncate">

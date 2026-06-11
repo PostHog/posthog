@@ -2,13 +2,13 @@ use crate::{
     api::{
         auth,
         errors::{ClientFacingError, FlagError},
+        instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
     flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_request::FlagRequestType,
+        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::{billing::record_billing_increment_timing, types::Library},
+    handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
@@ -25,16 +25,16 @@ use axum::{
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
 use common_types::TeamId;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
-const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
 /// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
@@ -68,30 +68,15 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
 }
 
 /// Query the posthog_instancesetting table for the rate limit allowlist.
-/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
 /// Returns None if the row doesn't exist (env var default should be kept),
 /// Some(set) if the row exists (overrides the env var).
 pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
-            .bind(CONSTANCE_KEY)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| format!("DB query failed: {e}"))?;
-
-    let raw_value = match row {
-        Some((val,)) => val,
+    let raw = match fetch_instance_setting_raw_value(pool, &CONSTANCE_KEY).await? {
+        Some(v) => v,
         None => return Ok(None),
     };
 
-    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
-    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
-    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
-        Ok(serde_json::Value::String(s)) => s,
-        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
-        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
-    };
-    let value = value.trim();
+    let value = raw.trim();
     if value.is_empty() {
         return Ok(Some(HashSet::new()));
     }
@@ -237,26 +222,9 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        let start = Instant::now();
-        let result = increment_request_count(
-            state.redis_client.clone(),
-            team.id,
-            1,
-            FlagRequestType::FlagDefinitions,
-            Some(library),
-        )
-        .await;
-        let elapsed_ms = start.elapsed().as_millis() as u64;
-
-        record_billing_increment_timing(&result, elapsed_ms);
-
-        if let Err(e) = result {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+        state
+            .billing_aggregator
+            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
     }
 
     Ok(ok_response_with_etag(
@@ -390,6 +358,7 @@ fn flag_service(state: &AppState) -> FlagService {
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
+        state.flag_definitions_cache.clone(),
         state.team_negative_cache.clone(),
         *state.config.skip_pg_team_fallback,
     )

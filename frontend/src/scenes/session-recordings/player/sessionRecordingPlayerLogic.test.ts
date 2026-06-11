@@ -1,18 +1,20 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { RecordingSegment } from '~/types'
+import { ExporterFormat, RecordingSegment } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -22,7 +24,7 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
+import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
@@ -84,6 +86,56 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('stripRrwebScriptShims', () => {
+    const countTag = (html: string, tag: string): number => (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+
+    it.each([
+        { description: 'empty string', input: '' },
+        { description: 'no noscript tags', input: '<head></head><body><div>hello</div></body>' },
+    ])('passes through unchanged when there is nothing to strip ($description)', ({ input }) => {
+        expect(stripRrwebScriptShims(input)).toBe(input)
+    })
+
+    it('removes inline-script shims (noscript with SCRIPT_PLACEHOLDER body)', () => {
+        const input = '<head></head><body><p>real</p><noscript>SCRIPT_PLACEHOLDER</noscript></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).not.toContain('<noscript')
+        expect(output).toContain('<p>real</p>')
+    })
+
+    it('removes external-script shims (noscript with src/type/async attrs)', () => {
+        const input =
+            '<head><noscript type="text/javascript" async="" src="https://cdn.example.com/array.js"></noscript></head><body></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('<noscript')
+        expect(output).not.toContain('cdn.example.com/array.js')
+    })
+
+    it('removes every noscript when many appear in a row (the reported repro)', () => {
+        const input =
+            '<head>' +
+            '<noscript type="text/javascript" async="" src="https://pcdn.example.com/array.js"></noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '</head><body><h1>page</h1></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(countTag(output, 'noscript')).toBe(0)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).toContain('<h1>page</h1>')
+    })
+
+    it('preserves surrounding DOM structure (head + body content)', () => {
+        const input =
+            '<head><title>t</title><noscript>SCRIPT_PLACEHOLDER</noscript></head>' +
+            '<body><main><p>kept</p></main></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).toContain('<title>t</title>')
+        expect(output).toContain('<main><p>kept</p></main>')
+        expect(countTag(output, 'noscript')).toBe(0)
     })
 })
 
@@ -891,6 +943,24 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('exportRecording', () => {
+        it('uses the player skip-inactivity setting', () => {
+            // setRootFrame clears innerHTML, so append the iframe after it runs
+            const rootFrame = document.createElement('div')
+            logic.actions.setRootFrame(rootFrame)
+            rootFrame.appendChild(document.createElement('iframe'))
+
+            playerSettingsLogic.actions.setSkipInactivitySetting(false)
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            logic.actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, 3600)
+
+            expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
+            expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
+            startReplayExportSpy.mockRestore()
         })
     })
 })

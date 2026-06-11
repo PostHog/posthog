@@ -12,6 +12,41 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
 
+export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; description: string }> = {
+    comment_mention: {
+        label: 'Comment mentions',
+        description: 'When someone @mentions you in a discussion',
+    },
+    alert_firing: {
+        label: 'Alerts firing',
+        description: 'When an alert you subscribe to triggers',
+    },
+    approval_requested: {
+        label: 'Approvals requested',
+        description: 'When a change is awaiting your approval',
+    },
+    approval_resolved: {
+        label: 'Approvals resolved',
+        description: 'When an approval you requested is decided',
+    },
+    pipeline_failure: {
+        label: 'Pipeline failures',
+        description: 'When a data pipeline or batch export fails',
+    },
+    issue_assigned: {
+        label: 'Issues assigned',
+        description: 'When an error tracking issue is assigned to you',
+    },
+    experiment_concluded: {
+        label: 'Experiments concluded',
+        description: 'When an experiment you created ends',
+    },
+    project_created: {
+        label: 'Projects created',
+        description: 'When a member creates a new project in your organization',
+    },
+}
+
 export function NotificationRow({
     notification,
     onNavigate,
