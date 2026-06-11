@@ -8,12 +8,18 @@ in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.schema import Severity
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
-from products.signals.backend.scout_harness.tools.emit import MAX_FINDING_ID_LENGTH
+from products.signals.backend.scout_harness.tools.emit import (
+    MAX_FINDING_ID_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_FINDING,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -131,6 +137,10 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none.",
+    )
     source_id = serializers.CharField(
         help_text="Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store.",
     )
@@ -146,6 +156,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "weight",
             "confidence",
             "severity",
+            "tags",
             "source_id",
             "emitted_at",
         ]
@@ -343,6 +354,17 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        required=False,
+        max_length=MAX_TAGS_PER_FINDING,
+        help_text=(
+            "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), "
+            f"max {MAX_TAGS_PER_FINDING}. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry "
+            "when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are "
+            "normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
+        ),
     )
     time_range = TimeRangeSerializer(
         required=False,
@@ -945,6 +967,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
     )
+    description = serializers.SerializerMethodField(
+        help_text=(
+            "Human-readable summary of what this scout investigates, sourced from the scout "
+            "skill's `description` metadata. Use it for a quick steer on the scout's focus "
+            "without loading the full skill body. Empty if the skill is not currently present "
+            "on the team or carries no description."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -965,7 +995,23 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_description(self, obj: SignalScoutConfig) -> str:
+        # Resolved by the view into `skill_descriptions` (skill_name -> description) so the
+        # list endpoint stays a single LLMSkill query rather than one lookup per config row.
+        descriptions = self.context.get("skill_descriptions") or {}
+        return descriptions.get(obj.skill_name, "")
+
     class Meta:
         model = SignalScoutConfig
-        fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
+        fields = [
+            "id",
+            "skill_name",
+            "description",
+            "enabled",
+            "emit",
+            "run_interval_minutes",
+            "last_run_at",
+            "created_at",
+        ]
         read_only_fields = ["id", "created_at"]

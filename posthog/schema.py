@@ -4799,6 +4799,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
