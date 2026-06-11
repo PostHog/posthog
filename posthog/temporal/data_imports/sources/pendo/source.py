@@ -44,7 +44,6 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
             iconPath="/static/services/pendo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pendo",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

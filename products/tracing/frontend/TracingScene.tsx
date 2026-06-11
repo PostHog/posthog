@@ -18,7 +18,7 @@ import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
-import { TraceFlameChart } from './TraceFlameChart'
+import { TraceWaterfallView } from './TraceWaterfallView'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
@@ -222,7 +222,7 @@ function TracingSceneContents(): JSX.Element {
             >
                 <div className="relative min-h-32">
                     {isLoadingFullTrace && <SpinnerOverlay />}
-                    <TraceFlameChart spans={modalSpans} />
+                    <TraceWaterfallView spans={modalSpans} />
                 </div>
             </LemonModal>
             <LemonModal
