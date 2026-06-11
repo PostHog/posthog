@@ -43,7 +43,6 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
             name=SchemaExternalDataSourceType.CLICK_UP,
             label="ClickUp",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your ClickUp personal API token to pull your ClickUp data into the PostHog Data warehouse.
 
 You can generate a personal token (starts with `pk_`) under **Settings → Apps** in ClickUp.
