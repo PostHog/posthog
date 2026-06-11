@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
+from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.detector import (
     evaluate_with_detector,
@@ -28,7 +29,9 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
 
-def check_trends_alert_with_detector(alert, insight, query, detector_config):
+def check_trends_alert_with_detector(
+    alert: Any, insight: Any, query: TrendsQuery, detector_config: dict[str, Any]
+) -> AlertEvaluationResult:
     """Evaluate a detector alert through the extractor + detector scorer (test convenience)."""
     series_index = (alert.config or {}).get("series_index", 0)
     result = extract_detector_series(insight, alert.team, query, detector_config, series_index=series_index)
