@@ -20826,6 +20826,10 @@
                     "description": "Object's name and folder",
                     "type": "string"
                 },
+                "pinnedByDefault": {
+                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
+                    "type": "boolean"
+                },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
                     "type": "string"
@@ -39500,6 +39504,13 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -41424,6 +41435,11 @@
             },
             "type": "object"
         },
+        "TraceOrderColumn": {
+            "description": "Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`).",
+            "enum": ["timestamp", "duration"],
+            "type": "string"
+        },
         "TraceQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41659,7 +41675,13 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "$ref": "#/definitions/LogsOrderBy"
+                    "$ref": "#/definitions/TraceOrderColumn",
+                    "description": "Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`."
+                },
+                "orderDirection": {
+                    "description": "Order direction. Defaults to DESC.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",

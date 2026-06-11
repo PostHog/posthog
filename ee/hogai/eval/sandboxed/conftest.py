@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import atexit
 import asyncio
 import logging
@@ -533,6 +534,12 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         "NODE_ENV": "development",
         "PORT": str(MCP_PORT),
         "HOST": "0.0.0.0",
+        # The MCP server evaluates feature flags via posthog-node, which is disabled
+        # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
+        # Force flag-gated behavior on for evals via the dev/test-only override seam
+        # (honored only when NODE_ENV is explicitly development/test — set above).
+        # `mcp-render-ui` gates the render_ui umbrella tool — see eval_render_ui.py.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-render-ui": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
