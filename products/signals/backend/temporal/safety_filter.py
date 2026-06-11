@@ -13,9 +13,18 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
 
 logger = structlog.get_logger(__name__)
+
+# First-party sources whose signal content is produced by our own agents rather than submitted by
+# external users. The classifier below is written for untrusted external tickets and only
+# false-positives on these — a scout finding is deliberately shaped as a paste-ready, imperative
+# code-change prompt, exactly the instruction-injection shape the taxonomy targets. Safety for the
+# scout path belongs in the scout harness, where the agent has full context on what it read versus
+# what it is emitting.
+SAFETY_FILTER_EXEMPT_SOURCE_PRODUCTS = frozenset({SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value})
 
 
 class SafetyFilterJudgeResponse(BaseModel):
@@ -182,6 +191,10 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 @close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
+    if input.source_product in SAFETY_FILTER_EXEMPT_SOURCE_PRODUCTS:
+        # Trusted first-party source — skip the external-ticket classifier (and its LLM call) entirely.
+        return SafetyFilterOutput(safe=True, threat_type="", explanation=None)
+
     try:
         result = await safety_filter(input.team_id, input.description)
     except Exception:
