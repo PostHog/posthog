@@ -23,18 +23,21 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { getSeriesColor } from 'lib/colors'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
     tryApplyTextChanges,
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
+import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 
@@ -59,6 +62,9 @@ import {
     InsightShortId,
     SidePanelTab,
 } from '~/types'
+
+import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
+import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import {
     buildNotebookDependencyGraph,
@@ -121,6 +127,57 @@ export type MarkdownStreamEvent = {
     baseCrc?: number | null
     /** Saving client's id, used to skip self-echo. */
     clientId?: string | null
+}
+
+/** Latest known caret of another client, from presence pings or update events. */
+export type NotebookRemotePresenceState = {
+    clientId: string
+    userId: number
+    userName: string
+    version: number
+    cursor: NotebookCollabCursorApi
+    lastSeenAt: number
+}
+
+/** Remote carets older than this stop rendering; senders heartbeat well within it. */
+const PRESENCE_TTL_MS = 30_000
+const PRESENCE_PRUNE_INTERVAL_MS = 5_000
+const PRESENCE_HEARTBEAT_MS = 10_000
+/** Client-side debounce for caret pings, the floor for caret latency. */
+const PRESENCE_PUBLISH_DEBOUNCE_MS = 250
+
+function apiCursorToCaretPosition(cursor: NotebookCollabCursorApi): MarkdownNotebookCaretPosition | null {
+    if (typeof cursor.node_index !== 'number') {
+        return null
+    }
+    return { nodeIndex: cursor.node_index, offset: cursor.offset, listItemIndex: cursor.list_item_index }
+}
+
+function caretPositionToApiCursor(position: MarkdownNotebookCaretPosition): NotebookCollabCursorApi {
+    return { node_index: position.nodeIndex, offset: position.offset, list_item_index: position.listItemIndex }
+}
+
+function parseRemotePresencePayload(payload: unknown): Omit<NotebookRemotePresenceState, 'lastSeenAt'> | null {
+    if (typeof payload !== 'object' || payload === null) {
+        return null
+    }
+    const candidate = payload as Record<string, unknown>
+    if (
+        typeof candidate.client_id !== 'string' ||
+        typeof candidate.user_id !== 'number' ||
+        typeof candidate.user_name !== 'string' ||
+        typeof candidate.cursor !== 'object' ||
+        candidate.cursor === null
+    ) {
+        return null
+    }
+    return {
+        clientId: candidate.client_id,
+        userId: candidate.user_id,
+        userName: candidate.user_name,
+        version: typeof candidate.version === 'number' ? candidate.version : 0,
+        cursor: candidate.cursor as NotebookCollabCursorApi,
+    }
 }
 
 export type NotebookLogicProps = {
@@ -245,6 +302,13 @@ export const notebookLogic = kea<notebookLogicType>([
         applyRemoteNotebookContent: (content: JSONContent, version: number) => ({ content, version }),
         handleMarkdownStreamEvent: (event: MarkdownStreamEvent) => ({ event }),
         processPendingMarkdownStreamEvents: true,
+        handleRemotePresence: (presence: Omit<NotebookRemotePresenceState, 'lastSeenAt'>) => ({
+            presence,
+            receivedAt: Date.now(),
+        }),
+        pruneRemotePresence: () => ({ now: Date.now() }),
+        /** Broadcast the local caret; null means the selection left the notebook. */
+        publishMarkdownCaret: (position: MarkdownNotebookCaretPosition | null) => ({ position }),
         reportMarkdownMergeConflicts: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
@@ -370,6 +434,20 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 showCollabConflict: (_, params) => params,
                 dismissCollabConflict: () => null,
+            },
+        ],
+        markdownRemotePresence: [
+            {} as Record<string, NotebookRemotePresenceState>,
+            {
+                handleRemotePresence: (state, { presence, receivedAt }) => ({
+                    ...state,
+                    [presence.clientId]: { ...presence, lastSeenAt: receivedAt },
+                }),
+                pruneRemotePresence: (state, { now }) => {
+                    const fresh = Object.entries(state).filter(([, p]) => now - p.lastSeenAt <= PRESENCE_TTL_MS)
+                    return fresh.length === Object.keys(state).length ? state : Object.fromEntries(fresh)
+                },
+                disconnectMarkdownUpdateStream: () => ({}),
             },
         ],
         editingNodeIds: [
@@ -602,6 +680,9 @@ export const notebookLogic = kea<notebookLogicType>([
                                 content: notebook.content,
                                 text_content: getNotebookTextContent(notebook.content, ''),
                                 title: notebook.title,
+                                cursor: cache.lastMarkdownCaret
+                                    ? caretPositionToApiCursor(cache.lastMarkdownCaret)
+                                    : undefined,
                             })
                             refreshTreeItem('notebook', String(values.notebook.short_id))
                             return response
@@ -837,6 +918,24 @@ export const notebookLogic = kea<notebookLogicType>([
             (s) => [s.notebook, s.notebookLoading, s.mode],
             (notebook, notebookLoading, mode): boolean => {
                 return (['notebook', 'template'].includes(mode) && !notebook && !notebookLoading) ?? false
+            },
+        ],
+        markdownRemoteCarets: [
+            (s) => [s.markdownRemotePresence],
+            (markdownRemotePresence): RemoteNotebookCaret[] => {
+                const carets: RemoteNotebookCaret[] = []
+                for (const presence of Object.values(markdownRemotePresence)) {
+                    const position = apiCursorToCaretPosition(presence.cursor)
+                    if (position) {
+                        carets.push({
+                            clientId: presence.clientId,
+                            userName: presence.userName,
+                            color: getSeriesColor(presence.userId),
+                            position,
+                        })
+                    }
+                }
+                return carets
             },
         ],
         content: [
@@ -1094,6 +1193,18 @@ export const notebookLogic = kea<notebookLogicType>([
                             cache.markdownUpdateStreamLastEventId = msg.id
                         }
 
+                        if (msg.event === 'presence' && msg.data) {
+                            try {
+                                const presence = parseRemotePresencePayload(JSON.parse(msg.data))
+                                if (presence && presence.clientId !== cache.markdownClientId) {
+                                    actions.handleRemotePresence(presence)
+                                }
+                            } catch (e) {
+                                posthog.captureException(e as Error, { action: 'notebook presence stream parse' })
+                            }
+                            return
+                        }
+
                         if (msg.event !== 'update' && msg.event !== 'step') {
                             return
                         }
@@ -1116,6 +1227,14 @@ export const notebookLogic = kea<notebookLogicType>([
                                 diff = Array.isArray(payload.diff) ? (payload.diff as TextChange[]) : null
                                 baseCrc = typeof payload.base_crc === 'number' ? payload.base_crc : null
                                 clientId = typeof payload.client_id === 'string' ? payload.client_id : null
+
+                                // Saves piggyback the author's caret so it moves in the same
+                                // paint as the text change lands. CAS entries carry no version
+                                // field — the stream id (already folded into `version`) is it.
+                                const presence = parseRemotePresencePayload(payload)
+                                if (presence && presence.clientId !== cache.markdownClientId) {
+                                    actions.handleRemotePresence({ ...presence, version: version ?? presence.version })
+                                }
                             } catch (e) {
                                 posthog.captureException(e as Error, { action: 'notebook markdown stream parse' })
                             }
@@ -1166,11 +1285,59 @@ export const notebookLogic = kea<notebookLogicType>([
                 'markdownUpdateStream',
                 { pauseOnPageHidden: false }
             )
+
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => actions.pruneRemotePresence(), PRESENCE_PRUNE_INTERVAL_MS)
+                return () => window.clearInterval(intervalId)
+            }, 'markdownPresencePrune')
+
+            // Re-announce the caret while idle so it outlives the receivers' TTL. Pausing on
+            // hidden tabs is deliberate: backgrounded editors' carets fade out remotely.
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => {
+                    if (cache.lastMarkdownCaret) {
+                        actions.publishMarkdownCaret(cache.lastMarkdownCaret)
+                    }
+                }, PRESENCE_HEARTBEAT_MS)
+                return () => window.clearInterval(intervalId)
+            }, 'markdownPresenceHeartbeat')
         },
         disconnectMarkdownUpdateStream: () => {
             cache.disposables.dispose('markdownUpdateStream')
+            cache.disposables.dispose('markdownPresencePrune')
+            cache.disposables.dispose('markdownPresenceHeartbeat')
             cache.markdownUpdateStreamLastEventId = undefined
             cache.pendingMarkdownStreamEvents = []
+        },
+        publishMarkdownCaret: async ({ position }, breakpoint) => {
+            cache.lastMarkdownCaret = position
+            if (!position || !values.markdownRealtimeEnabled || !values.isEditable || !values.notebook) {
+                return
+            }
+            await breakpoint(PRESENCE_PUBLISH_DEBOUNCE_MS)
+
+            // Skip unchanged positions between heartbeats: selectionchange fires on scroll
+            // and re-renders without the caret actually moving.
+            const serialized = JSON.stringify(position)
+            if (
+                cache.lastSentMarkdownCaret === serialized &&
+                Date.now() - (cache.lastSentMarkdownCaretAt ?? 0) < PRESENCE_HEARTBEAT_MS
+            ) {
+                return
+            }
+
+            cache.markdownClientId = cache.markdownClientId || uuid()
+            try {
+                await notebooksCollabPresenceCreate(String(getCurrentTeamId()), values.notebook.short_id, {
+                    client_id: cache.markdownClientId,
+                    version: values.notebook.version,
+                    cursor: caretPositionToApiCursor(position),
+                })
+                cache.lastSentMarkdownCaret = serialized
+                cache.lastSentMarkdownCaretAt = Date.now()
+            } catch {
+                // Presence is lossy by design; the next ping self-heals.
+            }
         },
         handleMarkdownStreamEvent: ({ event }) => {
             if (event.clientId && event.clientId === cache.markdownClientId) {

@@ -18,12 +18,14 @@ import { getMarkdownNotebookMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
 export function MarkdownNotebookV2(): JSX.Element {
-    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive } = useValues(notebookLogic)
+    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
+        useValues(notebookLogic)
     const {
         handleMarkdownEditorChange,
         setMarkdownEditorInteractionActive,
         applyNotebookArtifactMarkdown,
         reportMarkdownMergeConflicts,
+        publishMarkdownCaret,
     } = useActions(notebookLogic)
     const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
@@ -100,6 +102,8 @@ export function MarkdownNotebookV2(): JSX.Element {
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
+                remoteCarets={markdownRemoteCarets}
+                onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                 onAskAI={isEditable ? handleAskAI : undefined}
                 createAIChatId={uuid}
                 deferRemoteValue={markdownEditorInteractionActive}

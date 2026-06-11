@@ -1,3 +1,6 @@
+import json
+import time
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,6 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.notebooks.backend import collab
 from products.notebooks.backend.collab import SubmitResult, submit_steps
 from products.notebooks.backend.models import Notebook
 
@@ -466,6 +470,98 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         # Drain the generator so the background bridge thread terminates before the test ends.
         self._consume_stream(response)
 
+    def _presence_url(self, short_id: str) -> str:
+        return f"/api/projects/{self.team.id}/notebooks/{short_id}/collab/presence/"
+
+    def test_presence_endpoint_broadcasts_on_stream(self):
+        notebook = self._create_notebook()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": notebook["version"], "cursor": {"head": 7}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        body = self._consume_stream(self.client.get(self._stream_url(notebook["short_id"])))
+        assert "event: presence" in body
+        assert '"client_id":"caret-client"' in body
+        assert '"cursor":{"head":7}' in body
+        assert f'"user_id":{self.user.pk}' in body
+        assert '"user_name"' in body
+        # Presence frames must not carry an id: line — Last-Event-ID belongs to the content stream
+        presence_frame = next(frame for frame in body.split("\n\n") if "event: presence" in frame)
+        assert "id:" not in presence_frame
+
+    def test_stream_skips_presence_older_than_backfill_window(self):
+        notebook = self._create_notebook()
+        stream_key = collab.PRESENCE_STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"])
+
+        stale_payload = json.dumps(
+            {
+                "type": "presence",
+                "client_id": "old-client",
+                "user_id": 1,
+                "user_name": "Old",
+                "version": 0,
+                "cursor": {},
+            }
+        )
+        stale_id = f"{int(time.time() * 1000) - 60_000}-0"
+        redis_module.get_client().xadd(stream_key, {"data": stale_payload}, id=stale_id)
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "fresh-client", "version": notebook["version"], "cursor": {"head": 1}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        body = self._consume_stream(self.client.get(self._stream_url(notebook["short_id"])))
+        assert '"client_id":"fresh-client"' in body
+        assert '"client_id":"old-client"' not in body
+
+    def test_presence_requires_cursor(self):
+        notebook = self._create_notebook()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": notebook["version"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_presence_returns_404_for_notebook_in_other_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_notebook = Notebook.objects.create(team=other_team, created_by=self.user)
+
+        response = self.client.post(
+            self._presence_url(other_notebook.short_id),
+            data={"client_id": "caret-client", "version": 0, "cursor": {"head": 0}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_presence_rejects_personal_api_key_without_write_scope(self):
+        notebook = self._create_notebook()
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read-only-key",
+            secure_value=hash_key_value(key_value),
+            scopes=["notebook:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self._presence_url(notebook["short_id"]),
+            data={"client_id": "caret-client", "version": 0, "cursor": {"head": 0}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 def _markdown_doc(markdown: str) -> dict:
     return {
@@ -586,6 +682,29 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         response = self._markdown_save(notebook, version=version, markdown="base text plus mine")
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["code"] == "conflict_stale"
+
+    def test_markdown_save_with_cursor_broadcasts_author_presence_in_update(self):
+        from products.notebooks.backend.collab import STREAM_KEY_PATTERN
+
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data={
+                "client_id": "md-client",
+                "version": notebook["version"],
+                "content": _markdown_doc("# Title\n\nHello world"),
+                "cursor": {"node_index": 1, "offset": 11},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        client = redis_module.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"]))
+        payload = json.loads(entries[0][1][b"data"])
+        assert payload["cursor"] == {"node_index": 1, "offset": 11}
+        assert payload["user_id"] == self.user.pk
+        assert "user_name" in payload
 
     def test_markdown_save_rejects_non_markdown_content(self):
         notebook = self._create_markdown_notebook()

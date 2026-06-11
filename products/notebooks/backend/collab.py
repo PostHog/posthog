@@ -13,6 +13,7 @@ code units, so JavaScript clients can apply them with plain `String.slice`.
 """
 
 import json
+import time
 import zlib
 import asyncio
 from collections.abc import AsyncGenerator
@@ -28,9 +29,18 @@ logger = structlog.get_logger(__name__)
 
 STREAM_KEY_PATTERN = "notebook:collab:{{{team_id}:{notebook_id}}}:stream"
 
+# Ephemeral caret/presence events live in a separate stream: the content stream's ids ARE
+# document versions (a CAS invariant), so presence can't share it. Auto-generated ids here.
+PRESENCE_STREAM_KEY_PATTERN = "notebook:collab:{{{team_id}:{notebook_id}}}:presence"
+
 STREAM_TTL_SECONDS = 60 * 60 * 24  # 1 day, refreshed on every XADD
 STREAM_MAX_LENGTH = 5000  # ~hour of heavy editing
 STREAM_READ_COUNT = 32
+
+PRESENCE_TTL_SECONDS = 60 * 5
+PRESENCE_MAX_LENGTH = 256
+# On connect, replay this much recent presence so a fresh tab sees existing carets immediately.
+PRESENCE_BACKFILL_MS = 10_000
 
 # Max XREAD wait, proxies idle-kill connections around 60s
 STREAM_BLOCK_MS = 15_000
@@ -41,6 +51,7 @@ STREAM_LIFETIME_SECONDS = 5 * 60
 DATA_KEY = b"data"
 KEEPALIVE_COMMENT = b": keepalive\n\n"
 UPDATE_EVENT_TYPE = "update"
+PRESENCE_EVENT_TYPE = "presence"
 
 # Above this, update events carry no diff and receivers fall back to a full reload.
 MAX_PUBLISHED_DIFF_BYTES = 64 * 1024
@@ -336,11 +347,16 @@ def submit_markdown_update(
     diff: MarkdownDiff | None,
     last_seen_version: int,
     last_saved_version: int,
+    user_id: int | None = None,
+    user_name: str | None = None,
+    cursor: dict[str, Any] | None = None,
 ) -> MarkdownSubmitResult:
     """Atomically append one markdown update event if the caller's baseline matches the stream head.
 
     `diff` transforms the markdown at `last_seen_version` into the saved markdown; receivers
     apply it without refetching. A None diff still bumps the version (receivers reload).
+    `cursor` is the author's caret in the saved markdown, so receivers can move the author's
+    remote caret in the same paint as the text change.
     """
     client = redis_module.get_client()
     stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
@@ -349,6 +365,8 @@ def submit_markdown_update(
     if diff is not None:
         payload["diff"] = diff.changes
         payload["base_crc"] = diff.base_crc
+    presence = {k: v for k, v in (("user_id", user_id), ("user_name", user_name), ("cursor", cursor)) if v is not None}
+    payload.update(presence)
 
     script = client.register_script(_APPEND_STEPS_LUA)
     accepted, version = script(
@@ -485,6 +503,46 @@ async def apublish_notebook_update(
         _log_publish_error(err, stream_key=stream_key, notebook_id=notebook_id, version=version)
 
 
+def publish_presence(
+    team_id: int,
+    notebook_id: str,
+    *,
+    client_id: str,
+    user_id: int,
+    user_name: str,
+    version: int,
+    cursor: dict[str, Any],
+) -> None:
+    """Fire-and-forget caret broadcast. Lossy by design: receivers always render the latest
+    ping per client and TTL-prune the rest, so a dropped event self-heals on the next one."""
+    client = redis_module.get_client()
+    stream_key = PRESENCE_STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
+    payload = {
+        "type": PRESENCE_EVENT_TYPE,
+        "client_id": client_id,
+        "user_id": user_id,
+        "user_name": user_name,
+        "version": version,
+        "cursor": cursor,
+    }
+
+    try:
+        client.xadd(
+            stream_key,
+            {"data": json.dumps(payload, separators=(",", ":"))},
+            maxlen=PRESENCE_MAX_LENGTH,
+            approximate=True,
+        )
+        client.expire(stream_key, PRESENCE_TTL_SECONDS)
+    except redis_exceptions.RedisError as err:
+        logger.warning(
+            "notebook_collab_presence_publish_error",
+            stream_key=stream_key,
+            notebook_short_id=notebook_id,
+            error=str(err),
+        )
+
+
 def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_stream_version: int) -> SubmitResult:
     # Client is somehow ahead of the stream — no missed range we could send.
     # The only safe response is "reload the notebook".
@@ -516,19 +574,39 @@ async def stream_collab_sse(
     last_event_id: str | None,
 ) -> AsyncGenerator[bytes]:
     """
-    Tail this notebook's Redis stream from last_event_id (or from now if None).
-    Yields one SSE frame per step, plus a keepalive comment during idle gaps.
+    Tail this notebook's content and presence Redis streams from last_event_id (or from now
+    if None). Yields one SSE frame per step/update/presence event, plus a keepalive comment
+    during idle gaps.
+
+    Only content frames carry an `id:` line — Last-Event-ID must resume the versioned content
+    stream, never the ephemeral presence stream (which backfills the last few seconds instead).
     """
     client = redis_module.get_async_client()
     stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
-    current_id = last_event_id or "$"
+    presence_key = PRESENCE_STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
+
+    content_id = last_event_id
+    if content_id is None:
+        # Resolve "now" to a concrete id up front: with two streams in one XREAD, "$" would
+        # re-evaluate on every call and skip content appended while a presence batch was
+        # being processed.
+        try:
+            newest = await client.xrevrange(stream_key, "+", "-", count=1)
+            content_id = newest[0][0].decode() if newest else "0-0"
+        except redis_exceptions.RedisError as err:
+            logger.warning("notebook_collab_stream_error", notebook_short_id=notebook_id, error=str(err))
+            yield b'event: error\ndata: {"error":"stream error"}\n\n'
+            return
+    presence_id = f"{max(0, int(time.time() * 1000) - PRESENCE_BACKFILL_MS)}-0"
 
     try:
         async with asyncio.timeout(STREAM_LIFETIME_SECONDS):
             while True:
                 try:
                     messages = await client.xread(
-                        {stream_key: current_id}, block=STREAM_BLOCK_MS, count=STREAM_READ_COUNT
+                        {stream_key: content_id, presence_key: presence_id},
+                        block=STREAM_BLOCK_MS,
+                        count=STREAM_READ_COUNT,
                     )
                 except redis_exceptions.RedisError as err:
                     logger.warning("notebook_collab_stream_error", notebook_short_id=notebook_id, error=str(err))
@@ -539,27 +617,54 @@ async def stream_collab_sse(
                     yield KEEPALIVE_COMMENT
                     continue
 
-                # We only XREAD one stream key, so messages is always [(key, entries)]
-                _, entries = messages[0]
-                for stream_id, fields in entries:
-                    current_id = stream_id.decode()
-                    try:
-                        data = json.loads(fields[DATA_KEY])
-                    except json.JSONDecodeError:
-                        logger.warning("notebook_collab_invalid_payload", stream_key=stream_key, stream_id=current_id)
+                for key, entries in messages:
+                    key_name = key.decode() if isinstance(key, bytes) else key
+                    if key_name == presence_key:
+                        for stream_id, fields in entries:
+                            presence_id = stream_id.decode()
+                            frame = _presence_sse_frame(fields, stream_key=presence_key, stream_id=presence_id)
+                            if frame is not None:
+                                yield frame
                         continue
-                    event_type = data.get("type")
-                    if event_type == UPDATE_EVENT_TYPE:
-                        yield (
-                            f"id: {current_id}\nevent: update\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-                        ).encode()
-                    elif "step" in data:
-                        yield f"id: {current_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
-                    else:
-                        logger.warning("notebook_collab_unknown_payload", stream_key=stream_key, stream_id=current_id)
+
+                    for stream_id, fields in entries:
+                        content_id = stream_id.decode()
+                        try:
+                            data = json.loads(fields[DATA_KEY])
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "notebook_collab_invalid_payload", stream_key=stream_key, stream_id=content_id
+                            )
+                            continue
+                        event_type = data.get("type")
+                        if event_type == UPDATE_EVENT_TYPE:
+                            yield (
+                                f"id: {content_id}\nevent: update\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+                            ).encode()
+                        elif "step" in data:
+                            yield (
+                                f"id: {content_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+                            ).encode()
+                        else:
+                            logger.warning(
+                                "notebook_collab_unknown_payload", stream_key=stream_key, stream_id=content_id
+                            )
 
                 # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
                 await asyncio.sleep(0)
     except TimeoutError:
         # Lifetime cap hit; client reconnects with Last-Event-ID against a fresh worker
         return
+
+
+def _presence_sse_frame(fields: dict[bytes, bytes], *, stream_key: str, stream_id: str) -> bytes | None:
+    """Presence frames deliberately omit the `id:` line so they never disturb Last-Event-ID."""
+    try:
+        data = json.loads(fields[DATA_KEY])
+    except (json.JSONDecodeError, KeyError):
+        logger.warning("notebook_collab_invalid_payload", stream_key=stream_key, stream_id=stream_id)
+        return None
+    if data.get("type") != PRESENCE_EVENT_TYPE:
+        logger.warning("notebook_collab_unknown_payload", stream_key=stream_key, stream_id=stream_id)
+        return None
+    return f"event: presence\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()

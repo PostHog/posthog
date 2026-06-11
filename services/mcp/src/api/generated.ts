@@ -23737,6 +23737,44 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookCollabCursor {
+      /**
+         * ProseMirror selection head position (rich v1 notebooks).
+         * @minimum 0
+         */
+      head?: number;
+      /**
+         * Index of the caret's block node in the markdown notebook document (markdown notebooks).
+         * @minimum 0
+         */
+      node_index?: number;
+      /**
+         * Caret offset in the plain text of the focused editable element, in UTF-16 code units.
+         * @minimum 0
+         */
+      offset?: number;
+      /**
+         * Index of the focused list item when the caret is inside a list block.
+         * @minimum 0
+         */
+      list_item_index?: number;
+    }
+
+    export interface NotebookCollabPresence {
+      /**
+         * Unique identifier for the client session, used to skip self-echo on the update stream.
+         * @maxLength 200
+         */
+      client_id: string;
+      /**
+         * The notebook version the cursor position is relative to.
+         * @minimum 0
+         */
+      version: number;
+      /** The caller's caret position, broadcast to other clients on this notebook's collab stream. */
+      cursor: NotebookCollabCursor;
+    }
+
     export interface NotebookCollabSave {
       /** Unique identifier for the client session. */
       client_id: string;
@@ -23768,6 +23806,8 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /** The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change. */
+      cursor?: NotebookCollabCursor;
     }
 
     export interface NotebookMinimal {

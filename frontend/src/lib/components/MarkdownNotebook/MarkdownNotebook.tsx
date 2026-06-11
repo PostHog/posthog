@@ -157,6 +157,12 @@ import {
     getMarkdownNotebookDefaultRegistry,
     mergeMarkdownNotebookRegistries,
 } from './registry'
+import {
+    MarkdownNotebookCaretPosition,
+    RemoteCaretOverlay,
+    RemoteNotebookCaret,
+    getMarkdownNotebookCaretPosition,
+} from './remoteCarets'
 import { renderNode } from './renderNode'
 import {
     getTableCellAtPosition,
@@ -198,6 +204,10 @@ export type MarkdownNotebookProps = {
     clientId?: string
     onConflict?: (conflicts: NotebookCollaborationConflict[]) => void
     onInteractionStateChange?: (isInteractionActive: boolean) => void
+    /** Carets of other clients editing this notebook, rendered as a positioned overlay. */
+    remoteCarets?: RemoteNotebookCaret[]
+    /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
+    onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
     placeholder?: string
     className?: string
@@ -250,6 +260,8 @@ export function MarkdownNotebook({
     deferRemoteValue = false,
     onConflict,
     onInteractionStateChange,
+    remoteCarets,
+    onCaretChange,
     initialInsertMenu,
     placeholder = 'Start writing...',
     className,
@@ -276,6 +288,7 @@ export function MarkdownNotebook({
     const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
     const debugDrawerId = useId()
     const notebookRef = useRef<HTMLDivElement | null>(null)
+    const mainRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLDivElement | null>(null)
     const documentRef = useRef(document)
     const blockRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -2014,6 +2027,9 @@ export function MarkdownNotebook({
                 )
             }
             updateSelectedComponentBlocksFromSelection()
+            onCaretChange?.(
+                getMarkdownNotebookCaretPosition(window.getSelection(), notebookElement, documentRef.current.nodes)
+            )
         }
 
         const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
@@ -2044,6 +2060,7 @@ export function MarkdownNotebook({
         clearFloatingToolbarRevealTimeout,
         scheduleFloatingToolbarUpdateFromSelection,
         updateSelectedComponentBlocksFromSelection,
+        onCaretChange,
     ])
 
     const handleSelectionChange = (): void => {
@@ -4155,7 +4172,7 @@ export function MarkdownNotebook({
             onKeyDownCapture={handleNotebookKeyDown}
         >
             <div className="MarkdownNotebook__debug-layout">
-                <div className="MarkdownNotebook__main" onMouseDown={handleMainMouseDown}>
+                <div className="MarkdownNotebook__main" ref={mainRef} onMouseDown={handleMainMouseDown}>
                     {showDebug ? (
                         <div className="MarkdownNotebook__debug-toolbar">
                             <LemonButton
@@ -4252,6 +4269,15 @@ export function MarkdownNotebook({
                             )
                         })}
                     </div>
+                    {remoteCarets?.length ? (
+                        <RemoteCaretOverlay
+                            carets={remoteCarets}
+                            nodes={document.nodes}
+                            blockRefs={blockRefs}
+                            listItemRefs={listItemRefs}
+                            containerRef={mainRef}
+                        />
+                    ) : null}
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
                             selectedBlockStyle={getSelectedBlockStyle(

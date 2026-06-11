@@ -11,6 +11,7 @@ export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNo
 export { reconcileNotebookDocuments } from './reconcile'
 export { markdownCrc, mergeNotebookMarkdownChanges, tryApplyTextChanges } from './collaboration'
 export type { TextChange } from './collaboration'
+export type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from './remoteCarets'
 export type {
     NotebookBlockNode,
     NotebookCollaborationConflict,

@@ -352,6 +352,29 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(err))
 
 
+class NotebookCollabCursorSerializer(serializers.Serializer):
+    head = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="ProseMirror selection head position (rich v1 notebooks).",
+    )
+    node_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Index of the caret's block node in the markdown notebook document (markdown notebooks).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Caret offset in the plain text of the focused editable element, in UTF-16 code units.",
+    )
+    list_item_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Index of the focused list item when the caret is inside a list block.",
+    )
+
+
 class NotebookMarkdownSaveSerializer(serializers.Serializer):
     client_id = serializers.CharField(
         help_text="Unique identifier for the client session, used to skip self-echo on the update stream."
@@ -367,11 +390,34 @@ class NotebookMarkdownSaveSerializer(serializers.Serializer):
     )
     # No default: omitted title should preserve the existing notebook title, while "" clears it.
     title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+    cursor = NotebookCollabCursorSerializer(
+        required=False,
+        help_text="The author's caret in the saved markdown, broadcast with the update so other "
+        "clients can move the author's remote caret together with the text change.",
+    )
 
     def validate_content(self, value: Any) -> Any:
         if collab.get_markdown_notebook_markdown(value) is None:
             raise serializers.ValidationError("Content must be a markdown notebook document.")
         return value
+
+
+class NotebookCollabPresenceSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        max_length=200,
+        help_text="Unique identifier for the client session, used to skip self-echo on the update stream.",
+    )
+    version = serializers.IntegerField(
+        min_value=0,
+        help_text="The notebook version the cursor position is relative to.",
+    )
+    cursor = NotebookCollabCursorSerializer(
+        help_text="The caller's caret position, broadcast to other clients on this notebook's collab stream."
+    )
+
+
+def _collab_user_name(user: User) -> str:
+    return user.get_full_name() or "Wandering Hog"
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -823,7 +869,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
 
         user = cast(User, request.user)
-        user_name = user.get_full_name() or "Wandering Hog"
+        user_name = _collab_user_name(user)
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -935,6 +981,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     diff=diff,
                     last_seen_version=locked_notebook.version,
                     last_saved_version=locked_notebook.version,
+                    user_id=user.pk,
+                    user_name=_collab_user_name(user),
+                    cursor=data.get("cursor"),
                 )
                 if result.status == "accepted":
                     notebook_before = Notebook.objects.get(pk=notebook.pk)
@@ -1008,6 +1057,28 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             },
             status=409,
         )
+
+    @extend_schema(request=NotebookCollabPresenceSerializer, responses={204: None})
+    @action(methods=["POST"], url_path="collab/presence", detail=True, required_scopes=["notebook:write"])
+    def collab_presence(self, request: Request, **kwargs):
+        """Broadcast the caller's caret position to other clients on this notebook's collab stream."""
+        serializer = NotebookCollabPresenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+        user = cast(User, request.user)
+
+        collab.publish_presence(
+            notebook.team_id,
+            str(notebook.short_id),
+            client_id=data["client_id"],
+            user_id=user.pk,
+            user_name=_collab_user_name(user),
+            version=data["version"],
+            cursor=data["cursor"],
+        )
+        return Response(status=204)
 
     @action(
         methods=["GET"],

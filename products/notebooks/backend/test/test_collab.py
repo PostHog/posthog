@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import BaseTest
 from unittest import TestCase
 
@@ -7,6 +9,8 @@ from posthog import redis
 
 from products.notebooks.backend.collab import (
     MAX_PUBLISHED_DIFF_BYTES,
+    PRESENCE_STREAM_KEY_PATTERN,
+    PRESENCE_TTL_SECONDS,
     STREAM_KEY_PATTERN,
     STREAM_MAX_LENGTH,
     MarkdownDiff,
@@ -17,6 +21,7 @@ from products.notebooks.backend.collab import (
     get_markdown_notebook_markdown,
     markdown_crc,
     publish_notebook_update,
+    publish_presence,
     submit_markdown_update,
     submit_steps,
     utf16_single_span_diff,
@@ -501,3 +506,84 @@ class TestMarkdownCollabStream(BaseTest):
     def test_fetch_with_current_at_or_below_baseline_is_stale(self):
         result = fetch_missed_markdown_updates(self.team.pk, "md7", last_seen_version=5, current_version=5)
         assert result.status == "stale"
+
+    def test_submit_markdown_update_carries_author_presence(self):
+        diff = MarkdownDiff(changes=[{"start": 0, "end": 0, "text": "hi"}], base_crc=markdown_crc(""))
+        result = submit_markdown_update(
+            self.team.pk,
+            "md8",
+            client_id="client1",
+            diff=diff,
+            last_seen_version=0,
+            last_saved_version=0,
+            user_id=42,
+            user_name="Ada Lovelace",
+            cursor={"node_index": 0, "offset": 2},
+        )
+        assert result.status == "accepted"
+
+        client = redis.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id="md8"))
+        payload = json.loads(entries[0][1][b"data"])
+        assert payload["user_id"] == 42
+        assert payload["user_name"] == "Ada Lovelace"
+        assert payload["cursor"] == {"node_index": 0, "offset": 2}
+
+        # Presence extras must not break diff replay for conflicting writers
+        replay = fetch_missed_markdown_updates(self.team.pk, "md8", last_seen_version=0, current_version=1)
+        assert replay.status == "conflict"
+
+    def test_submit_markdown_update_without_presence_omits_fields(self):
+        diff = MarkdownDiff(changes=[{"start": 0, "end": 0, "text": "hi"}], base_crc=markdown_crc(""))
+        submit_markdown_update(
+            self.team.pk, "md9", client_id="client1", diff=diff, last_seen_version=0, last_saved_version=0
+        )
+
+        client = redis.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id="md9"))
+        payload = json.loads(entries[0][1][b"data"])
+        assert "user_id" not in payload
+        assert "user_name" not in payload
+        assert "cursor" not in payload
+
+
+class TestPresenceStream(BaseTest):
+    def test_publish_presence_appends_entry_with_ttl(self):
+        publish_presence(
+            self.team.pk,
+            "pr1",
+            client_id="client1",
+            user_id=7,
+            user_name="Grace Hopper",
+            version=3,
+            cursor={"head": 12},
+        )
+
+        client = redis.get_client()
+        stream_key = PRESENCE_STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id="pr1")
+        entries = client.xrange(stream_key)
+        assert len(entries) == 1
+        payload = json.loads(entries[0][1][b"data"])
+        assert payload == {
+            "type": "presence",
+            "client_id": "client1",
+            "user_id": 7,
+            "user_name": "Grace Hopper",
+            "version": 3,
+            "cursor": {"head": 12},
+        }
+        assert 0 < client.ttl(stream_key) <= PRESENCE_TTL_SECONDS
+
+    def test_presence_stream_is_separate_from_content_stream(self):
+        publish_presence(
+            self.team.pk,
+            "pr2",
+            client_id="client1",
+            user_id=7,
+            user_name="Grace Hopper",
+            version=0,
+            cursor={"head": 0},
+        )
+
+        client = redis.get_client()
+        assert client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id="pr2")) == []

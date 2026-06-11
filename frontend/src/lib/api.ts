@@ -224,6 +224,7 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -4808,6 +4809,8 @@ const api = {
                 content: NotebookType['content']
                 text_content?: string
                 title?: string
+                /** The author's caret in the saved markdown, broadcast with the update event. */
+                cursor?: NotebookCollabCursorApi
             }
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).withAction('collab/markdown_save').create({ data })
