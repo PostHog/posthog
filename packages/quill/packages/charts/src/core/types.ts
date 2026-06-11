@@ -354,6 +354,20 @@ export interface BandSlot {
     width: number
 }
 
+/** A laid-out box-and-whisker for a single (series, x) slot — pre-computed pixel coordinates so
+ *  the draw primitives don't touch scales. Same shape contract as a bar's `BarRect`. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. For chart types where data points
