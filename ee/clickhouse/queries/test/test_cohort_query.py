@@ -1086,6 +1086,12 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
+        # Pin to midnight so events at now-12h stay on yesterday: the cohort date range ends
+        # at "-1d", so when CI runs after noon UTC those events land on today and get excluded
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            self._assert_performed_event_regularly_with_variable_event_counts()
+
+    def _assert_performed_event_regularly_with_variable_event_counts(self):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],

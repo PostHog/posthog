@@ -110,6 +110,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
+  Watches reports that recently transitioned to `resolved` (implementation PR
+  merged), waits out a deployment soak window, then re-probes the entities the
+  report's underlying signals named (pre-fix baselines captured at enqueue time)
+  to check the fix actually held — plus a strictly-gated escalation check on
+  recently dismissed reports. Its discriminator is resolution-vs-reality — the
+  resolved status's promise against the post-deploy data stream. Emits only
+  failed validations; confirmations are scratchpad memory. It never detects new
+  problems — that's the rest of the fleet's territory.
 
 ### How the coordinator decides what runs
 
