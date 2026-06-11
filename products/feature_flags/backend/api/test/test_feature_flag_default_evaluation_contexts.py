@@ -302,6 +302,67 @@ class TestEvaluationContextSuggestions(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(mock_report.call_count, 1)
 
+    def test_restore_is_idempotent(self):
+        ctx = self._create_context("production")
+        ctx.hidden_from_suggestions = True
+        ctx.save()
+
+        with patch("posthog.api.team.report_user_action") as mock_report:
+            response = self.client.delete(self.url + "?context_name=production")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(mock_report.call_count, 1)
+
+            response = self.client.delete(self.url + "?context_name=production")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(mock_report.call_count, 1)
+
+    def test_member_cannot_write_evaluation_context_suggestions(self):
+        self._create_context("production")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        ctx = self._create_context("staging")
+        ctx.hidden_from_suggestions = True
+        ctx.save()
+        response = self.client.delete(self.url + "?context_name=staging")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_can_read_default_evaluation_contexts(self):
+        self._create_context("production")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.get(self.get_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_adding_hidden_context_as_default_unhides_it(self):
+        ctx = self._create_context("production")
+        ctx.hidden_from_suggestions = True
+        ctx.save()
+
+        response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        ctx.refresh_from_db()
+        self.assertFalse(ctx.hidden_from_suggestions)
+
+        data = self.client.get(self.get_url).json()
+        self.assertIn("production", data["available_contexts"])
+        self.assertNotIn("production", data["hidden_contexts"])
+
+    def test_member_can_post_but_not_delete_default_evaluation_contexts(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.delete(self.get_url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestEvaluationContextRootTeamScoping(APIBaseTest):
     """Flags persist contexts under the project root team, so contexts must be visible and

@@ -157,6 +157,29 @@ describe('defaultEvaluationContextsLogic', () => {
                     hiddenContexts: [],
                 })
         })
+
+        it('should leave hiddenContexts unchanged when unhideContext API call fails', async () => {
+            mockResponse.available_contexts = ['staging']
+            mockResponse.hidden_contexts = ['production']
+
+            useMocks({
+                delete: {
+                    '/api/environments/:team_id/evaluation_context_suggestions/': () => [400, { error: 'Bad request' }],
+                },
+            })
+
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.unhideContext('production')
+            })
+                .toDispatchActions(['unhideContext', 'unhideContextFailure'])
+                .toMatchValues({
+                    availableContexts: ['staging'],
+                    hiddenContexts: ['production'],
+                })
+        })
     })
 
     describe('adding contexts', () => {

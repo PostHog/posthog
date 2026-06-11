@@ -1612,17 +1612,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     lookup_field = "id"
     ordering = "-created_by"
 
-    # Team-config actions any project member may edit via the UI, across all their HTTP methods
-    # (including DELETE). These rely on AccessControlPermission rather than the admin-for-DELETE
-    # gate in TeamMemberLightManagementPermission.
-    MEMBER_EDITABLE_CONFIG_ACTIONS = ("default_release_conditions",)
+    # Actions whose scope is downgraded to project:read for session auth on all methods.
+    # TeamMemberLightManagementPermission still applies, so DELETE requires admin.
+    MEMBER_READABLE_CONFIG_ACTIONS = ("default_release_conditions", "default_evaluation_contexts")
 
-    # Read-only actions that any project member can call. Mutating methods on these actions are
-    # NOT downgraded — they stay on the default project:write / admin path.
-    MEMBER_READABLE_ACTIONS = (
-        "default_evaluation_contexts",
-        "evaluation_context_suggestions",
-    )
+    # Actions whose GET is downgraded to project:read for session auth; mutating methods stay on project:write/admin.
+    GET_DOWNGRADE_ACTIONS = ("evaluation_context_suggestions",)
 
     def safely_get_queryset(self, queryset):
         user = cast(User, self.request.user)
@@ -1664,13 +1659,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # Team-level config actions that any member should be able to edit via the UI.
         # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in self.MEMBER_EDITABLE_CONFIG_ACTIONS:
+        if self.action in self.MEMBER_READABLE_CONFIG_ACTIONS:
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
 
         # Read-only access for member-readable actions — only downgrade GET, not writes.
-        if self.action in self.MEMBER_READABLE_ACTIONS and request.method == "GET":
+        if self.action in self.GET_DOWNGRADE_ACTIONS and request.method == "GET":
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1699,13 +1694,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
-            elif self.action != "list" and self.action not in self.MEMBER_EDITABLE_CONFIG_ACTIONS:
+            elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer.
-                # Member-editable config actions are gated by AccessControlPermission instead, so their DELETE
-                # methods aren't forced behind the admin-only gate in TeamMemberLightManagementPermission.
-                # Member-readable actions skip the admin gate only for GETs; writes stay admin-gated.
-                if self.action in self.MEMBER_READABLE_ACTIONS and self.request.method == "GET":
-                    pass
+                # GET_DOWNGRADE_ACTIONS writes stay admin-gated via TeamMemberStrictManagementPermission.
+                if self.action in self.GET_DOWNGRADE_ACTIONS:
+                    if self.request.method != "GET":
+                        # Writes need strict (admin for all non-safe methods), not light (which only gates DELETE).
+                        permissions.append(TeamMemberStrictManagementPermission)
                 else:
                     permissions.append(TeamMemberLightManagementPermission)
 
@@ -1931,7 +1926,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if request.method == "GET":
             defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
             defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
-            all_contexts_qs = (
+            all_contexts_qs = list(
                 EvaluationContext.objects.filter(team=root_team)
                 .values_list("name", "hidden_from_suggestions")
                 .order_by("name")
@@ -1963,6 +1958,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
 
                 ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
+                if ctx.hidden_from_suggestions:
+                    ctx.hidden_from_suggestions = False
+                    ctx.save(update_fields=["hidden_from_suggestions"])
                 default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
                     team=root_team, evaluation_context=ctx
                 )

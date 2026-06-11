@@ -46,7 +46,9 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         icon={<IconX />}
                                         tooltip={`Hide "${name}" from suggestions`}
                                         onClick={() => hideContext(name)}
-                                        disabledReason={restrictedReason}
+                                        disabledReason={
+                                            restrictedReason ?? (pendingContextName ? 'Saving…' : undefined)
+                                        }
                                         loading={pendingContextName === name}
                                     />
                                 </span>
@@ -69,7 +71,9 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         icon={<IconUndo />}
                                         tooltip="Restore to suggestions"
                                         onClick={() => unhideContext(name)}
-                                        disabledReason={restrictedReason}
+                                        disabledReason={
+                                            restrictedReason ?? (pendingContextName ? 'Saving…' : undefined)
+                                        }
                                         loading={pendingContextName === name}
                                     />
                                 </span>
