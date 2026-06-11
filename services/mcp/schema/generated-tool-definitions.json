@@ -331,7 +331,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -387,7 +387,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",
@@ -615,7 +615,68 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-list": {
+        "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge sources",
+        "title": "List business knowledge sources",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-retrieve": {
+        "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get business knowledge source",
+        "title": "Get business knowledge source",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-text-create": {
+        "description": "Save durable, reusable company knowledge as a searchable text source — the kind of reference material a team wants every future agent session to draw on. Good fits: product specs, internal docs, runbooks, policies, FAQs, glossaries, architecture/decision records, brand or style guides. Do NOT use this as a scratchpad for the current task or to dump transient material (raw web-search results, random articles, one-off snippets, chat logs) — only persist knowledge the user has asked to keep or that is clearly of lasting value to the whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing status.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create text business knowledge source",
+        "title": "Create text business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-url-create": {
+        "description": "Index a web page as durable, reusable company knowledge that every future agent session can draw on. Use it for authoritative, lasting references the whole team benefits from — public product docs, API references, help-center articles, changelogs, status/policy pages. Do NOT index pages you happened to open while researching the current task, arbitrary search-result links, or pages the user didn't ask to keep — this store is curated team knowledge, not a browsing history. Provide a name and a public HTTP(S) URL; the page is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is re-fetched automatically. Returns the created source with its processing status (initially \"processing\" while the URL is fetched in the background).",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create URL business knowledge source",
+        "title": "Create URL business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
     },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
@@ -4964,7 +5025,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, offer to use `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -5034,7 +5095,7 @@
         }
     },
     "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear.",
+        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session summaries",
@@ -5048,7 +5109,7 @@
         }
     },
     "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.",
+        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session summary",
@@ -5061,8 +5122,22 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config",
+        "title": "Create a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -5509,21 +5584,6 @@
             "readOnlyHint": true
         }
     },
-    "tasks-file-create": {
-        "description": "Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "File a task into the project tree",
-        "title": "File a task into the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "tasks"
-    },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -5596,21 +5656,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "tasks"
-    },
-    "tasks-unfile-create": {
-        "description": "Remove a task's entry from the desktop project tree. The task itself is not deleted.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Remove a task from the project tree",
-        "title": "Remove a task from the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },
