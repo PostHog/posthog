@@ -14,7 +14,6 @@ tools:
         enabled: true
         scopes:
             - business_knowledge:read
-        feature_flag: product-business-knowledge
         annotations:
             readOnly: true
             destructive: false
@@ -23,38 +22,7 @@ tools:
         description: >
             Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
             Use after searching knowledge to get more surrounding context for a specific result.
-    business-knowledge-sources-text-create:
-        operation: business_knowledge_sources_create
-        enabled: true
-        scopes:
-            - business_knowledge:write
         feature_flag: product-business-knowledge
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create text business knowledge source
-        description: >
-            Create a text-based business knowledge source. Provide a short name and the raw text to index
-            (capped at 1 MB). The text is chunked, embedded, and made searchable. Returns the created source
-            with its processing status.
-    business-knowledge-sources-url-create:
-        operation: business_knowledge_sources_create
-        enabled: true
-        scopes:
-            - business_knowledge:write
-        feature_flag: product-business-knowledge
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        input_schema: BusinessKnowledgeUrlSourceCreateSchema
-        title: Create URL business knowledge source
-        description: >
-            Create a URL-based business knowledge source. Provide a name and a public HTTP(S) URL to fetch
-            and index. The page content is fetched, parsed, chunked, and made searchable. Optionally set a
-            refresh interval so the source is re-fetched automatically. Returns the created source with its
-            processing status (initially "processing" while the URL is being fetched in the background).
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false
@@ -63,7 +31,6 @@ tools:
         enabled: true
         scopes:
             - business_knowledge:read
-        feature_flag: product-business-knowledge
         annotations:
             readOnly: true
             destructive: false
@@ -71,8 +38,9 @@ tools:
         list: true
         title: List business knowledge sources
         description: >
-            List all business knowledge sources in the project, with document/chunk counts, processing
-            status, and refresh metadata.
+            List all business knowledge sources in the project, with document/chunk counts, processing status, and
+            refresh metadata.
+        feature_flag: product-business-knowledge
         response:
             include:
                 - id
@@ -99,15 +67,47 @@ tools:
         enabled: true
         scopes:
             - business_knowledge:read
-        feature_flag: product-business-knowledge
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         title: Get business knowledge source
         description: >
-            Get a single business knowledge source by ID, including processing status, document/chunk counts,
-            and refresh metadata.
+            Get a single business knowledge source by ID, including processing status, document/chunk counts, and
+            refresh metadata.
+        feature_flag: product-business-knowledge
+    business-knowledge-sources-text-create:
+        operation: business_knowledge_sources_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create text business knowledge source
+        description: >
+            Create a text-based business knowledge source. Provide a short name and the raw text to index (capped at 1
+            MB). The text is chunked, embedded, and made searchable. Returns the created source with its processing
+            status.
+        feature_flag: product-business-knowledge
     business-knowledge-sources-text-retrieve:
         operation: business_knowledge_sources_text_retrieve
         enabled: false
+    business-knowledge-sources-url-create:
+        operation: business_knowledge_sources_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: BusinessKnowledgeUrlSourceCreateSchema
+        title: Create URL business knowledge source
+        description: >
+            Create a URL-based business knowledge source. Provide a name and a public HTTP(S) URL to fetch and index.
+            The page content is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the
+            source is re-fetched automatically. Returns the created source with its processing status (initially
+            "processing" while the URL is being fetched in the background).
+        feature_flag: product-business-knowledge
