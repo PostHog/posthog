@@ -1,7 +1,11 @@
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+logger = structlog.get_logger(__name__)
 
 
 def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
@@ -24,6 +28,10 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
     try:
         table = table_type.resolve_database_table(context)
     except Exception:
+        # Fail-open: a resolution error here disables restriction enforcement on every path that consults this
+        # function. Unreachable today (resolve_database_table is plain attribute access for all matched table types),
+        # but log loudly so a future table type that can raise doesn't silently un-restrict properties.
+        logger.warning("restricted_property_table_resolution_failed", table_type=type(table_type).__name__)
         return set()
 
     if isinstance(table, EventsPersonSubTable):
