@@ -66,7 +66,10 @@ def validate_credentials(environment: str, client_id: str, client_secret: str) -
     try:
         _mint_token(_get_session(client_secret), environment, client_id, client_secret)
         return True
-    except Exception:
+    except requests.HTTPError:
+        # A rejected token request means the credentials are wrong. Let other
+        # failures (network/DNS/timeout) propagate so they aren't misreported
+        # to the user as invalid credentials.
         return False
 
 
@@ -122,7 +125,9 @@ def get_rows(
         logger.debug(f"Zuora: resuming {endpoint} from saved cursor")
 
     while True:
-        page_params = [*params, ("cursor", cursor)] if cursor else params
+        # The cursor encodes the full query context (pageSize/sort/filter), so
+        # send it alone — repeating the original params risks a 400.
+        page_params = [("cursor", cursor)] if cursor else params
         url = f"{base_url}/object-query/{path_segment}?{urlencode(page_params)}"
         body = fetch(url)
         items = body.get("data") or []

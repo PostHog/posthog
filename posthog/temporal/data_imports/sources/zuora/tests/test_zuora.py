@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.zuora.settings import ENDPOINTS, ZUORA_ENDPOINTS, ZUORA_ENVIRONMENT_HOSTS
 from posthog.temporal.data_imports.sources.zuora.zuora import (
     ZuoraResumeConfig,
@@ -58,10 +60,18 @@ class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_credentials(self, mock_session):
         response = _response({}, status_code=401)
-        response.raise_for_status.side_effect = Exception("401")
+        response.raise_for_status.side_effect = requests.HTTPError("401")
         mock_session.return_value.post.return_value = response
 
         assert validate_credentials("us_production", "cid", "bad") is False
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_network_error_propagates(self, mock_session):
+        # A transient network failure must not be reported as invalid credentials.
+        mock_session.return_value.post.side_effect = requests.ConnectionError("boom")
+
+        with pytest.raises(requests.ConnectionError):
+            validate_credentials("us_production", "cid", "sec")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_sandbox_environment_uses_sandbox_host(self, mock_session):
@@ -91,6 +101,9 @@ class TestGetRows:
         assert "sort%5B%5D=updateddate.ASC" in first_url
         second_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert "cursor=cur-1" in second_url
+        # The cursor encodes the full query context, so the original params are dropped.
+        assert "pageSize" not in second_url
+        assert "sort%5B%5D" not in second_url
         assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["cur-1"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")

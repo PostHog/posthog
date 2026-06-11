@@ -34,7 +34,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "400 Client Error: Bad Request for url: https://rest.": "Zuora rejected the token request. Please check your client ID and client secret (and that they match the selected environment).",
+            "400 Client Error: Bad Request for url: https://rest.": "Zuora rejected the request. If this occurs while connecting, check your client ID and client secret (and that they match the selected environment).",
             "401 Client Error: Unauthorized for url: https://rest.": "Zuora authentication failed. Please check your client ID and client secret (and that they match the selected environment).",
             "403 Client Error: Forbidden for url: https://rest.": "Zuora denied access. Please check that the OAuth client's user has permission for this object.",
         }
