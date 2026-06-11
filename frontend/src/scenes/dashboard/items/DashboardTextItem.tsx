@@ -5,6 +5,7 @@ import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dash
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
@@ -70,7 +71,20 @@ function DashboardTextItemInternal(
                     {onRemove && (
                         <LemonButton
                             status="danger"
-                            onClick={() => onRemove()}
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: 'Remove text from dashboard',
+                                    description: 'Are you sure you want to remove this text card from the dashboard?',
+                                    primaryButton: {
+                                        children: 'Remove from dashboard',
+                                        status: 'danger',
+                                        onClick: () => onRemove(),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }
                             fullWidth
                             data-attr="remove-text-tile-from-dashboard"
                         >
