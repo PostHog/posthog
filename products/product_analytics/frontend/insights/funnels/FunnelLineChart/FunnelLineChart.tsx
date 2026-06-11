@@ -95,8 +95,6 @@ export function FunnelLineChart({
         [steps, incompletenessOffsetFromEnd, getFunnelsColor]
     )
 
-    // Raw series labels are the step-pair name, identical across breakdown series — relabel the
-    // same way the tooltip does: breakdown value when broken down, "Conversion" otherwise.
     const legendItems = useMemo(
         () =>
             legendItemsFromSeries(series, theme).map((item) => {
@@ -189,7 +187,12 @@ export function FunnelLineChart({
     )
 
     return (
-        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="funnel-line-legend">
+        <ChartLegend
+            show={!!showLegend && legendItems.length > 1}
+            items={legendItems}
+            position="top"
+            legendDataAttr="funnel-line-legend"
+        >
             <TimeSeriesLineChart<FunnelSeriesMeta>
                 series={series}
                 labels={labels}

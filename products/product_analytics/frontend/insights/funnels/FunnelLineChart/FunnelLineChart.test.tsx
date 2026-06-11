@@ -156,11 +156,10 @@ describe('FunnelLineChart', () => {
     })
 
     describe('legend', () => {
-        it('renders a legend item per breakdown series when showLegend is true', async () => {
+        it('shows a legend item per breakdown series by default', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                    funnelsFilter: { showLegend: true },
                 }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
@@ -171,23 +170,22 @@ describe('FunnelLineChart', () => {
             expect(labels).toEqual(['Spike', 'Bramble'])
         })
 
-        it('labels the single conversion series when showLegend is true without a breakdown', async () => {
+        it('hides the legend when showLegend is false', async () => {
             renderInsight({
-                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: false },
+                }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const legend = await screen.findByTestId('funnel-line-legend')
-            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
-            expect(labels).toEqual([FUNNEL_CONVERSION_SERIES_LABEL])
+            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
         })
 
-        it('omits the legend when showLegend is not set', async () => {
+        it('omits the legend for a single series even when showLegend is true', async () => {
             renderInsight({
-                query: buildFunnelsQuery({
-                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                }),
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
