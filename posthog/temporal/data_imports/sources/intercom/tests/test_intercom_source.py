@@ -26,7 +26,7 @@ class TestIntercomSource:
 
         assert config.name.value == "Intercom"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
 
         oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
