@@ -5433,7 +5433,15 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
             events.append({"event": event_name, "id": event_id, "data": data})
         return events
 
-    def test_stream_ends_with_clean_eof_when_connection_cap_elapses(self):
+    @parameterized.expand(
+        [
+            ("after_real_event", False, "before cap"),
+            ("on_keepalive_only_iteration", True, "event: keepalive"),
+        ]
+    )
+    def test_stream_rotates_cleanly_when_connection_cap_elapses(
+        self, _name: str, idle_first: bool, expected_marker: str
+    ) -> None:
         task = self.create_task()
         run = task.create_run()
 
@@ -5449,14 +5457,19 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
             }
 
         async def fake_read_stream_entries(self, *args, **kwargs):
-            yield ("1-0", _console_event("before cap"))
+            if idle_first:
+                yield None
+            else:
+                yield ("1-0", _console_event("before cap"))
             yield ("2-0", _console_event("after cap"))
 
         observe_closed = MagicMock()
         with (
             patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
             # A cap of 0 trips the elapsed check on the first yield, so the test
-            # exercises the rotation path without sleeping through real time.
+            # exercises the rotation path without sleeping through real time. The
+            # keepalive case proves the check runs on idle yields too: if it only
+            # ran after real events, an idle stream would never rotate.
             patch("products.tasks.backend.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
             patch("products.tasks.backend.api.observe_stream_connection_closed", observe_closed),
         ):
@@ -5467,50 +5480,10 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
             content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # The event already delivered is kept; the stream then ends cleanly (no
+        # Whatever was already delivered is kept; the stream then ends cleanly (no
         # error event) so the client resumes from its Last-Event-ID cursor.
-        self.assertIn("before cap", content)
+        self.assertIn(expected_marker, content)
         self.assertNotIn("after cap", content)
-        self.assertNotIn("event: error", content)
-        observe_closed.assert_called_once()
-        self.assertEqual(observe_closed.call_args.args[1], "rotated")
-
-    def test_stream_rotates_on_keepalive_only_iteration(self):
-        task = self.create_task()
-        run = task.create_run()
-
-        async def fake_read_stream_entries(self, *args, **kwargs):
-            yield None
-            yield (
-                "1-0",
-                {
-                    "type": "notification",
-                    "timestamp": "2026-01-01T00:00:01Z",
-                    "notification": {
-                        "jsonrpc": "2.0",
-                        "method": "_posthog/console",
-                        "params": {"sessionId": str(run.id), "level": "info", "message": "after idle cap"},
-                    },
-                },
-            )
-
-        observe_closed = MagicMock()
-        with (
-            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
-            # The cap must trip on the keepalive yield itself: if it only ran
-            # after real events, an idle stream would never rotate.
-            patch("products.tasks.backend.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
-            patch("products.tasks.backend.api.observe_stream_connection_closed", observe_closed),
-        ):
-            response = cast(
-                StreamingHttpResponse,
-                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
-            )
-            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("event: keepalive", content)
-        self.assertNotIn("after idle cap", content)
         self.assertNotIn("event: error", content)
         observe_closed.assert_called_once()
         self.assertEqual(observe_closed.call_args.args[1], "rotated")
