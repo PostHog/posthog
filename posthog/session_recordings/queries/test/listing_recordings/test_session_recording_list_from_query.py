@@ -913,6 +913,59 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def _an_old_recording(self) -> str:
+        user = "test_session_ids_date_window-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        ten_days_ago = self.an_hour_ago - relativedelta(days=10)
+        old_session_id = str(uuid4())
+        produce_replay_summary(
+            session_id=old_session_id,
+            team_id=self.team.pk,
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago + relativedelta(minutes=5),
+            distinct_id=user,
+        )
+        return old_session_id
+
+    @parameterized.expand(
+        [
+            ("default_date_range", None),
+            ("explicit_narrow_date_range", "-1d"),
+        ]
+    )
+    def test_session_ids_query_ignores_date_window(self, _name: str, date_from: str | None) -> None:
+        old_session_id = self._an_old_recording()
+
+        query: dict = {"session_ids": [old_session_id]}
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        self._assert_query_matches_session_ids(query, [old_session_id])
+
+    def test_date_window_still_excludes_old_recordings_without_session_ids(self) -> None:
+        self._an_old_recording()
+
+        self._assert_query_matches_session_ids(None, [])
+
+    def test_date_window_still_applies_to_session_ids_derived_from_comment_search(self) -> None:
+        old_session_id = self._an_old_recording()
+
+        # the API populates session_ids from the comment search when comment_text is set,
+        # so these are not user-selected sessions and the date range must still apply
+        self._assert_query_matches_session_ids(
+            {
+                "session_ids": [old_session_id],
+                "comment_text": {
+                    "key": "comment_text",
+                    "type": "recording",
+                    "operator": "icontains",
+                    "value": "anything",
+                },
+            },
+            [],
+        )
+
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
         self,

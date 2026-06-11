@@ -570,6 +570,22 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 // Scope recordings to the selected funnel breakdown value (e.g. country = "NL").
                 const funnelBreakdownFilter = buildFunnelBreakdownFilter(source)
 
+                // The actual insight query (with series, properties, etc.) is nested at source.source
+                let insightQuery = source
+                if ('source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                // Extract date range from insight query
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
                 // If we have session IDs from matched_recordings, use them directly for efficient lookup
                 if (sessionIds.length > 0) {
                     return {
@@ -584,21 +600,25 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             ],
                         },
                         duration: [],
+                        date_from,
+                        date_to,
                     }
                 }
 
                 // For non-funnel queries or funnels without session IDs, use filter-based approach
                 const filters: UniversalFilterValue[] = []
 
-                // The actual insight query (with series, properties, etc.) is nested at source.source
-                let insightQuery = source
-                if ('source' in source && source.source) {
-                    insightQuery = source.source as any
-                }
-
                 // Extract events from the insight query series
                 if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
-                    insightQuery.series.forEach((series) => {
+                    // Drop-off actors (negative funnelStep) never performed the drop-off step,
+                    // so only the steps they actually completed can be required as event filters.
+                    let seriesToFilterOn: any[] = insightQuery.series
+                    if (source.kind === NodeKind.FunnelsActorsQuery && typeof source.funnelStep === 'number') {
+                        const completedStepCount =
+                            source.funnelStep > 0 ? source.funnelStep : Math.abs(source.funnelStep) - 1
+                        seriesToFilterOn = insightQuery.series.slice(0, completedStepCount)
+                    }
+                    seriesToFilterOn.forEach((series) => {
                         if ('event' in series && series.event) {
                             const eventFilter: any = {
                                 id: series.event,
@@ -640,16 +660,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     insightQuery.properties.length > 0
                 ) {
                     filters.push(...insightQuery.properties)
-                }
-
-                // Extract date range from insight query
-                let date_from = propertiesTimelineFilter?.date_from
-                let date_to = propertiesTimelineFilter?.date_to
-
-                if ('dateRange' in insightQuery && insightQuery.dateRange) {
-                    const dateRange = insightQuery.dateRange as any
-                    date_from = dateRange.date_from || date_from
-                    date_to = dateRange.date_to || date_to
                 }
 
                 // Build the result for non-funnel or fallback cases

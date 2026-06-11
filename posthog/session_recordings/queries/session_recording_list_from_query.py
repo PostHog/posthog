@@ -312,25 +312,43 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 )
             )
 
-        query_date_from = self.query_date_range.date_from()
-        if query_date_from:
+        # explicitly selected sessions must not be silently date-windowed, e.g. by the default date range.
+        # when a comment filter is active, session_ids may be derived from the comment search
+        # (see session_recording_api), so the user's date range must still apply
+        has_explicit_session_ids = (
+            isinstance(self._query.session_ids, list)
+            and len(self._query.session_ids) > 0
+            and not self._query.comment_text
+        )
+        if has_explicit_session_ids:
+            # bound at the longest valid retention period ("5y") to keep partition pruning
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=query_date_from),
+                    right=ast.Constant(value=datetime.now(UTC) - timedelta(days=5 * 366)),
                 )
             )
+        else:
+            query_date_from = self.query_date_range.date_from()
+            if query_date_from:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_from),
+                    )
+                )
 
-        query_date_to = self.query_date_range.date_to()
-        if query_date_to:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=query_date_to),
+            query_date_to = self.query_date_range.date_to()
+            if query_date_to:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_to),
+                    )
                 )
-            )
 
         optional_exprs: list[ast.Expr] = []
 
