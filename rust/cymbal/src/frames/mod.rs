@@ -9,17 +9,9 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        apple::{AppleDebugImage, RawAppleFrame},
-        custom::CustomFrame,
-        dart::RawDartFrame,
-        go::RawGoFrame,
-        hermes::RawHermesFrame,
-        java::RawJavaFrame,
-        js::RawJSFrame,
-        node::RawNodeFrame,
-        php::RawPHPFrame,
-        python::RawPythonFrame,
-        ruby::RawRubyFrame,
+        apple::RawAppleFrame, custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame,
+        hermes::RawHermesFrame, java::RawJavaFrame, js::RawJSFrame, native::DebugImage,
+        node::RawNodeFrame, php::RawPHPFrame, python::RawPythonFrame, ruby::RawRubyFrame,
         rust::RawRustFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
@@ -89,7 +81,7 @@ impl RawFrame {
         &self,
         team_id: i32,
         catalog: &Catalog,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
@@ -170,7 +162,7 @@ impl RawFrame {
         }
     }
 
-    pub fn raw_id(&self, team_id: i32, debug_images: &[AppleDebugImage]) -> RawFrameId {
+    pub fn raw_id(&self, team_id: i32, debug_images: &[DebugImage]) -> RawFrameId {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
@@ -189,12 +181,7 @@ impl RawFrame {
         RawFrameId::new(hash_id, team_id)
     }
 
-    pub fn frame_id(
-        &self,
-        team_id: i32,
-        index: usize,
-        debug_images: &[AppleDebugImage],
-    ) -> FrameId {
+    pub fn frame_id(&self, team_id: i32, index: usize, debug_images: &[DebugImage]) -> FrameId {
         self.raw_id(team_id, debug_images).to_full(index as i32)
     }
 

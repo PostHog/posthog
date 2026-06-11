@@ -48,7 +48,12 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
-from products.replay_vision.backend.queries import estimate_scanner_session_volume
+from products.replay_vision.backend.queries import (
+    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    estimate_scanner_session_volume,
+    project_monthly_observations,
+    refresh_scanner_estimate,
+)
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -62,6 +67,14 @@ from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 logger = structlog.get_logger(__name__)
+
+
+def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
+    # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
+    try:
+        refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
+    except Exception:
+        logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 
 
 def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any) -> str | None:
@@ -152,6 +165,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Increments on every config-changing save. Observations snapshot this value.",
     )
+    estimated_monthly_observations = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Latest projected observations/month for this scanner. Null until first computed.",
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -177,6 +195,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "enabled",
             "emits_signals",
             "scanner_version",
+            "estimated_monthly_observations",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -185,6 +204,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "scanner_version",
+            "estimated_monthly_observations",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -251,15 +271,21 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
         try:
-            return ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
+            scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
+        _refresh_estimate_fail_soft(scanner)
+        return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
         try:
-            return super().update(instance, validated_data)
+            scanner = super().update(instance, validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
+        # Model save clears `estimated_at` when volume inputs change; refresh eagerly for the editor.
+        if scanner.estimated_at is None:
+            _refresh_estimate_fail_soft(scanner)
+        return scanner
 
     @staticmethod
     def _reraise_unique_name_violation(error: IntegrityError) -> NoReturn:
@@ -660,8 +686,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
         estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
-        sessions_per_day = estimate.matched_sessions / estimate.effective_window_days
-        observations_per_month = round(sessions_per_day * 30 * sampling_rate)
+        observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
         return Response(
             EstimateResponseSerializer(

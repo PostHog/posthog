@@ -53,6 +53,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SimpleIntervalType,
+    SlackIntegrationScope,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,6 +62,9 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
+// Re-exported so the codegen picks it up and emits `class SlackIntegrationScope(StrEnum)` in
+// posthog/schema.py. The matching runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
+export { SlackIntegrationScope }
 
 /**
  * PostHog Query Schema definition.

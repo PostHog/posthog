@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
+from django.db.models import Q, QuerySet
+
 import structlog
 
 from posthog.date_util import thirty_days_ago
@@ -17,6 +19,75 @@ class FeatureFlagStatus(StrEnum):
     STALE = "stale"
     DELETED = "deleted"
     UNKNOWN = "unknown"
+
+
+def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
+    """
+    Filter a FeatureFlag queryset by the `active` param (STALE / true / false).
+
+    Source of truth for both the feature_flags viewset (`_apply_filters`) and Max's
+    listing path. Handles string values (from URL query params) and native booleans
+    (from JSON bodies). When updating the STALE logic, also update
+    `FeatureFlagStatusChecker.get_status` so the filter and the per-flag status agree.
+    """
+    if value == "STALE":
+        # Get stale flags using the best available signal:
+        # 1. If last_called_at exists: flag hasn't been called in 30+ days
+        # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+        stale_threshold = thirty_days_ago()
+        usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+        config_based_queryset = queryset.filter(
+            last_called_at__isnull=True,
+            active=True,
+            created_at__lt=stale_threshold,
+        ).extra(
+            where=[
+                """
+                (
+                    (
+                        EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                            WHERE elem->>'rollout_percentage' = '100'
+                            AND (elem->'properties')::text = '[]'::text
+                        )
+                        AND (posthog_featureflag.filters->>'multivariate' IS NULL
+                            OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
+                            OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                    )
+                    OR
+                    (
+                        EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                            WHERE variant->>'rollout_percentage' = '100'
+                        )
+                        AND EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                            WHERE elem->>'rollout_percentage' = '100'
+                            AND (elem->'properties')::text = '[]'::text
+                        )
+                    )
+                    OR
+                    (
+                        EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                            WHERE elem->>'rollout_percentage' = '100'
+                            AND (elem->'properties')::text = '[]'::text
+                            AND elem->'variant' IS NOT NULL
+                            AND elem->>'variant' IS NOT NULL
+                        )
+                        AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                    )
+                    OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
+                )
+                """
+            ]
+        )
+        return queryset.filter(usage_based_stale) | config_based_queryset
+
+    # Handle both string "true"/"false" and boolean True/False
+    is_active = value == "true" or value is True
+    return queryset.filter(active=is_active)
 
 
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
