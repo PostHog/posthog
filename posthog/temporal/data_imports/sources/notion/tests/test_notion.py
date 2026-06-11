@@ -11,7 +11,7 @@ from tenacity import RetryCallState
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
-    MAX_RETRY_AFTER_WAIT_SECONDS,
+    MAX_RETRY_AFTER_SECONDS,
     NOTION_VERSION,
     NotionResumeConfig,
     NotionRetryableError,
@@ -193,17 +193,16 @@ class TestNotion:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
         assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
-    def test_wait_strategy_honors_large_retry_after(self) -> None:
-        # Regression: a multi-minute Retry-After (as Notion returns under sustained rate limiting,
-        # e.g. the observed 459s on /v1/comments) must be honored in full, not clipped to the 30s
-        # exponential-backoff cap. Clipping made us retry while still rate limited, exhaust attempts,
-        # and fail the sync.
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=459.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 459.0
+    def test_wait_strategy_honors_multi_minute_retry_after(self) -> None:
+        # Notion routinely asks for several minutes under sustained load. Clamping that to the
+        # exponential ceiling retried inside the penalty window and exhausted attempts, so the
+        # full Retry-After must be honored.
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=336.0))
+        assert _wait_strategy(cast(RetryCallState, state)) == 336.0
 
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_WAIT_SECONDS
+        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_SECONDS
 
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments
