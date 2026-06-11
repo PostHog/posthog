@@ -189,10 +189,10 @@ export const PostgresDestinationConfigApiType = {
 
 /**
  * Typed configuration for a PostgreSQL batch-export destination.
-
-Connection credentials may live in a linked Integration (when one is provided) or
-inline in this config (legacy). Mirrors the non-credential fields of
-`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ *
+ * Connection credentials may live in a linked Integration (when one is provided) or
+ * inline in this config (legacy). Mirrors the non-credential fields of
+ * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface PostgresDestinationConfigApi {
     /** PostgreSQL database name to connect to. */
@@ -216,7 +216,7 @@ export type BatchExportDestinationConfigApi =
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
- * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+ * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
  * Other destination types accept the same JSON shape but without a typed
  * OpenAPI schema. Secret fields are stripped from `config` on read.
  */
