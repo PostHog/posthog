@@ -94,10 +94,13 @@ fn get_varint(buf: &[u8], pos: &mut usize) -> Result<u64, DecodeError> {
     let mut shift = 0u32;
     loop {
         let byte = get_byte(buf, pos)?;
-        if shift >= 64 {
+        let bits = u64::from(byte & 0x7f);
+        // The round-trip check rejects payload bits that fall outside a u64,
+        // e.g. bits 1-6 of a 10th byte (shift 63), which `<<` drops silently.
+        if shift >= 64 || (bits << shift) >> shift != bits {
             return Err(DecodeError("varint overflow"));
         }
-        out |= u64::from(byte & 0x7f) << shift;
+        out |= bits << shift;
         if byte & 0x80 == 0 {
             return Ok(out);
         }
@@ -172,6 +175,29 @@ mod tests {
         let mut trailing = buf.clone();
         trailing.push(0);
         assert!(decode(&trailing).is_err());
+    }
+
+    #[test]
+    fn rejects_varint_overflow() {
+        // count is the last field, so the buffer's final byte is the 10th
+        // byte of the u64::MAX varint (0x01, the only valid value there).
+        let buf = encode(2, PropertyType::Event, "k", "v", u64::MAX);
+        let last = buf.len() - 1;
+        assert_eq!(buf[last], 0x01);
+
+        for tenth_byte in [0x02, 0x7f] {
+            let mut corrupted = buf.clone();
+            corrupted[last] = tenth_byte;
+            assert!(
+                decode(&corrupted).is_err(),
+                "10th byte {tenth_byte:#04x} carries bits past u64 and must error"
+            );
+        }
+
+        let mut eleven_bytes = buf.clone();
+        eleven_bytes[last] = 0x81;
+        eleven_bytes.push(0x00);
+        assert!(decode(&eleven_bytes).is_err(), "11-byte varint must error");
     }
 
     #[test]
