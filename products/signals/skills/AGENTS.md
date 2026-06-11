@@ -100,9 +100,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   dashboard access), curates a durable scratchpad watchlist, and balances
   re-checking known items (exploit) against discovering new ones (explore) across
   runs; scores the latest complete bucket by robust (MAD) deviation from each
-  insight's own seasonality-matched baseline. Unlike the other specialists it
-  bundles its own references (`anomaly-methods.md`, `watchlist-and-memory.md`,
-  `emit-contract.md`).
+  insight's own seasonality-matched baseline. Bundles its own references
+  (`anomaly-methods.md`, `watchlist-and-memory.md`, `emit-contract.md`).
 - `signals-scout-health-checks/` — the judgment layer over PostHog's own health
   checks. Reads the project's active health issues (`health-issues-summary` /
   `-list` / `-get`) rather than re-running detection, and decides which are worth
@@ -111,6 +110,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
+  Watches reports that recently transitioned to `resolved` (implementation PR
+  merged), waits out a deployment soak window, then re-probes the entities the
+  report's underlying signals named (pre-fix baselines captured at enqueue time)
+  to check the fix actually held — plus a strictly-gated escalation check on
+  recently dismissed reports. Its discriminator is resolution-vs-reality — the
+  resolved status's promise against the post-deploy data stream. Emits only
+  failed validations; confirmations are scratchpad memory. It never detects new
+  problems — that's the rest of the fleet's territory.
 
 ### How the coordinator decides what runs
 
@@ -123,8 +131,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
    `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
-   (`_register_missing_configs`) — on an enrolled team, authoring a skill is enough
-   to get a scout.
+   (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
+   authoring a skill is enough to get a scout. To register (and tune) one immediately
+   instead, use the `signals-scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -132,7 +141,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `signals-scout-config-update` MCP
-tool. See `scout_coordinator._collect_planned_runs` for the exact due-check.
+tool, and settable at creation time via `signals-scout-config-create` (an upsert that
+registers the config immediately instead of waiting for the tick). See
+`scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
 
@@ -167,11 +178,14 @@ fleet also reasons in terms of:
   key-prefix vocabulary, and cross-project noise patterns.
 
 The specialists each carry their own domain discriminator + investigation patterns.
-Most are a single self-contained `SKILL.md`; `signals-scout-anomaly-detection`
-additionally bundles its own references (`anomaly-methods.md`,
-`watchlist-and-memory.md`, `emit-contract.md`). A simplification pass to compress
-them and share the generalist's references is planned; until then, treat the
-generalist as the reference shape.
+Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
+read on demand — `signals-scout-anomaly-detection` (`anomaly-methods.md`,
+`watchlist-and-memory.md`, `emit-contract.md`), `signals-scout-ai-observability`
+(`lenses.md`), and `signals-scout-surveys` (`response-querying.md`). Treat the
+generalist as the reference shape. Note that a scout can only read its own bundled
+files at runtime (each team's `LLMSkill` row carries just that skill's files), so a
+specialist that needs the emit/dedupe conventions in depth bundles its own copy
+rather than pointing at the generalist's.
 
 ## When editing skills in this directory
 

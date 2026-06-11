@@ -27,6 +27,15 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+)
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
     BASH_ENV_SCRIPT,
@@ -58,15 +67,6 @@ from products.tasks.backend.services.sandbox import (
     redact_sandbox_command,
     wait_for_health_check,
 )
-from products.tasks.backend.temporal.exceptions import (
-    SandboxCleanupError,
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    SandboxProvisionError,
-    SandboxTimeoutError,
-    SnapshotCreationError,
-)
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
@@ -76,6 +76,7 @@ DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
@@ -95,12 +96,13 @@ def _get_modal_region() -> str:
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+    SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
-_image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
@@ -213,7 +215,7 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -222,6 +224,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -235,7 +238,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     return _attach_local_package_mounts(image, template)
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, str]:
     dockerfile_relative_path = LOCAL_MODAL_DOCKERFILES.get(template)
     if dockerfile_relative_path is None:
@@ -357,8 +360,11 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
-            if config.vm_runtime:
+            if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
                 create_kwargs["secrets"] = secrets
@@ -802,7 +808,8 @@ class ModalSandbox(SandboxBase):
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
-            image = self._sandbox.snapshot_filesystem()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
 
             snapshot_id = image.object_id
 

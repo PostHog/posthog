@@ -7,14 +7,12 @@ description: >
   related context, critical events with no alerts. Watches the event-stream-vs-saved-
   inventory delta as the team's product evolves and emits findings recommending new
   insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-scout-* fleet — picked uniformly at random by the
-  coordinator alongside `signals-scout-general` and other specialists.
+  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  standard analytics + entity tools (read-data-schema, query-trends, insights-list,
-  dashboards-get-all, event-definitions-list, alerts-list, execute-sql).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the analytics and entity tools listed in the
+  body's MCP tools section.
 metadata:
   owner_team: signals
   scope: observability_gaps

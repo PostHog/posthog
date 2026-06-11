@@ -1877,6 +1877,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
         self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
 
+    def test_batch_by_distinct_ids_caps_distinct_ids_at_ten(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"id_{i}" for i in range(12)],
+            properties={"email": "many@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_0"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("id_0", results)
+        self.assertLessEqual(len(results["id_0"]["distinct_ids"]), 10)
+
     def test_batch_by_distinct_ids_missing_ids(self) -> None:
         _create_person(
             team=self.team,

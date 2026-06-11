@@ -2,7 +2,7 @@ import { Page } from '@playwright/test'
 
 import { delay } from 'lib/utils'
 
-import { expect } from '../utils/playwright-test-base'
+import { expect } from '../utils/workspace-test-base'
 
 export class CohortPage {
     constructor(private readonly page: Page) {}
