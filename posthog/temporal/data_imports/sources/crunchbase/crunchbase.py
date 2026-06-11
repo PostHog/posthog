@@ -79,7 +79,7 @@ def _flatten_entity(entity: dict[str, Any]) -> dict[str, Any]:
     # Search hits nest the requested fields under `properties`; hoist them so
     # the table gets real columns and the uuid is available as the primary key.
     properties = entity.get("properties") or {}
-    return {**properties, "uuid": entity.get("uuid")}
+    return {**properties, "uuid": entity["uuid"]}
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -146,11 +146,9 @@ def get_rows(
         if len(entities) < PAGE_SIZE:
             break
 
-        last_uuid = entities[-1].get("uuid")
-        if not last_uuid:
-            break
-
-        after_id = last_uuid
+        # `_flatten_entity` already asserted every entity has a uuid, so the
+        # last one is a safe keyset cursor for the next page.
+        after_id = entities[-1]["uuid"]
         # Save state AFTER yielding the page so a crash re-yields the last page
         # (merge dedupes on primary key) rather than skipping it.
         resumable_source_manager.save_state(CrunchbaseResumeConfig(after_id=after_id))

@@ -172,17 +172,14 @@ class TestGetRows:
         assert body["query"][0]["values"] == ["2024-01-02T00:00:00Z"]
 
     @mock.patch("posthog.temporal.data_imports.sources.crunchbase.crunchbase.make_tracked_session")
-    def test_full_page_without_last_uuid_stops(self, mock_session):
-        # Defensive: a full page whose last entity is missing a uuid cannot
-        # advance the keyset — stop rather than loop.
-        full_page = [{"properties": {}} for _ in range(PAGE_SIZE)]
-        mock_session.return_value.post.return_value = _response(full_page)
+    def test_entity_without_uuid_raises(self, mock_session):
+        # uuid is the primary key; a missing one must surface immediately rather
+        # than producing a null-keyed row that corrupts downstream merge/dedup.
+        mock_session.return_value.post.return_value = _response([{"properties": {}}])
 
         manager = _make_manager()
-        batches = list(get_rows("key", "organizations", mock.MagicMock(), manager))
-
-        assert len(batches) == 1
-        assert mock_session.return_value.post.call_count == 1
+        with pytest.raises(KeyError):
+            list(get_rows("key", "organizations", mock.MagicMock(), manager))
 
     @mock.patch("posthog.temporal.data_imports.sources.crunchbase.crunchbase.make_tracked_session")
     def test_empty_response_stops_without_saving_state(self, mock_session):
