@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    LemonButton,
     LemonInput,
     LemonInputSelect,
     LemonSegmentedButton,
@@ -38,8 +39,10 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         search,
         authorOptions,
         repoOptions,
+        hasActiveFilters,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch } = useActions(engineeringAnalyticsLogic)
+    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters } =
+        useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
         return <ConnectGitHubSource />
@@ -163,11 +166,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     value={ciStatusFilter}
                     onChange={(value) => setCiStatusFilter(value as CIStatusFilter)}
                     options={[
-                        { value: 'all', label: 'CI: any' },
-                        { value: 'passing', label: 'CI: passing' },
-                        { value: 'failing', label: 'CI: failing' },
-                        { value: 'running', label: 'CI: running' },
-                        { value: 'none', label: 'CI: none' },
+                        { value: 'all', label: 'CI: any', labelInMenu: 'Any' },
+                        { value: 'passing', label: 'CI: passing', labelInMenu: 'Passing' },
+                        { value: 'failing', label: 'CI: failing', labelInMenu: 'Failing' },
+                        { value: 'running', label: 'CI: running', labelInMenu: 'Running' },
+                        { value: 'none', label: 'CI: none', labelInMenu: 'No CI' },
                     ]}
                 />
                 <LemonSelect
@@ -197,10 +200,21 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 columns={columns}
                 dataSource={filteredPullRequests}
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}#${row.number}`}
-                loading={pullRequestsLoading && filteredPullRequests.length === 0}
+                loading={pullRequestsLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
-                emptyState="No pull requests match these filters."
+                emptyState={
+                    hasActiveFilters ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <span>No pull requests match these filters.</span>
+                            <LemonButton type="secondary" size="small" onClick={resetFilters}>
+                                Clear filters
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        'No pull requests yet — they show up as soon as CI events arrive.'
+                    )
+                }
                 nouns={['pull request', 'pull requests']}
             />
 

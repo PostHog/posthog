@@ -68,6 +68,14 @@ export interface PullRequestFilters {
     search: string
 }
 
+export const DEFAULT_FILTERS: PullRequestFilters = {
+    state: 'open',
+    author: null,
+    repo: null,
+    ciStatus: 'all',
+    search: '',
+}
+
 export function filterPullRequests(rows: PullRequestRow[], filters: PullRequestFilters): PullRequestRow[] {
     const search = filters.search.trim().toLowerCase()
     return rows.filter((row) => {
@@ -106,6 +114,7 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         setRepo: (repo: string | null) => ({ repo }),
         setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
         setSearch: (search: string) => ({ search }),
+        resetFilters: true,
         refresh: true,
     }),
 
@@ -174,11 +183,23 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
     })),
 
     reducers({
-        stateFilter: ['open' as PRStateFilter, { setStateFilter: (_, { state }) => state }],
-        author: [null as string | null, { setAuthor: (_, { author }) => author }],
-        repo: [null as string | null, { setRepo: (_, { repo }) => repo }],
-        ciStatusFilter: ['all' as CIStatusFilter, { setCiStatusFilter: (_, { ciStatus }) => ciStatus }],
-        search: ['', { setSearch: (_, { search }) => search }],
+        stateFilter: [
+            DEFAULT_FILTERS.state,
+            { setStateFilter: (_, { state }) => state, resetFilters: () => DEFAULT_FILTERS.state },
+        ],
+        author: [
+            DEFAULT_FILTERS.author,
+            { setAuthor: (_, { author }) => author, resetFilters: () => DEFAULT_FILTERS.author },
+        ],
+        repo: [DEFAULT_FILTERS.repo, { setRepo: (_, { repo }) => repo, resetFilters: () => DEFAULT_FILTERS.repo }],
+        ciStatusFilter: [
+            DEFAULT_FILTERS.ciStatus,
+            { setCiStatusFilter: (_, { ciStatus }) => ciStatus, resetFilters: () => DEFAULT_FILTERS.ciStatus },
+        ],
+        search: [
+            DEFAULT_FILTERS.search,
+            { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
+        ],
         // The endpoints 400 when the team has no GitHub warehouse source connected.
         // A failed cards load is the canary for "no source connected".
         loadFailed: [
@@ -205,6 +226,15 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         filteredPullRequests: [
             (s) => [s.pullRequests, s.filters],
             (pullRequests, filters): PullRequestRow[] => filterPullRequests(pullRequests, filters),
+        ],
+        hasActiveFilters: [
+            (s) => [s.filters],
+            (filters): boolean =>
+                filters.state !== DEFAULT_FILTERS.state ||
+                filters.author !== DEFAULT_FILTERS.author ||
+                filters.repo !== DEFAULT_FILTERS.repo ||
+                filters.ciStatus !== DEFAULT_FILTERS.ciStatus ||
+                filters.search.trim() !== DEFAULT_FILTERS.search,
         ],
         authorOptions: [
             (s) => [s.pullRequests],

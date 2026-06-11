@@ -11,7 +11,12 @@ import {
 } from '../generated/api'
 import type { CICardSummaryApi, PullRequestListItemApi, WorkflowHealthItemApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { PullRequestRow, engineeringAnalyticsLogic, filterPullRequests } from './engineeringAnalyticsLogic'
+import {
+    DEFAULT_FILTERS,
+    PullRequestRow,
+    engineeringAnalyticsLogic,
+    filterPullRequests,
+} from './engineeringAnalyticsLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -174,6 +179,27 @@ describe('engineeringAnalyticsLogic', () => {
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
         expect(logic.values.loadFailed).toBe(false)
+    })
+
+    it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
+        mockCiCards.mockResolvedValue(CARDS)
+        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
+        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
+
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.hasActiveFilters).toBe(false)
+
+        logic.actions.setStateFilter('all')
+        logic.actions.setAuthor('alice')
+        logic.actions.setRepo('posthog/posthog')
+        logic.actions.setCiStatusFilter('failing')
+        logic.actions.setSearch('fix')
+        expect(logic.values.hasActiveFilters).toBe(true)
+
+        logic.actions.resetFilters()
+        expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
+        expect(logic.values.hasActiveFilters).toBe(false)
     })
 
     it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {
