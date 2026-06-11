@@ -12,7 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
-interface TraceFlameChartProps {
+interface TraceWaterfallViewProps {
     spans: Span[]
 }
 
@@ -145,7 +145,7 @@ const LABEL_COLUMN_WIDTH_STORAGE_KEY = 'tracing-trace-label-width'
 const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
 // Cap the windowed list viewport; taller traces scroll inside it instead of growing the modal.
-const MAX_FLAME_HEIGHT = 600
+const MAX_WATERFALL_HEIGHT = 600
 // Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
 // short trace doesn't pop an unexpected scrollbar.
 const SELECTED_DETAIL_RESERVE = 320
@@ -284,7 +284,7 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
     )
 }
 
-interface FlameRowData {
+interface WaterfallRowData {
     flatSpans: SpanNode[]
     traceStartUs: number
     traceDurationUs: number
@@ -296,7 +296,7 @@ interface FlameRowData {
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
-function FlameRow({
+function WaterfallRow({
     node,
     traceStartUs,
     traceDurationUs,
@@ -305,7 +305,7 @@ function FlameRow({
     labelColumnWidth,
     selectedSpanId,
     onSelect,
-}: Omit<FlameRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
+}: Omit<WaterfallRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
     const { span } = node
     const spanStartUs = parseTimestampUs(span.timestamp)
     const spanDurationUs = span.duration_nano / 1_000
@@ -418,7 +418,7 @@ function FlameRow({
     )
 }
 
-function FlameListRow({
+function WaterfallListRow({
     ariaAttributes,
     index,
     style,
@@ -435,7 +435,7 @@ function FlameListRow({
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
-} & FlameRowData): JSX.Element {
+} & WaterfallRowData): JSX.Element {
     const rowRef = useRef<HTMLDivElement>(null)
     const node = flatSpans[index]
 
@@ -448,7 +448,7 @@ function FlameListRow({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} ref={rowRef} style={style} data-index={index} data-row-key={node.span.uuid}>
-            <FlameRow
+            <WaterfallRow
                 node={node}
                 traceStartUs={traceStartUs}
                 traceDurationUs={traceDurationUs}
@@ -462,7 +462,7 @@ function FlameListRow({
     )
 }
 
-export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
+export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Element {
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
@@ -681,18 +681,18 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
             <AutoSizer
                 disableHeight
                 renderProp={({ width }: SizeProps) => (
-                    <List<FlameRowData>
+                    <List<WaterfallRowData>
                         style={{
                             height: Math.min(
                                 flatSpans.length * ROW_HEIGHT + (selectedSpanId ? SELECTED_DETAIL_RESERVE : 0),
-                                MAX_FLAME_HEIGHT
+                                MAX_WATERFALL_HEIGHT
                             ),
                             width,
                         }}
                         overscanCount={10}
                         rowCount={flatSpans.length}
                         rowHeight={dynamicRowHeight}
-                        rowComponent={FlameListRow}
+                        rowComponent={WaterfallListRow}
                         rowProps={{
                             flatSpans,
                             traceStartUs,
