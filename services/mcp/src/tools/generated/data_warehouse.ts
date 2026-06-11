@@ -77,6 +77,63 @@ const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
     },
 })
 
+const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceConnectLink = (): ToolBase<
+    typeof DataWarehouseSourceConnectLinkSchema,
+    Schemas.SourceConnectLink
+> => ({
+    name: 'data-warehouse-source-connect-link',
+    schema: DataWarehouseSourceConnectLinkSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceConnectLink>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
+            query: {
+                source_type: params.source_type,
+            },
+        })
+        return result
+    },
+})
+
+const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceSetup = (): ToolBase<
+    typeof DataWarehouseSourceSetupSchema,
+    Schemas.ExternalDataSourceSerializers
+> => ({
+    name: 'data-warehouse-source-setup',
+    schema: DataWarehouseSourceSetupSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true }).extend(
     ExternalDataSchemasCancelCreateBody.shape
 )
@@ -450,63 +507,6 @@ const externalDataSourcesCreate = (): ToolBase<
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
-            body,
-        })
-        return result
-    },
-})
-
-const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
-
-const dataWarehouseSourceConnectLink = (): ToolBase<
-    typeof DataWarehouseSourceConnectLinkSchema,
-    Schemas.SourceConnectLink
-> => ({
-    name: 'data-warehouse-source-connect-link',
-    schema: DataWarehouseSourceConnectLinkSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SourceConnectLink>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
-            query: {
-                source_type: params.source_type,
-            },
-        })
-        return result
-    },
-})
-
-const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
-
-const dataWarehouseSourceSetup = (): ToolBase<
-    typeof DataWarehouseSourceSetupSchema,
-    Schemas.ExternalDataSourceSerializers
-> => ({
-    name: 'data-warehouse-source-setup',
-    schema: DataWarehouseSourceSetupSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.payload !== undefined) {
-            body['payload'] = params.payload
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
             body,
         })
         return result
@@ -1186,6 +1186,8 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
+    'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
+    'data-warehouse-source-setup': dataWarehouseSourceSetup,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
@@ -1197,8 +1199,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
     'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
-    'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
-    'data-warehouse-source-setup': dataWarehouseSourceSetup,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
     'external-data-sources-destroy': externalDataSourcesDestroy,

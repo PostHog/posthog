@@ -2587,7 +2587,7 @@
         }
     },
     "external-data-sources-partial-update": {
-        "description": "Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description, or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.",
+        "description": "Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change the source_type or access_method after creation. Avoid sending new connection credentials inline here — to rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them securely in their browser rather than pasting secrets into the chat.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update data warehouse source",
