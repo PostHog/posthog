@@ -12,7 +12,9 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
+import { SLACK_INTEGRATION_SCOPES } from '~/types'
+
+// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
 const getSlackAppManifest = (): any => ({
     display_information: {
         name: 'PostHog',
@@ -34,22 +36,7 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: [
-                'app_mentions:read',
-                'channels:history',
-                'channels:read',
-                'chat:write',
-                'chat:write.customize',
-                'groups:history',
-                'groups:read',
-                'links:read',
-                'links:write',
-                'reactions:read',
-                'reactions:write',
-                'team:read',
-                'users:read',
-                'users:read.email',
-            ],
+            bot: SLACK_INTEGRATION_SCOPES,
         },
     },
     settings: {
@@ -80,7 +67,11 @@ export function SlackIntegration(): JSX.Element {
         <div>
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
+                    <IntegrationView
+                        key={integration.id}
+                        integration={integration}
+                        schema={{ requiredScopes: SLACK_INTEGRATION_SCOPES.join(' ') }}
+                    />
                 ))}
 
                 <div>

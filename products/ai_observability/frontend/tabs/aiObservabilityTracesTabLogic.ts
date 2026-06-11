@@ -142,7 +142,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                     showReload: true,
                     showSearch: true,
                     showTestAccountFilters: true,
-                    showExport: true,
+                    showExport: false,
                     showOpenEditorButton: false,
                     showColumnConfigurator: false,
                     showPropertyFilter: [

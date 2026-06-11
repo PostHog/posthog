@@ -18,6 +18,12 @@ pub enum WorkerState {
 }
 
 impl WorkerState {
+    const ALL: [WorkerState; 3] = [
+        WorkerState::Healthy,
+        WorkerState::Degraded,
+        WorkerState::Unhealthy,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             WorkerState::Healthy => "healthy",
@@ -25,13 +31,20 @@ impl WorkerState {
             WorkerState::Unhealthy => "unhealthy",
         }
     }
+}
 
-    fn as_gauge_value(self) -> f64 {
-        match self {
-            WorkerState::Healthy => 0.0,
-            WorkerState::Degraded => 1.0,
-            WorkerState::Unhealthy => 2.0,
-        }
+/// Emit the worker health state as a state-set gauge: one series per state
+/// labeled `state`, with the current state at 1 and all others at 0 (same
+/// pattern as `kube_pod_status_phase`). Operators can alert on a state by
+/// name without decoding magic numbers.
+fn set_state_gauge(worker_url: &str, current: WorkerState) {
+    for state in WorkerState::ALL {
+        gauge!(
+            "ingestion_consumer_worker_health_state",
+            "worker" => worker_url.to_string(),
+            "state" => state.as_str(),
+        )
+        .set(if state == current { 1.0 } else { 0.0 });
     }
 }
 
@@ -106,14 +119,7 @@ impl WorkerHealth {
             "to" => new_state.as_str(),
         )
         .increment(1);
-        // Numeric gauge so operators can alert directly on state without
-        // reconstructing it from cumulative transition counters.
-        // 0 = Healthy, 1 = Degraded, 2 = Unhealthy.
-        gauge!(
-            "ingestion_consumer_worker_health_state",
-            "worker" => worker_url.to_string(),
-        )
-        .set(new_state.as_gauge_value());
+        set_state_gauge(worker_url, new_state);
 
         true
     }
@@ -207,10 +213,16 @@ impl WorkerRegistry {
             .build()
             .expect("failed to create probe HTTP client");
 
-        let workers = worker_urls
+        let workers: Vec<(String, Mutex<WorkerHealth>)> = worker_urls
             .iter()
             .map(|url| (url.clone(), Mutex::new(WorkerHealth::new())))
             .collect();
+
+        // Emit the initial state for every worker so the gauge exists from
+        // startup rather than only after the first transition.
+        for (url, _) in &workers {
+            set_state_gauge(url, WorkerState::Healthy);
+        }
 
         Self {
             workers,
