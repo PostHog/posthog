@@ -5,7 +5,9 @@ import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
@@ -40,7 +42,7 @@ from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
@@ -986,6 +988,74 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
     )
 
 
+class SourceSetupSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').",
+    )
+    payload = serializers.DictField(
+        required=False,
+        help_text=(
+            "Connection details as flat keys for the source_type (discover required fields with the wizard "
+            "tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. "
+            "{'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are "
+            "enabled automatically with sensible sync defaults."
+        ),
+    )
+    prefix = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+    )
+    description = serializers.CharField(
+        max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+
+
+class SourceConnectLinkSerializer(serializers.Serializer):
+    source_type = serializers.CharField(help_text="The source type the link is for.")
+    auth_method = serializers.ChoiceField(
+        choices=["oauth", "credentials"],
+        help_text=(
+            "'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the "
+            "PostHog UI. Either way secrets never pass through the agent."
+        ),
+    )
+    connect_url = serializers.CharField(
+        help_text=(
+            "Full URL to share with the user. They open it in a browser to authorize or enter credentials directly "
+            "in PostHog — credentials never pass through the agent or the chat."
+        )
+    )
+    integration_field = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "For OAuth sources, the payload key to pass to data-warehouse-source-setup with the integration id "
+            "(e.g. 'hubspot_integration_id'). Null for credential sources."
+        ),
+    )
+    instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
+
+
+def _find_oauth_field(config: object) -> dict | None:
+    """Recursively find an OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump."""
+    if isinstance(config, dict):
+        if config.get("type") == "oauth" and config.get("kind"):
+            return config
+        for value in config.values():
+            found = _find_oauth_field(value)
+            if found is not None:
+                return found
+    elif isinstance(config, list):
+        for item in config:
+            found = _find_oauth_field(item)
+            if found is not None:
+                return found
+    return None
+
+
 class DatabaseSchemaRequestSerializer(serializers.Serializer):
     """Validate credentials and preview available tables from a remote database.
 
@@ -1028,6 +1098,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "reload",
         "refresh_schemas",
         "database_schema",
+        "setup",
         "source_prefix",
         "revenue_analytics_config",
         "create_webhook",
@@ -1039,7 +1110,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "disable_cdc",
         "update_cdc_settings",
     ]
-    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections", "cdc_status"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "jobs",
+        "wizard",
+        "connect_link",
+        "webhook_info",
+        "connections",
+        "cdc_status",
+    ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
@@ -1097,12 +1177,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        prefix = serializer.validated_data.get("prefix")
-        description = serializer.validated_data.get("description")
-        source_type = serializer.validated_data["source_type"]
-        access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        created_via = serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API)
+        return self._create_external_data_source(
+            request,
+            source_type=serializer.validated_data["source_type"],
+            payload=serializer.validated_data["payload"],
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
+            created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+        )
 
+    def _create_external_data_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        prefix: str | None,
+        description: str | None,
+        access_method: str,
+        created_via: str,
+    ) -> Response:
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -1143,7 +1238,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         # Strip leading and trailing whitespace
-        payload = serializer.validated_data["payload"]
         if payload is not None:
             for key, value in payload.items():
                 if isinstance(value, str):
@@ -1917,6 +2011,73 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ]
         return Response(status=status.HTTP_200_OK, data=data)
 
+    @extend_schema(request=SourceSetupSerializer, responses=ExternalDataSourceSerializers)
+    @action(methods=["POST"], detail=False)
+    def setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """One-shot data warehouse source setup.
+
+        Validate credentials, discover available tables, enable them all with sensible sync defaults
+        (incremental where supported, else append, else full refresh), and create the source in a single
+        call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
+        use the lower-level `database_schema` + `create` flow instead.
+        """
+        # No database context needed here (unlike the read serializer), and skipping it avoids building
+        # the HogQL Database on this hot path.
+        serializer = SourceSetupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data.get("payload") or {})
+
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config: Config = source.parse_config(payload)
+
+        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                cast(Any, source_config), self.team_id, ExternalDataSource.AccessMethod.WAREHOUSE
+            )
+        else:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        try:
+            source_schemas = source.get_schemas(source_config, self.team_id)
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        if not source_schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No tables found for this source. Check the credentials and permissions."},
+            )
+
+        # Build the schemas array server-side so the caller never has to. `_create_external_data_source`
+        # re-introspects for its own validation, so the extra round-trip here is acceptable for a one-shot.
+        payload["schemas"] = build_default_schemas(source_schemas)
+
+        return self._create_external_data_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            created_via=ExternalDataSource.CreatedVia.MCP,
+        )
+
     @extend_schema(
         request=None,
         responses={
@@ -2452,6 +2613,77 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             results[str(source_type)] = config
 
         return Response(status=status.HTTP_200_OK, data=results)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').",
+            )
+        ],
+        responses=SourceConnectLinkSerializer,
+    )
+    @action(methods=["GET"], detail=False)
+    def connect_link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return a secure browser link for connecting a data warehouse source.
+
+        For OAuth sources the link starts the OAuth authorize flow; for credential sources it deep-links to the
+        prefilled PostHog source-setup form. Either way the user authenticates in their browser — credentials never
+        pass through the agent. After the user finishes, call data-warehouse-source-setup (OAuth: pass the integration
+        id; credentials: the UI completes setup) or poll external-data-sources-list.
+        """
+        source_type = request.query_params.get("source_type")
+        if not source_type:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Missing required parameter: source_type"},
+            )
+        try:
+            source_type_model = ExternalDataSourceType(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
+
+        source = SourceRegistry.get_source(source_type_model)
+        oauth_field = _find_oauth_field(source.get_source_config.model_dump())
+
+        ui_path = f"/project/{self.team_id}/data-warehouse/new-source?kind={quote(str(source_type))}"
+
+        if oauth_field is not None:
+            connect_url = (
+                f"{settings.SITE_URL}/api/integrations/authorize"
+                f"?kind={quote(oauth_field['kind'])}&next={quote(ui_path, safe='')}"
+            )
+            data = {
+                "source_type": source_type,
+                "auth_method": "oauth",
+                "connect_url": connect_url,
+                "integration_field": oauth_field["name"],
+                "instructions": (
+                    f"Share this link with the user to authorize {source_type} in their browser. Once authorized, "
+                    f"either let them finish in the opened PostHog form, or call data-warehouse-source-setup with "
+                    f'{{"{oauth_field["name"]}": <integration id>}} (find the id via integrations-list). '
+                    "Never ask the user to paste OAuth tokens into the chat."
+                ),
+            }
+        else:
+            data = {
+                "source_type": source_type,
+                "auth_method": "credentials",
+                "connect_url": f"{settings.SITE_URL}{ui_path}",
+                "integration_field": None,
+                "instructions": (
+                    f"Share this link with the user. They enter their {source_type} credentials directly in PostHog "
+                    "(over TLS) — never ask them to paste credentials into the chat. The form pre-selects the source "
+                    "type; after they submit, poll external-data-sources-list to confirm the source was created."
+                ),
+            }
+        return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)

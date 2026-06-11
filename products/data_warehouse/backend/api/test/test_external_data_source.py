@@ -8414,3 +8414,84 @@ class TestCDCStatus(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestExternalDataSourceConnectLink(APIBaseTest):
+    def _connect_link(self, source_type: str):
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type={source_type}"
+        )
+
+    def test_connect_link_oauth_source(self):
+        response = self._connect_link("Hubspot")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["auth_method"] == "oauth"
+        assert data["integration_field"] == "hubspot_integration_id"
+        assert "/api/integrations/authorize?kind=hubspot" in data["connect_url"]
+        # The post-auth return path deep-links to the prefilled new-source form.
+        assert "data-warehouse%2Fnew-source" in data["connect_url"] or "new-source" in data["connect_url"]
+
+    def test_connect_link_credentials_source(self):
+        response = self._connect_link("Postgres")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["auth_method"] == "credentials"
+        assert data["integration_field"] is None
+        assert f"/project/{self.team.pk}/data-warehouse/new-source?kind=Postgres" in data["connect_url"]
+
+    def test_connect_link_missing_source_type(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_connect_link_unknown_source_type(self):
+        response = self._connect_link("NotARealSource")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestExternalDataSourceSetup(APIBaseTest):
+    # Stripe enables revenue analytics, whose post-create view sync builds the HogQL Database — patched
+    # out here so the test exercises setup's own logic rather than that unrelated side effect.
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_creates_source_with_all_tables_and_mcp_created_via(
+        self, _mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "prefix": "stripe_setup_test",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        assert source.prefix == "stripe_setup_test"
+
+        schemas = ExternalDataSchema.objects.filter(source=source)
+        # Every discovered Stripe endpoint becomes a schema...
+        assert schemas.count() == len(STRIPE_ENDPOINTS)
+        # ...and the syncable ones are enabled with a sync type (incremental for Stripe's created-based tables).
+        synced = schemas.filter(should_sync=True)
+        assert synced.exists()
+        assert all(s.sync_type in ("incremental", "append", "full_refresh") for s in synced)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Missing Stripe API key"),
+    )
+    def test_setup_returns_credential_error(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"auth_method": {"selection": "api_key"}}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Missing Stripe API key" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
