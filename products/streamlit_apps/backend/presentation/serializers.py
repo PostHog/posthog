@@ -10,7 +10,15 @@ from rest_framework.views import APIView
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 
-from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.streamlit_apps.backend.models import (
+    MAX_CPU_CORES,
+    MAX_MEMORY_GB,
+    MIN_CPU_CORES,
+    MIN_MEMORY_GB,
+    StreamlitApp,
+    StreamlitAppSandbox,
+    StreamlitAppVersion,
+)
 
 
 class StreamlitAppVersionSerializer(serializers.ModelSerializer):
@@ -112,13 +120,13 @@ class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
         ]
 
     def validate_cpu_cores(self, value: float) -> float:
-        if value < 0.25 or value > 8:
-            raise serializers.ValidationError("CPU cores must be between 0.25 and 8.")
+        if value < MIN_CPU_CORES or value > MAX_CPU_CORES:
+            raise serializers.ValidationError(f"CPU cores must be between {MIN_CPU_CORES} and {MAX_CPU_CORES}.")
         return value
 
     def validate_memory_gb(self, value: float) -> float:
-        if value < 0.5 or value > 16:
-            raise serializers.ValidationError("Memory must be between 0.5 and 16 GB.")
+        if value < MIN_MEMORY_GB or value > MAX_MEMORY_GB:
+            raise serializers.ValidationError(f"Memory must be between {MIN_MEMORY_GB} and {MAX_MEMORY_GB} GB.")
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> StreamlitApp:
