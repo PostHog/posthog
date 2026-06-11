@@ -126,6 +126,8 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'metrics',
+                'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
@@ -316,6 +318,8 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'metrics',
+                'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result

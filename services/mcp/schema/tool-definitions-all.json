@@ -347,7 +347,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -403,7 +403,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",
@@ -631,7 +631,68 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-list": {
+        "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge sources",
+        "title": "List business knowledge sources",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-retrieve": {
+        "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get business knowledge source",
+        "title": "Get business knowledge source",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-text-create": {
+        "description": "Save durable, reusable company knowledge as a searchable text source — the kind of reference material a team wants every future agent session to draw on. Good fits: product specs, internal docs, runbooks, policies, FAQs, glossaries, architecture/decision records, brand or style guides. Do NOT use this as a scratchpad for the current task or to dump transient material (raw web-search results, random articles, one-off snippets, chat logs) — only persist knowledge the user has asked to keep or that is clearly of lasting value to the whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing status.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create text business knowledge source",
+        "title": "Create text business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-url-create": {
+        "description": "Index a web page as durable, reusable company knowledge that every future agent session can draw on. Use it for authoritative, lasting references the whole team benefits from — public product docs, API references, help-center articles, changelogs, status/policy pages. Do NOT index pages you happened to open while researching the current task, arbitrary search-result links, or pages the user didn't ask to keep — this store is curated team knowledge, not a browsing history. Provide a name and a public HTTP(S) URL; the page is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is re-fetched automatically. Returns the created source with its processing status (initially \"processing\" while the URL is fetched in the background).",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create URL business knowledge source",
+        "title": "Create URL business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
     },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
@@ -5402,8 +5463,22 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config",
+        "title": "Create a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -5431,7 +5506,7 @@
         }
     },
     "signals-scout-emit-signal": {
-        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
+        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Emit a finding for a run",
@@ -5459,7 +5534,7 @@
         }
     },
     "signals-scout-runs-emissions-list": {
-        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a scout run's emitted findings",
@@ -5878,21 +5953,6 @@
             "readOnlyHint": false
         }
     },
-    "tasks-file-create": {
-        "description": "Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "File a task into the project tree",
-        "title": "File a task into the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "tasks"
-    },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -5965,21 +6025,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "tasks"
-    },
-    "tasks-unfile-create": {
-        "description": "Remove a task's entry from the desktop project tree. The task itself is not deleted.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Remove a task from the project tree",
-        "title": "Remove a task from the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },

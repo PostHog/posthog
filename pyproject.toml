@@ -434,7 +434,9 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+# conftest.py: the root pytest bootstrap collides with services/stripe-mock/tests/conftest.py
+# (both resolve to top-level module "conftest")
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
