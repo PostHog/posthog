@@ -235,6 +235,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
         fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id])
+        if not fingerprints:
+            return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -130,6 +131,25 @@ describe('Error Tracking', { concurrent: false }, () => {
         return result.results
             .map((fingerprint: { fingerprint?: string | null }) => fingerprint.fingerprint)
             .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
+    }
+
+    // The issues list reads the denormalized ClickHouse table, which lags Postgres deletes
+    // (issue merges) by a few seconds — skip listed ids whose detail lookup 404s.
+    async function getFirstLiveIssueDetails(
+        issueIds: string[]
+    ): Promise<{ issueId: string; details: { id?: string | null } } | undefined> {
+        for (const issueId of issueIds) {
+            try {
+                const detailsResult = await issueTool.handler(context, { issueId, volumeResolution: 0 })
+                return { issueId, details: parseToolResponse(detailsResult) }
+            } catch (error) {
+                if (error instanceof PostHogApiError && error.status === 404) {
+                    continue
+                }
+                throw error
+            }
+        }
+        return undefined
     }
 
     describe('query-error-tracking-issues-list tool', () => {
@@ -506,19 +526,17 @@ describe('Error Tracking', { concurrent: false }, () => {
     describe('Error tracking workflow', () => {
         it('should support listing errors and getting details workflow', async () => {
             const listResult = await issuesListTool.handler(context, {})
-            const errorList = parseToolResponse(listResult)
+            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
 
             expect(Array.isArray(errorList.results)).toBe(true)
 
-            if (errorList.results.length > 0 && errorList.results[0].id) {
-                const firstError = errorList.results[0]
-                const detailsResult = await issueTool.handler(context, {
-                    issueId: firstError.id,
-                    volumeResolution: 0,
-                })
-                const errorDetails = parseToolResponse(detailsResult)
+            const issueIds = (errorList.results ?? [])
+                .map((issue) => issue.id)
+                .filter((id): id is string => typeof id === 'string')
+            const live = await getFirstLiveIssueDetails(issueIds)
 
-                expect(errorDetails.id).toBe(firstError.id)
+            if (live) {
+                expect(live.details.id).toBe(live.issueId)
             }
         })
 
@@ -526,22 +544,21 @@ describe('Error Tracking', { concurrent: false }, () => {
             const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
             const listResult = await issuesListTool.handler(context, { status: 'all' })
-            const errorList = parseToolResponse(listResult)
+            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
 
             expect(Array.isArray(errorList.results)).toBe(true)
 
-            if (errorList.results.length === 0 || !errorList.results[0].id) {
+            const issueIds = (errorList.results ?? [])
+                .map((issue) => issue.id)
+                .filter((id): id is string => typeof id === 'string')
+            const live = await getFirstLiveIssueDetails(issueIds)
+
+            if (!live) {
                 return
             }
 
-            const issueId = errorList.results[0].id
-
-            const detailsResult = await issueTool.handler(context, {
-                issueId,
-                volumeResolution: 0,
-            })
-            const errorDetails = parseToolResponse(detailsResult)
-            expect(errorDetails.id).toBe(issueId)
+            const { issueId } = live
+            expect(live.details.id).toBe(issueId)
 
             const updateResult = (await updateTool.handler(context, {
                 id: issueId,

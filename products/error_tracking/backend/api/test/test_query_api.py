@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -202,6 +204,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_issue()
         self.create_exception_event()
         ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id, user=self.user, team=self.team)
+        # re-sync with a strictly newer version so the assignment wins argMax over the create-time row
+        with freeze_time(now() + timedelta(seconds=1)):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id], team_id=self.team.pk)
         flush_persons_and_events()
 
         response = self.client.post(
@@ -520,6 +525,19 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_without_fingerprints_returns_empty(self) -> None:
+        ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

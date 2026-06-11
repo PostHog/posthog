@@ -32,6 +32,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
@@ -163,6 +164,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             )
 
         flush_persons_and_events()
+        # test fixtures write each person row twice at the same version; collapse them so the
+        # person join (test-account filter, person-property search) doesn't fan out count()
+        sync_execute("OPTIMIZE TABLE person FINAL")
 
     def _calculate(
         self,
@@ -927,7 +931,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
-        self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+        # bins are left-closed [start, end), so events on an exact bin boundary land in the next bin
+        self.assertEqual(first_aggregations["volumeRange"], [55, 60, 5, 0])
 
     @parameterized.expand(["issueId", "personId"])
     def test_rejects_malformed_uuid_params(self, field):
