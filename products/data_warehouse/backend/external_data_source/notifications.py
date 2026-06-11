@@ -1,3 +1,4 @@
+import datetime as dt
 from urllib.parse import quote
 
 from django.conf import settings
@@ -6,11 +7,32 @@ import structlog
 
 from posthog.tasks.email import send_external_data_failure_digest
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 
 ERROR_SNIPPET_MAX_LENGTH = 300
+
+
+def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=24)) -> list[int]:
+    """Teams with still-failing schemas whose latest failure happened within the lookback.
+
+    Powers the daily catch-up digest: failures that the one-email-per-day block
+    swallowed get flushed the next day — including schemas that were paused and
+    will never produce another failed run to re-trigger the inline path.
+    """
+    cutoff = dt.datetime.now(dt.UTC) - lookback
+    return list(
+        ExternalDataJob.objects.filter(
+            status=ExternalDataJob.Status.FAILED,
+            finished_at__gte=cutoff,
+            schema__status=ExternalDataSchema.Status.FAILED,
+        )
+        .exclude(schema__deleted=True)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
 
 
 def notify_external_data_sync_failures(team_id: int) -> None:

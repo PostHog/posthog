@@ -671,6 +671,29 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
+def send_external_data_failure_digest_catchup() -> None:
+    """Flush sync failures the one-email-per-day block swallowed.
+
+    Runs daily just after the date-keyed campaign block resets. Any team whose
+    schemas failed in the last 24 hours and are still failing gets a fresh
+    digest — this guarantees every error is eventually communicated, including
+    schemas paused by a non-retryable error that will never fail again to
+    re-trigger the inline notification path.
+    """
+    from products.data_warehouse.backend.external_data_source.notifications import (  # noqa: PLC0415 — breaks a circular import (notifications imports the sender above)
+        get_team_ids_with_recent_sync_failures,
+    )
+
+    team_ids = get_team_ids_with_recent_sync_failures()
+    for team_id in team_ids:
+        send_external_data_failure_digest_task.delay(team_id)
+
+    if team_ids:
+        logger.info("Dispatched external data failure digest catch-up for %d teams", len(team_ids))
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
 def send_matview_failure_digest() -> None:
     from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
