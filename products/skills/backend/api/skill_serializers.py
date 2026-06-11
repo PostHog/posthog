@@ -8,7 +8,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from ..markdown_outline import get_markdown_outline
+from products.ai_observability.backend.markdown_outline import get_markdown_outline
+
 from ..models.skills import LLMSkill, LLMSkillFile
 
 RESERVED_SKILL_NAMES = {"new"}

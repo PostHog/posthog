@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -6,10 +8,11 @@ from rest_framework import status
 
 from posthog.models import User
 
+from ...api.skill_services import MAX_SKILL_FILE_COUNT
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
-@patch("products.ai_observability.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
+@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
@@ -339,8 +342,6 @@ class TestLLMSkillAPI(APIBaseTest):
             assert query_suffix.lstrip("?") in response["Location"]
 
     def test_get_skill_by_uuid_not_found_returns_404(self, mock_feature_enabled):
-        import uuid
-
         nonexistent_id = str(uuid.uuid4())
         response = self.client.get(self._url(f"name/{nonexistent_id}"))
 
@@ -868,8 +869,6 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_file_enforces_max_file_count(self, mock_feature_enabled):
-        from ..skill_services import MAX_SKILL_FILE_COUNT
-
         skill = self.create_skill(name="crud-max")
         LLMSkillFile.objects.bulk_create(
             [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]

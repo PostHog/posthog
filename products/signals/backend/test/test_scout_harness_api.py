@@ -15,7 +15,6 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -24,6 +23,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 

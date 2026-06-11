@@ -14,14 +14,14 @@ import {
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
     llmSkillsResolveNameRetrieve,
-} from 'products/ai_observability/frontend/generated/api'
+} from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillApi,
     LLMSkillFileApi,
     LLMSkillFileInputApi,
     LLMSkillListApi,
     LLMSkillVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillLogicType } from './llmSkillLogicType'
 import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'

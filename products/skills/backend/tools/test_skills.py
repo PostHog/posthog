@@ -4,8 +4,8 @@ from asgiref.sync import async_to_sync
 
 from posthog.models import Team
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
-from products.ai_observability.backend.tools.skills import (
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.tools.skills import (
     ArchiveLLMSkillTool,
     CreateLLMSkillTool,
     GetLLMSkillFileTool,
