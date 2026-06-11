@@ -575,16 +575,26 @@ def extract_person_timeline(
     union_find = _UnionFind()
     first_seen_by_id: dict[str, datetime.datetime] = {}
     eval_edges: list[tuple[str, str, datetime.datetime]] = []
+    identified_ids: set[str] = set()
     for other_id, target_id, first_seen in edges:
         if first_seen < window_end:
             union_find.union(target_id, other_id)
+            identified_ids.add(target_id)
             for member in (other_id, target_id):
                 if member not in first_seen_by_id or first_seen < first_seen_by_id[member]:
                     first_seen_by_id[member] = first_seen
         else:
             eval_edges.append((other_id, target_id, first_seen))
 
-    person_key_by_id = {member: min(members) for _, members in union_find.components().items() for member in members}
+    # The canonical key prefers identified-side ids (merge targets): a bare lexicographic
+    # minimum could crown an anonymous device id, which then surfaces as the matched person
+    # in the API and UI.
+    person_key_by_id: dict[str, str] = {}
+    for members in union_find.components().values():
+        identified_members = [member for member in members if member in identified_ids]
+        person_key = min(identified_members) if identified_members else min(members)
+        for member in members:
+            person_key_by_id[member] = person_key
 
     job_uuid = run.job_uuid
     rows: list[tuple[Any, ...]] = [

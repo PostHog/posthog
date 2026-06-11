@@ -111,6 +111,17 @@ def _fixture_events() -> list[tuple[Any, ...]]:
         _event("$pageview", "webview-cara", datetime(2025, 1, 3, 16), cara_device("/docs")),
         # Events without $ip must not break the run.
         _event("$pageview", "no-ip-dave", datetime(2025, 1, 4, 8), {"$pathname": "/pricing"}),
+        # Zed's anonymous id sorts before his identified id: the canonical person key must
+        # still be the identified side.
+        _event(
+            "$identify",
+            "zed@x.com",
+            datetime(2025, 1, 2, 18),
+            {
+                **_device_props("10.0.0.77", DESKTOP_UA, "Desktop", "Braga", "pt-PT", "/signup"),
+                "$anon_distinct_id": "0-zed-anon",
+            },
+        ),
     ]
     # A corporate IP with more devices than the block cap: excluded from candidates.
     events += [
@@ -199,6 +210,9 @@ def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     assert timeline["laptop-anna-anon"] == (1, "anna@x.com", "")
     assert timeline["bob@x.com"] == (1, "bob@x.com", "")
     assert timeline["cara@x.com"] == (1, "cara@x.com", "")
+    # The identified side stays canonical even when the anonymous id sorts first.
+    assert timeline["zed@x.com"] == (1, "zed@x.com", "")
+    assert timeline["0-zed-anon"] == (1, "zed@x.com", "")
     # Post-window merges become evaluation labels, not anchors.
     assert timeline["phone-anna"] == (0, "", "anna@x.com")
     assert timeline["phone-bob"] == (0, "", "bob@x.com")

@@ -151,7 +151,9 @@ export function IdentityMatchingScene(): JSX.Element {
                     size="small"
                 />
                 <div className="ml-auto text-secondary">
-                    {linksCount} link{linksCount === 1 ? '' : 's'}
+                    {links.length < linksCount
+                        ? `Showing ${links.length} of ${linksCount} links`
+                        : `${linksCount} link${linksCount === 1 ? '' : 's'}`}
                 </div>
             </div>
             {!linksResponseLoading && links.length === 0 ? (
