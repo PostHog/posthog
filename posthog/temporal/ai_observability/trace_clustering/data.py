@@ -311,7 +311,7 @@ def fetch_item_metrics(
             WHERE event = '$ai_generation'
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
-                AND toString(uuid) IN {item_ids}
+                AND uuid IN {item_ids}
             LIMIT {max_rows}
             """
         )

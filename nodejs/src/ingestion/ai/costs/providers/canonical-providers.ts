@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-09 20:36:32 UTC
+// Generated at: 2026-06-10 20:49:17 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -40,7 +40,7 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crucible'
+    | 'decart-fp4'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -147,5 +147,5 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xiaomi-fp8'
-    | 'z-ai'
+    | 'z-ai-fp4'
     | 'z-ai-fp8'

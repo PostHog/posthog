@@ -38,7 +38,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -62,9 +61,6 @@ describe('LLM analytics URL split', () => {
         )
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
-        )
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
-            '/prompt-management/skills/skill-1'
         )
     })
 
