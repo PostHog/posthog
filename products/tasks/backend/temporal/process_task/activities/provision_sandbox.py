@@ -353,14 +353,17 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             f"Provisioning sandbox from {prepared.image_source_label} (image build may take a few minutes on first run)",
         )
 
+        # The VM template bakes in Docker (and forces the VM runtime), so the agent
+        # can run nested containers; the default template has neither.
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
             metadata={"task_id": ctx.task_id},
-            vm_runtime=ctx.use_modal_vm_sandbox,
+            vm_runtime=use_vm_sandbox,
         )
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
