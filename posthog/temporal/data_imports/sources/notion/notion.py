@@ -34,12 +34,14 @@ MAX_CHILD_PAGES_PER_PARENT = 50
 
 MAX_RETRY_WAIT_SECONDS = 30.0
 
-# Upper bound for honoring Notion's server-provided Retry-After on 429s. Notion can ask us to wait
-# several minutes when a workspace is heavily throttled; capping below the requested value just
-# guarantees the retry fires while still rate limited and burns the attempt. Waiting it out in-process
-# is safe: the source generator runs on a worker thread while the activity's heartbeater keeps ticking
-# in the event loop, and the activity's start_to_close_timeout is far larger than this bound.
-MAX_RETRY_AFTER_WAIT_SECONDS = 900.0
+# Notion returns large Retry-After values (we've observed ~460s) when an integration is sustained
+# rate limited. Honor them up to this bound rather than clipping to the 30s exponential-backoff cap:
+# the import activity heartbeats from an independent background task, so a long wait in the request
+# thread does not risk the activity's heartbeat timeout. Clipping to 30s meant we retried while
+# Notion was still rate limiting — exhausting the retries, failing the sync, and hammering an API
+# that asked us to back off (which only prolongs the limit). Honoring the full Retry-After lets the
+# window clear so the next attempt succeeds.
+MAX_RETRY_AFTER_WAIT_SECONDS = 600.0
 
 
 class NotionRetryableError(Exception):
@@ -80,7 +82,8 @@ _wait_exponential = wait_exponential_jitter(initial=1, max=MAX_RETRY_WAIT_SECOND
 
 
 def _wait_strategy(retry_state: RetryCallState) -> float:
-    # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
+    # Honor Notion's Retry-After on 429s (bounded by MAX_RETRY_AFTER_WAIT_SECONDS); fall back to
+    # exponential backoff otherwise.
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
         return min(exc.retry_after, MAX_RETRY_AFTER_WAIT_SECONDS)
