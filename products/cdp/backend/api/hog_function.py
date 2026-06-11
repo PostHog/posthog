@@ -1,10 +1,8 @@
 import json
 from typing import Any, Optional, cast
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import F, Q, QuerySet, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Q, QuerySet
 
 import structlog
 import posthoganalytics
@@ -23,7 +21,7 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
@@ -36,13 +34,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -72,7 +64,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
     tokens: serializers.IntegerField = serializers.IntegerField()
 
 
-class HogFunctionMinimalSerializer(serializers.ModelSerializer):
+class HogFunctionMinimalSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     template = HogFunctionTemplateSerializer(read_only=True)
@@ -94,6 +86,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "template",
             "status",
             "execution_order",
+            "search_match_type",
         ]
         read_only_fields = fields
 
@@ -176,6 +169,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order",
             "_create_in_folder",
             "batch_export_id",
+            "search_match_type",
         ]
         read_only_fields = [
             "id",
@@ -505,33 +499,12 @@ class HogFunctionViewSet(
     @staticmethod
     @tracer.start_as_current_span("HogFunctionViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("hog_function.search.length", len(search))
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="hog_function.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            tiebreakers=("name",),
         )
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

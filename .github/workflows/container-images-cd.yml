@@ -21,7 +21,8 @@ on:
 jobs:
     posthog_build:
         name: Build and push PostHog
-        if: github.repository == 'PostHog/posthog'
+        # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-latest
         # Bumped from 30: the deploy dispatch now waits for backend CI on this commit
         # before firing, so the job stays alive through the build + the wait window.
