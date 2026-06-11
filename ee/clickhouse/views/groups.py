@@ -42,6 +42,7 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -148,7 +149,8 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
     @extend_schema(responses={200: GroupTypeSerializer(many=True)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         # Served from the cached, personhog-routed helper instead of the persons DB
-        rows = get_group_types_for_project(self.team.project_id)
+        with personhog_caller_tag("groups/group-types-list"):
+            rows = get_group_types_for_project(self.team.project_id)
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
