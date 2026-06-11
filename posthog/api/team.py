@@ -585,6 +585,22 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     return token
 
 
+def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Any | None:
+    if serializer.instance is not None:
+        team = (
+            serializer.instance.passthrough_team
+            if hasattr(serializer.instance, "passthrough_team")
+            else serializer.instance
+        )
+        return team.organization
+
+    get_organization = serializer.context.get("get_organization")
+    if callable(get_organization):
+        return get_organization()
+
+    return None
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
 
@@ -1170,7 +1186,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     VALID_RETENTION_DAYS = {14, 30, 90}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
-        if value is None or not self.instance:
+        if value is None:
             return value
 
         new_retention = value.get("retention_days")
@@ -1179,19 +1195,22 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
             )
 
-        logs_settings = (
-            self.instance.passthrough_team.logs_settings
-            if hasattr(self.instance, "passthrough_team")
-            else self.instance.logs_settings
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
         )
+        logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
         if new_retention is not None and old_retention != new_retention:
             required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
-            if required_feature and not self.instance.organization.is_feature_available(required_feature):
-                raise exceptions.PermissionDenied(
-                    f"This organization does not have permission to set Logs retention to {new_retention} days."
-                )
+            if required_feature:
+                organization = _get_organization_for_logs_settings_check(self)
+                if organization is None or not organization.is_feature_available(required_feature):
+                    raise exceptions.PermissionDenied(
+                        f"This organization does not have permission to set Logs retention to {new_retention} days."
+                    )
 
         # Only validate retention throttling if we have an existing retention setting
         if self.instance and logs_settings:
