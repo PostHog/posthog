@@ -2,16 +2,12 @@ import json
 import time
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 
-from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
 from rest_framework.test import APIClient
-
-from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY as _RSA_KEY
 
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
@@ -20,12 +16,9 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):

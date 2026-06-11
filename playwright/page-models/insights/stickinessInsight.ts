@@ -70,6 +70,9 @@ export class StickinessInsight extends ChartInsightBase {
         await expect(async () => {
             await this.dateRangeButton.click({ timeout: 500 })
             await this.page.getByTestId(dataAttr).click({ timeout: 500 })
+            // Verify the selection actually applied — an edit-mode remount can
+            // swallow the click, leaving the old range. Retry the whole open+click.
+            await expect(this.dateRangeButton).toContainText(text, { timeout: 1000 })
         }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }

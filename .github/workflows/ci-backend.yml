@@ -157,6 +157,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
@@ -205,6 +206,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - conftest.py # Root conftest loads for every pytest run
                         - .test_durations
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'

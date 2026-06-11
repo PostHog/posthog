@@ -60,6 +60,7 @@
     (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
     (literal (string-append (param "HOME") "/.gitconfig"))
@@ -72,6 +73,11 @@
 (deny file-read*
     (literal (string-append (param "HOME") "/.cargo/credentials"))
     (literal (string-append (param "HOME") "/.cargo/credentials.toml")))
+
+;; Keep DuckDB persistent secrets (CREATE PERSISTENT SECRET — unencrypted cloud
+;; credentials) blocked even though ~/.duckdb is allowed above.
+(deny file-read*
+    (subpath (string-append (param "HOME") "/.duckdb/stored_secrets")))
 
 ;; ── Writes ────────────────────────────────────────────────────────────
 ;; Writes stay broadly allowed (the stack writes caches, build output, /tmp),
