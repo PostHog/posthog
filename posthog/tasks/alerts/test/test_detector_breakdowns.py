@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -12,6 +13,7 @@ from posthog.schema import (
     ChartDisplayType,
     EventsNode,
     IntervalType,
+    NodeKind,
     TrendsFilter,
     TrendsQuery,
 )
@@ -289,6 +291,19 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         result = evaluate_with_detector(extraction, ZSCORE_DETECTOR_CONFIG)
         assert result.value is None
         assert result.breaches == []
+
+    @parameterized.expand(
+        [
+            ("hogql", NodeKind.HOG_QL_QUERY),
+            ("funnels", NodeKind.FUNNELS_QUERY),
+        ]
+    )
+    def test_detector_alert_on_unsupported_kind_raises(self, _name: str, kind: NodeKind) -> None:
+        # Detector alerts are trends-only: a detector_config on any other insight kind is rejected
+        # loudly via the DETECTOR_EXTRACTORS miss, not silently routed to the threshold path.
+        alert = _make_alert(MagicMock(), ZSCORE_DETECTOR_CONFIG)
+        with pytest.raises(NotImplementedError):
+            check_detector_alert(alert, MagicMock(spec=Insight), {"kind": kind})
 
 
 class TestSimulateDetectorBreakdowns:
