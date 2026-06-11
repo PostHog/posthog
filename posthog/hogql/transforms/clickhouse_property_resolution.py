@@ -97,8 +97,9 @@ def resolve_materialized_property_source(
         return None
 
     # Property-level access control: a restricted property must never resolve to a backing column, on any path (value
-    # read, comparison, key-existence). The column holds the raw value and bypasses the printer's JSONDropKeys blob
-    # scrub, so reading or comparing it directly would leak the value. Declining here forces the scrubbed JSON path.
+    # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
+    # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
+    # itself becomes a constant NULL in `_substitute_value_read`.
     if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
@@ -289,7 +290,8 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     """The backing-column read for a `JSONFieldAccess`, or None to leave it as the JSON extract.
 
     Picks the column and builds the read (the numeric/boolean cast is not handled here — it already wraps this node).
-    Returns None when the property has no backing column or is access-restricted.
+    Returns a constant NULL for an access-restricted property, or None when the property has no precomputed column
+    (materialized, dmat, or property group) to read from — in which case it stays a raw JSON extract.
     """
     field_type = _blob_field_type_of(node)
     # Lowering builds every JSONFieldAccess with the blob FieldType on `expr` and a non-empty key path. Assert the
@@ -299,10 +301,12 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     first_key = str(node.keys[0])
     deeper_keys: list[str | int] = list(node.keys[1:])
 
-    # Access control: a restricted property must not be read from its materialized column. Decline, so it stays a JSON
-    # read — which the printer strips the restricted key from, collapsing the value to ''.
+    # Access control: a restricted property reads as NULL. The blob path would compute the same value — the printer's
+    # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
+    # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
+    # restricted property never read the backing column either; their operand falls through to this same NULL.)
     if first_key in restricted_property_keys_for_table_type(field_type.table_type, context):
-        return None
+        return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     source = resolve_materialized_property_source(field_type, first_key, context)
     if source is None:
