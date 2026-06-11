@@ -629,6 +629,7 @@ export default function SchemaForm(): JSX.Element {
                     <div className="flex flex-col gap-2">
                         <h4 className="font-semibold mb-0">Columns to sync</h4>
                         <ColumnSelectionPicker
+                            hideActions
                             schema={
                                 columnSelectionSchema
                                     ? {
@@ -645,7 +646,7 @@ export default function SchemaForm(): JSX.Element {
                                       }
                                     : null
                             }
-                            onSave={(enabledColumns) => {
+                            onChange={(enabledColumns) => {
                                 if (columnSelectionSchema) {
                                     setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
                                 }
@@ -655,6 +656,7 @@ export default function SchemaForm(): JSX.Element {
                     <div className="flex flex-col gap-2">
                         <h4 className="font-semibold mb-0">Row filters</h4>
                         <RowFilterEditor
+                            hideActions
                             schema={
                                 columnSelectionSchema
                                     ? {
@@ -669,7 +671,7 @@ export default function SchemaForm(): JSX.Element {
                                       }
                                     : null
                             }
-                            onSave={(rowFilters) => {
+                            onChange={(rowFilters) => {
                                 if (columnSelectionSchema) {
                                     setSchemaRowFilters(columnSelectionSchema, rowFilters)
                                 }

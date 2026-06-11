@@ -24,10 +24,10 @@ export interface RowFilterTarget {
 
 interface RowFilterEditorProps {
     schema: RowFilterTarget | null
-    onSave: (rowFilters: RowFilter[] | null) => void
-    /** Hide the Save/Reset footer (the wizard drives saving itself). */
+    onSave?: (rowFilters: RowFilter[] | null) => void
+    /** Hide the Save/Reset footer (a parent drives saving itself). */
     hideActions?: boolean
-    /** Called on every edit when `hideActions` is set, so a parent can persist on its own. */
+    /** Fires on every edit, so a parent can drive saving with its own button. */
     onChange?: (rowFilters: RowFilter[] | null) => void
 }
 
@@ -176,7 +176,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => onSave(filters.length ? filters : null)}
+                        onClick={() => onSave?.(filters.length ? filters : null)}
                         disabledReason={hasErrors ? 'Fix the highlighted filters first' : undefined}
                     >
                         Save
