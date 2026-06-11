@@ -149,8 +149,12 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 
 
 def _get_insight_type(insight: Insight) -> str:
-    """Return a normalized lowercase insight type string for analytics."""
-    return insight.get_analytics_type()
+    """Return a normalized lowercase insight type string for analytics (used by the dashboard tile event)."""
+    if insight.query:
+        source = insight.query.get("source", insight.query)
+        kind = source.get("kind", "") if isinstance(source, dict) else ""
+        return kind.replace("Query", "").lower() if kind else "json"
+    return str(insight.filters.get("insight", "TRENDS")).lower()
 
 
 def log_and_report_insight_activity(
@@ -191,7 +195,7 @@ def log_and_report_insight_activity(
                 f"insight {activity}",
                 {
                     "insight_id": insight_short_id,
-                    "insight_type": insight.get_analytics_type(),
+                    **insight.get_analytics_query_kinds(),
                     **insight.get_analytics_query_metadata(),
                 },
                 team=team,
@@ -1823,8 +1827,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 request.user,
                 "insight read",
                 # Sibling `insight created/updated/deleted` events store the short_id under `insight_id`;
-                # match that so reads correlate with the rest of the insight lifecycle.
-                {"insight_id": instance.short_id, "insight_type": instance.get_analytics_type()},
+                # match that (plus query/source kind) so reads correlate with the rest of the lifecycle.
+                {"insight_id": instance.short_id, **instance.get_analytics_query_kinds()},
                 team=self.team,
                 request=request,
             )

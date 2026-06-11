@@ -153,15 +153,25 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 capture_exception(e)
         super().save(*args, **kwargs)
 
-    def get_analytics_type(self) -> str:
-        """Return a normalized lowercase insight type for analytics (e.g. "trends", "funnels", "hogql")."""
-        if self.query:
-            # Query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", "HogQLQuery", etc.
-            source = self.query.get("source", self.query)
-            kind = source.get("kind", "") if isinstance(source, dict) else ""
-            return kind.replace("Query", "").lower() if kind else "json"
-        # Legacy filter-based insight
-        return str(self.filters.get("insight", "TRENDS")).lower()
+    def get_analytics_query_kinds(self) -> dict[str, str]:
+        """
+        Top-level node kind (`query_kind`, e.g. "InsightVizNode"/"DataTableNode") and source kind
+        (`query_source_kind`, e.g. "TrendsQuery"/"HogQLQuery") for analytics, read straight off the stored
+        query. Covers every query (HogQL/table included). Reliable because the backend has the full query —
+        unlike the web view path, which passes a bare source node.
+        """
+        query = self.query if isinstance(self.query, dict) else None
+        if not query:
+            return {}
+        result: dict[str, str] = {}
+        query_kind = query.get("kind")
+        if query_kind:
+            result["query_kind"] = query_kind
+        source = query.get("source")
+        source_kind = source.get("kind") if isinstance(source, dict) else None
+        if source_kind:
+            result["query_source_kind"] = source_kind
+        return result
 
     # Insight query kinds for which the rich query metadata below is meaningful — mirrors the frontend
     # `sanitizeQuery` gate (isInsightVizNode || isInsightQueryNode).

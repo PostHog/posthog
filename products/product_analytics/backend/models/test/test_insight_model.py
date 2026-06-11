@@ -327,6 +327,31 @@ class TestInsightModel(BaseTest):
     def test_get_analytics_query_metadata_is_empty_for_non_insight_queries(
         self, _name: str, query: dict | None
     ) -> None:
-        # Non-insight queries (raw SQL/table) carry no series/breakdown/etc., so we emit only insight_type elsewhere.
+        # Non-insight queries (raw SQL/table) carry no series/breakdown/etc., so they emit only the kinds.
         insight = Insight.objects.create(team=self.team, query=query)
         assert insight.get_analytics_query_metadata() == {}
+
+    @parameterized.expand(
+        [
+            (
+                "wrapped_trends",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                {"query_kind": "InsightVizNode", "query_source_kind": "TrendsQuery"},
+            ),
+            (
+                "hogql_via_data_visualization",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}},
+                {"query_kind": "DataVisualizationNode", "query_source_kind": "HogQLQuery"},
+            ),
+            (
+                "data_table_events",
+                {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}},
+                {"query_kind": "DataTableNode", "query_source_kind": "EventsQuery"},
+            ),
+            ("bare_hogql_no_source", {"kind": "HogQLQuery"}, {"query_kind": "HogQLQuery"}),
+            ("no_query", None, {}),
+        ]
+    )
+    def test_get_analytics_query_kinds(self, _name: str, query: dict | None, expected: dict) -> None:
+        insight = Insight.objects.create(team=self.team, query=query)
+        assert insight.get_analytics_query_kinds() == expected

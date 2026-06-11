@@ -9,7 +9,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import { getEventPropertiesForMetric, normalizedInsightType } from './eventUsageLogic'
+import { getEventPropertiesForMetric } from './eventUsageLogic'
 
 describe('getEventPropertiesForMetric', () => {
     describe('ExperimentMetric (new format)', () => {
@@ -207,46 +207,6 @@ describe('getEventPropertiesForMetric', () => {
 
             expect(result.funnel_steps_count).toBe(0)
             expect(result.property_filter_count).toBe(0)
-        })
-    })
-
-    describe('normalizedInsightType', () => {
-        // Pins the web normalization to the backend `Insight.get_analytics_type()` contract so the two
-        // never drift. Each kind maps to the same lowercase, "Query"-stripped value on both sides.
-        it.each([
-            [
-                'InsightVizNode → TrendsQuery',
-                { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery } },
-                'trends',
-            ],
-            [
-                'InsightVizNode → FunnelsQuery',
-                { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.FunnelsQuery } },
-                'funnels',
-            ],
-            [
-                'DataVisualizationNode → HogQLQuery',
-                { kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery } },
-                'hogql',
-            ],
-            [
-                'DataTableNode → EventsQuery',
-                { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery } },
-                'events',
-            ],
-            ['bare HogQLQuery', { kind: NodeKind.HogQLQuery }, 'hogql'],
-            [
-                'present-but-empty kind falls back to json',
-                { kind: NodeKind.DataVisualizationNode, source: { kind: '' } },
-                'json',
-            ],
-        ])('maps %s', (_name, query, expected) => {
-            expect(normalizedInsightType(query as any)).toBe(expected)
-        })
-
-        it('returns undefined for an absent query', () => {
-            expect(normalizedInsightType(null)).toBeUndefined()
-            expect(normalizedInsightType(undefined)).toBeUndefined()
         })
     })
 

@@ -246,7 +246,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
                     "insight_id": response_1.json()["short_id"],
-                    "insight_type": "trends",
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
@@ -293,7 +292,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
                     "insight_id": insight_short_id,
-                    "insight_type": "trends",
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
@@ -1506,7 +1504,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_report_user_action.assert_any_call(
             self.user,
             "insight read",
-            {"insight_id": insight_json["short_id"], "insight_type": "hogql"},
+            {
+                "insight_id": insight_json["short_id"],
+                "query_kind": "DataVisualizationNode",
+                "query_source_kind": "HogQLQuery",
+            },
             team=ANY,
             request=ANY,
         )

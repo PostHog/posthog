@@ -270,27 +270,11 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
     }
 }
 
-/**
- * Normalized lowercase insight type for analytics (e.g. "trends", "funnels", "hogql").
- * Mirrors the backend `Insight.get_analytics_type()` so web and server events agree on a single field,
- * and resolves to the same value whether the query is wrapped (InsightVizNode/DataVisualizationNode) or not.
- */
-export function normalizedInsightType(query: Node | null | undefined): string | undefined {
-    if (!query) {
-        return undefined
-    }
-    const kind = isNodeWithSource(query) ? query.source.kind : query.kind
-    // Mirror the backend's "json" fallback for a present-but-unresolvable kind so the field stays
-    // groupable across web and server events. A fully absent query stays undefined (type truly unknown).
-    return kind ? kind.replace(/Query/g, '').toLowerCase() : 'json'
-}
-
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
-        insight_type: normalizedInsightType(query),
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -1224,6 +1208,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...sanitizeQuery(query),
             }
 
+            // The view path passes a bare source node, so sanitizeQuery's `query_kind` historically holds the
+            // *source* kind here (kept unchanged for continuity). Derive the corrected wrapper + source from the
+            // full stored query so `query_kind_fixed`/`query_source_kind` are reliable.
+            const modelQuery = insightModel.query as Node | null | undefined
+            if (modelQuery) {
+                payload.query_kind_fixed = modelQuery.kind
+                payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : modelQuery.kind
+            }
+
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, objectClean({ ...payload, source: 'web' }))
         },
@@ -1535,7 +1528,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
-                insight_type: normalizedInsightType(insight?.query),
                 dashboard_id: dashboardId,
             })
         },
