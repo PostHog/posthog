@@ -975,7 +975,7 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PingdomSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
