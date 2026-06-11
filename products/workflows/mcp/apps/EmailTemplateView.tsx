@@ -55,7 +55,7 @@ export function EmailTemplateView({ template }: EmailTemplateViewProps): ReactEl
                     <CardContent className="p-0 overflow-hidden">
                         {html ? (
                             // srcDoc keeps the email self-contained; omitting allow-scripts neutralises any
-                            // <script> in the AI-generated html.
+                            // <script> in the template html.
                             <iframe
                                 srcDoc={html}
                                 sandbox="allow-same-origin"
