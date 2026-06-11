@@ -44,8 +44,8 @@ tools:
         description: >
             List UI field notes a user made with the PostHog toolbar on their own site. Each field note is feedback
             pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter
-            by `note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
-            `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.
+            by `note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by `host` to
+            scope to one site. Use this to pick up pending design/UX feedback to act on.
         response:
             include:
                 - id
