@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Union, cast
 
 import structlog
+from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -333,7 +334,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - timedelta(days=5 * 366)),
+                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
                 )
             )
         else:

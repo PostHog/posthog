@@ -989,6 +989,69 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         actual = [r["session_id"] for r in result.results]
         assert actual == ([old_session_id] if expect_found else [])
 
+    def test_empty_session_ids_list_still_matches_nothing(self) -> None:
+        self._an_old_recording()
+
+        self._assert_query_matches_session_ids({"session_ids": []}, [])
+
+    def test_retention_bound_cannot_hide_live_recordings(self) -> None:
+        # a recording older than the 5y bound is necessarily past the longest retention period,
+        # so the partition-pruning bound can never exclude a recording that is still viewable
+        user = "test_retention_bound-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        six_years_ago = self.an_hour_ago - relativedelta(years=6)
+        ancient_session_id = str(uuid4())
+        produce_replay_summary(
+            session_id=ancient_session_id,
+            team_id=self.team.pk,
+            first_timestamp=six_years_ago,
+            last_timestamp=six_years_ago + relativedelta(minutes=5),
+            distinct_id=user,
+            retention_period_days=1826,
+        )
+
+        self._assert_query_matches_session_ids({"session_ids": [ancient_session_id]}, [])
+
+    @parameterized.expand(
+        [
+            ("default_window_excludes_events", None, False),
+            ("wide_window_includes_events", "-30d", True),
+        ]
+    )
+    def test_event_filters_bound_session_ids_queries_by_date(
+        self, _name: str, date_from: str | None, expect_found: bool
+    ) -> None:
+        # event subqueries scan the events table within the query date range, so event-filtered
+        # session_ids lookups only match when the range covers the session's events
+        user = "test_session_ids_event_window-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        ten_days_ago = self.an_hour_ago - relativedelta(days=10)
+        old_session_id = str(uuid4())
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=ten_days_ago,
+            properties={"$session_id": old_session_id, "$window_id": str(uuid4())},
+        )
+        produce_replay_summary(
+            session_id=old_session_id,
+            team_id=self.team.pk,
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago + relativedelta(minutes=5),
+            distinct_id=user,
+        )
+
+        query: dict = {
+            "session_ids": [old_session_id],
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        }
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        self._assert_query_matches_session_ids(query, [old_session_id] if expect_found else [])
+
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
         self,
