@@ -16,7 +16,6 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
-    stacktraceHasInAppFrames,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -70,7 +69,6 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (properties: ErrorEventProperties) => (properties ? getFingerprintRecords(properties) : []),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
-        hasInAppFrames: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasInAppFrames(excList)],
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
@@ -135,10 +133,6 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     })),
 ])
 
-function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktraceHasInAppFrames(stacktrace))
-}
-
 function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+    return exceptionList.some((e) => !!e.stacktrace)
 }

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import {
@@ -70,7 +70,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         beforeAll(async () => {
             console.log('Creating Clickhouse client')
             clickhouse = Clickhouse.create()
-            await resetKafka()
+            await ensureKafkaTopics(TEST_KAFKA_TOPICS)
             await resetTestDatabase()
             await clickhouse.resetTestDatabase()
             await waitForClickHouseKafkaConsumer(clickhouse)

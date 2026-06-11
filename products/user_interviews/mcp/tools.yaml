@@ -224,6 +224,9 @@ tools:
             - invite_subject
             - invite_message
         feature_flag: user-interviews
+    user-interview-topics-preview-invite-create:
+        operation: user_interview_topics_preview_invite_create
+        enabled: false
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
         enabled: true
@@ -272,7 +275,10 @@ tools:
             on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a
             button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in
             the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per
-            share via the messaging system's idempotency record, and a token rotation produces a fresh send key.
+            share via the messaging system's idempotency record, and a token rotation produces a fresh send key. Email
+            delivery is intentionally capped at 500 recipients per send (and rate-limited per team). For larger
+            audiences, don't loop this — use user-interview-topics-generate-links (or the links CSV export) to get one
+            public link per interviewee and mail-merge them through your own email tooling instead.
         include_params:
             - subject
             - reply_to

@@ -9,15 +9,12 @@ description: >
   weights by real blast radius (cross-referencing actual event volume and reach), and
   prioritizes issues an agent can resolve via the MCP. Emits only above the confidence
   bar; otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet — picked uniformly at random by the coordinator alongside
-  `signals-scout-general` and other specialists.
+  signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus the health
-  issues read tools (health-issues-summary, health-issues-list, health-issues-get) and
-  standard analytics tools (read-data-schema, query-trends, execute-sql, inbox-reports-list).
+  the signals-scout MCP tool family plus the health-issues read tools and analytics tools
+  listed in the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: health_checks
@@ -40,6 +37,15 @@ fix via the MCP is more actionable than one needing human-held credentials. An i
 been active across several runs (not auto-resolved) is real; one that flickers active/resolved
 is transient noise. Internalize that shape — re-emitting one signal per issue is exactly the
 noise this scout exists to avoid.
+
+**Calibration (dogfooded on a real high-volume project).** A live project with ~180 active
+issues collapsed to ~4 findings under this logic. Most of a ~95-issue `external_data_failure`
+set reduced to a few shared causes — one invalidated replication slot behind many syncs, a
+date-partitioned source regenerating the same "table not found" failure daily — and much of an
+~80-issue `materialized_view_failure` set was abandoned personal dev models nobody will fix.
+Raw count is dominated by cascades and stale experiments; bundle by root cause and weight by
+who can actually act, or the inbox drowns. This is the discriminator working as intended, not
+an edge case.
 
 ## Quick close-out: is anything actually wrong?
 
@@ -77,7 +83,11 @@ Cycle between these moves; skip what's not useful.
 
 ### Severity-to-kind cheat sheet
 
-The checks set severity; use it as a starting prior, then adjust by real impact.
+The checks set severity; use it as a starting prior, then adjust by real impact. This table is
+**illustrative, not exhaustive** — the live `health-issues-summary` is the source of truth for
+which kinds are actually firing, and new check kinds appear over time without this list being
+updated. Treat an unfamiliar kind on its own terms (read the payload + `remediation`) rather
+than assuming it's absent because it isn't here.
 
 | Kind                        | Typical severity | What it means / how to weight                                           |
 | --------------------------- | ---------------- | ----------------------------------------------------------------------- |
@@ -107,7 +117,7 @@ The checks set severity; use it as a starting prior, then adjust by real impact.
 to read the `payload` and the trusted `remediation` (`human` + `agent`). A `no_live_events`
 critical is the strongest single finding this scout produces — confirm with
 `query-trends`/`execute-sql` that `$pageview`/`$screen` volume actually collapsed (not just
-a quiet weekend), then emit high-weight with the remediation summarized in the description.
+a quiet weekend), then emit with the remediation summarized in the description.
 
 #### 2. Kind clusters → one bundled finding
 
@@ -132,14 +142,14 @@ one-per-kind when a kind hides several causes.
 #### 3. Weight by real blast radius
 
 The check fires the same way for a 10-pageview hobby project and a 10M-pageview product.
-**You** set the weight. Before emitting a web-instrumentation issue (`web_vitals`,
+**You** judge the real blast radius before emitting. Before emitting a web-instrumentation issue (`web_vitals`,
 `reverse_proxy`, `partial_proxy`, `no_pageleave_events`, `scroll_depth`), confirm with
 `query-trends`/`read-data-schema` that the underlying traffic is non-trivial — a
 `reverse_proxy` warning on a project doing millions of pageviews is materially different from
 one doing a hundred. For `sdk_outdated`, check via `execute-sql` what share of recent traffic
 still flows from the outdated `$lib`/`$lib_version` (`SELECT properties.$lib_version, count()
 FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC`); a version
-nobody sends from anymore is low weight even if flagged.
+nobody sends from anymore is low priority even if flagged.
 
 #### 4. Agent-fixability triage
 
@@ -163,7 +173,7 @@ duplicating a finding a specialist already raised.
 
 Write scratchpad entries continuously, encoding the category in the key prefix:
 
-- `dedupe:health:<issue_id>` — "surfaced {kind} issue {id} on {date} at weight {w}; re-emit
+- `dedupe:health:<issue_id>` — "surfaced {kind} issue {id} on {date}; re-emit
   only if it escalates or recurs after a resolve."
 - `dedupe:health:cluster:<kind>` — "bundled {kind} cluster of N on {date}; re-emit only if
   count materially grows or a new critical appears."
@@ -179,34 +189,30 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
 - **Emit** via `signals-scout-emit-signal` when a finding clears the bar (confidence ≥ 0.65).
   Put the relevant `remediation` guidance into the description's recommendation sentence, and
   cross-check `inbox-reports-list` first so you don't duplicate an existing report.
-  - `weight` — human attention this deserves, set from _real impact_, **not** the check's
-    severity: `0.85–1.0` confirmed active impact with wide blast radius (e.g. `no_live_events`
-    with a verified capture collapse); `0.65–0.84` a material systemic cluster worth acting on
-    today; `0.4–0.64` a confirmed but contained or low-traffic issue; below `0.4` don't emit —
-    write memory.
   - `confidence` — is it real: `0.85+` corroborated by a second query and verified not already
     covered; `0.65–0.84` one strong signal with minor unknowns; below `0.65` don't emit, write
     memory.
   - `finding_id` — a stable trace id (`<topic>-<entity>-<date>`), **not** a dedupe key:
     re-emitting the same id creates a second signal, so never retry an emit that may already
     have succeeded.
-  - `dedupe_keys`: `health_issue:<issue_id>` for a single issue and/or
-    `health_check_kind:<kind>` for a whole-kind cluster. For a sub-type or cascade bundle,
-    key on the **root cause** so future runs group on the cause, not the symptoms — e.g.
-    `ingestion_warning_type:client_ingestion_warning` or
-    `external_data_slot:posthog_019e51352190`. Add per-entity keys for the few ids you name
-    in the description.
+  - `dedupe_keys`: health issues already carry stable, deduplicated ids, so don't add a
+    per-issue key just to restate `issue_id` — cite it in evidence and move on. Reserve
+    `dedupe_keys` for the grouping the checks _don't_ do: a whole-kind cluster
+    (`health_check_kind:<kind>`), or a shared root cause behind many issues keyed on the
+    **cause** so future runs group on it, not the symptoms — e.g.
+    `ingestion_warning_type:<warning_type>` or `external_data_slot:<slot_id>`. A single issue
+    needs no dedupe key at all.
   - `severity`: map check severity to the emit scale — `critical` → P1 (P0 only for confirmed
     active data loss like `no_live_events` with zero recent capture), `warning` → P2–P3.
   - `evidence`: cite issue ids from the health-issues payloads and any corroborating
-    `query_runs` / `error_tracking` / `web_analytics` reads.
+    `query_runs` / `web_analytics` reads.
 - **Remember** below the bar but worth carrying forward (write the matching `dedupe:` /
   `noise:` entry).
 - **Skip** if a `dedupe:` / `noise:` / `addressed:` entry already covers it.
 
 ### Close out
 
-One paragraph: which issues you looked at, what you emitted (and at what weight + why), what
+One paragraph: which issues you looked at, what you emitted (and why), what
 you bundled, what you remembered, what you ruled out. The harness saves this as the run
 summary; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run
 metadata" scratchpad entry. "Looked but found nothing meaningful" is a real outcome.
