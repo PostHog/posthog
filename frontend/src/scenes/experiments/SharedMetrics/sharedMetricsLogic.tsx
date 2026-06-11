@@ -58,7 +58,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         sharedMetrics: [
             [] as SharedMetric[],
             {
-                loadSharedMetrics: async (_, breakpoint) => {
+                loadSharedMetrics: async (_: void, breakpoint) => {
                     const params = toParams({
                         limit: PAGE_SIZE,
                         offset: (values.page - 1) * PAGE_SIZE,

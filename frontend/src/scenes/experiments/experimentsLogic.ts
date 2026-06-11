@@ -269,7 +269,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         experiments: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
-                loadExperiments: async (_, breakpoint) => {
+                loadExperiments: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
                     )
@@ -372,7 +372,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         featureFlagModalFeatureFlags: [
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
-                loadFeatureFlagModalFeatureFlags: async (_, breakpoint) => {
+                loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,

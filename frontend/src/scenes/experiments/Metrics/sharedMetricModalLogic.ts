@@ -115,7 +115,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         sharedMetricsResponse: [
             null as CountedPaginatedResponse<SharedMetric> | null,
             {
-                loadSharedMetrics: async (_, breakpoint) => {
+                loadSharedMetrics: async (_: void, breakpoint) => {
                     const params = toParams({
                         limit: MODAL_PAGE_SIZE,
                         offset: 0,
