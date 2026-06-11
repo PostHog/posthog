@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -28,6 +28,28 @@ export const BusinessKnowledgeDocumentsWindowListQueryParams = /* @__PURE__ */ z
         .number()
         .optional()
         .describe('Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].'),
+})
+
+/**
+ * Read-only access to parsed knowledge documents. Currently exposes only the
+ * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
+ * around a chunk it found via search.
+ */
+export const BusinessKnowledgeDocumentsSearchListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const BusinessKnowledgeDocumentsSearchListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Maximum number of ranked chunks to return. Defaults to 10, capped at 20.'),
+    query: zod
+        .string()
+        .describe(
+            'Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.'
+        ),
 })
 
 export const BusinessKnowledgeSourcesListParams = /* @__PURE__ */ zod.object({

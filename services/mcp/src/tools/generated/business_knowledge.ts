@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    BusinessKnowledgeDocumentsSearchListQueryParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeDocumentsWindowListQueryParams,
     BusinessKnowledgeSourcesCreateBody,
@@ -31,6 +32,28 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
             query: {
                 around_ordinal: params.around_ordinal,
                 radius: params.radius,
+            },
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeDocumentsSearchListSchema = BusinessKnowledgeDocumentsSearchListQueryParams
+
+const businessKnowledgeDocumentsSearchList = (): ToolBase<
+    typeof BusinessKnowledgeDocumentsSearchListSchema,
+    Schemas.KnowledgeSearchResult[]
+> => ({
+    name: 'business-knowledge-documents-search-list',
+    schema: BusinessKnowledgeDocumentsSearchListSchema,
+    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeDocumentsSearchListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.KnowledgeSearchResult[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/documents/search/`,
+            query: {
+                limit: params.limit,
+                query: params.query,
             },
         })
         return result
@@ -145,6 +168,7 @@ const businessKnowledgeSourcesUrlCreate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
+    'business-knowledge-documents-search-list': businessKnowledgeDocumentsSearchList,
     'business-knowledge-sources-list': businessKnowledgeSourcesList,
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,
     'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
