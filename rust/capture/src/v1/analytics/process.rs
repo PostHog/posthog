@@ -53,9 +53,7 @@ pub async fn process_batch(
 
     let mut events = validate_events(context, batch)?;
 
-    // Every event already dropped by validation — skip the rest of the
-    // pipeline (quota limiter, restrictions, overflow, sinks) and return
-    // 200 with per-event drop details immediately.
+    // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
         return Ok(BatchResponse::build(context, &events));
     }
