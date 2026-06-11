@@ -81,11 +81,12 @@ const ZERO_SPAN_ID_B64: &str = "AAAAAAAAAAA=";
 /// - server-generated fields are excluded: `uuid`, and `service_name` (a copy of a
 ///   resource attribute, which is already counted)
 /// - the base64 placeholder for an absent trace/span id is excluded
-/// - `resource_attributes` are counted once per distinct resource, not per row — OTLP
-///   sends the resource block once per batch; we denormalize it onto every row
+/// - `resource_attributes` are counted once per contiguous run of rows sharing them, not
+///   per row — rows are built in OTLP `resource_logs` order, so a run corresponds to one
+///   `ResourceLogs` entry whose resource block appeared once on the wire
 pub fn sum_kafka_log_row_bytes_for_billing(rows: &[KafkaLogRow]) -> u64 {
     let mut total: usize = 0;
-    let mut counted_resources: Vec<&HashMap<String, String>> = Vec::new();
+    let mut last_resource: Option<&HashMap<String, String>> = None;
     for row in rows {
         total = total
             .saturating_add(row.body.len())
@@ -101,8 +102,8 @@ pub fn sum_kafka_log_row_bytes_for_billing(rows: &[KafkaLogRow]) -> u64 {
         for (k, v) in &row.attributes {
             total = total.saturating_add(k.len()).saturating_add(v.len());
         }
-        if !counted_resources.contains(&&row.resource_attributes) {
-            counted_resources.push(&row.resource_attributes);
+        if last_resource != Some(&row.resource_attributes) {
+            last_resource = Some(&row.resource_attributes);
             for (k, v) in &row.resource_attributes {
                 total = total.saturating_add(k.len()).saturating_add(v.len());
             }
@@ -494,6 +495,21 @@ mod tests {
         assert_eq!(
             sum_kafka_log_row_bytes_for_billing(&rows),
             SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE * 2 + SAMPLE_ROW_RESOURCE_BYTES * 2
+        );
+    }
+
+    #[test]
+    fn test_billing_sum_counts_resources_per_contiguous_run() {
+        // A, B, A: the second A run is a separate ResourceLogs entry on the wire,
+        // so its resource block is counted again.
+        let mut other = sample_row();
+        other
+            .resource_attributes
+            .insert("host.name".to_string(), "otherhost".to_string());
+        let rows = [sample_row(), other, sample_row()];
+        assert_eq!(
+            sum_kafka_log_row_bytes_for_billing(&rows),
+            SAMPLE_ROW_BILLING_BYTES_SANS_RESOURCE * 3 + SAMPLE_ROW_RESOURCE_BYTES * 3
         );
     }
 
