@@ -38,6 +38,7 @@ from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_created_by_info,
     get_external_data_source_detail_name,
 )
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -303,6 +304,60 @@ _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 # permanently block host changes. Excluded from the gate but still preserved by the merge: MongoDB
 # connects via `connection_string`, while SQL sources use the individual fields and gate `password`.
 _CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
+
+
+_BIGQUERY_LEGACY_KEY_FILE_FIELDS = ("project_id", "client_email", "private_key", "private_key_id", "token_uri")
+
+
+def migrate_bigquery_key_file_to_integration(
+    source: ExternalDataSource,
+    job_inputs: dict[str, Any],
+    created_by: User | None = None,
+) -> dict[str, Any]:
+    integration_id = job_inputs.get("google_cloud_service_account_integration_id")
+    if integration_id not in (None, ""):
+        migrated_job_inputs = dict(job_inputs)
+        migrated_job_inputs.pop("key_file", None)
+        return migrated_job_inputs
+
+    key_file = job_inputs.get("key_file")
+    if not isinstance(key_file, dict):
+        return job_inputs
+
+    missing_fields = [
+        field
+        for field in _BIGQUERY_LEGACY_KEY_FILE_FIELDS
+        if not isinstance(key_file.get(field), str) or not key_file[field]
+    ]
+    if missing_fields:
+        missing_fields_text = ", ".join(sorted(missing_fields))
+        raise ValidationError(
+            {
+                "job_inputs": {
+                    "key_file": (
+                        "Legacy BigQuery key_file is missing required fields "
+                        f"({missing_fields_text}). Re-upload a valid key file or choose "
+                        "a Google Cloud service account integration."
+                    )
+                }
+            }
+        )
+
+    integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+        team_id=source.team_id,
+        organization_id=str(source.team.organization_id),
+        service_account_email=key_file["client_email"],
+        project_id=key_file["project_id"],
+        private_key=key_file["private_key"],
+        private_key_id=key_file["private_key_id"],
+        token_uri=key_file["token_uri"],
+        created_by=created_by,
+    )
+
+    migrated_job_inputs = dict(job_inputs)
+    migrated_job_inputs["google_cloud_service_account_integration_id"] = integration.id
+    migrated_job_inputs.pop("key_file", None)
+    return migrated_job_inputs
 
 
 def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
@@ -877,6 +932,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 merged_ssh_tunnel["auth"] = merged_auth
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
+
+        if source_type_model == ExternalDataSourceType.BIGQUERY and job_inputs_were_submitted:
+            new_job_inputs = migrate_bigquery_key_file_to_integration(
+                instance,
+                new_job_inputs,
+                request.user if isinstance(request.user, User) else None,
+            )
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:

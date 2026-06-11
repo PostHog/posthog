@@ -22,6 +22,7 @@ import {
 
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
+import { getUploadedFile } from '../../../shared/components/forms/fileUploads'
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -610,31 +611,37 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
 
-                const newJobInputs = {
-                    ...values.source?.job_inputs,
-                    ...sanitizedPayload,
-                }
-
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
                     for (const field of sourceFieldConfig.fields) {
-                        if (field.type === 'file-upload' && sanitizedPayload[field.name]) {
+                        if (field.type === 'file-upload') {
+                            const uploadedFile = getUploadedFile(sanitizedPayload[field.name])
+                            if (!uploadedFile) {
+                                delete sanitizedPayload[field.name]
+                                continue
+                            }
+
                             try {
                                 // Assumes we're loading a JSON file
                                 const loadedFile: string = await new Promise((resolve, reject) => {
                                     const fileReader = new FileReader()
                                     fileReader.onload = (e) => resolve(e.target?.result as string)
                                     fileReader.onerror = (e) => reject(e)
-                                    fileReader.readAsText(sanitizedPayload[field.name][0])
+                                    fileReader.readAsText(uploadedFile)
                                 })
-                                newJobInputs[field.name] = JSON.parse(loadedFile)
+                                sanitizedPayload[field.name] = JSON.parse(loadedFile)
                             } catch {
                                 lemonToast.error('File is not valid')
                                 return
                             }
                         }
                     }
+                }
+
+                const newJobInputs = {
+                    ...values.source?.job_inputs,
+                    ...sanitizedPayload,
                 }
 
                 try {

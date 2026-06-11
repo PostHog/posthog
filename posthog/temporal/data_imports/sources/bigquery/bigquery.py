@@ -15,14 +15,21 @@ import typing
 import contextlib
 import collections
 import collections.abc
+from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any
 
+import boto3
 import pyarrow as pa
 import structlog
+from django.conf import settings
 from google.api_core.exceptions import Forbidden, NotFound
+from google.auth import aws as google_auth_aws
+from google.auth import credentials as google_auth_credentials
+from google.auth import exceptions as google_auth_exceptions
+from google.auth import impersonated_credentials as google_auth_impersonated_credentials
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -47,10 +54,12 @@ from posthog.temporal.data_imports.sources.common.sql.implementation import SQLS
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.common.sql.projection import format_projected_select_clause
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BigQueryAuthInfo",
     "BigQueryImplementation",
     "bigquery_client",
     "bigquery_storage_read_client",
@@ -58,12 +67,14 @@ __all__ = [
     "delete_all_temp_destination_tables",
     "delete_table",
     "filter_bigquery_incremental_fields",
+    "resolve_bigquery_auth",
     "validate_bigquery_credentials",
 ]
 
 # Host used both to build the Storage Read API gRPC channel and to label the
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
+BIGQUERY_SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -92,16 +103,99 @@ def _resolve_dataset_project_id(config: BigQuerySourceConfig) -> str | None:
     return None
 
 
-@contextlib.contextmanager
-def bigquery_client(
-    project_id: str,
-    location: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
-) -> typing.Iterator[bigquery.Client]:
-    """Manage a BigQuery client."""
+@dataclass(frozen=True)
+class BigQueryAuthInfo:
+    project_id: str
+    credentials: google_auth_credentials.Credentials
+
+
+class Boto3CredentialsSupplier(google_auth_aws.AwsSecurityCredentialsSupplier):
+    """Resolve AWS credentials for Google impersonated credentials using boto3."""
+
+    def __init__(self, session: boto3.Session | None = None) -> None:
+        self.session = session or boto3.Session()
+
+    def get_aws_security_credentials(
+        self, context: google_auth_aws.AwsSecurityCredentialsSupplierContext, request
+    ) -> google_auth_aws.AwsSecurityCredentials:
+        session_credentials = self.session.get_credentials()
+        if session_credentials is None:
+            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        credentials = session_credentials.get_frozen_credentials()
+
+        if credentials.access_key is None:
+            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        if credentials.secret_key is None:
+            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        return google_auth_aws.AwsSecurityCredentials(credentials.access_key, credentials.secret_key, credentials.token)
+
+    def get_aws_region(self, context: google_auth_aws.AwsSecurityCredentialsSupplierContext, request) -> str:
+        region_name = self.session.region_name
+        if not region_name:
+            raise google_auth_exceptions.RefreshError("AWS region not populated", retryable=False)
+        return region_name
+
+
+def _get_posthog_google_cloud_credentials() -> google_auth_impersonated_credentials.Credentials:
+    sts_audience = getattr(settings, "BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD", None)
+    target_principal = getattr(settings, "BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", None)
+    if not isinstance(sts_audience, str) or not sts_audience:
+        raise ValueError("Google Cloud impersonation is not configured on this instance")
+    if not isinstance(target_principal, str) or not target_principal:
+        raise ValueError("Google Cloud impersonation is not configured on this instance")
+
+    return google_auth_impersonated_credentials.Credentials(
+        source_credentials=google_auth_aws.Credentials(
+            audience=sts_audience,
+            subject_token_type="urn:ietf:params:aws:token-type:aws4_request",
+            token_url="https://sts.googleapis.com/v1/token",
+            aws_security_credentials_supplier=Boto3CredentialsSupplier(),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        ),
+        target_principal=target_principal,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        lifetime=3600,
+    )
+
+
+def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
+    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    if integration is None:
+        raise ValueError(f"Google Cloud service account integration with id '{integration_id}' not found")
+    if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+        raise ValueError("Integration is not a Google Cloud service account integration")
+
+    gcp_integration = GoogleCloudServiceAccountIntegration(integration)
+    if gcp_integration.has_key():
+        credentials = service_account.Credentials.from_service_account_info(
+            gcp_integration.service_account_info, scopes=BIGQUERY_SCOPES
+        )
+    else:
+        credentials = google_auth_impersonated_credentials.Credentials(
+            source_credentials=_get_posthog_google_cloud_credentials(),
+            target_principal=gcp_integration.service_account_email,
+            target_scopes=BIGQUERY_SCOPES,
+            lifetime=3600,
+        )
+
+    return BigQueryAuthInfo(project_id=gcp_integration.project_id, credentials=credentials)
+
+
+def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInfo:
+    if config.key_file is None:
+        raise ValueError("Missing BigQuery key_file configuration")
+
+    project_id = config.key_file.project_id
+    private_key = config.key_file.private_key
+    private_key_id = config.key_file.private_key_id
+    client_email = config.key_file.client_email
+    token_uri = config.key_file.token_uri
+    if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
+        raise ValueError("Missing required fields in BigQuery key_file configuration")
+
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -110,8 +204,24 @@ def bigquery_client(
             "client_email": client_email,
             "project_id": project_id,
         },
-        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
+        scopes=BIGQUERY_SCOPES,
     )
+    return BigQueryAuthInfo(project_id=project_id, credentials=credentials)
+
+
+def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int) -> BigQueryAuthInfo:
+    if config.google_cloud_service_account_integration_id is not None:
+        return _resolve_auth_from_integration(int(config.google_cloud_service_account_integration_id), team_id)
+    return _resolve_auth_from_key_file(config)
+
+
+@contextlib.contextmanager
+def bigquery_client(
+    project_id: str,
+    location: str | None,
+    credentials: google_auth_credentials.Credentials,
+) -> typing.Iterator[bigquery.Client]:
+    """Manage a BigQuery client."""
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
@@ -133,21 +243,8 @@ def bigquery_client(
 
 
 @contextlib.contextmanager
-def bigquery_storage_read_client(
-    project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
-):
+def bigquery_storage_read_client(credentials: google_auth_credentials.Credentials):
     """Manage a BigQuery Storage client."""
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "token_uri": token_uri,
-            "client_email": client_email,
-            "project_id": project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
-    )
-
     # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
     # interceptors, then hand it to the transport. Passing a `channel` makes the
     # transport ignore credentials, so they must already be baked into the channel
@@ -172,12 +269,9 @@ def delete_table(
     table_id: str,
     project_id: str,
     location: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
+    credentials: google_auth_credentials.Credentials,
 ) -> None:
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, credentials) as bq:
         bq.delete_table(table_id, not_found_ok=True)
 
 
@@ -187,13 +281,10 @@ def delete_all_temp_destination_tables(
     project_id: str,
     location: str | None,
     dataset_project_id: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
+    credentials: google_auth_credentials.Credentials,
     logger: None | FilteringBoundLogger,
 ) -> None:
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, credentials) as bq:
         try:
             tables = bq.list_tables(bq.dataset(dataset_id, project=dataset_project_id or project_id))
             for table in tables:
@@ -241,18 +332,13 @@ def filter_bigquery_incremental_fields(
 
 
 def validate_bigquery_credentials(
-    dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None, location: str | None
+    dataset_id: str,
+    project_id: str,
+    credentials: google_auth_credentials.Credentials,
+    dataset_project_id: str | None,
+    location: str | None,
 ) -> bool:
-    project_id = key_file.get("project_id")
-    private_key = key_file.get("private_key")
-    private_key_id = key_file.get("private_key_id")
-    client_email = key_file.get("client_email")
-    token_uri = key_file.get("token_uri")
-
-    if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
-        return False
-
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, credentials) as bq:
         try:
             bq.list_tables(
                 bq.dataset(dataset_id, project=dataset_project_id or project_id),
@@ -459,16 +545,18 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
+    def connect(
+        self,
+        config: BigQuerySourceConfig,
+        auth: BigQueryAuthInfo | None = None,
+        location: str | None = None,
+    ) -> Iterator[bigquery.Client]:
         region = _resolve_region(config)
-        with bigquery_client(
-            config.key_file.project_id,
-            region,
-            config.key_file.private_key,
-            config.key_file.private_key_id,
-            config.key_file.client_email,
-            config.key_file.token_uri,
-        ) as bq:
+        resolved_location = location if location is not None else region
+        if auth is None:
+            auth = _resolve_auth_from_key_file(config)
+
+        with bigquery_client(auth.project_id, resolved_location, auth.credentials) as bq:
             yield bq
 
     # ------------------------------------------------------------------
@@ -487,7 +575,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
             project=config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
-            else config.key_file.project_id,
+            else conn.project,
         )
         try:
             rows = query.result()
@@ -526,7 +614,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         project = (
             config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
-            else config.key_file.project_id
+            else conn.project
         )
 
         # Join against INFORMATION_SCHEMA.COLUMNS so a PK constraint that
@@ -594,7 +682,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             project = (
                 config.dataset_project.dataset_project_id
                 if config.dataset_project and config.dataset_project.enabled
-                else config.key_file.project_id
+                else conn.project
             )
 
             query = f"""
@@ -623,9 +711,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     def build_pipeline(self, config: BigQuerySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        if not config.key_file.private_key:
-            raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
-
+        auth = resolve_bigquery_auth(config, inputs.team_id)
         region = _resolve_region(config)
         dataset_project_id = _resolve_dataset_project_id(config)
         destination_table_dataset_id = config.dataset_id
@@ -645,18 +731,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # relaxed with using a relatively long UUID as part of the prefix.
         destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
-        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
+        destination_table = f"{auth.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
 
         delete_all_temp_destination_tables(
             dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
-            project_id=config.key_file.project_id,
+            project_id=auth.project_id,
             location=region,
             dataset_project_id=dataset_project_id,
-            private_key=config.key_file.private_key,
-            private_key_id=config.key_file.private_key_id,
-            client_email=config.key_file.client_email,
-            token_uri=config.key_file.token_uri,
+            credentials=auth.credentials,
             logger=inputs.logger,
         )
 
@@ -667,17 +750,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 region=region,
                 dataset_project_id=dataset_project_id,
                 bq_destination_table_id=destination_table,
+                auth=auth,
             )
         finally:
             # Delete the destination table (if it exists) after we're done with it
             delete_table(
                 table_id=destination_table,
-                project_id=config.key_file.project_id,
+                project_id=auth.project_id,
                 location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
+                credentials=auth.credentials,
             )
             inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
 
@@ -688,6 +769,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         region: str | None,
         dataset_project_id: str | None,
         bq_destination_table_id: str,
+        auth: BigQueryAuthInfo,
         partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     ) -> SourceResponse:
         """Produce a pipeline source for BigQuery.
@@ -708,25 +790,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         enabled_columns = inputs.enabled_columns
         logger = inputs.logger
 
-        project_id = config.key_file.project_id
+        project_id = auth.project_id
         location = region
-        private_key = config.key_file.private_key
-        private_key_id = config.key_file.private_key_id
-        client_email = config.key_file.client_email
-        token_uri = config.key_file.token_uri
+        credentials = auth.credentials
 
         project_id_for_dataset = dataset_project_id or project_id
         name = NamingConvention.normalize_identifier(table_name)
         fully_qualified_table_name = f"{project_id_for_dataset}.{config.dataset_id}.{table_name}"
 
-        with bigquery_client(
-            project_id=project_id,
-            location=location,
-            private_key=private_key,
-            private_key_id=private_key_id,
-            client_email=client_email,
-            token_uri=token_uri,
-        ) as bq_client:
+        with bigquery_client(project_id=project_id, location=location, credentials=credentials) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)
             primary_keys = _get_primary_keys_for_table(bq_table, bq_client)
             partition_settings = _get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
@@ -742,14 +814,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             )
 
         def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
-            with bigquery_client(
-                project_id=project_id,
-                location=location,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-            ) as bq_client:
+            with bigquery_client(project_id=project_id, location=location, credentials=credentials) as bq_client:
                 bq_table = bq_client.get_table(fully_qualified_table_name)
 
                 # Query path projects into the temp table; direct-storage path projects via
@@ -823,13 +888,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         ),
                     ),
                 )
-                with bigquery_storage_read_client(
-                    project_id=project_id,
-                    private_key=private_key,
-                    private_key_id=private_key_id,
-                    client_email=client_email,
-                    token_uri=token_uri,
-                ) as bq_storage:
+                with bigquery_storage_read_client(credentials=credentials) as bq_storage:
                     read_session = bq_storage.create_read_session(
                         parent="projects/{}".format(bq_table.project),
                         read_session=requested_session,

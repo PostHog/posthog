@@ -7,17 +7,21 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
 )
 
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryImplementation,
     build_destination_table_prefix,
+    resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
+from posthog.temporal.data_imports.sources.common.sql.incremental import build_incremental_fields
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -49,9 +53,29 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        is_valid, errors = super().validate_config(job_inputs)
+
+        integration_value = job_inputs.get("google_cloud_service_account_integration_id")
+        has_integration = integration_value not in (None, "")
+        key_file_value = job_inputs.get("key_file")
+        has_key_file = isinstance(key_file_value, dict) and len(key_file_value) > 0
+        if not has_integration and not has_key_file:
+            errors.append(
+                "At least one authentication method must be provided: "
+                "'google_cloud_service_account_integration_id' or 'key_file'."
+            )
+
+        return len(errors) == 0, errors
+
     def validate_credentials(
         self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        try:
+            auth = resolve_bigquery_auth(config, team_id)
+        except ValueError:
+            return False, "Invalid BigQuery credentials"
+
         region: str | None = None
         if (
             config.use_custom_region
@@ -62,19 +86,70 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             region = config.use_custom_region.region
         if validate_bigquery_credentials(
             config.dataset_id,
-            {
-                "project_id": config.key_file.project_id,
-                "private_key": config.key_file.private_key,
-                "private_key_id": config.key_file.private_key_id,
-                "client_email": config.key_file.client_email,
-                "token_uri": config.key_file.token_uri,
-            },
+            auth.project_id,
+            auth.credentials,
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
         ):
             return True, None
 
         return False, "Invalid BigQuery credentials"
+
+    def get_schemas(
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        impl = self.get_implementation
+        region: str | None = None
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
+        auth = resolve_bigquery_auth(config, team_id)
+        with impl.connect(config, auth=auth, location=region) as conn:
+            columns_by_table = impl.get_columns(conn, config, names)
+            if not columns_by_table:
+                return []
+            tables = list(columns_by_table.keys())
+            primary_keys = impl.get_primary_keys(conn, config, tables)
+            row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}
+            foreign_keys = impl.get_foreign_keys(conn, config, tables)
+            metadata = impl.get_source_metadata(conn, config, tables)
+            cdc_support = impl.get_cdc_support(conn, config, tables)
+            indexed_columns_by_table = impl.get_leading_index_columns(conn, config, tables)
+
+        incremental_filter = impl.get_incremental_filter()
+
+        schemas: list[SourceSchema] = []
+        for table_name, columns in columns_by_table.items():
+            incremental_triples = incremental_filter(columns)
+            detected_pks = primary_keys.get(table_name) or self._default_primary_key_from_columns(columns)
+            indexed_columns = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
+
+            schemas.append(
+                SourceSchema(
+                    name=table_name,
+                    supports_incremental=len(incremental_triples) > 0,
+                    supports_append=len(incremental_triples) > 0,
+                    supports_cdc=cdc_support.get(table_name, False),
+                    incremental_fields=build_incremental_fields(incremental_triples, indexed_columns),
+                    columns=columns,
+                    row_count=row_counts.get(table_name),
+                    foreign_keys=foreign_keys.get(table_name, []),
+                    source_catalog=metadata.catalog_by_table.get(table_name),
+                    source_schema=metadata.schema_by_table.get(table_name),
+                    source_table_name=metadata.table_name_by_table.get(table_name),
+                    detected_primary_keys=detected_pks,
+                )
+            )
+        return schemas
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -85,6 +160,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
+                    SourceFieldOauthConfig(
+                        name="google_cloud_service_account_integration_id",
+                        label="Google Cloud service account",
+                        required=False,
+                        kind="google-cloud-service-account",
+                    ),
                     SourceFieldFileUploadConfig(
                         name="key_file",
                         label="Google Cloud JSON key file",
@@ -92,7 +173,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
                             format=".json",
                             keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
                         ),
-                        required=True,
+                        required=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="use_custom_region",

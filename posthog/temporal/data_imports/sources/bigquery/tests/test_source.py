@@ -4,10 +4,13 @@ from unittest import mock
 
 from dateutil import parser
 from google.api_core.exceptions import Forbidden, NotFound
+from google.auth import credentials as google_auth_credentials
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_SCOPES,
     BigQueryImplementation,
+    resolve_bigquery_auth,
     _bq_select_clause,
     _get_query,
     delete_all_temp_destination_tables,
@@ -73,6 +76,138 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
 
     columns = BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
     assert list(columns.keys()) == ["table"]
+
+
+@pytest.mark.parametrize(
+    "job_inputs,expected_valid",
+    [
+        (
+            {"dataset_id": "dataset-id", "google_cloud_service_account_integration_id": 1},
+            True,
+        ),
+        (
+            {
+                "dataset_id": "dataset-id",
+                "key_file": {
+                    "project_id": "project-id",
+                    "private_key": "private-key",
+                    "private_key_id": "private-key-id",
+                    "client_email": "client-email",
+                    "token_uri": "token-uri",
+                },
+            },
+            True,
+        ),
+        (
+            {"dataset_id": "dataset-id"},
+            False,
+        ),
+    ],
+)
+def test_bigquery_validate_config_accepts_integration_or_key_file(job_inputs, expected_valid):
+    is_valid, errors = BigQuerySource().validate_config(job_inputs)
+    assert is_valid is expected_valid
+    if not expected_valid:
+        assert any("google_cloud_service_account_integration_id" in err for err in errors)
+
+
+def test_resolve_bigquery_auth_uses_integration_key_when_present():
+    config = BigQuerySourceConfig.from_dict(
+        {
+            "dataset_id": "dataset-id",
+            "google_cloud_service_account_integration_id": 42,
+            "key_file": {
+                "project_id": "project-id",
+                "private_key": "private-key",
+                "private_key_id": "private-key-id",
+                "client_email": "client-email",
+                "token_uri": "token-uri",
+            },
+        }
+    )
+    mock_integration = mock.MagicMock()
+    mock_integration.kind = "google-cloud-service-account"
+    gcp_integration = mock.MagicMock()
+    gcp_integration.has_key.return_value = True
+    gcp_integration.service_account_info = {
+        "project_id": "project-id",
+        "private_key": "private-key",
+        "private_key_id": "private-key-id",
+        "client_email": "client-email",
+        "token_uri": "token-uri",
+    }
+    gcp_integration.project_id = "project-id"
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter"
+        ) as mock_filter,
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.GoogleCloudServiceAccountIntegration",
+            return_value=gcp_integration,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.service_account.Credentials.from_service_account_info",
+            return_value=mock.sentinel.service_account_credentials,
+        ) as mock_from_info,
+    ):
+        mock_filter.return_value.first.return_value = mock_integration
+        auth = resolve_bigquery_auth(config, team_id=1)
+
+    assert auth.project_id == "project-id"
+    assert auth.credentials is mock.sentinel.service_account_credentials
+    mock_from_info.assert_called_once_with(gcp_integration.service_account_info, scopes=BIGQUERY_SCOPES)
+
+
+def test_resolve_bigquery_auth_uses_impersonation_when_integration_has_no_key():
+    config = BigQuerySourceConfig.from_dict(
+        {
+            "dataset_id": "dataset-id",
+            "google_cloud_service_account_integration_id": 42,
+            "key_file": {
+                "project_id": "project-id",
+                "private_key": "private-key",
+                "private_key_id": "private-key-id",
+                "client_email": "client-email",
+                "token_uri": "token-uri",
+            },
+        }
+    )
+    mock_integration = mock.MagicMock()
+    mock_integration.kind = "google-cloud-service-account"
+    gcp_integration = mock.MagicMock()
+    gcp_integration.has_key.return_value = False
+    gcp_integration.service_account_email = "service-account@project-id.iam.gserviceaccount.com"
+    gcp_integration.project_id = "project-id"
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter"
+        ) as mock_filter,
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.GoogleCloudServiceAccountIntegration",
+            return_value=gcp_integration,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery._get_posthog_google_cloud_credentials",
+            return_value=mock.sentinel.posthog_google_credentials,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.google_auth_impersonated_credentials.Credentials",
+            return_value=mock.sentinel.impersonated_credentials,
+        ) as mock_impersonated_credentials,
+    ):
+        mock_filter.return_value.first.return_value = mock_integration
+        auth = resolve_bigquery_auth(config, team_id=1)
+
+    assert auth.project_id == "project-id"
+    assert auth.credentials is mock.sentinel.impersonated_credentials
+    mock_impersonated_credentials.assert_called_once_with(
+        source_credentials=mock.sentinel.posthog_google_credentials,
+        target_principal="service-account@project-id.iam.gserviceaccount.com",
+        target_scopes=BIGQUERY_SCOPES,
+        lifetime=3600,
+    )
 
 
 @pytest.mark.parametrize(
@@ -209,10 +344,7 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
             project_id="project-id",
             location=None,
             dataset_project_id=None,
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
+            credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
             logger=logger,
         )
     return mock_capture

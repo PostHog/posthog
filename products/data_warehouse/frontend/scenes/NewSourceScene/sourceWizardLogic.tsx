@@ -43,6 +43,7 @@ import {
     groupDirectQueryTablesBySchema,
     splitDirectQueryTableName,
 } from '../../shared/components/forms/directQuerySchemaUtils'
+import { getUploadedFile } from '../../shared/components/forms/fileUploads'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -1605,13 +1606,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                         for (const { name, type } of payloadKeys) {
                             if (type === 'file-upload') {
+                                const uploadedFile = getUploadedFile(payload['payload']?.[name])
+                                if (!uploadedFile) {
+                                    continue
+                                }
+
                                 try {
                                     // Assumes we're loading a JSON file
                                     const loadedFile: string = await new Promise((resolve, reject) => {
                                         const fileReader = new FileReader()
                                         fileReader.onload = (e) => resolve(e.target?.result as string)
                                         fileReader.onerror = (e) => reject(e)
-                                        fileReader.readAsText(payload['payload'][name][0])
+                                        fileReader.readAsText(uploadedFile)
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
                                 } catch {

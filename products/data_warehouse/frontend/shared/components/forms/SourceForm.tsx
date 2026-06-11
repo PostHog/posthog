@@ -34,6 +34,7 @@ import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
+import { shouldHideSourceField } from './sourceFieldVisibility'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -764,6 +765,7 @@ export function SourceFormComponent({
                 ) : (
                     availableSources[sourceConfig.name].fields
                         .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .filter((field) => !shouldHideSourceField(sourceConfig.name, field))
                         .map((field) =>
                             sourceFieldToElement(
                                 field,
