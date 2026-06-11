@@ -1,7 +1,7 @@
 """Eager web analytics precompute — hourly baseline warming.
 
 A single Dagster job that pre-warms the lazy precompute cache for the
-Web analytics dashboard's main tile matrix over the trailing 28 days,
+Web analytics dashboard's main tile matrix over the trailing 31 days,
 for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
 The job is intentionally thin: it enumerates the dashboard's query families
@@ -50,11 +50,14 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
+import itertools
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 
 from django.conf import settings
 from django.db import connections
+from django.db.models import Max
 
 import dagster
 import structlog
@@ -71,6 +74,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
@@ -375,6 +379,25 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
         eligible.append(team)
 
+    # Warm the least-recently-computed teams first, so a run cut short by
+    # `max_runtime` still makes progress on the teams that need it most. Teams
+    # that have never been precomputed (no `PreaggregationJob` row, or only
+    # un-computed rows) sort to the front. One indexed aggregate, not per-team.
+    last_computed: dict[int, datetime | None] = dict(
+        PreaggregationJob.objects.filter(team_id__in=[t.pk for t in eligible])
+        .values("team_id")
+        .annotate(last=Max("computed_at"))
+        .values_list("team_id", "last")
+    )
+    never_computed = datetime.min.replace(tzinfo=UTC)
+    eligible.sort(key=lambda t: last_computed.get(t.pk) or never_computed)
+
+    # Running progress counter for the pool — `itertools.count.__next__` is
+    # atomic under the GIL, so it's safe to call from the worker threads. Each
+    # team's completion log carries `processed/total` as a live progress signal.
+    total = len(eligible)
+    progress = itertools.count(1)
+
     def _warm(team: Team) -> tuple[int, int]:
         team_started = time.monotonic()
         team_warmed = team_failed = 0
@@ -395,6 +418,8 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
             team_id=team.pk,
             warmed=team_warmed,
             failed=team_failed,
+            processed=next(progress),
+            total=total,
             duration_ms=round((time.monotonic() - team_started) * 1000),
         )
         return team_warmed, team_failed
