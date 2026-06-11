@@ -1683,7 +1683,6 @@ def route_posthog_code_event_to_relevant_region(
     )
 
     if event_type in ("app_mention", "message"):
-        # ---- event-type-specific cheap pre-checks (no DB) ----
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:
@@ -1706,8 +1705,7 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
-            # ``message`` events are only interesting as thread replies. Top-level
-            # channel posts dominate the wire volume; drop them before any DB hit.
+            # Top-level channel posts dominate the wire volume; drop before any DB hit.
             top_level_thread_ts = event.get("thread_ts")
             if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
                 return ROUTE_HANDLED_LOCALLY
@@ -1717,11 +1715,9 @@ def route_posthog_code_event_to_relevant_region(
         thread_ts_value = event.get("thread_ts") or event.get("ts")
         thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
 
-        # ---- shared: workspace lookup + cross-region ----
-        # Region routing only needs candidate presence, not user resolution. We
-        # defer the Slack ``users.info`` hit and the ``OrganizationMembership``
-        # query until we know this region is handling the event so cross-region
-        # proxied events don't pay for work the receiving region will redo.
+        # Region routing only needs candidate presence; defer the user-resolution
+        # cost (Slack ``users.info`` + ``OrganizationMembership``) until we know
+        # this region is handling the event.
         workspace_result = load_integrations(
             slack_team_id=slack_team_id,
             kinds=[SLACK_INTEGRATION_KIND],
@@ -1735,10 +1731,8 @@ def route_posthog_code_event_to_relevant_region(
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # ---- message-only: mapping + feature flag gate ----
-        # Decides whether a ``message`` event enters the shared pipeline at all.
-        # A thread we don't own (or one whose org hasn't opted in) is dropped
-        # here so we never pay for user resolution downstream.
+        # Threads we don't own (and orgs that haven't opted in) are dropped here
+        # so the rest of the pipeline only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
         if event_type == "message":
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
@@ -1750,16 +1744,10 @@ def route_posthog_code_event_to_relevant_region(
             if untagged_followup_mapping is None:
                 return ROUTE_HANDLED_LOCALLY
 
-        # =====================================================================
-        # From here on, both event types run the same body. The user-facing
-        # side effects (failure reply, picker hint, scope notice, approval
-        # prompt) and the rules command shortcut are mention-only — for
-        # untagged followups the same gates apply but the failure path is a
-        # silent return. The originating ``app_mention`` already cleared all of
-        # these gates to create the mapping; if anything changed since, we drop
-        # without spamming the thread.
-        # =====================================================================
-
+        # Both event types share the rest of the pipeline. Mention-only side
+        # effects (failure reply, scope notice, approval prompt, rules command,
+        # picker hint) are silent drops for untagged followups — the originating
+        # ``app_mention`` already cleared those gates.
         resolution = resolve_user_for_workspace(
             workspace_result=workspace_result,
             slack_team_id=slack_team_id,
