@@ -66,10 +66,8 @@ def _format_created_at(value: Any) -> str:
 
 
 def _build_query(config: BraintreeEndpointConfig) -> str:
-    # The SearchInput type name follows the search field (TransactionSearchInput etc.).
-    input_type = f"{config.search_field[:-1].capitalize()}SearchInput"
     return f"""
-query ($input: {input_type}, $first: Int!, $after: String) {{
+query ($input: {config.input_type}, $first: Int!, $after: String) {{
   search {{
     {config.search_field} (input: $input, first: $first, after: $after) {{
       pageInfo {{ hasNextPage }}

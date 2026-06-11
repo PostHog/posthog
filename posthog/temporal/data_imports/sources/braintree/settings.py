@@ -47,9 +47,10 @@ _DISPUTE_FIELDS = """
 
 @dataclass
 class BraintreeEndpointConfig:
-    name: str
-    # Field on the GraphQL `search` root (also the SearchInput type prefix).
+    # Field on the GraphQL `search` root.
     search_field: str
+    # GraphQL input type name for the `search` field (e.g. TransactionSearchInput).
+    input_type: str
     node_fields: str
     primary_key: str = "id"
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_CREATED_AT_INCREMENTAL_FIELDS))
@@ -62,18 +63,18 @@ class BraintreeEndpointConfig:
 # then commits the watermark only when a run completes.
 BRAINTREE_ENDPOINTS: dict[str, BraintreeEndpointConfig] = {
     "transactions": BraintreeEndpointConfig(
-        name="transactions",
         search_field="transactions",
+        input_type="TransactionSearchInput",
         node_fields=_TRANSACTION_FIELDS,
     ),
     "refunds": BraintreeEndpointConfig(
-        name="refunds",
         search_field="refunds",
+        input_type="RefundSearchInput",
         node_fields=_REFUND_FIELDS,
     ),
     "disputes": BraintreeEndpointConfig(
-        name="disputes",
         search_field="disputes",
+        input_type="DisputeSearchInput",
         node_fields=_DISPUTE_FIELDS,
     ),
 }
