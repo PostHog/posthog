@@ -59,12 +59,10 @@ class TestMultiSchemaCapability:
             # Postgres, Snowflake, and MSSQL have an optional `schema` (qualify today); MySQL/unknown never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, True),
+            ("redshift", ExternalDataSourceType.REDSHIFT, True),
             ("mssql", ExternalDataSourceType.MSSQL, True),
             ("mysql", ExternalDataSourceType.MYSQL, False),
             ("unknown type", "NotARealSource", False),
-            # Tripwires: these have a *required* `schema` today. If a follow-up makes one optional,
-            # this flips True and forces a conscious update — the gate is no longer dormant for it.
-            ("redshift", ExternalDataSourceType.REDSHIFT, False),
         ]
     )
     def test_capability_by_source_type(
