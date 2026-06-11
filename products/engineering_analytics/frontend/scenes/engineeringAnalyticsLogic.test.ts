@@ -7,25 +7,19 @@ import { initKeaTests } from '~/test/init'
 
 import {
     engineeringAnalyticsCiCards,
-    engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type {
-    CICardSummaryApi,
-    PRLifecycleApi,
-    PullRequestListItemApi,
-    WorkflowHealthItemApi,
-} from '../generated/api.schemas'
+import type { CICardSummaryApi, PullRequestListItemApi, WorkflowHealthItemApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { summarizeLifecycle } from '../lib/lifecycle'
+import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
 import {
     DEFAULT_FILTERS,
     PullRequestRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
-    prKeyOf,
 } from './engineeringAnalyticsLogic'
+import { sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -41,7 +35,6 @@ const mockPullRequests = engineeringAnalyticsPullRequests as jest.MockedFunction
 const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunction<
     typeof engineeringAnalyticsWorkflowHealth
 >
-const mockPrLifecycle = engineeringAnalyticsPrLifecycle as jest.MockedFunction<typeof engineeringAnalyticsPrLifecycle>
 
 function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
     return {
@@ -262,51 +255,50 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('loadLifecycle caches per PR, records failures as null, and tracks loading keys', async () => {
-        const row = makePr({ number: 7 })
-        const lifecycle: PRLifecycleApi = {
-            pull_request: {
-                id: 7001,
-                number: 7,
-                title: 'feat: a thing',
-                author: { handle: 'alice', display_name: 'alice', avatar_url: '', is_bot: false },
-                repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-                state: 'open',
-                is_draft: false,
-                created_at: '2026-05-01T00:00:00Z',
-                merged_at: null,
-                closed_at: null,
+    it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {
+        const runs = workflowRuns([
+            { kind: 'opened', at: '2026-06-01T00:00:00Z' },
+            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
+            { kind: 'ci_started', at: '2026-06-01T00:01:30Z', detail: 'Frontend CI' },
+            { kind: 'ci_started', at: '2026-06-01T01:00:00Z', detail: 'Backend CI' },
+            { kind: 'ci_finished', at: '2026-06-01T00:31:00Z', detail: 'Backend CI: failure' },
+            { kind: 'ci_finished', at: '2026-06-01T01:20:00Z', detail: 'Backend CI: success' },
+            { kind: 'ci_finished', at: '2026-06-01T00:10:00Z', detail: 'Orphan CI: success' },
+        ])
+        expect(runs).toEqual([
+            // First Backend CI start pairs with the first Backend CI finish (FIFO across re-runs).
+            {
+                workflow: 'Backend CI',
+                conclusion: 'failure',
+                startedAt: '2026-06-01T00:01:00Z',
+                finishedAt: '2026-06-01T00:31:00Z',
+                durationSeconds: 1800,
             },
-            events: [{ kind: 'opened', at: '2026-05-01T00:00:00Z' }],
-            metric_quality: 'partial',
-        }
-        mockPrLifecycle.mockResolvedValue(lifecycle)
-
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-
-        logic.actions.loadLifecycle({ row })
-        expect(logic.values.lifecycleLoadingKeys[prKeyOf(row)]).toBe(true)
-        await expectLogic(logic).toDispatchActions(['loadLifecycleSuccess'])
-        expect(logic.values.lifecycles[prKeyOf(row)]).toEqual(lifecycle)
-        expect(logic.values.lifecycleLoadingKeys).toEqual({})
-
-        // A second expand reuses the cache instead of refetching.
-        logic.actions.loadLifecycle({ row })
-        await expectLogic(logic).toDispatchActions(['loadLifecycleSuccess'])
-        expect(mockPrLifecycle).toHaveBeenCalledTimes(1)
-
-        // Failures land as null so the panel can offer a retry; force bypasses the cache.
-        const failingRow = makePr({ number: 8 })
-        mockPrLifecycle.mockRejectedValueOnce(new Error('boom'))
-        logic.actions.loadLifecycle({ row: failingRow })
-        await expectLogic(logic).toDispatchActions(['loadLifecycleSuccess'])
-        expect(logic.values.lifecycles[prKeyOf(failingRow)]).toBeNull()
-
-        mockPrLifecycle.mockResolvedValueOnce(lifecycle)
-        logic.actions.loadLifecycle({ row: failingRow, force: true })
-        await expectLogic(logic).toDispatchActions(['loadLifecycleSuccess'])
-        expect(logic.values.lifecycles[prKeyOf(failingRow)]).toEqual(lifecycle)
+            {
+                workflow: 'Frontend CI',
+                conclusion: null,
+                startedAt: '2026-06-01T00:01:30Z',
+                finishedAt: null,
+                durationSeconds: null,
+            },
+            {
+                workflow: 'Backend CI',
+                conclusion: 'success',
+                startedAt: '2026-06-01T01:00:00Z',
+                finishedAt: '2026-06-01T01:20:00Z',
+                durationSeconds: 1200,
+            },
+            // A finish without a matching start (outside the window) still yields a row.
+            {
+                workflow: 'Orphan CI',
+                conclusion: 'success',
+                startedAt: null,
+                finishedAt: '2026-06-01T00:10:00Z',
+                durationSeconds: null,
+            },
+        ])
+        // The detail page triages: failures first, then still-running, then passes.
+        expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
     it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {

@@ -104,6 +104,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
     EngineeringAnalytics: () =>
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
+    EngineeringAnalyticsPullRequest: () =>
+        import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -228,6 +230,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+    '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+        'EngineeringAnalyticsPullRequest',
+        'engineeringAnalyticsPullRequest',
+    ],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -629,6 +635,13 @@ export const productConfiguration: Record<string, any> = {
             'Open PRs are the unit of work \u2014 track CI health, throughput, and where engineering hours go.',
         iconType: 'health',
     },
+    EngineeringAnalyticsPullRequest: {
+        projectBased: true,
+        name: 'Pull request',
+        layout: 'app-container',
+        description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -990,6 +1003,8 @@ export const productUrls = {
     },
     engineeringAnalytics: (): string => '/engineering-analytics',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+    engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
+        `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1542,7 +1557,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
         sceneKey: 'EngineeringAnalytics',
-        sceneKeys: ['EngineeringAnalytics'],
+        sceneKeys: ['EngineeringAnalytics', 'EngineeringAnalyticsPullRequest'],
     },
     {
         path: 'Clusters',

@@ -21,15 +21,29 @@ export const manifest: ProductManifest = {
             description: 'Open PRs are the unit of work — track CI health, throughput, and where engineering hours go.',
             iconType: 'health',
         },
+        EngineeringAnalyticsPullRequest: {
+            import: () => import('./frontend/scenes/PullRequestDetailScene'),
+            projectBased: true,
+            name: 'Pull request',
+            layout: 'app-container',
+            description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+            iconType: 'health',
+        },
     },
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+        '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+            'EngineeringAnalyticsPullRequest',
+            'engineeringAnalyticsPullRequest',
+        ],
     },
     redirects: {},
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+        engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
+            `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

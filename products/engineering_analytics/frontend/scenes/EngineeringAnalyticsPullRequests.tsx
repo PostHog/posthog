@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import {
     LemonButton,
@@ -14,10 +15,11 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration, humanFriendlyNumber, pluralize } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { urls } from 'scenes/urls'
 
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { PRLifecyclePanel } from '../components/PRLifecyclePanel'
 import { StatCard } from '../components/StatCard'
 import {
     CIStatusFilter,
@@ -49,16 +51,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         hasActiveFilters,
         activeCard,
     } = useValues(engineeringAnalyticsLogic)
-    const {
-        setStateFilter,
-        setAuthor,
-        setRepo,
-        setCiStatusFilter,
-        setSearch,
-        resetFilters,
-        applyCardFilter,
-        loadLifecycle,
-    } = useActions(engineeringAnalyticsLogic)
+    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
+        useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
         return <ConnectGitHubSource />
@@ -222,10 +216,28 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 dataSource={filteredPullRequests}
                 rowKey={prKeyOf}
                 loading={pullRequestsLoading}
-                expandable={{
-                    expandedRowRender: (row) => <PRLifecyclePanel row={row} />,
-                    onRowExpand: (row) => loadLifecycle({ row }),
-                    noIndent: true,
+                onRow={(row) => {
+                    const detailUrl = urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number)
+                    return {
+                        // Inner links (PR title → GitHub) keep their own behavior.
+                        onClick: (e: React.MouseEvent) => {
+                            if ((e.target as HTMLElement).closest('a, button')) {
+                                return
+                            }
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                newInternalTab(detailUrl)
+                            } else {
+                                router.actions.push(detailUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
+                                e.preventDefault()
+                                newInternalTab(detailUrl)
+                            }
+                        },
+                    }
                 }}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}

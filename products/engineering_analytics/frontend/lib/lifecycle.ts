@@ -23,7 +23,21 @@ export interface LifecycleSummary {
     unsettled: number
 }
 
-const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral'])
+export interface WorkflowRun {
+    workflow: string
+    /** Null while the run hasn't reported a finish — queued or in progress. */
+    conclusion: string | null
+    startedAt: string | null
+    finishedAt: string | null
+    durationSeconds: number | null
+}
+
+const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
+
+/** For a finished run's conclusion; 'completed' stands in when no conclusion was recorded. */
+export function isPassingConclusion(conclusion: string): boolean {
+    return PASSING_CONCLUSIONS.has(conclusion)
+}
 
 /**
  * ci_finished detail is "workflow name: conclusion" (the name itself may contain ": "), assembled
@@ -39,6 +53,54 @@ function parseFinishedDetail(detail: string | null | undefined): { workflow: str
         return { workflow: detail, conclusion: null }
     }
     return { workflow: detail.slice(0, splitAt), conclusion: detail.slice(splitAt + 2) }
+}
+
+/**
+ * Pairs ci_started / ci_finished events into per-workflow runs with durations.
+ * Pairing is FIFO by workflow name (re-runs of the same workflow pair in order);
+ * a finish without a matching start (events outside the window) still yields a row.
+ */
+export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
+    const runs: WorkflowRun[] = []
+    const unfinishedByWorkflow = new Map<string, WorkflowRun[]>()
+
+    for (const event of events) {
+        if (event.kind === 'ci_started') {
+            const workflow = event.detail ?? 'unknown workflow'
+            const run: WorkflowRun = {
+                workflow,
+                conclusion: null,
+                startedAt: event.at,
+                finishedAt: null,
+                durationSeconds: null,
+            }
+            runs.push(run)
+            const queue = unfinishedByWorkflow.get(workflow) ?? []
+            queue.push(run)
+            unfinishedByWorkflow.set(workflow, queue)
+        } else if (event.kind === 'ci_finished') {
+            const { workflow, conclusion } = parseFinishedDetail(event.detail)
+            const started = unfinishedByWorkflow.get(workflow)?.shift()
+            if (started) {
+                started.conclusion = conclusion ?? 'completed'
+                started.finishedAt = event.at
+                started.durationSeconds = Math.max(
+                    0,
+                    Math.round((Date.parse(event.at) - Date.parse(started.startedAt as string)) / 1000)
+                )
+            } else {
+                runs.push({
+                    workflow,
+                    conclusion: conclusion ?? 'completed',
+                    startedAt: null,
+                    finishedAt: event.at,
+                    durationSeconds: null,
+                })
+            }
+        }
+    }
+
+    return runs
 }
 
 export function summarizeLifecycle(events: PRLifecycleEventApi[]): LifecycleSummary {

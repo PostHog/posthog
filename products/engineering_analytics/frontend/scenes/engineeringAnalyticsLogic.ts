@@ -7,13 +7,10 @@ import { objectsEqual } from 'lib/utils'
 
 import {
     engineeringAnalyticsCiCards,
-    engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { PRLifecycleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
-import { LifecycleSummary, summarizeLifecycle } from '../lib/lifecycle'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
@@ -150,36 +147,7 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         refresh: true,
     }),
 
-    loaders(({ values }) => ({
-        // Keyed by prKeyOf(row); null marks a failed load so the panel can offer a retry.
-        lifecycles: [
-            {} as Record<string, PRLifecycleApi | null>,
-            {
-                // No destructuring default for `force` — kea-typegen copies the initializer
-                // into the generated type declaration, where it is invalid TS.
-                loadLifecycle: async ({
-                    row,
-                    force,
-                }: {
-                    row: PullRequestRow
-                    force?: boolean
-                }): Promise<Record<string, PRLifecycleApi | null>> => {
-                    const key = prKeyOf(row)
-                    if (!force && values.lifecycles[key] !== undefined) {
-                        return values.lifecycles
-                    }
-                    try {
-                        const lifecycle = await engineeringAnalyticsPrLifecycle(projectId(), {
-                            pr_number: row.number,
-                            repo: `${row.repoOwner}/${row.repoName}`,
-                        })
-                        return { ...values.lifecycles, [key]: lifecycle }
-                    } catch {
-                        return { ...values.lifecycles, [key]: null }
-                    }
-                },
-            },
-        ],
+    loaders(() => ({
         cards: [
             null as CardsData | null,
             {
@@ -270,22 +238,6 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                 resetFilters: () => DEFAULT_FILTERS.stuckOnly,
             },
         ],
-        // Per-PR loading state: the shared lifecyclesLoading flag can't tell rows apart
-        // when several are expanded at once.
-        lifecycleLoadingKeys: [
-            {} as Record<string, true>,
-            {
-                loadLifecycle: (state, { row }) => ({ ...state, [prKeyOf(row)]: true }),
-                // kea-loaders success actions carry the original action payload.
-                loadLifecycleSuccess: (state, { payload }) => {
-                    if (!payload) {
-                        return state
-                    }
-                    const { [prKeyOf(payload.row)]: _, ...rest } = state
-                    return rest
-                },
-            },
-        ],
         // The endpoints 400 when the team has no GitHub warehouse source connected.
         // A failed cards load is the canary for "no source connected".
         loadFailed: [
@@ -309,18 +261,6 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                 search,
                 stuckOnly,
             }),
-        ],
-        // Memoized on the lifecycles record: summarization loops over dozens of events per PR
-        // and must not re-run on every render of an expanded panel.
-        lifecycleSummaries: [
-            (s) => [s.lifecycles],
-            (lifecycles): Record<string, LifecycleSummary | null> => {
-                const summaries: Record<string, LifecycleSummary | null> = {}
-                for (const [key, lifecycle] of Object.entries(lifecycles)) {
-                    summaries[key] = lifecycle ? summarizeLifecycle(lifecycle.events) : null
-                }
-                return summaries
-            },
         ],
         activeCard: [
             (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
