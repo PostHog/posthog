@@ -26,14 +26,14 @@ def get_starter_dashboard_variant(team: Team) -> StarterDashboardVariant:
     except Exception:
         return "control"
 
-    if flag_result == "test":
-        return "test"
-    return "control"
+    # get_feature_flag is typed as FeatureFlag | None but returns the variant key string at
+    # runtime; normalise to str so the comparison is well-typed.
+    return "test" if str(flag_result) == "test" else "control"
 
 
 def get_signup_dashboard_template(variant: StarterDashboardVariant) -> DashboardTemplate:
     if variant == "test":
-        return DashboardTemplate.original_template()
+        return DashboardTemplate.default_signup_template()
     return DashboardTemplate.legacy_signup_template()
 
 

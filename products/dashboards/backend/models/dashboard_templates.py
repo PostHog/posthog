@@ -63,6 +63,20 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     @staticmethod
     def original_template() -> "DashboardTemplate":
         """
+        The authoritative hardcoded "Product analytics" template the rest of the codebase relies on
+        (the DEFAULT_APP seed, the DB-absent fallback in create_dashboard_from_template, and the global
+        template seed used in tests). It is intentionally the legacy shape; the starter-dashboard-v2
+        test arm opts into the refreshed layout via default_signup_template().
+
+        This OG template is not stored in https://github.com/PostHog/templates-repository
+        The system assumes this template is always present and doesn't wait to import it from the template repository
+        """
+        return DashboardTemplate.legacy_signup_template()
+
+    @staticmethod
+    def default_signup_template() -> "DashboardTemplate":
+        """
+        Refreshed signup dashboard (test arm of the starter-dashboard-v2 experiment).
         This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """

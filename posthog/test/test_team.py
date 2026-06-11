@@ -167,7 +167,8 @@ class TestTeam(BaseTest):
 
     def test_create_team_sets_primary_dashboard_control_by_default(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        self.assertIsInstance(team.primary_dashboard, Dashboard)
+        assert team.primary_dashboard is not None
+        assert team.extra_settings is not None
         self.assertEqual(team.primary_dashboard.name, "My App Dashboard")
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
         self.assertEqual(team.extra_settings.get("starter_dashboard_variant"), "control")
@@ -179,6 +180,7 @@ class TestTeam(BaseTest):
 
         # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
+        assert team.extra_settings is not None
         self.assertEqual(team.extra_settings.get("starter_dashboard_variant"), "test")
 
     @mock.patch("posthog.helpers.signup_dashboard_experiment.posthoganalytics.get_feature_flag", return_value="test")
@@ -286,7 +288,8 @@ class TestTeam(BaseTest):
         team = Team.objects.create_with_data(
             initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
         )
-        self.assertEqual(team.extra_settings, expected_extra_settings)
+        # create_with_data also records the starter-dashboard experiment arm in extra_settings
+        self.assertEqual(team.extra_settings, {**expected_extra_settings, "starter_dashboard_variant": "control"})
 
     @parameterized.expand(
         [
@@ -331,7 +334,6 @@ class TestTeam(BaseTest):
             ("Pageviews (last 7 days)", "TrendsQuery"),
             ("Top referrers", "TrendsQuery"),
             ("Retention", "RetentionQuery"),
-            ("Visit to interaction funnel", "FunnelsQuery"),
         ]
     )
     @mock.patch(
@@ -350,6 +352,19 @@ class TestTeam(BaseTest):
         assert source["kind"] == expected_kind
         assert "GroupNode" not in str(source)
         assert "$pageview" in str(source)
+
+    @STARTER_DASHBOARD_V2_VARIANT
+    def test_default_dashboard_funnel_tile_steps_through_pageview_to_autocapture(self, _mock_variant):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name="Visit to interaction funnel",
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        source = tile.insight.query["source"]
+        assert source["kind"] == "FunnelsQuery"
+        assert [step["event"] for step in source["series"]] == ["$pageview", "$autocapture"]
 
     @STARTER_DASHBOARD_V2_VARIANT
     def test_default_dashboard_button_tiles_link_to_related_products(self, _mock_variant):
