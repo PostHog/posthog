@@ -109,9 +109,14 @@ describe('fetch', () => {
 
         it('should successfully fetch from safe URLs', async () => {
             // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
             process.env.NODE_ENV = 'test'
-            const response = await fetch(baseUrl)
-            expect(response.status).toBe(200)
+            try {
+                const response = await fetch(baseUrl)
+                expect(response.status).toBe(200)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
         })
 
         it.each([
@@ -234,9 +239,14 @@ describe('legacyFetch', () => {
 
         it('should successfully fetch from safe URLs', async () => {
             // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
             process.env.NODE_ENV = 'test'
-            const response = await legacyFetch(baseUrl)
-            expect(response.ok).toBe(true)
+            try {
+                const response = await legacyFetch(baseUrl)
+                expect(response.ok).toBe(true)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
         })
     })
 
