@@ -26,7 +26,7 @@ from posthog.schema import (
 )
 
 from posthog.models import Team
-from posthog.models.integration import Integration
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -5701,15 +5701,15 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
 
-        assert bq_config.google_cloud_service_account_integration_id is not None
-        assert bq_config.key_file is None
+        assert bq_config.google_cloud_service_account_integration_id is None
+        assert bq_config.key_file is not None
+        assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
         assert bq_config.use_custom_region is not None
         assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is True
         assert bq_config.temporary_dataset.temporary_dataset_id == "dummy_temporary_dataset_id"
-        first_integration_id = bq_config.google_cloud_service_account_integration_id
 
         # # Update the source by adding dataset project id
         with patch(
@@ -5734,8 +5734,9 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
 
-        assert bq_config.google_cloud_service_account_integration_id == first_integration_id
-        assert bq_config.key_file is None
+        assert bq_config.google_cloud_service_account_integration_id is None
+        assert bq_config.key_file is not None
+        assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
         assert bq_config.use_custom_region is not None
         assert bq_config.use_custom_region.enabled is False
@@ -5745,11 +5746,7 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.dataset_project.enabled is True
         assert bq_config.dataset_project.dataset_project_id == "other_project_id"
 
-    @patch(
-        "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
-        return_value=(True, None),
-    )
-    def test_bigquery_patch_migrates_legacy_key_file_to_integration(self, _mock_validate_credentials):
+    def test_migrate_google_service_account_to_integrations_migrates_legacy_key_file_to_integration(self):
         source_model = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -5773,9 +5770,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={"job_inputs": {"dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"}}},
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/migrate_google_service_account_to_integrations/"
         )
 
         assert response.status_code == 200, response.json()
@@ -5785,9 +5781,8 @@ class TestExternalDataSource(APIBaseTest):
         assert "key_file" not in source_model.job_inputs
 
         integration_id = source_model.job_inputs.get("google_cloud_service_account_integration_id")
-        assert isinstance(integration_id, int)
-
-        integration = Integration.objects.get(id=integration_id)
+        assert integration_id is not None
+        integration = Integration.objects.get(id=int(integration_id))
         assert integration.kind == Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT
         assert integration.config["project_id"] == "dummy_project_id"
         assert integration.config["service_account_email"] == "dummy_client_email"
@@ -5795,11 +5790,15 @@ class TestExternalDataSource(APIBaseTest):
         assert integration.sensitive_config["private_key_id"] == "dummy_private_key_id"
         assert integration.sensitive_config["token_uri"] == "dummy_token_uri"
 
-    @patch(
-        "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
-        return_value=(True, None),
-    )
-    def test_bigquery_patch_fails_migration_for_malformed_legacy_key_file(self, _mock_validate_credentials):
+        # Endpoint remains idempotent once already migrated.
+        second_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/migrate_google_service_account_to_integrations/"
+        )
+        assert second_response.status_code == 200, second_response.json()
+        source_model.refresh_from_db()
+        assert int(source_model.job_inputs["google_cloud_service_account_integration_id"]) == int(integration_id)
+
+    def test_migrate_google_service_account_to_integrations_fails_for_malformed_legacy_key_file(self):
         source_model = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -5828,9 +5827,8 @@ class TestExternalDataSource(APIBaseTest):
             kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
         ).count()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={"job_inputs": {"dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"}}},
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/migrate_google_service_account_to_integrations/"
         )
 
         assert response.status_code == 400
@@ -5848,6 +5846,68 @@ class TestExternalDataSource(APIBaseTest):
                 kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
             ).count()
             == existing_integration_count
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_bigquery_patch_with_existing_integration_strips_legacy_key_file(self, _mock_validate_credentials):
+        integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.organization.id),
+            service_account_email="existing-service-account@example.com",
+            project_id="existing_project_id",
+            private_key="existing_private_key",
+            private_key_id="existing_private_key_id",
+            token_uri="existing_token_uri",
+            created_by=self.user,
+        )
+
+        source_model = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="BigQuery",
+            created_by=self.user,
+            prefix="",
+            job_inputs={
+                "dataset_id": "dummy_dataset_id",
+                "key_file": {
+                    "project_id": "dummy_project_id",
+                    "private_key_id": "dummy_private_key_id",
+                    "private_key": "dummy_private_key",
+                    "client_email": "dummy_client_email",
+                    "token_uri": "dummy_token_uri",
+                },
+                "use_custom_region": {"enabled": False, "region": ""},
+                "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                "dataset_project": {"enabled": False, "dataset_project_id": ""},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            data={
+                "job_inputs": {
+                    "google_cloud_service_account_integration_id": integration.id,
+                    "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source_model.refresh_from_db()
+        assert source_model.job_inputs is not None
+        assert "key_file" not in source_model.job_inputs
+        assert int(source_model.job_inputs["google_cloud_service_account_integration_id"]) == int(integration.id)
+        assert (
+            Integration.objects.filter(
+                team_id=self.team.pk,
+                kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+            ).count()
+            == 1
         )
 
     def test_get_wizard_sources(self):

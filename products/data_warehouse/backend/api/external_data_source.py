@@ -309,11 +309,15 @@ _CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
 _BIGQUERY_LEGACY_KEY_FILE_FIELDS = ("project_id", "client_email", "private_key", "private_key_id", "token_uri")
 
 
-def migrate_bigquery_key_file_to_integration(
+def migrate_google_service_account_key_file_to_integration(
     source: ExternalDataSource,
     job_inputs: dict[str, Any],
     created_by: User | None = None,
 ) -> dict[str, Any]:
+    """Migrates a per-source Google Service Account key file to a team-wide reusable integration.
+
+    Read the service account key file and copies them over to the integration.
+    """
     integration_id = job_inputs.get("google_cloud_service_account_integration_id")
     if integration_id not in (None, ""):
         migrated_job_inputs = dict(job_inputs)
@@ -358,6 +362,24 @@ def migrate_bigquery_key_file_to_integration(
     migrated_job_inputs["google_cloud_service_account_integration_id"] = integration.id
     migrated_job_inputs.pop("key_file", None)
     return migrated_job_inputs
+
+
+def normalize_bigquery_job_inputs_for_storage(job_inputs: dict[str, Any]) -> dict[str, Any]:
+    """Ensures the only either the integration_id or the legacy key_file is set.
+
+    When an integration_id is set removes the legacy key_file. This helps to migrate to
+    the new integrations. It's used in both the explicit migration from key_file to integration id
+    and for the case where the user does not want to migrate the key_file and instead chooses
+    an existing integration id. This will cause the key_file to be deleted.
+    """
+    integration_id = job_inputs.get("google_cloud_service_account_integration_id")
+    if integration_id in (None, ""):
+        return job_inputs
+
+    normalized_job_inputs = dict(job_inputs)
+    normalized_job_inputs["google_cloud_service_account_integration_id"] = int(integration_id)
+    normalized_job_inputs.pop("key_file", None)
+    return normalized_job_inputs
 
 
 def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
@@ -933,13 +955,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
-        if source_type_model == ExternalDataSourceType.BIGQUERY and job_inputs_were_submitted:
-            new_job_inputs = migrate_bigquery_key_file_to_integration(
-                instance,
-                new_job_inputs,
-                request.user if isinstance(request.user, User) else None,
-            )
-
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -955,6 +970,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
+        if source_type_model == ExternalDataSourceType.BIGQUERY:
+            validated_data["job_inputs"] = normalize_bigquery_job_inputs_for_storage(validated_data["job_inputs"])
 
         if job_inputs_were_submitted:
             if instance.source_type == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
@@ -1096,6 +1113,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "reload",
         "refresh_schemas",
         "database_schema",
+        "migrate_google_service_account_to_integrations",
         "source_prefix",
         "revenue_analytics_config",
         "create_webhook",
@@ -1763,6 +1781,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(request=None, responses=ExternalDataSourceSerializers)
+    def migrate_google_service_account_to_integrations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        if instance.source_type != ExternalDataSourceType.BIGQUERY:
+            raise ValidationError("This endpoint only supports BigQuery sources for now.")
+
+        with transaction.atomic():
+            locked_source = (
+                ExternalDataSource._base_manager.filter(id=instance.id, team_id=self.team_id, deleted=False)
+                .select_for_update()
+                .get()
+            )
+
+            migrated_job_inputs = migrate_google_service_account_key_file_to_integration(
+                locked_source,
+                locked_source.job_inputs or {},
+                request.user if isinstance(request.user, User) else None,
+            )
+            if migrated_job_inputs.get("google_cloud_service_account_integration_id") in (None, ""):
+                raise ValidationError(
+                    {
+                        "job_inputs": {
+                            "key_file": (
+                                "No legacy BigQuery key_file credentials were found to migrate. "
+                                "Use a Google Cloud service account integration instead."
+                            )
+                        }
+                    }
+                )
+
+            source = SourceRegistry.get_source(ExternalDataSourceType.BIGQUERY)
+            is_valid, errors = source.validate_config(migrated_job_inputs)
+            if not is_valid:
+                raise ValidationError(f"Invalid source config: {', '.join(errors)}")
+
+            source_config: Config = source.parse_config(migrated_job_inputs)
+            locked_source.job_inputs = source_config.to_dict()
+            locked_source.save(update_fields=["job_inputs", "updated_at"])
+
+        refreshed_source = self.get_queryset().get(pk=locked_source.pk)
+        serializer = self.get_serializer(refreshed_source)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
     @extend_schema(
