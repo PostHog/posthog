@@ -144,9 +144,6 @@ impl SingleTopicConsumer {
             .await
     }
 
-    /// Like `json_recv`, but the caller supplies the payload decoder. LZ4
-    /// envelope decompression still happens before `decode` runs, so encoded
-    /// and plain messages can coexist on the topic.
     pub async fn recv_with<T, D>(&self, decode: D) -> Result<(T, Offset), RecvErr>
     where
         D: Fn(&[u8]) -> Result<T, serde_json::Error>,
