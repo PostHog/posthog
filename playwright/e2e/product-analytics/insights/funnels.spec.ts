@@ -103,6 +103,16 @@ test.describe('Funnel insights', () => {
         return insight
     }
 
+    // Setting the conversion window right after navigation or entering edit mode can race
+    // the editor's hydration — the edit is occasionally swallowed or reverted by a late
+    // insight load. Re-apply until the page registers unsaved changes.
+    async function setConversionWindowUntilDirty(insight: InsightPage, value: string): Promise<void> {
+        await expect(async () => {
+            await insight.funnels.setConversionWindowInterval(value)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 2000 })
+        }).toPass({ timeout: 30000 })
+    }
+
     test('Create funnel via UI and verify conversion math and tooltips', async ({ page }) => {
         const insight = new InsightPage(page)
 
@@ -365,7 +375,7 @@ test.describe('Funnel insights', () => {
         const windowB = String(savedWindow >= 300 ? 3 : savedWindow + 2)
 
         await test.step('save button is enabled on unsaved changes', async () => {
-            await insight.funnels.setConversionWindowInterval(windowA)
+            await setConversionWindowUntilDirty(insight, windowA)
             await insight.funnels.waitForChart()
             await expect(insight.saveButton).toBeEnabled()
             await expect(insight.saveButton).not.toContainText('No changes')
@@ -384,7 +394,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('make a change — save enables, cancel button appears', async () => {
-            await insight.funnels.setConversionWindowInterval(windowB)
+            await setConversionWindowUntilDirty(insight, windowB)
             await insight.funnels.waitForChart()
 
             await expect(insight.saveButton).toBeEnabled()
@@ -431,7 +441,7 @@ test.describe('Funnel insights', () => {
             await insight.edit()
             await expect(insight.saveButton).toContainText('No changes')
 
-            await insight.funnels.setConversionWindowInterval('3')
+            await setConversionWindowUntilDirty(insight, '3')
             await expect(insight.saveButton).toBeEnabled()
             await expect(insight.saveButton).toContainText('Save')
         })
