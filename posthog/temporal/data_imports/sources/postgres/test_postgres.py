@@ -2722,3 +2722,36 @@ class TestRlsDetectionRealDb:
             dj_cursor.execute("CREATE TABLE test_rls_noschema (id SERIAL PRIMARY KEY)")
             result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "", None)
             assert "public.test_rls_noschema" in result
+
+    def test_rls_active_from_conn_swallows_statement_timeout_without_capturing(self):
+        # The RLS check is advisory: a statement timeout during discovery (seen on slow/loaded
+        # source DBs and poolers with a low server-side `statement_timeout`) must degrade to "no
+        # warning" without surfacing a spurious error-tracking issue.
+        class _TimingOutCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, query, *args, **kwargs):
+                # Let `SET LOCAL statement_timeout` succeed; time out on the `SELECT version()`
+                # probe, mirroring the observed stack (_is_duckdb_connection).
+                if "version()" in str(query):
+                    raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+            def fetchone(self):
+                return None
+
+            def fetchall(self):
+                return []
+
+        class _TimingOutConnection:
+            def cursor(self, *args, **kwargs):
+                return _TimingOutCursor()
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _rls_active_from_conn(cast(Any, _TimingOutConnection()), "public", ["test_rls_param"])
+
+        assert result == {}
+        mock_capture.assert_not_called()

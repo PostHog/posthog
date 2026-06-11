@@ -565,6 +565,11 @@ def _rls_active_from_conn(
                 if display_name is not None:
                     result[display_name] = bool(rls_active)
             return result
+    except psycopg.errors.QueryCanceled:
+        # Advisory-only check: a statement timeout (slow/loaded source DB, or a low server-side
+        # `statement_timeout` on a pooler) just means we skip the RLS warning. It's expected and
+        # already handled by returning {}, so don't report it to error tracking as a spurious issue.
+        return {}
     except Exception as e:
         capture_exception(e)
         return {}
