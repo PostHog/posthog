@@ -912,7 +912,8 @@ class OracleSourceConfig(config.Config):
 
 @config.config
 class OrttoSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["global", "au", "eu"] = config.value(default="global")
 
 
 @config.config
