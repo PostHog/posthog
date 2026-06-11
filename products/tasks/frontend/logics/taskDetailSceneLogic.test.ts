@@ -298,6 +298,44 @@ describe('taskDetailSceneLogic', () => {
             logic.unmount()
         })
 
+        it('resumes the automatic restart with Last-Event-ID and ignores replayed events', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse([createConsoleSseEvent('1-0', 'first message')]),
+                    createSseResponse(
+                        [createConsoleSseEvent('1-0', 'first message'), createConsoleSseEvent('2-0', 'second message')],
+                        true
+                    ),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+            await flushStreaming()
+
+            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
+                String(url).includes('/stream/')
+            )
+            expect(streamCalls).toHaveLength(2)
+            expect((streamCalls[1][1] as RequestInit)?.headers).toMatchObject({
+                Accept: 'text/event-stream',
+                'Last-Event-ID': '1-0',
+            })
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
+                'first message',
+                'second message',
+            ])
+
+            logic.unmount()
+        })
+
         it('does not restart an active stream when selected run reloads', async () => {
             const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
             global.fetch = createFetchMock({

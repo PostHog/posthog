@@ -12,7 +12,8 @@ TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
 #   client_disconnect — client went away (GeneratorExit) before completion
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect"]
+#   rotated           — per-connection cap reached; clean EOF, client resumes
+StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -54,9 +55,11 @@ TASK_RUN_FAILED_TOTAL = Counter(
 )
 
 
-# Connection lifetimes span a few seconds (cold reconnect) to the 6h sandbox TTL.
-# The 120s bucket is deliberate: it isolates connections cut at the Envoy/Contour
-# response_timeout boundary from genuinely long-lived ones.
+# Connection lifetimes span a few seconds (cold reconnect) up to the per-connection
+# cap (TASK_RUN_STREAM_CONNECTION_MAX_SECONDS), where streams rotate with a clean
+# EOF. The 120s bucket is deliberate: it isolates connections cut at the
+# Envoy/Contour response_timeout boundary from genuinely long-lived ones. Buckets
+# above the cap predate it and are kept for histogram continuity.
 STREAM_CONNECTION_DURATION_BUCKETS = [
     1.0,
     5.0,

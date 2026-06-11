@@ -166,6 +166,11 @@ logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
+# Long-lived SSE connections pin NGINX Unit processes for their whole duration
+# during recycle-drain, so cap each connection and end it with a clean EOF.
+# Clients resume seamlessly via Last-Event-ID (taskDetailSceneLogic.ts restarts
+# the stream when it ends while the run is still active).
+TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
@@ -2821,9 +2826,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
                                 event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
                             )
-                            continue
-                        event_id, event = stream_item
-                        yield format_sse_event(event, event_id=event_id)
+                        else:
+                            event_id, event = stream_item
+                            yield format_sse_event(event, event_id=event_id)
+                        if (
+                            asyncio.get_running_loop().time() - connection_started_at
+                            >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS
+                        ):
+                            outcome = "rotated"
+                            return
                     outcome = "completed"
                 except TaskRunStreamError as e:
                     outcome = "stream_error"
