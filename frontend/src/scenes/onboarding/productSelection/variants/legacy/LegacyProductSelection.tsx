@@ -252,8 +252,8 @@ export function LegacyProductSelection(): JSX.Element {
     const { currentStep } = useValues(productSelectionLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
-            <div className="flex flex-col items-center justify-center flex-grow w-full">
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-4 items-center justify-start sm:justify-center bg-primary overflow-x-hidden">
+            <div className="flex flex-col items-center justify-start sm:justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
                 {currentStep === 'choose_path' && <OnboardingExitAction />}

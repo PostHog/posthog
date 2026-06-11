@@ -428,7 +428,7 @@ export function ProductCarousel({ mode, recommendationSource }: ProductCarouselP
           : "Pick your starting point — you'll unlock the rest soon enough."
 
     return (
-        <div className="SimplifiedProductSelection flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
+        <div className="SimplifiedProductSelection flex flex-col flex-1 w-full min-h-full p-4 pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-4 items-center justify-start sm:justify-center bg-primary overflow-x-hidden">
             {/* Subtle product color wash */}
             <div
                 className="absolute inset-0 transition-colors duration-700 pointer-events-none"
@@ -438,7 +438,7 @@ export function ProductCarousel({ mode, recommendationSource }: ProductCarouselP
                 }}
             />
 
-            <div className="relative flex flex-col items-center justify-center flex-grow w-full max-w-2xl">
+            <div className="relative flex flex-col items-center justify-start sm:justify-center flex-grow w-full max-w-2xl">
                 <div className="flex justify-center mb-4">
                     <Logomark />
                 </div>
