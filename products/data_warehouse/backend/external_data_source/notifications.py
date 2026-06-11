@@ -2,6 +2,7 @@ import datetime as dt
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db.models import Exists, OuterRef
 
 import structlog
 
@@ -21,13 +22,18 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
     will never produce another failed run to re-trigger the inline path.
     """
     cutoff = dt.datetime.now(dt.UTC) - lookback
+    # Drive from the schema side: the jobs table grows with every sync run and has
+    # no index on (status, finished_at), so starting there would seq-scan it daily.
+    # Schemas are one row each, and their jobs are reachable via the schema_id FK index.
+    recent_failed_job = ExternalDataJob.objects.filter(
+        schema_id=OuterRef("id"),
+        status=ExternalDataJob.Status.FAILED,
+        finished_at__gte=cutoff,
+    )
     return list(
-        ExternalDataJob.objects.filter(
-            status=ExternalDataJob.Status.FAILED,
-            finished_at__gte=cutoff,
-            schema__status=ExternalDataSchema.Status.FAILED,
-        )
-        .exclude(schema__deleted=True)
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(status=ExternalDataSchema.Status.FAILED)
+        .filter(Exists(recent_failed_job))
         .values_list("team_id", flat=True)
         .distinct()
     )
