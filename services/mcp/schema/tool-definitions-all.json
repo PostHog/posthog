@@ -634,6 +634,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-documents-search": {
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search business knowledge",
+        "title": "Search business knowledge",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -6316,6 +6331,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-preview-invite": {
+        "description": "Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized subject and HTML body — without sending anything and without creating any share links. Pass interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or omit it to preview for the first targeted interviewee. The response includes the rendered subject and html, the recipient, whether they are emailable, and whether the embedded link is a placeholder.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Preview the invite email for a targeted interviewee",
+        "title": "Preview the invite email for a targeted interviewee",
+        "required_scopes": ["user_interview:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "user-interviews"
     },

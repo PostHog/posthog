@@ -20,9 +20,18 @@ from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.property_planner import (
+    PropertyLiteralConversion,
+    PropertySourceKind,
+    get_restricted_keys_for_table_type,
+    is_property_type_restricted,
+    plan_property_comparison,
+)
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES, MATERIALIZED_COLUMN_NAME_PREFIXES
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -61,6 +70,10 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     "$ai_session_id",
     "$ai_is_error",
 }
+
+
+def _is_physical_materialized_column_name(name: str) -> bool:
+    return name.strip("`\"'").startswith(MATERIALIZED_COLUMN_NAME_PREFIXES)
 
 
 class ClickHousePrinter(BasePrinter):
@@ -161,17 +174,24 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
-            # Look through aliases: an alias's declared type can be stale after a
-            # transform (e.g. the property-type swapper) rewrites its inner
-            # expression, so resolve the overload against the real expression.
+            # Prefer concrete fields/calls: transforms can leave a call's
+            # recorded arg_types stale after fields are rewritten.
             first_arg = node.args[0] if len(node.args) > 0 else None
+            first_arg_was_alias = False
             while isinstance(first_arg, ast.Alias):
+                first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = (
-                first_arg.type.resolve_constant_type(self.context)
-                if first_arg is not None and first_arg.type is not None
-                else None
-            )
+            first_arg_constant_type = None
+            if (
+                first_arg is not None
+                and first_arg.type is not None
+                and (
+                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                )
+            ):
+                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
+                first_arg_constant_type = node.type.arg_types[0]
 
             if first_arg_constant_type is not None:
                 for (
@@ -429,14 +449,7 @@ class ClickHousePrinter(BasePrinter):
         return super()._get_materialized_property_source_for_property_type(type)
 
     def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
-        if not self.context.restricted_properties or len(type.chain) == 0:
-            return False
-        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
-        if not keys_to_drop:
-            return False
-        # Only the first chain element is a top-level key on the JSON blob; nested
-        # accesses (``properties.foo.bar``) are restricted iff their root key is.
-        return str(type.chain[0]) in keys_to_drop
+        return is_property_type_restricted(type, self.context)
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
@@ -473,29 +486,7 @@ class ClickHousePrinter(BasePrinter):
         Given a table type, returns the set of property names that should be stripped
         from the JSON blob based on restricted_properties in the context.
         """
-        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        if not isinstance(table_type, ast.BaseTableType):
-            return set()
-
-        try:
-            table = table_type.resolve_database_table(self.context)
-        except Exception:
-            return set()
-
-        if isinstance(table, EventsPersonSubTable):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        elif isinstance(table, EventsTable):
-            prop_def_type = PropertyDefinition.Type.EVENT
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        else:
-            return set()
-
-        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
+        return get_restricted_keys_for_table_type(table_type, self.context)
 
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str
@@ -648,39 +639,205 @@ class ClickHousePrinter(BasePrinter):
         ast.CompareOperationOp.Gt: "greater",
         ast.CompareOperationOp.GtEq: "greaterOrEquals",
     }
+    _RANGE_CH_NAMES = frozenset(_RANGE_OP_TO_CH_NAME.values())
+
+    def _record_range_rewrite(self, result: str) -> None:
+        if self.context.type_observability is None:
+            return
+        self.context.type_observability.record_materialized_range_rewrite(result)
+        if result.startswith("fired"):
+            # A fired rewrite prints the materialized column directly, bypassing
+            # visit_property_type, so account for the materialized access here.
+            self.context.type_observability.record_materialized_property_usage("materialized_column")
 
     def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
-        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
+        """Rewrite property ranges on materialized columns so minmax can fire.
 
-        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
-        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
+        String-backed columns keep the current sentinel handling.
+        Typed physical columns, such as future numeric or DateTime materializations, can compare the bare column directly
+        when the property planner proves the physical source matches the semantic property type.
         """
         if node.op not in self._RANGE_OP_TO_CH_NAME:
             return None
 
-        # property_to_expr always emits the column on the left, so we only need to handle that side.
-        if not (
-            (property_source := self._get_materialized_string_property_source(node.left))
-            and isinstance(node.right, ast.Constant)
-            and node.right.value is not None
+        comparison_plan = plan_property_comparison(node, self.context)
+        if (
+            comparison_plan is not None
+            and comparison_plan.property_side == "left"
+            and comparison_plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         ):
+            physical_type = comparison_plan.access.source.physical_type
+            if not comparison_plan.source_matches_semantics:
+                self._record_range_rewrite("skipped")
+                return None
+            if not comparison_plan.can_compare_physical_source_directly and not isinstance(
+                physical_type, ast.StringType
+            ):
+                self._record_range_rewrite("skipped")
+                return None
+
+            property_source = self._get_materialized_property_source_for_property_type(
+                comparison_plan.access.property_type
+            )
+            if not isinstance(property_source, PrintableMaterializedColumn):
+                self._record_range_rewrite("skipped")
+                return None
+
+            constant_sql = self._print_property_range_value(node.right, comparison_plan.literal_conversion)
+        else:
+            fallback = self._get_physical_materialized_column_source(node.left)
+            if fallback is None:
+                return None
+
+            property_source, physical_type = fallback
+            constant_sql = self.visit(node.right)
+
+        right_constant = node.right if isinstance(node.right, ast.Constant) else None
+        if right_constant is not None and right_constant.value is None:
+            self._record_range_rewrite("skipped")
             return None
 
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            self._record_range_rewrite("skipped")
             return None
 
         op_name = self._RANGE_OP_TO_CH_NAME[node.op]
         materialized_column_sql = str(property_source)
-        constant_sql = self.visit(node.right)
+        is_string_source = isinstance(physical_type, ast.StringType)
+        if is_string_source and right_constant is None:
+            self._record_range_rewrite("skipped")
+            return None
 
         if property_source.is_nullable:
+            self._record_range_rewrite("fired_compare")
             return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
 
-        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        if not is_string_source:
+            # A non-nullable, non-string column stores the ClickHouse type default (e.g. 0 for a
+            # Float64) when the JSON value is missing or invalid, so a bare comparison would match
+            # rows where the property does not exist. There is no safe bare rewrite without
+            # nullability to distinguish a real default from a missing value, so skip the optimization.
+            self._record_range_rewrite("skipped")
+            return None
+
+        # Non-nullable strings: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        self._record_range_rewrite("fired_compare")
         sentinel_exclusions = " AND ".join(
             f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
         )
         return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
+
+    def _get_optimized_materialized_range_if_null_call(self, node: ast.Call) -> str | None:
+        if node.name.lower() != "ifnull" or len(node.args) != 2:
+            return None
+
+        fallback = node.args[1]
+        if not isinstance(fallback, ast.Constant) or fallback.value not in (0, False):
+            return None
+
+        range_call = node.args[0]
+        if not isinstance(range_call, ast.Call) or range_call.name not in self._RANGE_CH_NAMES:
+            return None
+        if len(range_call.args) != 2:
+            return None
+
+        source = self._get_materialized_range_source(range_call.args[0])
+        if source is None:
+            return None
+
+        property_source, is_string_source = source
+        if not property_source.is_nullable:
+            self._record_range_rewrite("skipped")
+            return None
+
+        right_constant = range_call.args[1] if isinstance(range_call.args[1], ast.Constant) else None
+        if right_constant is not None and right_constant.value is None:
+            self._record_range_rewrite("skipped")
+            return None
+        if is_string_source and right_constant is None:
+            self._record_range_rewrite("skipped")
+            return None
+
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(range_call.args[1])
+        self._record_range_rewrite("fired_if_null")
+        return (
+            f"({range_call.name}({materialized_column_sql}, {constant_sql}) "
+            f"AND ({materialized_column_sql} IS NOT NULL))"
+        )
+
+    def _get_materialized_range_source(self, expr: ast.Expr) -> tuple[PrintableMaterializedColumn, bool] | None:
+        physical_source = self._get_physical_materialized_column_source(expr)
+        if physical_source is not None:
+            physical_property_source, physical_type = physical_source
+            return physical_property_source, isinstance(physical_type, ast.StringType)
+
+        expr_type = resolve_field_type(expr)
+        if not isinstance(expr_type, ast.PropertyType) or len(expr_type.chain) != 1:
+            return None
+
+        semantic_type = expr_type.resolve_constant_type(self.context)
+        if not isinstance(semantic_type, ast.StringType):
+            return None
+
+        materialized_source = self._get_materialized_property_source_for_property_type(expr_type)
+        if not isinstance(materialized_source, PrintableMaterializedColumn):
+            return None
+
+        return materialized_source, parse_sql_runtime_type(materialized_source.type or "").family == "string"
+
+    def _get_physical_materialized_column_source(
+        self, expr: ast.Expr
+    ) -> tuple[PrintableMaterializedColumn, ast.ConstantType] | None:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+
+        field_type = resolve_field_type(expr)
+        if not isinstance(field_type, ast.FieldType):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        if not isinstance(field, DatabaseField):
+            return None
+
+        if not _is_physical_materialized_column_name(field.name):
+            return None
+
+        table = field_type.table_type
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table = table.table_type
+
+        if not isinstance(table, ast.TableType):
+            return None
+
+        if (
+            table.resolve_database_table(self.context).to_printed_clickhouse(self.context)
+            not in MATERIALIZATION_VALID_TABLES
+        ):
+            return None
+
+        return (
+            PrintableMaterializedColumn(
+                self.visit(field_type.table_type),
+                self._print_identifier(field.name),
+                is_nullable=field.is_nullable(),
+                type=None,
+                has_minmax_index=False,
+                has_bloom_filter_index=False,
+                has_ngram_lower_index=False,
+                has_bloom_filter_lower_index=False,
+            ),
+            field.get_constant_type(),
+        )
+
+    def _print_property_range_value(self, expr: ast.Expr, literal_conversion: PropertyLiteralConversion) -> str:
+        if literal_conversion == PropertyLiteralConversion.DATETIME and isinstance(expr, ast.Constant):
+            return (
+                f"toDateTime64({self.visit(expr)}, "
+                f"{self.visit(ast.Constant(value=6))}, "
+                f"{self.visit(ast.Constant(value=self._get_timezone()))})"
+            )
+        return self.visit(expr)
 
     def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
         """
@@ -1395,8 +1552,20 @@ class ClickHousePrinter(BasePrinter):
             raise ImpossibleASTError("Impossible")
 
     def visit_call(self, node: ast.Call):
+        # The type-name argument reaches ClickHouse's type parser verbatim, so bound it to
+        # type names we can classify — mirroring the whitelist CAST already enforces.
+        if node.name.lower() in ("accuratecast", "accuratecastornull"):
+            type_arg = node.args[1] if len(node.args) > 1 else None
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                raise QueryError(f"{node.name} requires a constant string type name as its second argument")
+            if parse_sql_runtime_type(type_arg.value).family == "unknown":
+                raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
+
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
+        if optimized_materialized_range_if_null := self._get_optimized_materialized_range_if_null_call(node):
+            return optimized_materialized_range_if_null
+
         if optimized_property_group_call := self._get_optimized_property_group_call(node):
             return optimized_property_group_call
 

@@ -14,6 +14,7 @@ class PrintableMaterializedColumn:
     table: str | None
     column: str
     is_nullable: bool
+    type: str | None
     has_minmax_index: bool
     has_bloom_filter_index: bool
     has_ngram_lower_index: bool

@@ -114,6 +114,12 @@ export function VisionMetrics(): JSX.Element {
                                             Used this month: <strong>{quota.usage_this_month.toLocaleString()}</strong>
                                         </div>
                                         <div>
+                                            Projected from enabled scanners:{' '}
+                                            <strong>
+                                                ~{quota.projected_monthly_observations.toLocaleString()}/month
+                                            </strong>
+                                        </div>
+                                        <div>
                                             Monthly quota: <strong>{quota.monthly_quota.toLocaleString()}</strong>
                                         </div>
                                         {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
