@@ -1,8 +1,11 @@
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from posthog.temporal.data_imports.sources.appsflyer.appsflyer import AppsFlyerRetryableError
 from posthog.temporal.data_imports.sources.appsflyer.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
 from posthog.temporal.data_imports.sources.generated_configs import AppsFlyerSourceConfig
@@ -18,6 +21,10 @@ class TestAppsFlyerSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.APPSFLYER
+
+    def test_connection_host_fields_includes_app_id(self):
+        # Changing app_id retargets the stored token, so editing it must require re-entering secrets.
+        assert self.source.connection_host_fields == ["app_id"]
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -99,6 +106,20 @@ class TestAppsFlyerSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("token", "id123")
+
+    @pytest.mark.parametrize(
+        "raised",
+        [AppsFlyerRetryableError("status=429"), requests.ConnectionError(), requests.ReadTimeout()],
+    )
+    @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials")
+    def test_validate_credentials_reports_transient_failures_distinctly(self, mock_validate, raised):
+        mock_validate.side_effect = raised
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None
+        assert "temporary" in error_message
 
     @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.appsflyer_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_af_source):

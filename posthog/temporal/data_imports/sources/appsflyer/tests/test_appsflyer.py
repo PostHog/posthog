@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
+    AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
     _to_date,
@@ -59,6 +60,13 @@ class TestHelpers:
         rows = list(_parse_csv_rows(_CSV + ",,,,,\n"))
         assert len(rows) == 2
 
+    def test_parse_csv_skips_rows_with_mismatched_length(self):
+        # A short row would let zip silently drop primary-key columns; it must be skipped.
+        logger = mock.MagicMock()
+        rows = list(_parse_csv_rows(_CSV + "2024-01-03,agency,google\n", logger))
+        assert len(rows) == 2
+        logger.warning.assert_called_once()
+
     @pytest.mark.parametrize(
         "value, expected",
         [
@@ -97,6 +105,15 @@ class TestValidateCredentials:
     def test_validate_rejects_bad_app_id_without_request(self, mock_session):
         assert validate_credentials("token", "bad app!") is False
         mock_session.return_value.get.assert_not_called()
+
+    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_raises_on_transient_status(self, mock_session, status_code):
+        # Rate-limit / 5xx are transient; the caller must be able to tell them from a bad token.
+        mock_session.return_value.get.return_value = _response("", status=status_code)
+
+        with pytest.raises(AppsFlyerRetryableError):
+            validate_credentials("token", "id123")
 
 
 class TestGetRows:

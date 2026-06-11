@@ -54,7 +54,7 @@ def _to_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _parse_csv_rows(text: str) -> Iterator[dict[str, Any]]:
+def _parse_csv_rows(text: str, logger: FilteringBoundLogger | None = None) -> Iterator[dict[str, Any]]:
     reader = csv.reader(io.StringIO(text))
     headers: list[str] | None = None
     for row in reader:
@@ -63,21 +63,38 @@ def _parse_csv_rows(text: str) -> Iterator[dict[str, Any]]:
             continue
         if not any(cell.strip() for cell in row):
             continue
+        # zip would silently truncate a short row, leaving primary-key columns absent and
+        # corrupting dedupe — drop the malformed row instead so the failure is explicit.
+        if len(row) != len(headers):
+            if logger is not None:
+                logger.warning(
+                    "AppsFlyer CSV row length mismatch; skipping row",
+                    expected=len(headers),
+                    got=len(row),
+                )
+            continue
         yield dict(zip(headers, row))
 
 
 def validate_credentials(api_token: str, app_id: str) -> bool:
-    """Confirm the token and app id are valid with a one-day report probe."""
+    """Confirm the token and app id are valid with a one-day report probe.
+
+    Raises ``AppsFlyerRetryableError`` on rate-limit / 5xx responses and lets transport
+    errors propagate so the caller can tell a transient failure apart from a bad credential.
+    """
     try:
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        response = _get_session(api_token).get(
-            f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(_validate_app_id(app_id))}/dailyreport/v5"
-            f"?{urlencode({'from': today, 'to': today})}",
-            timeout=30,
-        )
-        return response.status_code == 200
-    except Exception:
+        app = _validate_app_id(app_id)
+    except ValueError:
         return False
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    response = _get_session(api_token).get(
+        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/dailyreport/v5"
+        f"?{urlencode({'from': today, 'to': today})}",
+        timeout=30,
+    )
+    if response.status_code == 429 or response.status_code >= 500:
+        raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
+    return response.status_code == 200
 
 
 def get_rows(
@@ -120,7 +137,7 @@ def get_rows(
         return response.text
 
     chunk: list[dict[str, Any]] = []
-    for row in _parse_csv_rows(fetch_report()):
+    for row in _parse_csv_rows(fetch_report(), logger):
         chunk.append(row)
         if len(chunk) >= CHUNK_SIZE:
             yield chunk
