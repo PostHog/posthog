@@ -7891,6 +7891,18 @@ export namespace Schemas {
       PositionBased: 'position_based',
     } as const;
 
+    /**
+     * * `oauth` - oauth
+    * `credentials` - credentials
+     */
+    export type AuthMethodEnum = typeof AuthMethodEnum[keyof typeof AuthMethodEnum];
+
+
+    export const AuthMethodEnum = {
+      Oauth: 'oauth',
+      Credentials: 'credentials',
+    } as const;
+
     export interface Author {
       /** Login handle of the pull request author. */
       handle: string;
@@ -40043,6 +40055,25 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    export interface SourceConnectLink {
+      /** The source type the link is for. */
+      source_type: string;
+      /** 'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the PostHog UI. Either way secrets never pass through the agent.
+
+      * `oauth` - oauth
+      * `credentials` - credentials */
+      auth_method: AuthMethodEnum;
+      /** Full URL to share with the user. They open it in a browser to authorize or enter credentials directly in PostHog — credentials never pass through the agent or the chat. */
+      connect_url: string;
+      /**
+         * For OAuth sources, the payload key to pass to data-warehouse-source-setup with the integration id (e.g. 'hubspot_integration_id'). Null for credential sources.
+         * @nullable
+         */
+      integration_field: string | null;
+      /** Next steps for the agent to relay to the user. */
+      instructions: string;
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -40067,6 +40098,179 @@ export namespace Schemas {
       Auto: 'auto',
       Mapped: 'mapped',
     } as const;
+
+    /**
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. {'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     */
+    export type SourceSetupPayload = { [key: string]: unknown };
+
+    export interface SourceSetup {
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
+
+      * `Ashby` - Ashby
+      * `Supabase` - Supabase
+      * `CustomerIO` - CustomerIO
+      * `Github` - Github
+      * `Stripe` - Stripe
+      * `Hubspot` - Hubspot
+      * `Postgres` - Postgres
+      * `Zendesk` - Zendesk
+      * `Snowflake` - Snowflake
+      * `Salesforce` - Salesforce
+      * `MySQL` - MySQL
+      * `MongoDB` - MongoDB
+      * `MSSQL` - MSSQL
+      * `Vitally` - Vitally
+      * `BigQuery` - BigQuery
+      * `Chargebee` - Chargebee
+      * `Clerk` - Clerk
+      * `GoogleAds` - GoogleAds
+      * `GoogleSearchConsole` - GoogleSearchConsole
+      * `TemporalIO` - TemporalIO
+      * `DoIt` - DoIt
+      * `GoogleSheets` - GoogleSheets
+      * `MetaAds` - MetaAds
+      * `Klaviyo` - Klaviyo
+      * `Mailchimp` - Mailchimp
+      * `Braze` - Braze
+      * `Mailjet` - Mailjet
+      * `Redshift` - Redshift
+      * `Polar` - Polar
+      * `RevenueCat` - RevenueCat
+      * `LinkedinAds` - LinkedinAds
+      * `RedditAds` - RedditAds
+      * `TikTokAds` - TikTokAds
+      * `BingAds` - BingAds
+      * `Shopify` - Shopify
+      * `Attio` - Attio
+      * `SnapchatAds` - SnapchatAds
+      * `Linear` - Linear
+      * `Intercom` - Intercom
+      * `Amplitude` - Amplitude
+      * `Mixpanel` - Mixpanel
+      * `Jira` - Jira
+      * `ActiveCampaign` - ActiveCampaign
+      * `Marketo` - Marketo
+      * `Adjust` - Adjust
+      * `AppsFlyer` - AppsFlyer
+      * `Freshdesk` - Freshdesk
+      * `GoogleAnalytics` - GoogleAnalytics
+      * `Pipedrive` - Pipedrive
+      * `SendGrid` - SendGrid
+      * `Slack` - Slack
+      * `PagerDuty` - PagerDuty
+      * `Asana` - Asana
+      * `Notion` - Notion
+      * `Airtable` - Airtable
+      * `Greenhouse` - Greenhouse
+      * `BambooHR` - BambooHR
+      * `Lever` - Lever
+      * `GitLab` - GitLab
+      * `Datadog` - Datadog
+      * `Sentry` - Sentry
+      * `Pendo` - Pendo
+      * `FullStory` - FullStory
+      * `AmazonAds` - AmazonAds
+      * `PinterestAds` - PinterestAds
+      * `AppleSearchAds` - AppleSearchAds
+      * `QuickBooks` - QuickBooks
+      * `Xero` - Xero
+      * `NetSuite` - NetSuite
+      * `WooCommerce` - WooCommerce
+      * `BigCommerce` - BigCommerce
+      * `PayPal` - PayPal
+      * `Square` - Square
+      * `Zoom` - Zoom
+      * `Trello` - Trello
+      * `Monday` - Monday
+      * `ClickUp` - ClickUp
+      * `Confluence` - Confluence
+      * `Recurly` - Recurly
+      * `SalesLoft` - SalesLoft
+      * `Outreach` - Outreach
+      * `Gong` - Gong
+      * `Calendly` - Calendly
+      * `Typeform` - Typeform
+      * `Iterable` - Iterable
+      * `ZohoCRM` - ZohoCRM
+      * `Close` - Close
+      * `Oracle` - Oracle
+      * `DynamoDB` - DynamoDB
+      * `Elasticsearch` - Elasticsearch
+      * `Kafka` - Kafka
+      * `LaunchDarkly` - LaunchDarkly
+      * `Braintree` - Braintree
+      * `Recharge` - Recharge
+      * `HelpScout` - HelpScout
+      * `Gorgias` - Gorgias
+      * `Instagram` - Instagram
+      * `YouTubeAnalytics` - YouTubeAnalytics
+      * `FacebookPages` - FacebookPages
+      * `TwitterAds` - TwitterAds
+      * `Workday` - Workday
+      * `ServiceNow` - ServiceNow
+      * `Pardot` - Pardot
+      * `Copper` - Copper
+      * `Front` - Front
+      * `ChartMogul` - ChartMogul
+      * `Zuora` - Zuora
+      * `Paddle` - Paddle
+      * `CircleCI` - CircleCI
+      * `CockroachDB` - CockroachDB
+      * `Firebase` - Firebase
+      * `AzureBlob` - AzureBlob
+      * `GoogleDrive` - GoogleDrive
+      * `OneDrive` - OneDrive
+      * `SharePoint` - SharePoint
+      * `Box` - Box
+      * `SFTP` - SFTP
+      * `MicrosoftTeams` - MicrosoftTeams
+      * `Aircall` - Aircall
+      * `Webflow` - Webflow
+      * `Okta` - Okta
+      * `Auth0` - Auth0
+      * `Productboard` - Productboard
+      * `Smartsheet` - Smartsheet
+      * `Wrike` - Wrike
+      * `Plaid` - Plaid
+      * `SurveyMonkey` - SurveyMonkey
+      * `Eventbrite` - Eventbrite
+      * `RingCentral` - RingCentral
+      * `Twilio` - Twilio
+      * `Freshsales` - Freshsales
+      * `Shortcut` - Shortcut
+      * `ConvertKit` - ConvertKit
+      * `Drip` - Drip
+      * `CampaignMonitor` - CampaignMonitor
+      * `MailerLite` - MailerLite
+      * `Omnisend` - Omnisend
+      * `Brevo` - Brevo
+      * `Postmark` - Postmark
+      * `Granola` - Granola
+      * `BuildBetter` - BuildBetter
+      * `Convex` - Convex
+      * `ClickHouse` - ClickHouse
+      * `Plain` - Plain
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
+      * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). For OAuth sources pass the source's integration id key instead of raw secrets, e.g. {'hubspot_integration_id': 123}. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      payload?: SourceSetupPayload;
+      /**
+         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * @maxLength 100
+         * @nullable
+         */
+      prefix?: string | null;
+      /**
+         * Human-readable description.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+    }
 
     /**
      * * `severity` - severity
@@ -44080,6 +44284,13 @@ export namespace Schemas {
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
+    };
+
+    export type EnvironmentsExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
     };
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
@@ -49739,6 +49950,13 @@ export namespace Schemas {
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
+    };
+
+    export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
     };
 
     export type ExternalDataSourcesConnectionsListParams = {

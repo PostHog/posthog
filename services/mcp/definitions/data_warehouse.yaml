@@ -102,6 +102,9 @@ tools:
     external-data-sources-check-cdc-prerequisites-for-source-create:
         operation: external_data_sources_check_cdc_prerequisites_for_source_create
         enabled: false
+    external-data-sources-connect-link-retrieve:
+        operation: external_data_sources_connect_link_retrieve
+        enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: false
@@ -146,6 +149,9 @@ tools:
         enabled: false
     external-data-sources-revenue-analytics-config-partial-update:
         operation: external_data_sources_revenue_analytics_config_partial_update
+        enabled: false
+    external-data-sources-setup-create:
+        operation: external_data_sources_setup_create
         enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create

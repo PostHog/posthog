@@ -25,6 +25,7 @@ import type {
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
+    ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     FixHogqlListParams,
@@ -56,6 +57,8 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SourceConnectLinkApi,
+    SourceSetupApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -1073,6 +1076,44 @@ export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     )
 }
 
+export const getExternalDataSourcesConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataSourcesConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/connect_link/`
+}
+
+/**
+ * Return a secure browser link for connecting a data warehouse source.
+
+For OAuth sources the link starts the OAuth authorize flow; for credential sources it deep-links to the
+prefilled PostHog source-setup form. Either way the user authenticates in their browser — credentials never
+pass through the agent. After the user finishes, call data-warehouse-source-setup (OAuth: pass the integration
+id; credentials: the UI completes setup) or poll external-data-sources-list.
+ */
+export const externalDataSourcesConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataSourcesConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<SourceConnectLinkApi> => {
+    return apiMutator<SourceConnectLinkApi>(getExternalDataSourcesConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSourcesConnectionsListUrl = (
     projectId: string,
     params?: ExternalDataSourcesConnectionsListParams
@@ -1126,6 +1167,31 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
+    })
+}
+
+export const getExternalDataSourcesSetupCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/setup/`
+}
+
+/**
+ * One-shot data warehouse source setup.
+
+Validate credentials, discover available tables, enable them all with sensible sync defaults
+(incremental where supported, else append, else full refresh), and create the source in a single
+call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
+use the lower-level `database_schema` + `create` flow instead.
+ */
+export const externalDataSourcesSetupCreate = async (
+    projectId: string,
+    sourceSetupApi: SourceSetupApi,
+    options?: RequestInit
+): Promise<ExternalDataSourceSerializersApi> => {
+    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesSetupCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceSetupApi),
     })
 }
 
