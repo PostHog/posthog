@@ -1101,8 +1101,10 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
+            // Pill auto-injects the "All" (SuggestedFilters) tab as the default for a
+            // multi-group picker, so that's the category showing before and after Tab.
             const trigger = screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
-            expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+            expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('All'))
 
             const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
             input.focus()
@@ -1110,7 +1112,7 @@ describe('TaxonomicFilter', () => {
 
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveAttribute(
                 'aria-label',
-                expect.stringContaining('Events')
+                expect.stringContaining('All')
             )
         })
     })

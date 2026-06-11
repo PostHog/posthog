@@ -167,6 +167,8 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
+ *    2a. Auto-injecting the SuggestedFilters ("All") tab when there's more
+ *       than one substantive group — the rebuilt menu always leads with it.
  *    3. Auto-injecting Recent/Pinned meta tabs when available.
  *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
@@ -202,7 +204,19 @@ function resolveTaxonomicGroupTypes(
     }
     const filtered = requested.filter((t) => !excluded.has(t) && available.has(t))
 
-    // 2. Auto-inject Recent/Pinned meta tabs when available and not already present.
+    // 2a. The rebuilt menu always surfaces the SuggestedFilters ("All") tab as the
+    // default cross-group landing spot when there's more than one substantive group
+    // to aggregate.
+    const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
+    if (
+        available.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+        !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+        substantiveGroupCount >= 2
+    ) {
+        filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
+    }
+
+    // 2b. Auto-inject Recent/Pinned meta tabs when available and not already present.
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
             filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)

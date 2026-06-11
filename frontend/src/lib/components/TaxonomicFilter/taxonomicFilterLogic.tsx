@@ -37,6 +37,7 @@ import {
     ExcludedProperties,
     ListStorage,
     QuickFilterItem,
+    META_GROUP_TYPES,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -1476,8 +1477,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 new Set(taxonomicGroups.filter((g) => g.isMetaGroup).map((g) => g.type)),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
-            (groupTypes, taxonomicGroups, eventNames): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames, s.featureFlags],
+            (groupTypes, taxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1501,8 +1502,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return availableGroupTypes.has(groupType)
                 })
 
-                // SuggestedFilters must be explicitly requested; RecentFilters and
-                // PinnedFilters are auto-injected after existing meta groups.
+                // In the pill variant the SuggestedFilters ("All") tab is the default
+                // cross-group landing spot whenever there's more than one substantive
+                // group to aggregate. It stays opt-in for the control variant, so the
+                // control arm only shows it where a call site explicitly requests it.
+                const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
+                const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
+                if (
+                    pillVariant &&
+                    availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+                    !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+                    substantiveGroupCount >= 2
+                ) {
+                    filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
+                }
+
+                // RecentFilters and PinnedFilters are auto-injected after existing
+                // meta groups (including SuggestedFilters when present).
                 const metaGroupOrder = [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
