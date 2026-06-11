@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.api.test.test_team import create_team
+from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
@@ -14,6 +15,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 from ee.api.rbac.test.test_access_control import BaseAccessControlTest
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestScheduledChange(APIBaseTest):
@@ -768,3 +770,65 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
             f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/"
         )
         assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN, retrieve_response.json()
+
+    def _make_schedule_for_flag(self, key: str) -> tuple[FeatureFlag, ScheduledChange]:
+        # Owned by another user so the requesting user isn't the flag creator (creators bypass
+        # object-level access controls).
+        flag_owner = User.objects.create_and_join(self.organization, f"{key}-owner@example.com", "password123")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=flag_owner, key=key, name=key)
+        change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=str(flag.id),
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+        return flag, change
+
+    def _set_flag_access(self, flag: FeatureFlag, access_level: str) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="feature_flag",
+            resource_id=str(flag.id),
+            access_level=access_level,
+            organization_member=self.organization_membership,
+        )
+
+    def test_per_flag_denial_hides_schedule_from_reads(self):
+        # The target flag lives in record_id, so per-flag access must be enforced on reads.
+        _, denied_change = self._make_schedule_for_flag("denied-flag")
+        self._set_flag_access(FeatureFlag.objects.get(id=denied_change.record_id), "none")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        ids = [row["id"] for row in list_response.json()["results"]]
+        assert denied_change.id not in ids
+        # A schedule for an accessible flag is still returned.
+        assert self.scheduled_change.id in ids
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{denied_change.id}/")
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
+
+    def test_per_flag_denial_blocks_delete(self):
+        _, denied_change = self._make_schedule_for_flag("denied-delete-flag")
+        self._set_flag_access(FeatureFlag.objects.get(id=denied_change.record_id), "none")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{denied_change.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert ScheduledChange.objects.filter(id=denied_change.id).exists()
+
+    def test_viewer_only_member_can_read_but_not_delete_schedule(self):
+        flag, viewer_change = self._make_schedule_for_flag("viewer-flag")
+        self._set_flag_access(flag, "viewer")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{viewer_change.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK, retrieve_response.json()
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{viewer_change.id}/")
+        assert delete_response.status_code == status.HTTP_403_FORBIDDEN, delete_response.content
+        assert ScheduledChange.objects.filter(id=viewer_change.id).exists()

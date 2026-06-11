@@ -4,11 +4,13 @@ from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
@@ -187,7 +189,6 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         """Raise ValidationError unless the request user can edit the target record."""
         if model_name != "FeatureFlag" or not record_id:
             return
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         try:
             feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
@@ -261,4 +262,38 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if record_id is not None:
             queryset = queryset.filter(record_id=record_id)
 
+        # The target flag lives in record_id, so per-flag access controls don't apply to
+        # ScheduledChange rows automatically. Hide schedules for flags the user is denied,
+        # so reads match feature-flag visibility (list/retrieve; retrieve then 404s).
+        denied_flag_ids = self._inaccessible_feature_flag_ids()
+        if denied_flag_ids:
+            queryset = queryset.exclude(model_name="FeatureFlag", record_id__in=denied_flag_ids)
+
         return queryset
+
+    def perform_destroy(self, instance: ScheduledChange) -> None:
+        # Deleting a schedule cancels a pending flag change, so require edit access on the
+        # target flag — mirroring the create/update checks enforced by the serializer.
+        self._assert_can_edit_target_flag(instance)
+        super().perform_destroy(instance)
+
+    def _inaccessible_feature_flag_ids(self) -> "list[str]":
+        """Return record_ids of feature flags in this project the user may not access."""
+        if not self.user_access_control.access_controls_supported:
+            return []
+        flags = FeatureFlag.objects.filter(team__project_id=self.project_id)
+        accessible = self.user_access_control.filter_queryset_by_access_level(flags, include_all_if_admin=True)
+        all_ids = {str(pk) for pk in flags.values_list("id", flat=True)}
+        accessible_ids = {str(pk) for pk in accessible.values_list("id", flat=True)}
+        return list(all_ids - accessible_ids)
+
+    def _assert_can_edit_target_flag(self, instance: ScheduledChange) -> None:
+        if instance.model_name != "FeatureFlag" or not instance.record_id:
+            return
+        try:
+            feature_flag = FeatureFlag.objects.get(id=instance.record_id, team_id=instance.team_id)
+        except (FeatureFlag.DoesNotExist, ValueError):
+            # Orphaned schedule (flag deleted / non-numeric record_id): allow team-scoped cleanup.
+            return
+        if not CanEditFeatureFlag().has_object_permission(self.request, self, feature_flag):
+            raise PermissionDenied("You don't have edit permissions for this feature flag")
