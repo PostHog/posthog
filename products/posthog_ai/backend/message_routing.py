@@ -8,14 +8,17 @@ a Django SSE relay.
 """
 
 import json
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from typing import Any, cast
 
 from django.db import transaction
 
+import structlog
 from pydantic import BaseModel
 from rest_framework import exceptions, status
 
+from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.storage import object_storage
 
@@ -27,6 +30,7 @@ from products.posthog_ai.backend.context_wrapper import (
     ContextService,
 )
 from products.posthog_ai.backend.helpers import BaseSandboxService
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
@@ -34,8 +38,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_cancel
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
-if TYPE_CHECKING:
-    from products.posthog_ai.backend.models.assistant import Conversation
+logger = structlog.get_logger(__name__)
 
 
 class SandboxRouteResult(BaseModel):
@@ -62,6 +65,32 @@ class SandboxCommandError(exceptions.APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_detail = "Failed to deliver the command to the sandbox agent."
     default_code = "sandbox_command_failed"
+
+
+@contextmanager
+def lock_conversation_for_followup(conversation_id: str, team_id: int) -> Iterator[Conversation]:
+    """Serialize concurrent sandbox follow-ups for a single conversation.
+
+    Two browser tabs that both POST a follow-up to the same conversation while its current Run is
+    terminal can each resolve "terminal → create successor Run" and end up creating two Runs. If
+    products/tasks' Run-create is not idempotent on `(conversation, resume_from_run_id)`, that race
+    produces duplicate Runs. This helper takes a row-level `SELECT FOR UPDATE` on the `Conversation`
+    so the second tab blocks until the first commits, then re-resolves the current Run (via the
+    `task` FK) and skips the duplicate create.
+
+    Keep the block narrow — no external side effects (Temporal dispatch, agent-server calls) inside
+    it. Schedule those after the transaction commits (e.g. `transaction.on_commit`), so a rollback
+    cannot leave an orphaned workflow.
+    """
+    with transaction.atomic():
+        # nosemgrep: idor-lookup-without-team (team_id is part of the lookup below)
+        conversation = Conversation.objects.select_for_update().get(id=conversation_id, team_id=team_id)
+        logger.debug(
+            "sandbox_followup_lock_acquired",
+            conversation_id=conversation_id,
+            task_id=str(conversation.task_id) if conversation.task_id else None,
+        )
+        yield conversation
 
 
 class MessageRoutingService(BaseSandboxService):
@@ -272,6 +301,13 @@ class MessageRoutingService(BaseSandboxService):
         Resume into a brand-new successor Run on the same Task, then start its
         workflow. `current_run` resolves to the new Run via the Task's reverse
         relation — the conversation's `task` FK is unchanged.
+
+        The successor create runs under a row lock on the Conversation: two
+        concurrent follow-ups that both saw the terminal Run would otherwise
+        each create a successor. The loser blocks on the lock, re-resolves the
+        current Run, and surfaces a 409 instead of duplicating the create; the
+        workflow dispatch stays outside the lock's transaction so a rollback
+        cannot leave an orphaned workflow behind.
         """
         task = self.conversation.task
         if task is None:
@@ -279,20 +315,29 @@ class MessageRoutingService(BaseSandboxService):
 
         system_prompt = PromptService(self.team, self.user).build()
 
-        extra_state: dict[str, Any] = {
-            "resume_from_run_id": str(run.id),
-            "pending_user_message": wrapped,
-            "systemPrompt": system_prompt,
-            # The full, undeduped list — survives for the life of the new Run.
-            "attached_context": attached_context,
-            "initial_permission_mode": "default",
-        }
-        # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
-        snapshot_external_id = (run.state or {}).get("snapshot_external_id")
-        if snapshot_external_id:
-            extra_state["snapshot_external_id"] = snapshot_external_id
+        with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
+            current = locked.current_run
+            if current is not None and current.status in self._IN_PROGRESS_STATUSES:
+                raise Conflict("A concurrent message already resumed this conversation. Send the message again.")
+            if current is not None:
+                # The freshest terminal Run is the resume source — a concurrent winner's
+                # successor may itself have finished while this request waited on the lock.
+                run = current
 
-        new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            extra_state: dict[str, Any] = {
+                "resume_from_run_id": str(run.id),
+                "pending_user_message": wrapped,
+                "systemPrompt": system_prompt,
+                # The full, undeduped list — survives for the life of the new Run.
+                "attached_context": attached_context,
+                "initial_permission_mode": "default",
+            }
+            # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
+            snapshot_external_id = (run.state or {}).get("snapshot_external_id")
+            if snapshot_external_id:
+                extra_state["snapshot_external_id"] = snapshot_external_id
+
+            new_run = task.create_run(mode="interactive", extra_state=extra_state)
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.
