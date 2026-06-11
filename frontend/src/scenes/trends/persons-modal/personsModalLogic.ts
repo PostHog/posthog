@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -31,6 +31,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    ActivityTab,
     ActorType,
     BreakdownType,
     ChartDisplayType,
@@ -529,7 +530,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     full: true,
                 }
 
-                return urls.insightNew({ query })
+                // Route to the dedicated events explorer rather than /insights/new. The explorer reads the
+                // query synchronously from the `#q=` hash and renders the events table directly, whereas the
+                // insight scene round-trips this drill-down through an async query upgrade that can drop it and
+                // fall back to a default Trends insight.
+                return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
             },
         ],
         sessionIdsFromLoadedActors: [

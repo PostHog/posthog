@@ -18,6 +18,7 @@ LOG_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
     "hog_flow": ProductKey.WORKFLOWS,
     "batch_exports": ProductKey.PIPELINE_BATCH_EXPORTS,
+    "endpoints": ProductKey.ENDPOINTS,
 }
 
 

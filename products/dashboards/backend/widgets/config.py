@@ -1,4 +1,4 @@
-"""Shared helpers for dashboard widget config: validation, defaults, and common fields."""
+"""Query-time widget config helpers (team defaults), separate from Pydantic validation."""
 
 from __future__ import annotations
 
@@ -7,13 +7,6 @@ from collections.abc import Mapping
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models.team import Team
-
-from products.dashboards.backend.constants import (
-    DEFAULT_WIDGET_LIST_LIMIT,
-    MAX_WIDGET_RESULT_LIMIT,
-    WIDGET_DATE_FROM_VALUES,
-)
-from products.dashboards.backend.widgets.widget_config_types import WidgetDateRange
 
 
 def resolve_filter_test_accounts(config: Mapping[str, object], team: Team) -> bool:
@@ -24,55 +17,3 @@ def resolve_filter_test_accounts(config: Mapping[str, object], team: Team) -> bo
     if not isinstance(value, bool):
         raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
     return value
-
-
-def merge_base_widget_config_fields(config: Mapping[str, object]) -> dict[str, bool]:
-    # Centralizes shared fields so each widget type doesn't re-validate them.
-    if "filterTestAccounts" not in config:
-        return {}
-    value = config["filterTestAccounts"]
-    if not isinstance(value, bool):
-        raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
-    return {"filterTestAccounts": value}
-
-
-def validate_widget_list_limit(config: Mapping[str, object]) -> int:
-    limit = config.get("limit", DEFAULT_WIDGET_LIST_LIMIT)
-    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
-        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
-    return limit
-
-
-def validate_widget_list_order_by(config: Mapping[str, object], *, allowed: frozenset[str], default: str) -> str:
-    order_by = config.get("orderBy", default)
-    if not isinstance(order_by, str) or order_by not in allowed:
-        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(allowed))}."})
-    return order_by
-
-
-def validate_widget_list_order_direction(config: Mapping[str, object]) -> str:
-    order_direction = config.get("orderDirection", "DESC")
-    if not isinstance(order_direction, str) or order_direction not in {"ASC", "DESC"}:
-        raise DRFValidationError({"config": "orderDirection must be ASC or DESC."})
-    return order_direction
-
-
-def validate_widget_list_date_range_if_present(config: Mapping[str, object]) -> WidgetDateRange | None:
-    if "dateRange" not in config:
-        return None
-    return validate_widget_date_range(config.get("dateRange"))
-
-
-def validate_widget_date_range(date_range: object) -> WidgetDateRange | None:
-    # Fail fast on unsupported shapes before widget runners build queries.
-    if date_range is None:
-        return None
-    if not isinstance(date_range, dict):
-        raise DRFValidationError({"config": "dateRange must be an object."})
-
-    date_from = date_range.get("date_from")
-    if date_from is not None and (not isinstance(date_from, str) or date_from not in WIDGET_DATE_FROM_VALUES):
-        allowed = ", ".join(sorted(WIDGET_DATE_FROM_VALUES))
-        raise DRFValidationError({"config": f"dateRange.date_from must be one of: {allowed}."})
-
-    return {"date_from": date_from} if date_from is not None else None

@@ -73,10 +73,6 @@
             ],
             "description": "Optional one-line hypothesis the finding tests."
         },
-        "id": {
-            "description": "A UUID string identifying this Signal scout run.",
-            "type": "string"
-        },
         "mcp_trace_id": {
             "anyOf": [
                 {
@@ -87,6 +83,10 @@
                 }
             ],
             "description": "Optional MCP trace id for cross-system debugging."
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
         },
         "severity": {
             "anyOf": [
@@ -124,6 +124,6 @@
             "description": "Optional time window the finding refers to."
         }
     },
-    "required": ["id", "description", "confidence", "evidence"],
+    "required": ["run_id", "description", "confidence", "evidence"],
     "type": "object"
 }

@@ -262,6 +262,7 @@ from posthog.schema_enums import (
     TikTokAdsTableExclusions as TikTokAdsTableExclusions,
     TikTokAdsTableKeywords as TikTokAdsTableKeywords,
     TimeWindowMode as TimeWindowMode,
+    TraceOrderColumn as TraceOrderColumn,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -21887,7 +21888,14 @@ class TraceSpansQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: LogsOrderBy | None = None
+    orderBy: TraceOrderColumn | None = Field(
+        default=None,
+        description=(
+            "Column to order by. Defaults to timestamp. `timestamp` paginates via"
+            " keyset cursor (`after`); other columns via `offset`."
+        ),
+    )
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),
