@@ -137,6 +137,10 @@ export function computeInboxTabCounts(reports: SignalReport[], scope: InboxScope
 
 /** Reports visible in a given tab under a given scope. */
 export function reportsForTab(reports: SignalReport[], tab: InboxTabKey, scope: InboxScope): SignalReport[] {
+    if (tab === 'agents') {
+        // The Agents tab is a configuration view, not a report list.
+        return []
+    }
     return reports.filter((report) => {
         if (isExcludedFromInbox(report)) {
             return false

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconBug, IconGear } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -11,7 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ConventionalCommitScopeTag } from './components/cards/ReportCard'
-import { ConfigureAgentsModal } from './components/config/ConfigureAgentsModal'
+import { AgentsTab } from './components/config/AgentsTab'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { PullRequestDetail } from './components/detail/PullRequestDetail'
 import { ReportDetail } from './components/detail/ReportDetail'
@@ -23,7 +23,6 @@ import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { signalSourcesLogic } from './signalSourcesLogic'
 import { INBOX_TAB_LABEL, InboxTabKey, SignalReport } from './types'
 import { displayConventionalCommitTitle, parseConventionalCommitTitle } from './utils/reportPresentation'
 
@@ -32,7 +31,15 @@ export const scene: SceneExport = {
     logic: inboxSceneLogic,
 }
 
+/** Tabs that show the centered report list (search + scope chrome). Runs and Agents are special. */
+function isReportListTab(tab: InboxTabKey): boolean {
+    return tab === 'pulls' || tab === 'reports'
+}
+
 function ActiveTabBody({ tab, reports }: { tab: InboxTabKey; reports: SignalReport[] }): JSX.Element {
+    if (tab === 'agents') {
+        return <AgentsTab />
+    }
     if (tab === 'pulls') {
         return <PullRequestsTab reports={reports} />
     }
@@ -66,14 +73,14 @@ function InboxListView(): JSX.Element {
         <div className="flex flex-col min-h-0 flex-1">
             <div className="flex items-end justify-between gap-2 border-b border-primary px-2 shrink-0">
                 <InboxTabBar counts={tabCounts} />
-                {activeTab !== 'runs' && (
+                {isReportListTab(activeTab) && (
                     <div className="pb-1.5">
                         <InboxScopeSelect />
                     </div>
                 )}
             </div>
             <div className="flex-1 overflow-auto min-h-0">
-                {activeTab !== 'runs' && (
+                {isReportListTab(activeTab) && (
                     <div className="mx-auto max-w-4xl px-6 pt-4 flex flex-col gap-4">
                         <InboxSearchFilterBar onRefresh={() => loadReports()} refreshing={reportsLoading} />
                         <InboxBulkSelectionBar />
@@ -120,15 +127,12 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 export function InboxScene(): JSX.Element {
     const { isRunningSessionAnalysis, selectedReportId, selectedReport, reportsLoading } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
-    const { enabledSourcesCount } = useValues(signalSourcesLogic)
-    const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
 
     // Detail route: render the report full-width, replacing the list (desktop parity).
     if (selectedReportId) {
         return (
             <SceneContent className="gap-y-0 border-b-0">
-                <ConfigureAgentsModal />
                 <div className="flex flex-col -mx-4 h-[calc(100vh-3.5rem)]">
                     {selectedReport ? (
                         <InboxDetailView report={selectedReport} />
@@ -145,38 +149,26 @@ export function InboxScene(): JSX.Element {
 
     return (
         <SceneContent className="gap-y-2 border-b-0">
-            <ConfigureAgentsModal />
             <SceneTitleSection
                 name="Inbox"
                 description="Work done by your agents – pull requests, reports, and live runs."
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    <div className="flex items-center gap-2">
-                        {isDev && (
-                            <Tooltip title="Analyze the last 7 days of sessions">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => runSessionAnalysis()}
-                                    loading={isRunningSessionAnalysis}
-                                    size="small"
-                                    data-attr="run-session-analysis-button"
-                                    tooltip="DEBUG-only"
-                                    icon={<IconBug />}
-                                >
-                                    Run session analysis
-                                </LemonButton>
-                            </Tooltip>
-                        )}
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconGear />}
-                            onClick={openSourcesModal}
-                            sideIcon={<LemonBadge.Number count={enabledSourcesCount} status="muted" size="small" />}
-                        >
-                            Configure agents
-                        </LemonButton>
-                    </div>
+                    isDev ? (
+                        <Tooltip title="Analyze the last 7 days of sessions">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => runSessionAnalysis()}
+                                loading={isRunningSessionAnalysis}
+                                size="small"
+                                data-attr="run-session-analysis-button"
+                                tooltip="DEBUG-only"
+                                icon={<IconBug />}
+                            >
+                                Run session analysis
+                            </LemonButton>
+                        </Tooltip>
+                    ) : undefined
                 }
             />
 

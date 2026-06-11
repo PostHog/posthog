@@ -93,15 +93,19 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'runs'
+export type InboxTabKey = 'pulls' | 'reports' | 'runs' | 'agents'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'runs']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'runs', 'agents']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
     runs: 'Runs',
+    agents: 'Agents',
 }
+
+/** Tabs that show a report-count chip. The Agents tab is a config view (no count). */
+export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'runs']
 
 export interface InboxTabCounts {
     pulls: number

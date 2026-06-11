@@ -1,26 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
-import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { mockAutonomy, mockReviewers, mockSourceConfigs } from '../../__mocks__/inboxMocks'
-import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { ConfigureAgentsModal } from './ConfigureAgentsModal'
+import { AgentsTab } from './AgentsTab'
 
-// The "Configure agents" modal, opened. Polish the section layout (Connections /
-// Agents / Slack / Auto-start / MCP) against the desktop Agents view.
-
-function OpenConfigureAgents(): JSX.Element {
-    const { openSourcesModal } = useActions(signalSourcesLogic)
-    useEffect(() => {
-        openSourcesModal()
-    }, [openSourcesModal])
-    return <ConfigureAgentsModal />
-}
+// The "Agents" tab — full-page high-fidelity port of the desktop Agents view
+// (Connections / Agents roster / Slack / Auto-start / MCP servers).
 
 const meta: Meta = {
-    title: 'Scenes-App/Inbox/Configure agents',
+    title: 'Scenes-App/Inbox/Agents tab',
+    component: AgentsTab,
     parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
     decorators: [
         mswDecorator({
@@ -48,7 +38,11 @@ const meta: Meta = {
             },
         }),
     ],
-    render: () => <OpenConfigureAgents />,
+    render: () => (
+        <div className="bg-primary min-h-screen">
+            <AgentsTab />
+        </div>
+    ),
 }
 export default meta
 

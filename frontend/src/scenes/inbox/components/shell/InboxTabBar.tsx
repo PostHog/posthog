@@ -6,7 +6,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { INBOX_TAB_KEYS, INBOX_TAB_LABEL, InboxTabCounts } from '../../types'
+import { INBOX_REPORT_TAB_KEYS, INBOX_TAB_KEYS, INBOX_TAB_LABEL, InboxTabCounts } from '../../types'
 
 interface InboxTabBarProps {
     counts: InboxTabCounts
@@ -34,7 +34,11 @@ export function InboxTabBar({ counts }: InboxTabBarProps): JSX.Element {
                 label: (
                     <span className="flex items-center gap-1.5">
                         <span>{INBOX_TAB_LABEL[key]}</span>
-                        <span className="text-xs text-muted tabular-nums">{counts[key]}</span>
+                        {INBOX_REPORT_TAB_KEYS.includes(key) && (
+                            <span className="text-xs text-muted tabular-nums">
+                                {counts[key as keyof InboxTabCounts]}
+                            </span>
+                        )}
                     </span>
                 ),
                 content: <></>,
