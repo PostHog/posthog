@@ -15,7 +15,7 @@ On top of the reference below, the CLI adds:
 
 - \`posthog-cli api call --dry-run <tool> '<json>'\` — validate input against the tool schema without executing. Use it before any mutation.
 - Destructive tools refuse to run without \`--confirm\`; add it only after verifying the exact target IDs.
-- \`posthog-cli api skill list\` and \`posthog-cli api skill install <skill-id>\` — install PostHog agent skills into \`.agents/skills/\`.
+- \`posthog-cli api skill list\` and \`posthog-cli api skill install <skill-id>\` — install PostHog agent skills into \`.agents/skills/\`. Before starting a PostHog task, check the skill list for a match; if one exists, install it, read its \`SKILL.md\`, and follow it — skills contain task-specific workflows that individual tools do not.
 - \`posthog-cli api agents-md install [--path AGENTS.md]\` — install the PostHog steering snippet into a repository.`
 
 const EXEC_INVOCATION_PATTERN = /posthog:exec\(\{\s*"command":\s*"((?:\\.|[^"\\])*)"\s*\}\)/g

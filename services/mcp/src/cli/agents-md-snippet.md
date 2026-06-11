@@ -14,4 +14,5 @@ You must follow this required progressive disclosure workflow for every PostHog 
 
 - Use `posthog-cli api call --dry-run ...` before mutations.
 - Destructive tools require `--confirm`; only add it after verifying exact target IDs.
-- Install PostHog agent skills with `posthog-cli api skill list` and `posthog-cli api skill install <skill-id>`.
+
+Before starting a PostHog task, run `posthog-cli api skill list` and check for a skill matching the task. If one matches, install it with `posthog-cli api skill install <skill-id>` (add `--force` to refresh an already-installed skill), then read `.agents/skills/<skill-id>/SKILL.md` and follow it. Skills contain task-specific workflows that individual tools do not.
