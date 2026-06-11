@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -3401,6 +3402,37 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(self) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+        third_user = self._create_user("third-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        ExperimentService(team=self.team, user=third_user).create_experiment(
+            name="Creator third",
+            feature_flag_key="created-by-third",
+        )
+
+        # JSON-encoded list of user IDs matches experiments created by any of them
+        json_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"created_by_id": json.dumps([self.user.id, other_user.id])},
+        )
+        assert set(json_queryset.values_list("name", flat=True)) == {"Creator self", "Creator other"}
+
+        # Comma-separated list behaves the same
+        comma_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"created_by_id": f"{self.user.id},{third_user.id}"},
+        )
+        assert set(comma_queryset.values_list("name", flat=True)) == {"Creator self", "Creator third"}
 
     @parameterized.expand(
         [

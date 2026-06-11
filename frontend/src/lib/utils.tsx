@@ -161,6 +161,34 @@ export function parseTagsFilter(raw: unknown): string[] | undefined {
     return undefined
 }
 
+/** Parse a URL/query param into a list of numeric IDs. Accepts an array, a JSON-encoded list, or a comma-separated string. */
+export function parseNumericArrayFilter(raw: unknown): number[] | undefined {
+    const toNumbers = (values: unknown[]): number[] =>
+        values.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+
+    let values: unknown[] | undefined
+
+    if (Array.isArray(raw)) {
+        values = raw
+    } else if (typeof raw === 'number') {
+        values = [raw]
+    } else if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw)
+            values = Array.isArray(parsed) ? parsed : [parsed]
+        } catch {
+            values = raw.split(',').map((s) => s.trim())
+        }
+    }
+
+    if (!values) {
+        return undefined
+    }
+
+    const numbers = toNumbers(values.filter((v) => v !== '' && v !== null && v !== undefined))
+    return numbers.length ? numbers : undefined
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,

@@ -15,7 +15,7 @@ import type { selectExistingFeatureFlagModalLogicType } from './selectExistingFe
 
 export interface FeatureFlagModalFilters {
     active?: string
-    created_by_id?: number
+    created_by_id?: number[]
     search?: string
     order?: string
     page?: number

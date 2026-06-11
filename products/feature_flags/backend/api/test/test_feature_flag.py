@@ -5600,6 +5600,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "green_button"
 
+    def test_get_flags_with_multiple_created_by_id_filter(self):
+        another_user = User.objects.create(email="foo@bar.com")
+        third_user = User.objects.create(email="baz@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=third_user, key="orange_button")
+
+        # JSON-encoded list of user IDs matches flags created by any of them
+        json_list = json.dumps([self.user.id, another_user.id])
+        json_filtered = self.client.get(f"/api/projects/@current/feature_flags?created_by_id={json_list}")
+        json_keys = {flag["key"] for flag in json_filtered.json()["results"]}
+        assert json_keys == {"red_button", "blue_button"}
+
+        # Comma-separated list of user IDs behaves the same
+        comma_filtered = self.client.get(
+            f"/api/projects/@current/feature_flags?created_by_id={self.user.id},{third_user.id}"
+        )
+        comma_keys = {flag["key"] for flag in comma_filtered.json()["results"]}
+        assert comma_keys == {"red_button", "orange_button"}
+
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(

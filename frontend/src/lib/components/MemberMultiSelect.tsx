@@ -73,6 +73,15 @@ export function MemberMultiSelect({
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
 
+    const buttonLabel =
+        selectedCount === 0
+            ? defaultLabel
+            : selectedCount > 1
+              ? 'Multiple'
+              : selectedMembersAsUsers[0]
+                ? fullName(selectedMembersAsUsers[0])
+                : defaultLabel
+
     return (
         <LemonDropdown
             closeOnClickInside={false}
@@ -151,7 +160,7 @@ export function MemberMultiSelect({
                 children(selectedMembersAsUsers)
             ) : (
                 <LemonButton size="small" type="secondary" className={buttonClass} {...buttonProps}>
-                    {selectedCount > 0 ? `${selectedCount} selected` : defaultLabel}
+                    {buttonLabel}
                 </LemonButton>
             )}
         </LemonDropdown>

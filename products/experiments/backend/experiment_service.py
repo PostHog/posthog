@@ -45,7 +45,7 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -2412,7 +2412,9 @@ class ExperimentService:
 
             created_by_id = query_params.get("created_by_id")
             if created_by_id:
-                queryset = queryset.filter(created_by_id=created_by_id)
+                user_ids = parse_created_by_ids(created_by_id)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
 
             archived = query_params.get("archived")
             if archived is not None:
