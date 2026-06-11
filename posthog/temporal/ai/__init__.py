@@ -33,6 +33,7 @@ from posthog.temporal.ai.posthog_code_slack_mention_command import (
     resolve_posthog_code_slack_command_user_activity,
 )
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
+from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
 from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
@@ -84,6 +85,7 @@ AI_ACTIVITIES = [
     cascade_posthog_code_repository_activity,
     discover_posthog_code_repository_via_agent_activity,
     classify_posthog_code_task_needs_repo_activity,
+    *SLACK_APP_ACTIVITIES,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
     block_posthog_code_task_if_no_personal_github_activity,

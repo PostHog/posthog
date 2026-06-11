@@ -574,6 +574,16 @@ def delete_symbol_set_contents(upload_path: str) -> None:
         )
 
 
+def delete_symbol_set_contents_many(upload_paths: list[str]) -> list[str]:
+    if settings.OBJECT_STORAGE_ENABLED:
+        return object_storage.delete_objects(file_names=upload_paths)
+    else:
+        raise ValidationError(
+            code="object_storage_required",
+            detail="Object storage must be available to delete source maps.",
+        )
+
+
 class ErrorTrackingSpikeDetectionConfig(models.Model):
     team = models.OneToOneField(
         "posthog.Team",
