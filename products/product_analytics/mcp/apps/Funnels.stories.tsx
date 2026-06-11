@@ -1,26 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
+import { CHART_THEME, FUNNEL_COLOR } from '@posthog/mcp-ui'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { BarChart, type ChartTheme, type TooltipContext, TooltipSurface } from '@posthog/quill-charts'
+import { BarChart, type TooltipContext, TooltipSurface } from '@posthog/quill-charts'
 
 import {
     buildFunnelStepsBarConfig,
     buildFunnelStepsBars,
     type FunnelStepsBarRow,
 } from '../../frontend/insights/funnels/shared/funnelStepsBarShared'
-
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_THEME: ChartTheme = {
-    colors: ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626'],
-    backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
-    gridColor: 'rgba(128,128,128,0.2)',
-    crosshairColor: 'rgba(128,128,128,0.5)',
-    tooltipBackground: '#ffffff',
-    tooltipColor: '#111827',
-}
-const FUNNEL_COLOR = '#1d4aff'
 
 const NOOP = (): void => {}
 
