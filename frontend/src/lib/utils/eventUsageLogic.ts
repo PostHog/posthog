@@ -1208,12 +1208,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...sanitizeQuery(query),
             }
 
-            // The view path passes a bare source node, so sanitizeQuery's `query_kind` historically holds the
-            // *source* kind here (kept unchanged for continuity). Derive the corrected wrapper + source from the
-            // full stored query so `query_kind_fixed`/`query_source_kind` are reliable.
+            // The view path passes a bare source node, so sanitizeQuery's `query_kind`/`query_source_kind`
+            // describe the source rather than the wrapper. Override them from the full stored query so
+            // `query_kind` consistently means the top-level node, matching every other insight event.
             const modelQuery = insightModel.query as Node | null | undefined
             if (modelQuery) {
-                payload.query_kind_fixed = modelQuery.kind
+                payload.query_kind = modelQuery.kind
                 payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : modelQuery.kind
             }
 
