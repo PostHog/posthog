@@ -1931,6 +1931,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
+        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
