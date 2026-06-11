@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams, router, urlToAction } from 'kea-router'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { WebVitalsMetric } from '~/queries/schema/schema-general'

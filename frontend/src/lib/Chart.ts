@@ -6,7 +6,7 @@ import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables 
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import ZoomPlugin from 'chartjs-plugin-zoom'
 
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild

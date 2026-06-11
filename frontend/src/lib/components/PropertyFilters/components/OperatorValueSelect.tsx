@@ -10,7 +10,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
-    isMobile,
     isOperatorCohort,
     isOperatorDate,
     isOperatorFlag,
@@ -19,6 +18,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils'
+import { isMobile } from 'lib/utils/dom'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import {

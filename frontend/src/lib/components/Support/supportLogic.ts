@@ -7,7 +7,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

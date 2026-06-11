@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { isMobile } from 'lib/utils'
+import { isMobile } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'

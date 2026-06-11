@@ -2,7 +2,7 @@ import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
 import { join } from 'path'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'

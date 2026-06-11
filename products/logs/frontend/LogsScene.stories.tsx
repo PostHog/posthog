@@ -3,7 +3,8 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
+import { dateStringToDayJs, sampleOne } from 'lib/utils'
+import { inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 

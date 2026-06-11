@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 export const useFeatureFlag = (flag: keyof typeof FEATURE_FLAGS, match?: string): boolean => {
     const { featureFlags } = useValues(featureFlagLogic)

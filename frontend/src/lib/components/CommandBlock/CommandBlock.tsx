@@ -4,9 +4,9 @@ import { useState } from 'react'
 
 import { IconCopy, IconTerminal } from '@posthog/icons'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 type Size = 'sm' | 'md'
 type Decoration = 'plain' | 'rainbow'

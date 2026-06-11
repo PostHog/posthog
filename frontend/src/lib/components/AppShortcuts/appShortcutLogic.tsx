@@ -1,6 +1,6 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
-import { isMac } from 'lib/utils'
+import { isMac } from 'lib/utils/dom'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'

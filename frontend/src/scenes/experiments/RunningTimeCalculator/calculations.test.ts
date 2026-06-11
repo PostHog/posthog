@@ -1,4 +1,4 @@
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import {
     CachedNewExperimentQueryResponse,
