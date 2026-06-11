@@ -22,6 +22,20 @@ from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
+# Insight query kinds for which the rich query metadata is meaningful — mirrors the frontend
+# `sanitizeQuery` gate (isInsightVizNode || isInsightQueryNode).
+_ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+        "CalendarHeatmapQuery",
+    }
+)
+
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -173,20 +187,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             result["query_source_kind"] = source_kind
         return result
 
-    # Insight query kinds for which the rich query metadata below is meaningful — mirrors the frontend
-    # `sanitizeQuery` gate (isInsightVizNode || isInsightQueryNode).
-    _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
-        {
-            "TrendsQuery",
-            "FunnelsQuery",
-            "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
-            "LifecycleQuery",
-            "CalendarHeatmapQuery",
-        }
-    )
-
     def get_analytics_query_metadata(self) -> dict[str, Any]:
         """
         Directly-readable query fields for analytics, mirroring the safe subset of the frontend
@@ -200,7 +200,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         source = query.get("source", query)
         if not isinstance(source, dict):
             return {}
-        if query.get("kind") != "InsightVizNode" and source.get("kind") not in self._ANALYTICS_INSIGHT_QUERY_KINDS:
+        if query.get("kind") != "InsightVizNode" and source.get("kind") not in _ANALYTICS_INSIGHT_QUERY_KINDS:
             return {}
 
         metadata: dict[str, Any] = {}
