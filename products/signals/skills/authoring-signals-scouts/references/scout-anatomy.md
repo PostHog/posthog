@@ -4,6 +4,15 @@ A scout is a single `SKILL.md` (its body is loaded verbatim as the agent's syste
 plus optional `references/` files read on demand. Keep the body lean and push depth into
 references — every line of the body is a recurring token cost on **every** run.
 
+## Contents
+
+- Naming
+- Frontmatter
+- Body structure (the ten canonical sections)
+- References
+- Skeleton — specialist scout
+- Skeleton — broad / cross-product scout
+
 ## Naming
 
 The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by
@@ -38,6 +47,11 @@ metadata:
 `name` and `description` are required and validated at build time. `compatibility` and
 `metadata` are optional but conventional — `compatibility` documents the scopes/tools the
 scout assumes; `metadata.scope` gives downstream tooling a short label.
+
+The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the
+scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update`
+responses) — it's how the fleet roster reads to agents and the UI without opening each
+scout's body. Write it to stand alone in that listing.
 
 ## Body structure
 

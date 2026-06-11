@@ -91,7 +91,7 @@ def _normalize_project_id(raw: str | None) -> str:
 
 
 def _accessible_project_ids(payload: dict[str, Any] | None) -> list[str]:
-    """Pull the project ids out of a ``GET /v2/projects`` response.
+    """Pull the project ids out of a ``GET /v2/projects`` response page.
 
     We deliberately keep only the ids (opaque ``proj...`` tokens), never the
     project names — the error string built from this is captured into our
@@ -101,6 +101,36 @@ def _accessible_project_ids(payload: dict[str, Any] | None) -> list[str]:
     if not isinstance(items, list):
         return []
     return [str(item["id"]) for item in items if isinstance(item, dict) and item.get("id")]
+
+
+def _list_accessible_project_ids(session: requests.Session) -> list[str] | None:
+    """Return every project id the key can see, following cursor pages.
+
+    Returns ``None`` when a page comes back 200 but unparseable — callers can't
+    distinguish "no projects" from "couldn't read the list", and the two demand
+    opposite treatment, so we surface the difference. HTTP/network errors
+    propagate to the caller.
+    """
+    ids: list[str] = []
+    url = f"{REVENUECAT_API_BASE_URL}/projects"
+    params: dict[str, Any] | None = {"limit": DEFAULT_PAGE_SIZE}
+
+    while True:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        try:
+            payload = response.json() or {}
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            return None
+
+        ids.extend(_accessible_project_ids(payload))
+
+        next_page = payload.get("next_page")
+        if not next_page:
+            return ids
+        # next_page already carries its own query string — see iterate_list_endpoint.
+        url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
+        params = None
 
 
 def _project_not_found_error(entered_project_id: str, accessible_ids: list[str]) -> str:
@@ -151,16 +181,17 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     """Confirm the key works and (when set) that it can reach ``project_id``.
 
     ``GET /v2/projects`` both validates the key and tells us every project the
-    key can see. We keep that list so that if the per-project follow-up 404s —
-    by far the most common failure — we can name the project ids the key *can*
-    reach instead of a dead-end "double-check the project id". The entered id is
-    normalized first so a pasted dashboard URL or stray whitespace doesn't
-    masquerade as a missing project.
+    key can see, so the project check is a membership test against that list.
+    There is no ``GET /v2/projects/{id}`` endpoint in the RevenueCat v2 API —
+    probing it 404s even for a perfectly valid id, so never "verify" a project
+    that way. The entered id is normalized first so a pasted dashboard URL or
+    stray whitespace doesn't masquerade as a missing project; on a miss, the
+    error names the project ids the key *can* reach instead of a dead-end
+    "double-check the project id".
     """
     session = _session(api_key)
     try:
-        response = session.get(f"{REVENUECAT_API_BASE_URL}/projects", timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
+        accessible_ids = _list_accessible_project_ids(session)
     except requests.HTTPError as e:
         return False, _format_http_error(e)
     except requests.RequestException as e:
@@ -170,25 +201,14 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     if not normalized_project_id:
         return True, None
 
-    try:
-        accessible_ids = _accessible_project_ids(response.json() or {})
-    except (ValueError, requests.exceptions.JSONDecodeError):
-        accessible_ids = []
+    # The list came back 200 but unreadable — the key itself is good, and we
+    # have no way to check the project, so fail open rather than block setup.
+    if accessible_ids is None:
+        return True, None
 
-    try:
-        response = session.get(
-            f"{REVENUECAT_API_BASE_URL}/projects/{normalized_project_id}",
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            return False, _project_not_found_error(normalized_project_id, accessible_ids)
-        return False, _format_http_error(e)
-    except requests.RequestException as e:
-        return False, f"Could not reach RevenueCat: {e}"
-
-    return True, None
+    if normalized_project_id in accessible_ids:
+        return True, None
+    return False, _project_not_found_error(normalized_project_id, accessible_ids)
 
 
 def _ms_to_seconds(value: Any) -> Any:

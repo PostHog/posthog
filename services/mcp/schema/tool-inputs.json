@@ -15,6 +15,35 @@
             },
             "required": ["projectId"]
         },
+        "BusinessKnowledgeUrlSourceCreateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Short human label for the source. Shown in the settings list and in agent citations."
+                },
+                "url": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri",
+                    "description": "Public HTTP(S) URL to fetch. Private or internal hosts are rejected."
+                },
+                "source_type": {
+                    "default": "url",
+                    "description": "Source type. Always \"url\" for this tool.",
+                    "type": "string",
+                    "const": "url"
+                },
+                "refresh_interval": {
+                    "default": "manual",
+                    "description": "How often to auto-refresh this source in the background. Defaults to \"manual\" (no auto-refresh).",
+                    "type": "string",
+                    "enum": ["manual", "1h", "6h", "24h", "7d"]
+                }
+            },
+            "required": ["name", "url"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {

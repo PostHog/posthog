@@ -18,8 +18,7 @@ from django.conf import settings
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
-from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.exceptions import (
+from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -27,6 +26,7 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxTimeoutError,
     SnapshotCreationError,
 )
+from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
     BASH_ENV_SCRIPT,
