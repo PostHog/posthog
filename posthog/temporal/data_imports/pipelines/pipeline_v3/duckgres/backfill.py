@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 from urllib.parse import unquote
 
@@ -46,6 +47,10 @@ from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.batch_kind import (
+    LIVE_BATCH_SQL_PREDICATE,
+    build_backfill_metadata,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import RETIRE_KIND_SUPERSEDED_BY_REPLACE
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
@@ -61,6 +66,10 @@ BACKFILL_JOB_ID = "duckgres-backfill"
 CHUNK_TARGET_BYTES = 1024**3  # ~1 GiB of parquet per chunk statement
 MAX_FILES_PER_CHUNK = 512  # bound the read_parquet([...]) literal list
 MAX_CONCURRENT_BACKFILLS_PER_ORG = 1  # best-effort across pods (see _plan_pending)
+# A claim that never produced a durable run plan within this window is
+# considered crashed and is returned to PENDING by the reconciler. Planning is
+# metadata-only (Delta log read + row inserts), so minutes of lease are ample.
+PLANNING_LEASE_SECONDS = 900
 
 # Reasons written into duckgres status rows. _reconcile_backfilling matches on
 # these prefixes — keep them distinct: only a LIVE replace-run supersession may
@@ -240,42 +249,61 @@ def _revert_to_pending(state_id: Any, error: str | None = None) -> None:
 
 
 def _plan_one(state: DuckgresSinkSchemaState) -> None:
-    """Runs only on the pod that won the CAS claim."""
+    """Runs only on the pod that won the CAS claim.
+
+    Ordering is crash-safety-critical:
+    1. capture a queue-DB clock BEFORE resolving the snapshot (the cutoff),
+    2. resolve the snapshot (no side effects),
+    3. CAS the durable run plan (run_uuid/version/cutoff/chunk_count) onto the
+       state row — this is the real claim; only its winner proceeds,
+    4. retire covered runs, 5. enqueue chunks.
+    A crash anywhere after step 3 is healed by _reconcile_one (re-retire +
+    re-enqueue from the stored plan); a crash before step 3 is healed by the
+    planning lease (reset to PENDING).
+    """
     schema = ExternalDataSchema.objects.select_related("source", "team").get(id=state.schema_id)
 
-    snapshot_version, chunks = _resolve_snapshot_chunks(schema)
-    if not chunks:
-        # Empty Delta table: nothing to prime.
-        DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-            state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
-        )
-        return
-
-    run_uuid = backfill_run_uuid(str(state.schema_id), snapshot_version)
-
     with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-        # Retire the schema's pre-snapshot live runs FIRST: their rows are
-        # delta-succeeded but blocked (schema not PRIMED), so they would gate
-        # the backfill run via the cross-run head-of-line check forever. Their
-        # data is inside the pinned snapshot by construction, so failing them
-        # is semantically the same as the supersede sweep.
-        retired = _retire_schema_runs(
+        cutoff_row = conn.execute("SELECT now()").fetchone()
+        assert cutoff_row is not None
+        cutoff = cutoff_row[0]
+
+        snapshot_version, chunks = _resolve_snapshot_chunks(schema)
+        if not chunks:
+            # Empty Delta table: nothing to prime.
+            DuckgresSinkSchemaState.objects.filter(id=state.id).update(
+                state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
+            )
+            return
+
+        run_uuid = backfill_run_uuid(str(state.schema_id), snapshot_version)
+
+        # Durable plan claim: only one pod can attach a run to this state row.
+        planned = DuckgresSinkSchemaState.objects.filter(
+            id=state.id,
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid__isnull=True,
+        ).update(
+            snapshot_version=snapshot_version,
+            plan_cutoff=cutoff,
+            backfill_run_uuid=run_uuid,
+            chunk_count=len(chunks),
+            chunks_applied=0,
+            last_error=None,
+            updated_at=timezone.now(),
+        )
+        if not planned:
+            return
+
+        retired = _retire_covered_runs(
             conn,
             team_id=schema.team_id,
             schema_id=str(state.schema_id),
+            cutoff=cutoff,
             reason=f"{REASON_COVERED_BY_SNAPSHOT} v{snapshot_version}",
         )
         inserted = _enqueue_chunks(conn, schema, run_uuid, chunks)
 
-    DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-        state=DuckgresSinkSchemaState.State.BACKFILLING,
-        snapshot_version=snapshot_version,
-        backfill_run_uuid=run_uuid,
-        chunk_count=len(chunks),
-        chunks_applied=0,
-        last_error=None,
-        updated_at=timezone.now(),
-    )
     logger.info(
         "duckgres_backfill_planned",
         schema_id=str(state.schema_id),
@@ -302,11 +330,28 @@ def _reconcile_backfilling(team_ids: list[int] | None) -> None:
     - Any other failure surfaces on last_error and the schema stays
       BACKFILLING (alerting surface; operator replans).
     """
+    # Half-claimed rows (crash between the claim CAS and the plan CAS) carry
+    # no run plan; after the lease they return to PENDING for a fresh attempt.
+    lease_deadline = timezone.now() - timedelta(seconds=PLANNING_LEASE_SECONDS)
+    stale = DuckgresSinkSchemaState.objects.filter(
+        state=DuckgresSinkSchemaState.State.BACKFILLING,
+        backfill_run_uuid__isnull=True,
+        updated_at__lt=lease_deadline,
+    )
+    if team_ids is not None:
+        stale = stale.filter(team_id__in=team_ids)
+    reset = stale.update(state=DuckgresSinkSchemaState.State.PENDING_BACKFILL, updated_at=timezone.now())
+    if reset:
+        logger.warning("duckgres_backfill_stale_claims_reset", count=reset)
+
     backfilling = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.BACKFILLING)
+    needs_resync = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.NEEDS_RESYNC)
     if team_ids is not None:
         backfilling = backfilling.filter(team_id__in=team_ids)
+        needs_resync = needs_resync.filter(team_id__in=team_ids)
     rows = [s for s in backfilling if s.backfill_run_uuid]
-    if not rows:
+    resync_rows = list(needs_resync)
+    if not rows and not resync_rows:
         return
 
     with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
@@ -315,6 +360,12 @@ def _reconcile_backfilling(team_ids: list[int] | None) -> None:
                 _reconcile_one(conn, state)
             except Exception as e:
                 logger.exception("duckgres_backfill_reconcile_failed", schema_id=str(state.schema_id))
+                capture_exception(e)
+        for state in resync_rows:
+            try:
+                _reconcile_needs_resync(conn, state)
+            except Exception as e:
+                logger.exception("duckgres_backfill_resync_check_failed", schema_id=str(state.schema_id))
                 capture_exception(e)
 
 
@@ -376,6 +427,16 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     present = int(present_row[0]) if present_row else 0
     if state.chunk_count and present < state.chunk_count and state.snapshot_version is not None:
         schema = ExternalDataSchema.objects.select_related("source").get(id=state.schema_id)
+        if state.plan_cutoff is not None:
+            # Heals a crash between the plan CAS and the retire pass; the
+            # cutoff makes this idempotent and timing-safe.
+            _retire_covered_runs(
+                conn,
+                team_id=state.team_id,
+                schema_id=str(state.schema_id),
+                cutoff=state.plan_cutoff,
+                reason=f"{REASON_COVERED_BY_SNAPSHOT} v{state.snapshot_version}",
+            )
         _, chunks = _resolve_snapshot_chunks(schema, version=state.snapshot_version)
         reinserted = _enqueue_chunks(conn, schema, str(run_uuid), chunks)
         if reinserted:
@@ -539,25 +600,55 @@ def _group_files_into_chunks(files: list[tuple[str, int, int]]) -> list[Backfill
 # ---------------------------------------------------------------------------
 
 
-def _retire_schema_runs(
+def _retire_covered_runs(
     conn: psycopg.Connection[Any],
     *,
     team_id: int,
     schema_id: str,
+    cutoff: Any,
     reason: str,
 ) -> int:
-    """Fail every unapplied, non-terminal batch of the schema's existing runs.
+    """Fail the unapplied work of runs PROVABLY contained in the snapshot.
 
-    Called at plan time, before the backfill rows exist: everything currently
-    queued for the schema predates the pinned snapshot, so its data is in the
-    snapshot. Skips 'executing' batches (a mid-flight attempt resolves itself;
-    its siblings' failed rows already retire the run from the gates).
+    Containment proof is run-level and timing-based: the Delta consumer marks
+    a batch succeeded only after its Delta commit, and the cutoff clock was
+    read from this same database BEFORE the snapshot was resolved — so a run
+    whose EVERY batch has a 'succeeded' delta status older than the cutoff
+    committed entirely at or below the pinned version. Runs with any batch
+    succeeding after the cutoff (or still in flight) are NOT retired: their
+    data may postdate the snapshot, and they apply after the swap instead
+    (the cross-run gate exempts backfill chunks from waiting on them).
+
+    Idempotent: already-terminal batches are excluded, so re-running with the
+    same cutoff (crash healing) inserts nothing new. Backfill runs themselves
+    are excluded via the live-batch predicate.
     """
     cursor = conn.execute(
         f"""
+        WITH covered_runs AS MATERIALIZED (
+            SELECT DISTINCT b.run_uuid
+            FROM {BATCH_TABLE} b
+            WHERE b.team_id = %(team_id)s
+                AND b.schema_id = %(schema_id)s
+                AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND {LIVE_BATCH_SQL_PREDICATE}
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b2
+                    LEFT JOIN v_latest_source_batch_status ds2 ON b2.id = ds2.batch_id
+                    WHERE b2.run_uuid = b.run_uuid
+                        AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (
+                            ds2.batch_id IS NULL
+                            OR ds2.job_state <> 'succeeded'
+                            OR ds2.created_at > %(cutoff)s
+                        )
+                )
+        )
         INSERT INTO sourcebatchduckgresstatus (batch_id, job_state, attempt, error_response)
         SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s, 'kind', %(kind)s)
         FROM {BATCH_TABLE} b
+        JOIN covered_runs cr ON cr.run_uuid = b.run_uuid
         LEFT JOIN v_latest_source_batch_duckgres_status dgs ON b.id = dgs.batch_id
         LEFT JOIN sourcebatchduckgresapply a
             ON a.team_id = b.team_id AND a.schema_id = b.schema_id
@@ -568,9 +659,54 @@ def _retire_schema_runs(
             AND (b.is_final_batch = true OR a.id IS NULL)
             AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
         """,
-        {"team_id": team_id, "schema_id": schema_id, "reason": reason, "kind": RETIRE_KIND_COVERED_BY_SNAPSHOT},
+        {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "cutoff": cutoff,
+            "reason": reason,
+            "kind": RETIRE_KIND_COVERED_BY_SNAPSHOT,
+        },
     )
     return cursor.rowcount or 0
+
+
+def _reconcile_needs_resync(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState) -> None:
+    """Unblock the healing path for NEEDS_RESYNC schemas.
+
+    The documented recovery is a user-triggered full refresh, but its replace
+    batch is itself blocked while the schema is not PRIMED. When a pending
+    replace head appears for the schema, flip to PRIMED so it can apply; the
+    supersede sweep retires older queued runs around it on its own cadence
+    (a transiently-applied older incremental is overwritten by the replace).
+    """
+    head = conn.execute(
+        f"""
+        SELECT 1
+        FROM {BATCH_TABLE} b
+        JOIN v_latest_source_batch_status ds ON b.id = ds.batch_id
+        LEFT JOIN v_latest_source_batch_duckgres_status dgs ON b.id = dgs.batch_id
+        WHERE b.team_id = %(team_id)s
+            AND b.schema_id = %(schema_id)s
+            AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND {LIVE_BATCH_SQL_PREDICATE}
+            AND ds.job_state = 'succeeded'
+            AND b.batch_index = 0
+            AND b.is_final_batch = false
+            AND b.is_resume = false
+            AND (b.sync_type = 'full_refresh' OR (b.sync_type = 'incremental' AND b.is_first_ever_sync))
+            AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
+        LIMIT 1
+        """,
+        {"team_id": state.team_id, "schema_id": str(state.schema_id)},
+    ).fetchone()
+    if head is None:
+        return
+
+    flipped = DuckgresSinkSchemaState.objects.filter(
+        id=state.id, state=DuckgresSinkSchemaState.State.NEEDS_RESYNC
+    ).update(state=DuckgresSinkSchemaState.State.PRIMED, last_error=None, updated_at=timezone.now())
+    if flipped:
+        logger.info("duckgres_backfill_resync_head_detected", schema_id=str(state.schema_id))
 
 
 def _enqueue_chunks(
@@ -623,11 +759,7 @@ def _enqueue_chunks(
                     "total_batches": len(chunks),
                     "resource_name": schema.name,
                     "metadata": psycopg.types.json.Jsonb(
-                        {
-                            "duckgres_backfill": True,
-                            "chunk_paths": chunk.paths,
-                            "chunk_count": len(chunks),
-                        }
+                        build_backfill_metadata(chunk_paths=chunk.paths, chunk_count=len(chunks))
                     ),
                 },
             )

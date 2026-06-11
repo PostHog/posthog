@@ -439,21 +439,12 @@ class TestBackfillQueueContracts:
         assert [str(b.id) for b in duck] == [batch_id]
 
     @pytest.mark.asyncio
-    async def test_retire_schema_runs_opens_cross_run_gate(self, conn, _db_url):
-        """Pre-snapshot live runs are blocked (schema unprimed) AND gate the
-        backfill run via the cross-run check — retire-at-plan breaks the
-        deadlock by terminally failing them (their data is in the snapshot)."""
-        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill as backfill_mod
-
+    async def test_backfill_chunks_ignore_older_live_runs(self, conn):
+        """The cross-run gate exempts backfill chunks from waiting on live
+        runs: pre-snapshot runs are retired separately, and post-snapshot
+        runs must apply AFTER the swap — neither may deadlock the backfill."""
         live = await _insert_batch(conn, run_uuid="run-old")
         await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
-
-        # Mirror plan-time ordering: retire FIRST, then insert the backfill run.
-        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
-            retired = backfill_mod._retire_schema_runs(
-                sync_conn, team_id=1, schema_id="schema-1", reason="covered by duckgres backfill snapshot v1"
-            )
-        assert retired == 1
 
         chunk = await _insert_batch(
             conn,
@@ -466,3 +457,55 @@ class TestBackfillQueueContracts:
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
         assert [str(b.id) for b in batches] == [chunk]
+
+    @pytest.mark.asyncio
+    async def test_live_batches_still_queue_behind_backfill_run(self, conn):
+        chunk = await _insert_batch(
+            conn,
+            run_uuid="duckgres-backfill-schema-1-v1-gcafe0000",
+            job_id="duckgres-backfill",
+            is_resume=True,
+            metadata={"duckgres_backfill": True, "chunk_paths": ["s3://b/c0.parquet"], "chunk_count": 1},
+        )
+        await BatchQueue.update_status(conn, batch_id=chunk, job_state="succeeded", attempt=1)
+
+        live = await _insert_batch(conn, run_uuid="run-new")
+        await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
+
+        # Schema primed (not blocked) but the backfill run is older and
+        # incomplete: the live batch must wait.
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        assert [str(b.id) for b in batches] == [chunk]
+
+    @pytest.mark.asyncio
+    async def test_retire_covered_runs_respects_cutoff(self, conn, _db_url):
+        """Only runs whose EVERY batch was delta-succeeded before the cutoff
+        are provably inside the snapshot; a run with a post-cutoff success
+        may carry post-snapshot data and must survive to apply after the swap."""
+        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill as backfill_mod
+
+        fully_covered = await _insert_batch(conn, run_uuid="run-covered")
+        await BatchQueue.update_status(conn, batch_id=fully_covered, job_state="succeeded", attempt=1)
+
+        straddling_a = await _insert_batch(conn, run_uuid="run-straddling", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=straddling_a, job_state="succeeded", attempt=1)
+        straddling_b = await _insert_batch(conn, run_uuid="run-straddling", batch_index=1)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            cutoff_row = sync_conn.execute("SELECT now()").fetchone()
+            assert cutoff_row is not None
+            cutoff = cutoff_row[0]
+            # run-straddling's batch 1 succeeds only AFTER the cutoff.
+            retired_before = backfill_mod._retire_covered_runs(
+                sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
+            )
+        await BatchQueue.update_status(conn, batch_id=straddling_b, job_state="succeeded", attempt=1)
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            retired_after = backfill_mod._retire_covered_runs(
+                sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
+            )
+
+        # Only run-covered's batch retired; run-straddling untouched both times
+        # (batch 1's success postdates the cutoff), and the re-run is idempotent.
+        assert retired_before == 1
+        assert retired_after == 0

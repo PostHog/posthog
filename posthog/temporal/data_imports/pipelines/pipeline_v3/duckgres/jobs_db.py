@@ -6,6 +6,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.batch_kind import LIVE_BATCH_SQL_PREDICATE
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PARTITION_PRUNING_INTERVAL,
@@ -25,11 +26,6 @@ DUCKGRES_ADVISORY_LOCK_NAMESPACE = 0x44475300  # "DGS\0" in hex
 # every terminal-retire writer. Consumers (the backfill reconciler) dispatch on
 # this, not on error-message prose.
 RETIRE_KIND_SUPERSEDED_BY_REPLACE = "superseded_by_replace"
-
-# A batch belongs to the live sync stream (vs a synthetic duckgres-backfill
-# run). Single source of truth for the SQL side; the Python twin is
-# processor._is_backfill_batch.
-LIVE_BATCH_SQL_PREDICATE = "(b.metadata->>'duckgres_backfill') IS NULL"
 
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
 # append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
@@ -64,7 +60,8 @@ ELIGIBILITY_CTES = f"""run_starts AS MATERIALIZED (
                         AND dgs3.job_state = 'failed'
                 ),
                 incomplete_runs AS MATERIALIZED (
-                    SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at
+                    SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at,
+                           bool_or((old.metadata->>'duckgres_backfill') IS NOT NULL) AS is_backfill_run
                     FROM {BATCH_TABLE} old
                     JOIN {DELTA_STATUS_VIEW} ods ON old.id = ods.batch_id
                     JOIN run_starts rs_ir ON rs_ir.run_uuid = old.run_uuid
@@ -173,15 +170,28 @@ class DuckgresBatchQueue:
                                 )
                                 AND a.id IS NULL
                         )
-                        AND NOT EXISTS (
+                        AND (
                             -- Cross-run head-of-line: an older non-failed run of this
-                            -- schema still has unapplied data batches.
-                            SELECT 1
-                            FROM incomplete_runs ir
-                            WHERE ir.team_id = b.team_id
-                                AND ir.schema_id = b.schema_id
-                                AND ir.run_uuid <> b.run_uuid
-                                AND (ir.started_at, ir.run_uuid) < (rs_b.started_at, b.run_uuid)
+                            -- schema still has unapplied data batches. Applies to LIVE
+                            -- batches only: a backfill run is ordered manually — runs
+                            -- provably contained in its snapshot are retired at plan
+                            -- time, and anything newer (in-flight at the cutoff, or
+                            -- started later) must apply AFTER the swap, so it must not
+                            -- gate the chunks. Live batches still queue behind the
+                            -- backfill run itself via this same check.
+                            NOT EXISTS (
+                                SELECT 1
+                                FROM incomplete_runs ir
+                                WHERE ir.team_id = b.team_id
+                                    AND ir.schema_id = b.schema_id
+                                    AND ir.run_uuid <> b.run_uuid
+                                    AND (ir.started_at, ir.run_uuid) < (rs_b.started_at, b.run_uuid)
+                                    -- A backfill chunk ignores older LIVE runs (see above)
+                                    -- but still orders behind an older backfill run, so
+                                    -- two generations can never interleave on the
+                                    -- staging table.
+                                    AND ({LIVE_BATCH_SQL_PREDICATE} OR ir.is_backfill_run)
+                            )
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC, b.is_final_batch ASC
                     LIMIT %(limit)s

@@ -14,6 +14,7 @@ from posthog.ducklake.common import get_duckgres_config_for_org
 from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 from posthog.temporal.data_imports.naming_convention import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import batch_kind
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
 
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
@@ -167,16 +168,16 @@ def _sql_str(value: str) -> str:
 
 
 def _is_backfill_batch(batch: PendingBatch) -> bool:
-    return bool(batch.metadata.get("duckgres_backfill"))
+    return batch_kind.is_backfill_metadata(batch.metadata)
 
 
 def _backfill_chunk_paths(batch: PendingBatch) -> list[str]:
-    paths = batch.metadata.get("chunk_paths")
-    if not isinstance(paths, list) or not paths:
+    try:
+        return batch_kind.backfill_chunk_paths(batch.metadata)
+    except ValueError as e:
         # Falling back to s3_path would silently apply only the chunk's first
         # file; a malformed synthetic row must fail loudly instead.
-        raise ValueError(f"backfill batch {batch.id} has no chunk_paths metadata")
-    return [str(p) for p in paths]
+        raise ValueError(f"backfill batch {batch.id}: {e}") from e
 
 
 def _read_parquet_expr(paths: list[str], *, union_by_name: bool = False) -> sql.Composable:
@@ -264,7 +265,7 @@ def _process_backfill_batch(conn: psycopg.Connection[Any], batch: PendingBatch, 
     duckgres_schema = _duckgres_schema_name(batch.team_id)
     live_table = _duckgres_table_name(schema)
     backfill_table = _backfill_table_name(live_table, batch.schema_id)
-    chunk_count = int(batch.metadata.get("chunk_count") or 0)
+    chunk_count = batch_kind.backfill_chunk_count(batch.metadata)
     is_last = chunk_count > 0 and batch.batch_index == chunk_count - 1
 
     conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(duckgres_schema)))

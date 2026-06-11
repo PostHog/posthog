@@ -37,6 +37,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("snapshot_version", models.BigIntegerField(blank=True, null=True)),
+                ("plan_cutoff", models.DateTimeField(blank=True, null=True)),
                 ("backfill_run_uuid", models.CharField(blank=True, max_length=200, null=True)),
                 ("chunk_count", models.IntegerField(blank=True, null=True)),
                 ("chunks_applied", models.IntegerField(default=0)),
