@@ -61,12 +61,16 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         return <></>
     }
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const distinctIdNames: Record<string, string> =
+        property.key === 'distinct_id' && property.type === PropertyFilterType.Person && 'distinct_id_names' in property
+            ? ((property as any).distinct_id_names ?? {})
+            : {}
 
     return (
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {String(val)}
+                    {distinctIdNames[String(val)] || String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&

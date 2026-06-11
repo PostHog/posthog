@@ -6539,6 +6539,61 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
         )
 
+    def test_feature_flag_includes_distinct_id_names(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct-id-1"],
+            properties={"email": "alice@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct-id-2"],
+            properties={"name": "Bob"},
+        )
+        # A distinct ID with no name-like properties should fall back to the raw value (no entry).
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct-id-3"],
+            properties={"unrelated": "value"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Distinct ID flag",
+                "key": "distinct-id-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "distinct_id",
+                                    "type": "person",
+                                    "value": ["distinct-id-1", "distinct-id-2", "distinct-id-3"],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        prop = response.json()["filters"]["groups"][0]["properties"][0]
+        self.assertEqual(prop["key"], "distinct_id")
+        self.assertEqual(
+            prop["distinct_id_names"],
+            {"distinct-id-1": "alice@example.com", "distinct-id-2": "Bob"},
+        )
+
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",

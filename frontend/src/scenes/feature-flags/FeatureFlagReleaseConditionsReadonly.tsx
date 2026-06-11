@@ -29,10 +29,13 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-/** Extract server-provided group_key_names from a property, if present. */
-function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
-    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+/** Extract server-provided display names (group names or person names) from a property, if present. */
+function getValueDisplayNames(property: AnyPropertyFilter): Record<string, string> {
+    if (property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property) {
         return (property as any).group_key_names ?? {}
+    }
+    if (property.key === 'distinct_id' && property.type === PropertyFilterType.Person && 'distinct_id_names' in property) {
+        return (property as any).distinct_id_names ?? {}
     }
     return {}
 }
@@ -47,13 +50,13 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
+    const displayNames = getValueDisplayNames(property)
 
     return (
         <>
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
-                const display = groupKeyNames[strVal] || strVal
+                const display = displayNames[strVal] || strVal
                 return <LemonSnack key={idx}>{display}</LemonSnack>
             })}
         </>

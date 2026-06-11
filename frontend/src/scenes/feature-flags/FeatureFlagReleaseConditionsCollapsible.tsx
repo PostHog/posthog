@@ -125,25 +125,31 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
             key = property.key || 'property'
         }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
-        const groupKeyNames: Record<string, string> =
-            property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
-                ? ((property as any).group_key_names ?? {})
-                : {}
-        const hasGroupKeyNames = Object.keys(groupKeyNames).length > 0
+        let displayNames: Record<string, string> = {}
+        if (property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+            displayNames = (property as any).group_key_names ?? {}
+        } else if (
+            property.key === 'distinct_id' &&
+            property.type === PropertyFilterType.Person &&
+            'distinct_id_names' in property
+        ) {
+            displayNames = (property as any).distinct_id_names ?? {}
+        }
+        const hasDisplayNames = Object.keys(displayNames).length > 0
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
             value = property.cohort_name || `ID ${property.value}`
         } else if (Array.isArray(property.value)) {
-            const displayValues = hasGroupKeyNames
-                ? property.value.map((v) => groupKeyNames[String(v)] || String(v))
+            const displayValues = hasDisplayNames
+                ? property.value.map((v) => displayNames[String(v)] || String(v))
                 : property.value.map(String)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
         } else if (property.value === null || property.value === undefined) {
             value = ''
         } else {
-            value = hasGroupKeyNames
-                ? groupKeyNames[String(property.value)] || String(property.value)
+            value = hasDisplayNames
+                ? displayNames[String(property.value)] || String(property.value)
                 : String(property.value)
         }
 
