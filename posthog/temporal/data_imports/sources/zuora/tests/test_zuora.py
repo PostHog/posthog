@@ -60,7 +60,7 @@ class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_credentials(self, mock_session):
         response = _response({}, status_code=401)
-        response.raise_for_status.side_effect = requests.HTTPError("401")
+        response.raise_for_status.side_effect = requests.HTTPError("401", response=requests.Response())
         mock_session.return_value.post.return_value = response
 
         assert validate_credentials("us_production", "cid", "bad") is False
