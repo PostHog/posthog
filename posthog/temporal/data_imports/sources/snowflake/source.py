@@ -163,7 +163,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="leave blank to sync every schema in the database",
+                        placeholder="leave blank to list tables from all schemas",
                         secret=False,
                     ),
                 ],
