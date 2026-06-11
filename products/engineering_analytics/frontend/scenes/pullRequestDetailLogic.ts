@@ -66,7 +66,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (lifecycle): WorkflowRun[] => (lifecycle ? sortRunsForTriage(workflowRuns(lifecycle.events)) : []),
         ],
         breadcrumbs: [
-            (s, p) => [p.repoOwner, p.repoName, p.number],
+            (_, p) => [p.repoOwner, p.repoName, p.number],
             (repoOwner, repoName, number): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
