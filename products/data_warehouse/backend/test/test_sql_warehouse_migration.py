@@ -141,7 +141,8 @@ class TestQualifyNonPostgresRows(BaseTest):
 
         row.refresh_from_db()
         assert row.name == "dbo.users"
-        # dwh_storage_key locks the Delta path to the legacy folder so existing data is preserved.
+        # s3_folder_name locks the Delta path to the legacy folder so existing data is preserved.
+        assert row.s3_folder_name == "users"
         assert row.sync_type_config.get("dwh_storage_key") == "users"
         metadata = row.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "dbo"
@@ -163,6 +164,7 @@ class TestQualifyNonPostgresRows(BaseTest):
         row.refresh_from_db()
         assert row.name == "sales.orders"
         assert substitutions == {"orders": "sales.orders"}
+        assert row.s3_folder_name == "orders"
         assert row.sync_type_config.get("dwh_storage_key") == "orders"
 
     def test_apply_on_refresh_is_noop_for_already_qualified_rows(self) -> None:
