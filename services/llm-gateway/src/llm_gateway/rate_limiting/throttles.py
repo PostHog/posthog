@@ -7,11 +7,11 @@ from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 
 
-def get_team_multiplier(team_id: int | None) -> int:
-    if team_id is None:
-        return 1
-
-    return get_settings().team_rate_limit_multipliers.get(team_id, 1)
+def get_rate_limit_multiplier(user: AuthenticatedUser) -> int:
+    settings = get_settings()
+    staff_multiplier = settings.staff_rate_limit_multiplier if user.is_staff else 1
+    team_multiplier = settings.team_rate_limit_multipliers.get(user.team_id, 1) if user.team_id is not None else 1
+    return max(staff_multiplier, team_multiplier)
 
 
 @dataclass

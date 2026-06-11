@@ -104,6 +104,7 @@ class TestAuthService:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -130,6 +131,7 @@ class TestAuthService:
                 "user_id": 789,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
+                "is_staff": False,
                 "distinct_id": "test-distinct-id",
             }
         )
@@ -140,6 +142,53 @@ class TestAuthService:
         assert result.user_id == 789
         assert result.team_id == 101
         assert result.auth_method == "personal_api_key"
+        assert result.is_staff is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "headers,row",
+        [
+            pytest.param(
+                {"x-api-key": "phx_valid_key"},
+                {
+                    "id": "k1",
+                    "user_id": 789,
+                    "scopes": ["llm_gateway:read"],
+                    "current_team_id": 101,
+                    "is_staff": True,
+                    "distinct_id": "test-distinct-id",
+                },
+                id="personal_api_key",
+            ),
+            pytest.param(
+                {"authorization": "Bearer pha_valid_token"},
+                {
+                    "id": 1,
+                    "user_id": 123,
+                    "scope": "llm_gateway:read",
+                    "expires": datetime.now(UTC) + timedelta(hours=1),
+                    "current_team_id": 456,
+                    "is_staff": True,
+                    "application_id": 789,
+                    "distinct_id": "test-distinct-id",
+                },
+                id="oauth_access_token",
+            ),
+        ],
+    )
+    async def test_staff_flag_flows_through_auth(
+        self, auth_service: AuthService, mock_pool: MagicMock, headers: dict[str, str], row: dict
+    ) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = headers
+
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(return_value=row)
+
+        result = await auth_service.authenticate_request(request, mock_pool)
+
+        assert result is not None
+        assert result.is_staff is True
 
     @pytest.mark.asyncio
     async def test_invalid_token_returns_none(self, auth_service: AuthService, mock_pool: MagicMock) -> None:
@@ -205,6 +254,7 @@ class TestPersonalApiKeyAuthenticator:
                 "user_id": 123,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 456,
+                "is_staff": False,
                 "distinct_id": "test-distinct-id",
             }
         )
@@ -223,19 +273,19 @@ class TestPersonalApiKeyAuthenticator:
         [
             pytest.param(None, id="key_not_found"),
             pytest.param(
-                {"id": "k1", "user_id": 123, "scopes": ["read:only"], "current_team_id": 456},
+                {"id": "k1", "user_id": 123, "scopes": ["read:only"], "current_team_id": 456, "is_staff": False},
                 id="missing_required_scope",
             ),
             pytest.param(
-                {"id": "k2", "user_id": 789, "scopes": None, "current_team_id": None},
+                {"id": "k2", "user_id": 789, "scopes": None, "current_team_id": None, "is_staff": False},
                 id="null_scopes",
             ),
             pytest.param(
-                {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200},
+                {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200, "is_staff": False},
                 id="empty_scopes",
             ),
             pytest.param(
-                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
+                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201, "is_staff": False},
                 id="wildcard_scope_rejected",
             ),
         ],
@@ -284,6 +334,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) - timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -305,6 +356,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": None,
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -328,6 +380,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": None,
                 "distinct_id": "test-distinct-id",
             }
@@ -358,6 +411,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": scope,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -390,6 +444,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": scope,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -413,6 +468,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }
@@ -439,6 +495,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": None,
+                "is_staff": False,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
             }

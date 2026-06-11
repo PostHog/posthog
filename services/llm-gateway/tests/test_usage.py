@@ -67,6 +67,7 @@ class TestUsageEndpoint:
                 "user_id": 42,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
+                "is_staff": False,
                 "distinct_id": "test-distinct-id",
             }
         )

@@ -1,7 +1,7 @@
 import json
 from functools import lru_cache
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -157,6 +157,10 @@ class Settings(BaseSettings):
     auth_cache_ttl_oauth: int = 300  # 5 minutes — OAuth tokens can be revoked on refresh, keep short
 
     team_rate_limit_multipliers: dict[int, int] = {}
+
+    # Cost-limit multiplier applied to PostHog staff users (is_staff on posthog_user),
+    # regardless of which project they currently have selected.
+    staff_rate_limit_multiplier: int = Field(default=1, ge=1)
 
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 

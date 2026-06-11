@@ -98,6 +98,7 @@ def create_mock_db_pool():
             "id": 1,
             "user_id": 123,
             "current_team_id": 456,
+            "is_staff": False,
             "scopes": ["llm_gateway:read"],
             "distinct_id": "test-distinct-id",
         }

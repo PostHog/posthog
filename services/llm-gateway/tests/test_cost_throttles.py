@@ -5,13 +5,16 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
-def make_user(user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token") -> AuthenticatedUser:
+def make_user(
+    user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_access_token", is_staff: bool = False
+) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
         auth_method=auth_method,
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
+        is_staff=is_staff,
     )
 
 
@@ -215,6 +218,59 @@ class TestProductCostThrottle:
         status = await throttle.get_status_for_product("llm_gateway")
         assert status is not None
         assert status.used_usd == pytest.approx(7.0), "gauge should reflect shared-pool spend only"
+        get_settings.cache_clear()
+
+
+class TestStaffMultiplier:
+    @pytest.mark.asyncio
+    async def test_staff_user_gets_multiplied_limit_regardless_of_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        staff_context = make_context(user=make_user(user_id=1, team_id=99, is_staff=True))
+        base_context = make_context(user=make_user(user_id=2, team_id=99))
+
+        staff_limit, _ = throttle._get_limit_and_window(staff_context)
+        base_limit, _ = throttle._get_limit_and_window(base_context)
+
+        assert staff_limit == base_limit * 100
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_staff_free_plan_limit_is_multiplied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
+        get_settings.cache_clear()
+        from llm_gateway.config import FREE_PLAN_COST_LIMIT
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        free_staff_context = make_context(
+            user=make_user(team_id=99, is_staff=True),
+            plan_key=None,
+            seat_created_at="2026-01-01T00:00:00+00:00",
+        )
+
+        limit, _ = throttle._get_limit_and_window(free_staff_context)
+
+        assert limit == FREE_PLAN_COST_LIMIT.burst_limit_usd * 100
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_staff_bucket_is_stable_across_project_switches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A staff user switching their active project must keep the same usage bucket,
+        as long as the staff and team multipliers resolve to the same value."""
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 100}')
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        key_on_team_2 = throttle._get_cache_key(make_context(user=make_user(team_id=2, is_staff=True)))
+        key_on_other_team = throttle._get_cache_key(make_context(user=make_user(team_id=99, is_staff=True)))
+
+        assert key_on_team_2 == key_on_other_team
         get_settings.cache_clear()
 
 
