@@ -4106,35 +4106,49 @@ export function MarkdownNotebook({
                         {renderedNodeGroups.map((group) => {
                             if (group.type === 'text') {
                                 const lastItem = group.items[group.items.length - 1]
+                                const chunks: { quote: boolean; items: typeof group.items }[] = []
+                                for (const item of group.items) {
+                                    const lastChunk = chunks[chunks.length - 1]
+                                    if (lastChunk && lastChunk.quote === item.quote) {
+                                        lastChunk.items.push(item)
+                                    } else {
+                                        chunks.push({ quote: item.quote, items: [item] })
+                                    }
+                                }
 
                                 return (
                                     <Fragment key={group.key}>
                                         <div className="MarkdownNotebook__text-group">
-                                            {group.items.map(({ node, index }) => (
-                                                <Fragment key={node.id}>
-                                                    {renderNotebookRow(node, index)}
-                                                    {index < lastItem.index
-                                                        ? renderInsertBoundaryButton(index + 1, {
-                                                              isGapClickable: false,
-                                                          })
-                                                        : null}
-                                                </Fragment>
-                                            ))}
-                                        </div>
-                                        {renderInsertBoundaryButton(lastItem.index + 1)}
-                                    </Fragment>
-                                )
-                            }
+                                            {chunks.map((chunk) => {
+                                                const chunkLastIndex = chunk.items[chunk.items.length - 1].index
+                                                const rows = chunk.items.map(({ node, index }) => (
+                                                    <Fragment key={node.id}>
+                                                        {renderNotebookRow(node, index)}
+                                                        {!chunk.quote && index < chunkLastIndex
+                                                            ? renderInsertBoundaryButton(index + 1, {
+                                                                  isGapClickable: false,
+                                                              })
+                                                            : null}
+                                                    </Fragment>
+                                                ))
 
-                            if (group.type === 'quote') {
-                                const lastItem = group.items[group.items.length - 1]
-
-                                return (
-                                    <Fragment key={group.key}>
-                                        <div className="MarkdownNotebook__blockquote-group">
-                                            {group.items.map(({ node, index }) => (
-                                                <Fragment key={node.id}>{renderNotebookRow(node, index)}</Fragment>
-                                            ))}
+                                                return (
+                                                    <Fragment key={chunk.items[0].node.id}>
+                                                        {chunk.quote ? (
+                                                            <div className="MarkdownNotebook__blockquote-group">
+                                                                {rows}
+                                                            </div>
+                                                        ) : (
+                                                            rows
+                                                        )}
+                                                        {chunkLastIndex < lastItem.index
+                                                            ? renderInsertBoundaryButton(chunkLastIndex + 1, {
+                                                                  isGapClickable: false,
+                                                              })
+                                                            : null}
+                                                    </Fragment>
+                                                )
+                                            })}
                                         </div>
                                         {renderInsertBoundaryButton(lastItem.index + 1)}
                                     </Fragment>

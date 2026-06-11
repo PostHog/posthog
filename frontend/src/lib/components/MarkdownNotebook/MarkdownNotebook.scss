@@ -13,10 +13,7 @@
     --markdown-notebook-code-border: color-mix(in sRGB, var(--color-border-primary) 82%, var(--color-text-primary));
     --markdown-notebook-code-gutter: var(--data-color-10);
     --markdown-notebook-code-shadow: inset 0 1px 0 rgb(255 255 255 / 75%), 0 0.125rem 0.375rem rgb(0 0 0 / 4%);
-    --markdown-notebook-quote-background: color-mix(in sRGB, var(--color-bg-surface-primary) 92%, white);
-    --markdown-notebook-quote-border: color-mix(in sRGB, var(--color-border-primary) 82%, var(--warning));
     --markdown-notebook-quote-gutter: var(--warning);
-    --markdown-notebook-quote-shadow: inset 0 1px 0 rgb(255 255 255 / 75%), 0 0.125rem 0.375rem rgb(0 0 0 / 4%);
     --markdown-notebook-inline-control-gap: 0.125rem;
     --markdown-notebook-inline-control-width: 1.5rem;
     --markdown-notebook-content-offset: calc(
@@ -38,10 +35,7 @@
     --markdown-notebook-code-border: var(--color-border-primary);
     --markdown-notebook-code-gutter: var(--data-color-10);
     --markdown-notebook-code-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
-    --markdown-notebook-quote-background: var(--markdown-notebook-component-background);
-    --markdown-notebook-quote-border: var(--color-border-primary);
     --markdown-notebook-quote-gutter: var(--warning);
-    --markdown-notebook-quote-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .MarkdownNotebook__debug-layout {
@@ -255,46 +249,36 @@
 }
 
 .MarkdownNotebook__blockquote-group {
+    --markdown-notebook-quote-indent: calc(1rem + 3px + 0.75rem);
+
     box-sizing: border-box;
-    width: calc(100% - var(--markdown-notebook-content-offset));
-    min-height: 3rem;
-    padding: 0.875rem 1rem;
-    margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
+    padding: 0.125rem 0 0.125rem 0.75rem;
+    margin: 0.5rem 0 0.5rem 1rem;
     font-style: italic;
     color: var(--color-text-primary);
-    background: var(--markdown-notebook-quote-background);
-    border: 1px solid var(--markdown-notebook-quote-border);
     border-left: 3px solid var(--markdown-notebook-quote-gutter);
-    border-radius: 0.25rem;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    box-shadow: var(--markdown-notebook-quote-shadow);
-}
-
-.MarkdownNotebook__blockquote-group:focus-within {
-    border-color: var(--primary);
-    border-left-color: var(--markdown-notebook-quote-gutter);
-    box-shadow: 0 0 0 1px var(--primary);
 }
 
 .MarkdownNotebook__text-group .MarkdownNotebook__text-block:focus {
     background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 58%, transparent);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__text-row,
-.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-row {
+.MarkdownNotebook__text-group .MarkdownNotebook__text-row {
     grid-template-columns: minmax(0, 1fr);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area,
-.MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
+.MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area {
     position: absolute;
     left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
     width: calc(var(--markdown-notebook-content-offset) + 1rem);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__text-block,
-.MarkdownNotebook__blockquote-group .MarkdownNotebook__text-block {
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-quote-indent));
+    width: calc(var(--markdown-notebook-content-offset) + 1rem + var(--markdown-notebook-quote-indent));
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__text-block {
     grid-column: 1;
 }
 
@@ -476,25 +460,17 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__text-block--blockquote {
     box-sizing: border-box;
-    min-height: 3rem;
-    padding: 0.875rem 1rem;
-    margin: 0.5rem 0;
+    min-height: 1.75rem;
+    padding: 0.125rem 0 0.125rem 0.75rem;
+    margin: 0.5rem 0 0.5rem 1rem;
     font-style: italic;
     color: var(--color-text-primary);
-    background: var(--markdown-notebook-quote-background);
-    border: 1px solid var(--markdown-notebook-quote-border);
     border-left: 3px solid var(--markdown-notebook-quote-gutter);
-    border-radius: 0.25rem;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    box-shadow: var(--markdown-notebook-quote-shadow);
+    border-radius: 0;
 }
 
 .MarkdownNotebook__text-block--blockquote:focus {
-    background: var(--markdown-notebook-quote-background);
-    border-color: var(--primary);
-    border-left-color: var(--markdown-notebook-quote-gutter);
-    box-shadow: 0 0 0 1px var(--primary);
+    background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 36%, transparent);
 }
 
 .MarkdownNotebook__text-block code {
@@ -702,8 +678,7 @@ h3.MarkdownNotebook__text-block--heading {
     border-left-color: var(--markdown-notebook-text-block-gutter);
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__list-block,
-.MarkdownNotebook__blockquote-group .MarkdownNotebook__list-block {
+.MarkdownNotebook__text-group .MarkdownNotebook__list-block {
     width: 100%;
     min-height: 0;
     padding: 0.125rem 0;

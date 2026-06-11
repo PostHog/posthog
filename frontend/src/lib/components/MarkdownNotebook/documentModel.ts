@@ -29,12 +29,7 @@ export type MarkdownNotebookVisualGroup =
     | {
           type: 'text'
           key: string
-          items: { node: NotebookBlockNode; index: number }[]
-      }
-    | {
-          type: 'quote'
-          key: string
-          items: { node: NotebookBlockNode; index: number }[]
+          items: { node: NotebookBlockNode; index: number; quote: boolean }[]
       }
     | {
           type: 'block'
@@ -49,11 +44,9 @@ export function getMarkdownNotebookVisualGroups(
 ): MarkdownNotebookVisualGroup[] {
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
-    let currentQuoteGroup: Extract<MarkdownNotebookVisualGroup, { type: 'quote' }> | null = null
 
     nodes.forEach((node, index) => {
-        if (isGroupedTextBlockNode(node) && node.id !== insertMenuNodeId) {
-            currentQuoteGroup = null
+        if ((isTextBlockNode(node) || node.type === 'list') && node.id !== insertMenuNodeId) {
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -63,27 +56,11 @@ export function getMarkdownNotebookVisualGroups(
                 groups.push(currentTextGroup)
             }
 
-            currentTextGroup.items.push({ node, index })
-            return
-        }
-
-        if (isGroupedBlockquoteNode(node) && node.id !== insertMenuNodeId) {
-            currentTextGroup = null
-            if (!currentQuoteGroup) {
-                currentQuoteGroup = {
-                    type: 'quote',
-                    key: `quote-${node.id}`,
-                    items: [],
-                }
-                groups.push(currentQuoteGroup)
-            }
-
-            currentQuoteGroup.items.push({ node, index })
+            currentTextGroup.items.push({ node, index, quote: isGroupedBlockquoteNode(node) })
             return
         }
 
         currentTextGroup = null
-        currentQuoteGroup = null
         groups.push({
             type: 'block',
             key: node.id,
@@ -97,10 +74,6 @@ export function getMarkdownNotebookVisualGroups(
 
 export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
-}
-
-export function isGroupedTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode | NotebookListBlockNode {
-    return (isTextBlockNode(node) && node.type !== 'blockquote') || (node.type === 'list' && !node.blockquote)
 }
 
 export function isGroupedBlockquoteNode(

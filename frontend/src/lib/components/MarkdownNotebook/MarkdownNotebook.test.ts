@@ -5730,7 +5730,7 @@ Tail with **bold** text`)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`\n\n\`\`\``)
     })
 
-    it('renders blockquotes outside grouped text surfaces', () => {
+    it('renders blockquotes inside grouped text surfaces', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: withNotebookTitle(`Intro paragraph
@@ -5741,10 +5741,14 @@ Outro paragraph`),
             })
         )
         const blockquote = container.querySelector('blockquote.MarkdownNotebook__text-block')
+        const paragraphs = Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block'))
 
         expect(blockquote).toBeInstanceOf(HTMLElement)
-        expect(blockquote?.closest('.MarkdownNotebook__text-group')).toBeNull()
         expect(blockquote?.closest('.MarkdownNotebook__blockquote-group')).toBeInstanceOf(HTMLElement)
+        expect(blockquote?.closest('.MarkdownNotebook__text-group')).toBeInstanceOf(HTMLElement)
+        expect(blockquote?.closest('.MarkdownNotebook__text-group')).toEqual(
+            paragraphs[paragraphs.length - 1].closest('.MarkdownNotebook__text-group')
+        )
     })
 
     it('continues a blockquote inside one visual quote group when pressing Enter', () => {
