@@ -1753,7 +1753,9 @@ class TestDevboxCommands:
             lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in boxes],
         )
         monkeypatch.setattr(
-            devbox_cli, "_start_existing_workspace", lambda name, ws, start_app=None, verbose=False: resumed.append(name)
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -1790,7 +1792,9 @@ class TestDevboxCommands:
             lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in existing_boxes],
         )
         monkeypatch.setattr(
-            devbox_cli, "_start_existing_workspace", lambda name, ws, start_app=None, verbose=False: resumed.append(name)
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
