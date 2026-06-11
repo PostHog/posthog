@@ -21212,6 +21212,8 @@ export namespace Schemas {
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
+      /** False when the recording was included in list results via a direct link despite not matching the filters. */
+      matches_filters?: boolean | null;
       /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
       /** count of all mouse activity in the recording, not just clicks */
@@ -22577,6 +22579,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22584,6 +22587,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22685,10 +22689,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22696,7 +22701,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
@@ -26074,6 +26079,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -26513,6 +26523,8 @@ export namespace Schemas {
       readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -32801,6 +32813,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -33049,6 +33066,8 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters?: boolean;
     }
 
     /**
@@ -42244,6 +42263,8 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
+      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_observations: number;
     }
 
     /**

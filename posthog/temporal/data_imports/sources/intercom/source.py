@@ -59,7 +59,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                 ],
             ),
             featureFlag="dwh_intercom",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(
