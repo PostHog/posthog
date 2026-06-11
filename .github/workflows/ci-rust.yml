@@ -252,11 +252,11 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
-
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -341,11 +341,11 @@ jobs:
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
-
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -455,11 +455,11 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
-
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2

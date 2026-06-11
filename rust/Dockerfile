@@ -2,8 +2,7 @@
 FROM rust:1.91-bookworm AS base
 # Note - sccache pinned due to problem with depot builds. See https://posthog.slack.com/archives/C0457KENW2E/p1768558484810999?thread_ts=1768497407.301109&cid=C0457KENW2E
 RUN cargo install --locked cargo-chef sccache@0.12.0
-ARG SCCACHE_WEBDAV_KEY_PREFIX
-ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
+ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache
 
 FROM base AS planner
 WORKDIR /app
@@ -18,7 +17,8 @@ FROM base AS builder
 WORKDIR /app
 ARG BIN
 ARG BUILD_FEATURES=""
-ENV PROTO_ROOT=../proto
+ARG SCCACHE_WEBDAV_KEY_PREFIX
+ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
