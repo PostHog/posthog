@@ -710,10 +710,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
 
 
 class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest):
-    """Custom @actions are fail-closed for personal-API-key / OAuth auth unless
-    the viewset declares them in scope_object_{read,write}_actions. This is how
-    the MCP tools authenticate, so each exposed action must be reachable."""
-
     def setUp(self):
         super().setUp()
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -738,6 +734,31 @@ class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest)
 
     def _create_app(self) -> StreamlitApp:
         return StreamlitApp.objects.create(team=self.team, name="PAK App", created_by=self.user)
+
+    def test_create_app_via_personal_api_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/streamlit_apps/",
+            data={"name": "PAK Created"},
+            format="json",
+            **self._auth(),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_list_and_retrieve_via_personal_api_key(self):
+        app = self._create_app()
+        response = self.client.get(f"/api/environments/{self.team.id}/streamlit_apps/", **self._auth())
+        assert response.status_code == status.HTTP_200_OK, response.content
+        response = self.client.get(self._url(app.short_id), **self._auth())
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_update_and_destroy_via_personal_api_key(self):
+        app = self._create_app()
+        response = self.client.patch(
+            self._url(app.short_id), data={"description": "via PAK"}, format="json", **self._auth()
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        response = self.client.delete(self._url(app.short_id), **self._auth())
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
 
     @patch("posthog.storage.object_storage.write")
     def test_create_version_from_source_via_personal_api_key(self, _mock_write):

@@ -49,10 +49,12 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # context yet); TeamAndOrgViewSetMixin filters this queryset by team per request.
     queryset = StreamlitApp.all_teams.all()
     lookup_field = "short_id"
-    # Custom @actions are fail-closed for personal-API-key / OAuth access unless
-    # their required scope is declared here. Standard CRUD is covered by default.
-    scope_object_read_actions = ["versions", "get_status", "connect_info"]
+    scope_object_read_actions = ["list", "retrieve", "versions", "get_status", "connect_info"]
     scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
         "upload_version",
         "create_version_from_source",
         "activate_version",
