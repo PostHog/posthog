@@ -33,14 +33,13 @@ MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
 MAX_RETRY_WAIT_SECONDS = 30.0
-# Notion's Retry-After on a 429 tells us exactly when its rate-limit window reopens, and under
-# sustained load it is frequently well above the exponential-backoff cap (hundreds of seconds).
-# Honor it up to a generous bound instead of retrying early into a window we know is still closed
-# — capping it at MAX_RETRY_WAIT_SECONDS burned every attempt and surfaced the 429 as a failed
-# sync. The activity's liveness heartbeat runs on its own ~4s timer (independent of this thread),
-# so a long in-request sleep does not risk a heartbeat timeout, and the resumable import activity
-# has a week-long start-to-close timeout.
-MAX_RETRY_AFTER_WAIT_SECONDS = 300.0
+
+# Upper bound for honoring Notion's server-provided Retry-After on 429s. Notion can ask us to wait
+# several minutes when a workspace is heavily throttled; capping below the requested value just
+# guarantees the retry fires while still rate limited and burns the attempt. Waiting it out in-process
+# is safe: the source generator runs on a worker thread while the activity's heartbeater keeps ticking
+# in the event loop, and the activity's start_to_close_timeout is far larger than this bound.
+MAX_RETRY_AFTER_WAIT_SECONDS = 900.0
 
 
 class NotionRetryableError(Exception):

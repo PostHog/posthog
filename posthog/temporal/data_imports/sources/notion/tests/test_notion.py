@@ -193,12 +193,11 @@ class TestNotion:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
         assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
-    def test_wait_strategy_honors_retry_after_beyond_exponential_cap(self) -> None:
-        # Notion routinely returns Retry-After windows of hundreds of seconds when throttling.
-        # We must wait the full window rather than retrying early into a window that is still
-        # closed (which previously exhausted every attempt and surfaced the 429 as a failed sync).
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=196.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 196.0
+    def test_wait_strategy_honors_large_retry_after_in_full(self) -> None:
+        # Notion routinely asks for several-minute waits when throttling hard; capping below the
+        # requested value would fire the retry while still rate limited and waste the attempt.
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=625.0))
+        assert _wait_strategy(cast(RetryCallState, state)) == 625.0
 
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
