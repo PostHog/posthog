@@ -525,21 +525,23 @@ export function CodeEditor({
         }
 
         return (
-            <MonacoDiffEditor
-                key={queryKey}
-                loading={<Spinner />}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                original={originalValue}
-                modified={value}
-                options={{
-                    ...editorOptions,
-                    renderSideBySide: false,
-                    acceptSuggestionOnEnter: 'on',
-                    renderGutterMenu: false,
-                }}
-                onMount={diffEditorOnMount}
-                {...editorProps}
-            />
+            <div className="CodeEditor relative h-full w-full" data-editor-ready={monacoAndEditor ? 'true' : 'false'}>
+                <MonacoDiffEditor
+                    key={queryKey}
+                    loading={<Spinner />}
+                    theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                    original={originalValue}
+                    modified={value}
+                    options={{
+                        ...editorOptions,
+                        renderSideBySide: false,
+                        acceptSuggestionOnEnter: 'on',
+                        renderGutterMenu: false,
+                    }}
+                    onMount={diffEditorOnMount}
+                    {...editorProps}
+                />
+            </div>
         )
     }
 
