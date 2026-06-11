@@ -15,6 +15,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -586,6 +587,59 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 60
+
+    @parameterized.expand(
+        [
+            ("skill_present", "Watches error tracking for new and spiking issues."),
+            ("skill_absent", None),
+        ]
+    )
+    def test_list_surfaces_skill_description(self, _name: str, skill_description: str | None) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        if skill_description is not None:
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-errors", description=skill_description, body="..."
+            )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        # Absent skill (or no description) falls back to "".
+        assert response.json()[0]["description"] == (skill_description or "")
+
+    def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="stale",
+            body="...",
+            version=1,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="current",
+            body="...",
+            version=2,
+            is_latest=True,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other_team, name="signals-scout-errors", description="other team", body="...")
+
+        response = self.client.get(self._list_url())
+
+        assert response.json()[0]["description"] == "current"
+
+    def test_partial_update_surfaces_skill_description(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "Foo scout."
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
