@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import structlog
@@ -445,11 +445,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
 
 
-# `api.py` imports the workflow classes above, so keep this module-level import
-# after their definitions to avoid a circular import during module initialization.
-from products.slack_app.backend.api import resolve_slack_user  # noqa: E402
-
-
 async def _gate_on_personal_github(
     inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
@@ -499,6 +494,10 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
+    # Imported lazily to break a circular import: products.slack_app.backend.api
+    # imports the workflow classes defined in this module at its top level.
+    from products.slack_app.backend.api import resolve_slack_user
+
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -1154,7 +1153,7 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
 
     if _parse_rules_command(event_text):
         return False
@@ -1536,7 +1535,7 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     latest_text: str | None = None
     latest_agent_timestamp: datetime | None = None
     latest_user_timestamp: datetime | None = None
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
