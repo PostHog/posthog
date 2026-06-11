@@ -44,7 +44,7 @@ class TestRedditAdsSource:
 
         assert config.name.value == "RedditAds"
         assert config.label == "Reddit Ads"
-        assert config.releaseStatus == "ga"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         # Check account_id field
