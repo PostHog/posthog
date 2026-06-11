@@ -173,12 +173,22 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsCreateBodySpecSandboxTrustProfileDefault = `frozen`
+export const agentApplicationsRevisionsCreateBodySpecSandboxLoopLocationDefault = `in_sandbox`
+export const agentApplicationsRevisionsCreateBodySpecSandboxWorkspaceRefDefault = `main`
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -571,10 +581,37 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            sandbox: zod
+                .object({
+                    trust_profile: zod
+                        .enum(['frozen', 'coding-readonly', 'coding-write', 'coding-pr'])
+                        .default(agentApplicationsRevisionsCreateBodySpecSandboxTrustProfileDefault),
+                    loop_location: zod
+                        .enum(['in_sandbox', 'in_process'])
+                        .default(agentApplicationsRevisionsCreateBodySpecSandboxLoopLocationDefault),
+                    workspace: zod
+                        .object({
+                            repo: zod.string().optional(),
+                            ref: zod
+                                .string()
+                                .default(agentApplicationsRevisionsCreateBodySpecSandboxWorkspaceRefDefault),
+                        })
+                        .optional(),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -658,12 +695,22 @@ export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxWallSecondsMax = 2
 export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbMax = 2147483647
+
+export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+
 export const agentApplicationsRevisionsUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsUpdateBodySpecSandboxTrustProfileDefault = `frozen`
+export const agentApplicationsRevisionsUpdateBodySpecSandboxLoopLocationDefault = `in_sandbox`
+export const agentApplicationsRevisionsUpdateBodySpecSandboxWorkspaceRefDefault = `main`
 
 export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -1056,10 +1103,37 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsUpdateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsUpdateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .default(agentApplicationsRevisionsUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            sandbox: zod
+                .object({
+                    trust_profile: zod
+                        .enum(['frozen', 'coding-readonly', 'coding-write', 'coding-pr'])
+                        .default(agentApplicationsRevisionsUpdateBodySpecSandboxTrustProfileDefault),
+                    loop_location: zod
+                        .enum(['in_sandbox', 'in_process'])
+                        .default(agentApplicationsRevisionsUpdateBodySpecSandboxLoopLocationDefault),
+                    workspace: zod
+                        .object({
+                            repo: zod.string().optional(),
+                            ref: zod
+                                .string()
+                                .default(agentApplicationsRevisionsUpdateBodySpecSandboxWorkspaceRefDefault),
+                        })
+                        .optional(),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -1166,12 +1240,22 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSeconds
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsPartialUpdateBodySpecSandboxTrustProfileDefault = `frozen`
+export const agentApplicationsRevisionsPartialUpdateBodySpecSandboxLoopLocationDefault = `in_sandbox`
+export const agentApplicationsRevisionsPartialUpdateBodySpecSandboxWorkspaceRefDefault = `main`
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -1582,10 +1666,37 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            sandbox: zod
+                .object({
+                    trust_profile: zod
+                        .enum(['frozen', 'coding-readonly', 'coding-write', 'coding-pr'])
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecSandboxTrustProfileDefault),
+                    loop_location: zod
+                        .enum(['in_sandbox', 'in_process'])
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecSandboxLoopLocationDefault),
+                    workspace: zod
+                        .object({
+                            repo: zod.string().optional(),
+                            ref: zod
+                                .string()
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecSandboxWorkspaceRefDefault),
+                        })
+                        .optional(),
+                })
+                .optional(),
         })
         .optional(),
 })

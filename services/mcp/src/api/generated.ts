@@ -8133,6 +8133,13 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /** @exclusiveMinimum 0 */
+      max_cpu_cores: number;
     };
 
     export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
@@ -8146,6 +8153,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type AgentRevisionSpecSandboxTrustProfile = typeof AgentRevisionSpecSandboxTrustProfile[keyof typeof AgentRevisionSpecSandboxTrustProfile];
+
+
+    export const AgentRevisionSpecSandboxTrustProfile = {
+      Frozen: 'frozen',
+      CodingReadonly: 'coding-readonly',
+      CodingWrite: 'coding-write',
+      CodingPr: 'coding-pr',
+    } as const;
+
+    export type AgentRevisionSpecSandboxLoopLocation = typeof AgentRevisionSpecSandboxLoopLocation[keyof typeof AgentRevisionSpecSandboxLoopLocation];
+
+
+    export const AgentRevisionSpecSandboxLoopLocation = {
+      InSandbox: 'in_sandbox',
+      InProcess: 'in_process',
+    } as const;
+
+    export type AgentRevisionSpecSandboxWorkspace = {
+      repo?: string;
+      ref: string;
+    };
+
+    export type AgentRevisionSpecSandbox = {
+      trust_profile: AgentRevisionSpecSandboxTrustProfile;
+      loop_location: AgentRevisionSpecSandboxLoopLocation;
+      workspace?: AgentRevisionSpecSandboxWorkspace;
+    };
+
     export type AgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -8158,6 +8194,7 @@ export namespace Schemas {
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
+      sandbox?: AgentRevisionSpecSandbox;
     };
 
     /**
@@ -29210,6 +29247,13 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /** @exclusiveMinimum 0 */
+      max_cpu_cores: number;
     };
 
     export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
@@ -29223,6 +29267,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type PatchedAgentRevisionSpecSandboxTrustProfile = typeof PatchedAgentRevisionSpecSandboxTrustProfile[keyof typeof PatchedAgentRevisionSpecSandboxTrustProfile];
+
+
+    export const PatchedAgentRevisionSpecSandboxTrustProfile = {
+      Frozen: 'frozen',
+      CodingReadonly: 'coding-readonly',
+      CodingWrite: 'coding-write',
+      CodingPr: 'coding-pr',
+    } as const;
+
+    export type PatchedAgentRevisionSpecSandboxLoopLocation = typeof PatchedAgentRevisionSpecSandboxLoopLocation[keyof typeof PatchedAgentRevisionSpecSandboxLoopLocation];
+
+
+    export const PatchedAgentRevisionSpecSandboxLoopLocation = {
+      InSandbox: 'in_sandbox',
+      InProcess: 'in_process',
+    } as const;
+
+    export type PatchedAgentRevisionSpecSandboxWorkspace = {
+      repo?: string;
+      ref: string;
+    };
+
+    export type PatchedAgentRevisionSpecSandbox = {
+      trust_profile: PatchedAgentRevisionSpecSandboxTrustProfile;
+      loop_location: PatchedAgentRevisionSpecSandboxLoopLocation;
+      workspace?: PatchedAgentRevisionSpecSandboxWorkspace;
+    };
+
     export type PatchedAgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -29235,6 +29308,7 @@ export namespace Schemas {
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;
+      sandbox?: PatchedAgentRevisionSpecSandbox;
     };
 
     /**

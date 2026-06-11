@@ -209,6 +209,24 @@ export const AgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type AgentRevisionApiSpecSandboxTrustProfile =
+    (typeof AgentRevisionApiSpecSandboxTrustProfile)[keyof typeof AgentRevisionApiSpecSandboxTrustProfile]
+
+export const AgentRevisionApiSpecSandboxTrustProfile = {
+    Frozen: 'frozen',
+    CodingReadonly: 'coding-readonly',
+    CodingWrite: 'coding-write',
+    CodingPr: 'coding-pr',
+} as const
+
+export type AgentRevisionApiSpecSandboxLoopLocation =
+    (typeof AgentRevisionApiSpecSandboxLoopLocation)[keyof typeof AgentRevisionApiSpecSandboxLoopLocation]
+
+export const AgentRevisionApiSpecSandboxLoopLocation = {
+    InSandbox: 'in_sandbox',
+    InProcess: 'in_process',
+} as const
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -466,6 +484,24 @@ export type AgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /** @exclusiveMinimum 0 */
+    max_cpu_cores: number
+}
+
+export type AgentRevisionApiSpecSandboxWorkspace = {
+    repo?: string
+    ref: string
+}
+
+export type AgentRevisionApiSpecSandbox = {
+    trust_profile: AgentRevisionApiSpecSandboxTrustProfile
+    loop_location: AgentRevisionApiSpecSandboxLoopLocation
+    workspace?: AgentRevisionApiSpecSandboxWorkspace
 }
 
 export type AgentRevisionApiSpec = {
@@ -480,6 +516,7 @@ export type AgentRevisionApiSpec = {
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
+    sandbox?: AgentRevisionApiSpecSandbox
 }
 
 /**
@@ -779,6 +816,13 @@ export type PatchedAgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /** @exclusiveMinimum 0 */
+    max_cpu_cores: number
 }
 
 export type PatchedAgentRevisionApiSpecReasoning =
@@ -792,6 +836,35 @@ export const PatchedAgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type PatchedAgentRevisionApiSpecSandboxTrustProfile =
+    (typeof PatchedAgentRevisionApiSpecSandboxTrustProfile)[keyof typeof PatchedAgentRevisionApiSpecSandboxTrustProfile]
+
+export const PatchedAgentRevisionApiSpecSandboxTrustProfile = {
+    Frozen: 'frozen',
+    CodingReadonly: 'coding-readonly',
+    CodingWrite: 'coding-write',
+    CodingPr: 'coding-pr',
+} as const
+
+export type PatchedAgentRevisionApiSpecSandboxLoopLocation =
+    (typeof PatchedAgentRevisionApiSpecSandboxLoopLocation)[keyof typeof PatchedAgentRevisionApiSpecSandboxLoopLocation]
+
+export const PatchedAgentRevisionApiSpecSandboxLoopLocation = {
+    InSandbox: 'in_sandbox',
+    InProcess: 'in_process',
+} as const
+
+export type PatchedAgentRevisionApiSpecSandboxWorkspace = {
+    repo?: string
+    ref: string
+}
+
+export type PatchedAgentRevisionApiSpecSandbox = {
+    trust_profile: PatchedAgentRevisionApiSpecSandboxTrustProfile
+    loop_location: PatchedAgentRevisionApiSpecSandboxLoopLocation
+    workspace?: PatchedAgentRevisionApiSpecSandboxWorkspace
+}
+
 export type PatchedAgentRevisionApiSpec = {
     /** @minLength 1 */
     model: string
@@ -804,6 +877,7 @@ export type PatchedAgentRevisionApiSpec = {
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
+    sandbox?: PatchedAgentRevisionApiSpecSandbox
 }
 
 /**
