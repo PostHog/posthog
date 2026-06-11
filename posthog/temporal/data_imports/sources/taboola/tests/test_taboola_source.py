@@ -21,6 +21,9 @@ class TestTaboolaSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.TABOOLA
 
+    def test_connection_host_fields_includes_account_id(self):
+        assert self.source.connection_host_fields == ["account_id"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

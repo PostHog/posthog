@@ -30,6 +30,12 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TABOOLA
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # account_id selects which Taboola account the stored credential is sent to, so
+        # changing it must force re-entry of the secret (prevents credential retargeting).
+        return ["account_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error: Bad Request for url: https://backstage.taboola.com/backstage/oauth/token": "Taboola rejected the token request. Please check your client ID and client secret.",
