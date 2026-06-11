@@ -1,4 +1,4 @@
-from collections.abc import Callable
+import typing
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
@@ -28,19 +28,15 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
-from products.dashboards.backend.widgets.error_tracking_list import (
-    run_error_tracking_list_widget,
-    validate_error_tracking_list_config,
+from products.dashboards.backend.widget_specs.configs import (
+    ERROR_TRACKING_LIST_WIDGET_TYPE,
+    SESSION_REPLAY_LIST_WIDGET_TYPE,
+    ErrorTrackingListWidgetConfig,
+    SessionReplayOrderBy,
 )
-from products.dashboards.backend.widgets.session_replay_list import (
-    SESSION_REPLAY_ORDER_BY,
-    run_session_replay_list_widget,
-    validate_session_replay_list_config,
-)
-from products.dashboards.backend.widgets.widget_config_types import (
-    ErrorTrackingListWidgetConfigInput,
-    SessionReplayListWidgetConfigInput,
-)
+from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_model_to_openapi_components
+from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
+from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
@@ -53,58 +49,112 @@ class TestWidgetRegistry(APIBaseTest):
             assert entry["widget_type"] == widget_type
 
     def test_openapi_widget_config_serializers_match_registry(self) -> None:
-        openapi_serializers = widget_openapi_serializers_module._DashboardWidgetConfigOpenApi.serializers
+        openapi_serializers = widget_openapi_serializers_module.DashboardWidgetConfigOpenApi.serializers
         assert len(openapi_serializers) == len(EXPECTED_WIDGET_TYPES), (
-            "Add a *WidgetConfigSerializer for each widget type in widget_openapi_serializers.py. "
+            "Each WIDGET_SPECS entry must produce a config serializer in widget_specs/openapi.py. "
             f"serializers={len(openapi_serializers)} expected={len(EXPECTED_WIDGET_TYPES)}"
         )
 
+    def test_widget_config_openapi_components_include_widget_filters(self) -> None:
+        components = pydantic_model_to_openapi_components(ErrorTrackingListWidgetConfig)
+        widget_filter_entry = components["WidgetFilterEntry"]
+        assert "filterId" in widget_filter_entry["properties"]
+        assert "propertyName" in widget_filter_entry["properties"]
+        widget_filters = components["ErrorTrackingListWidgetConfig"]["properties"]["widgetFilters"]
+        assert "WidgetFilterEntry" in str(widget_filters)
+
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
-            validate_widget_config("not_a_widget", {}, team_id=self.team.id)
+            validate_widget_config("not_a_widget", {})
 
-    def test_validate_error_tracking_list_config_defaults(self) -> None:
-        validated = validate_error_tracking_list_config({})
+    @parameterized.expand(
+        [
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, "occurrences"),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, "start_time"),
+        ]
+    )
+    def test_validate_list_config_defaults(self, _label: str, widget_type: str, default_order_by: str) -> None:
+        validated = validate_widget_config(widget_type, {})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
-        assert validated["orderBy"] == "occurrences"
+        assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
 
-    def test_validate_error_tracking_list_config_rejects_invalid_filter_test_accounts(self) -> None:
+    @parameterized.expand(
+        [
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+        ]
+    )
+    def test_validate_list_config_rejects_invalid_filter_test_accounts(self, _label: str, widget_type: str) -> None:
         with self.assertRaises(Exception):
-            validate_error_tracking_list_config(cast(ErrorTrackingListWidgetConfigInput, {"filterTestAccounts": "yes"}))
+            validate_widget_config(
+                widget_type,
+                cast(dict[str, object], {"filterTestAccounts": "yes"}),
+            )
 
-    def test_validate_error_tracking_list_config_rejects_high_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+        ]
+    )
+    def test_validate_list_config_rejects_high_limit(self, _label: str, widget_type: str) -> None:
         with self.assertRaises(Exception):
-            validate_error_tracking_list_config({"limit": 100})
+            validate_widget_config(widget_type, {"limit": 100})
 
-    @parameterized.expand(["-1h", "-3h", "-24h"])
-    def test_validate_error_tracking_list_config_accepts_short_date_ranges(self, date_from: str) -> None:
-        validated = validate_error_tracking_list_config({"dateRange": {"date_from": date_from}})
+    @parameterized.expand(
+        [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+    )
+    def test_validate_list_config_accepts_short_date_ranges(
+        self, _label: str, widget_type: str, date_from: str
+    ) -> None:
+        validated = validate_widget_config(
+            widget_type,
+            {"dateRange": {"date_from": date_from}},
+        )
         assert validated["dateRange"] == {"date_from": date_from}
 
-    def test_validate_error_tracking_list_config_rejects_unsupported_date_range(self) -> None:
+    @parameterized.expand(
+        [
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+        ]
+    )
+    def test_validate_list_config_rejects_unsupported_date_range(self, _label: str, widget_type: str) -> None:
         with self.assertRaises(Exception):
-            validate_error_tracking_list_config({"dateRange": {"date_from": "-48h"}})
+            validate_widget_config(
+                widget_type,
+                {"dateRange": {"date_from": "-48h"}},
+            )
 
-    def test_validate_error_tracking_list_config_strips_unknown_date_range_keys(self) -> None:
-        validated = validate_error_tracking_list_config(
-            {"dateRange": {"date_from": "-7d", "date_to": "ignored", "evil": 1}}
+    @parameterized.expand(
+        [
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+        ]
+    )
+    def test_validate_list_config_strips_unknown_date_range_keys(self, _label: str, widget_type: str) -> None:
+        validated = validate_widget_config(
+            widget_type,
+            {"dateRange": {"date_from": "-7d", "date_to": "ignored", "evil": 1}},
         )
         assert validated["dateRange"] == {"date_from": "-7d"}
 
     @parameterized.expand(
         [
-            ("error_tracking", validate_error_tracking_list_config, "$environment"),
-            ("session_replay", validate_session_replay_list_config, "$browser"),
+            ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, "$environment"),
+            ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, "$browser"),
         ]
     )
     def test_validate_list_config_accepts_widget_filters(
         self,
         _label: str,
-        validate_config: Callable[[dict[str, object]], dict[str, Any]],
+        widget_type: str,
         property_name: str,
     ) -> None:
-        validated = validate_config(
+        validated = validate_widget_config(
+            widget_type,
             {
                 "widgetFilters": {
                     "qf-1": {
@@ -115,46 +165,20 @@ class TestWidgetRegistry(APIBaseTest):
                         "value": "production",
                     }
                 }
-            }
+            },
         )
         assert validated["widgetFilters"]["qf-1"]["propertyName"] == property_name
 
-    def test_validate_session_replay_list_config_defaults(self) -> None:
-        validated = validate_session_replay_list_config({})
-        assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
-        assert validated["orderBy"] == "start_time"
-        assert "filterTestAccounts" not in validated
-
     def test_validate_session_replay_list_config_rejects_invalid_order_by(self) -> None:
         with self.assertRaises(Exception):
-            validate_session_replay_list_config({"orderBy": "not_a_field"})
+            validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, {"orderBy": "not_a_field"})
 
-    def test_validate_session_replay_list_config_rejects_invalid_filter_test_accounts(self) -> None:
-        with self.assertRaises(Exception):
-            validate_session_replay_list_config(cast(SessionReplayListWidgetConfigInput, {"filterTestAccounts": "yes"}))
-
-    def test_validate_session_replay_list_config_rejects_high_limit(self) -> None:
-        with self.assertRaises(Exception):
-            validate_session_replay_list_config({"limit": 100})
-
-    @parameterized.expand(["-1h", "-3h", "-24h"])
-    def test_validate_session_replay_list_config_accepts_short_date_ranges(self, date_from: str) -> None:
-        validated = validate_session_replay_list_config({"dateRange": {"date_from": date_from}})
-        assert validated["dateRange"] == {"date_from": date_from}
-
-    def test_validate_session_replay_list_config_rejects_unsupported_date_range(self) -> None:
-        with self.assertRaises(Exception):
-            validate_session_replay_list_config({"dateRange": {"date_from": "-48h"}})
-
-    def test_validate_session_replay_list_config_strips_unknown_date_range_keys(self) -> None:
-        validated = validate_session_replay_list_config(
-            {"dateRange": {"date_from": "-7d", "date_to": "ignored", "evil": 1}}
-        )
-        assert validated["dateRange"] == {"date_from": "-7d"}
-
-    @parameterized.expand(sorted(SESSION_REPLAY_ORDER_BY))
+    @parameterized.expand(sorted(typing.get_args(SessionReplayOrderBy)))
     def test_validate_session_replay_list_config_accepts_order_by(self, order_by: str) -> None:
-        validated = validate_session_replay_list_config({"orderBy": order_by})
+        validated = validate_widget_config(
+            SESSION_REPLAY_LIST_WIDGET_TYPE,
+            {"orderBy": order_by},
+        )
         assert validated["orderBy"] == order_by
 
 

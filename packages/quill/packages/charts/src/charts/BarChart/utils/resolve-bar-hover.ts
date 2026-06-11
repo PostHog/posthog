@@ -33,7 +33,7 @@ export interface ResolveBarHoverArgs {
     stackedData: Map<string, StackedBand> | undefined
     topStackedKeyByAxis: Map<string, string>
     roundStackEnds: boolean
-    barTrack: boolean
+    barTrackHover: boolean
 }
 
 /** Resolve which bars (or tracks) the hovered band should highlight, plus the pill clip and a
@@ -43,7 +43,14 @@ export interface ResolveBarHoverArgs {
 export function resolveBarHoverItems(
     { series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs,
     d3Scales: BarScaleSet,
-    { barLayout, isHorizontal, stackedData, topStackedKeyByAxis, roundStackEnds, barTrack }: ResolveBarHoverArgs
+    {
+        barLayout,
+        isHorizontal,
+        stackedData,
+        topStackedKeyByAxis,
+        roundStackEnds,
+        barTrackHover,
+    }: ResolveBarHoverArgs
 ): ResolvedBarHover | null {
     const hoveredLabel = drawLabels[hoverIndex]
     const items: BarHoverItem[] = []
@@ -89,7 +96,7 @@ export function resolveBarHoverItems(
                 continue
             }
             const isTrackHighlight =
-                barTrack === true &&
+                barTrackHover &&
                 barLayout === 'grouped' &&
                 hoverPosition != null &&
                 cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
