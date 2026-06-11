@@ -12,6 +12,10 @@ class AdRollEndpointConfig:
     advertisable_scoped: bool = False
     parent_key: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        if self.advertisable_scoped and self.parent_key is None:
+            raise ValueError(f"advertisable_scoped endpoint '{self.name}' must define parent_key")
+
 
 # AdRoll's default quota is only 100 API requests per day, so v1 ships the
 # small entity hierarchy (1 + 2×advertisables requests per sync). Entity

@@ -81,9 +81,13 @@ def get_rows(
             yield items
         return
 
+    # advertisable_scoped endpoints always define a parent_key (enforced in
+    # AdRollEndpointConfig.__post_init__); narrow the Optional for the row build.
+    parent_key = config.parent_key
+    assert parent_key is not None
     for eid in advertisable_eids():
         data = fetch(config.path, {"advertisable": eid})
-        items = [{**item, config.parent_key: eid} for item in (data.get("results", []) or [])]
+        items = [{**item, parent_key: eid} for item in (data.get("results", []) or [])]
         if items:
             yield items
 
