@@ -880,8 +880,8 @@ class SessionRecordingViewSet(
                         cast(User, request.user),
                         team=self.team,
                         allow_event_property_expansion=allow_event_property_expansion,
-                        # explicitly selected sessions (e.g. a funnel drop-off handoff) must not be
-                        # hidden by the default date range; only this user-facing list path opts in
+                        # show explicitly selected sessions (e.g. a funnel drop-off handoff)
+                        # even outside the date range
                         bypass_date_window_for_session_ids=True,
                     )
 

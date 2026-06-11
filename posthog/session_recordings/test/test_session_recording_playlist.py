@@ -726,9 +726,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert result["results"][0]["id"] == session_one
 
     def test_collection_recordings_keep_one_year_search_bound(self) -> None:
-        # collections look up pinned recordings in ClickHouse with a -1y search bound,
-        # so a pinned recording older than a year is not served from the ClickHouse list.
-        # the old recording gets a long retention period so only the -1y bound excludes it
+        # long retention keeps the old recording alive, so only the collections -1y bound excludes it
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team, name="collection", created_by=self.user, type="collection"
         )
@@ -766,8 +764,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def test_filters_playlist_pinned_recordings_respect_date_params(
         self, _name: str, date_from: str, expect_found: bool
     ) -> None:
-        # legacy filters playlists can still carry pinned items; user-supplied date params
-        # must keep applying to them
+        # legacy filters playlists can still carry pinned items
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team, name="legacy filters with pins", created_by=self.user, type="filters"
         )

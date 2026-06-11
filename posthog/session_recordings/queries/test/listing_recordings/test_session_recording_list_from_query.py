@@ -947,8 +947,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_session_ids_apply_date_window_by_default(
         self, _name: str, date_from: str | None, expect_found: bool
     ) -> None:
-        # every caller that doesn't opt into the bypass keeps date filtering on session_ids:
-        # the public query runner, playlists, counting, deletion sweeps, AI tools, scanners
         old_session_id = self._an_old_recording()
 
         query: dict = {"session_ids": [old_session_id]}
@@ -982,8 +980,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_bypass_does_not_apply_to_session_ids_derived_from_comment_search(self) -> None:
         old_session_id = self._an_old_recording()
 
-        # the API populates session_ids from the comment search when comment_text is set,
-        # so these are not user-selected sessions and the date range must still apply
+        # comment-derived session_ids are not user-selected, so the date range still applies
         comment_query = {
             "session_ids": [old_session_id],
             "comment_text": {
@@ -1013,8 +1010,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.results == []
 
     def test_retention_bound_cannot_hide_live_recordings(self) -> None:
-        # a recording older than the 5y bound is necessarily past the longest retention period,
-        # so the partition-pruning bound can never exclude a recording that is still viewable
+        # anything older than the 5y bound is past every retention period, so never viewable
         user = "test_retention_bound-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -1040,8 +1036,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_event_filters_bound_session_ids_queries_by_date_even_with_bypass(
         self, _name: str, date_from: str | None, expect_found: bool
     ) -> None:
-        # even when bypassing the date window for session_ids, event subqueries scan the events
-        # table within the query date range, so event-filtered lookups only match in-range events
+        # event subqueries scan within the date range even when bypassing
         user = "test_session_ids_event_window-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 

@@ -315,13 +315,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 )
             )
 
-        # the replay page list opts in via bypass_date_window_for_session_ids so explicitly selected
-        # sessions (e.g. a funnel drop-off handoff) are not silently hidden by the default date range.
-        # every other caller keeps date filtering on session_ids, the pre-existing behavior.
-        # when a comment filter is active, session_ids may be derived from the comment search
-        # (see session_recording_api), so the user's date range must still apply even when bypassing.
-        # known limit: event/person subqueries still scan within the query date range (bounding the
-        # events table scan), so event-filtered lookups only match sessions whose events fall in range
+        # the replay-page list opts in so explicitly selected sessions are not hidden by the
+        # default date range. comment-derived session_ids (see session_recording_api) stay windowed,
+        # and event/person subqueries still scan within the date range either way.
         bypass_date_window = (
             self._bypass_date_window_for_session_ids
             and isinstance(self._query.session_ids, list)
@@ -329,7 +325,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             and not self._query.comment_text
         )
         if bypass_date_window:
-            # bound at the longest valid retention period ("5y") to keep partition pruning
+            # bound at the longest retention period (5y) to keep partition pruning
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,

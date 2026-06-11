@@ -576,7 +576,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     insightQuery = source.source as any
                 }
 
-                // Extract date range from insight query
                 let date_from = propertiesTimelineFilter?.date_from
                 let date_to = propertiesTimelineFilter?.date_to
 
@@ -610,8 +609,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 // Extract events from the insight query series
                 if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
-                    // Drop-off actors (negative funnelStep) never performed the drop-off step,
-                    // so only the steps they actually completed can be required as event filters.
+                    // drop-off actors (negative funnelStep) only completed the steps before the
+                    // drop-off, so only those can be required as event filters
                     let seriesToFilterOn: any[] = insightQuery.series
                     if (source.kind === NodeKind.FunnelsActorsQuery && typeof source.funnelStep === 'number') {
                         const completedStepCount =

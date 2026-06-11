@@ -1088,7 +1088,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            # outside the default date range, e.g. handed off from a funnel drop-off insight
+            # outside the default date range
             self.produce_replay_summary("user", "old-session", now() - relativedelta(days=10))
 
             params_string = urlencode({"session_ids": '["old-session"]'})

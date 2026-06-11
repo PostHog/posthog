@@ -96,10 +96,7 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_session_ids_respect_date_window(self, _name: str, date_from: str, expected: list[str]):
-        # the query runner backs the public /query endpoint, so explicit session_ids
-        # must keep date filtering; only the replay-page list path bypasses the window.
-        # the recording is within the 30d retention (so not dropped as expired) but
-        # outside the narrow window
+        # within the 30d retention, so only the date window can exclude it
         self._produce_replay("session-old", first_timestamp="2020-12-25T12:00:00", last_timestamp="2020-12-25T12:10:00")
 
         runner = RecordingsQueryRunner(
