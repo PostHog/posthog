@@ -14,7 +14,14 @@ import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculati
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { SignalNode } from 'scenes/debug/signals/types'
-import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
+import {
+    SignalReport,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalReportTask,
+    SignalSourceConfig,
+    SignalUserAutonomyConfig,
+} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -1175,6 +1182,15 @@ export class ApiRequest {
 
     public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
+    }
+
+    public signalReportTasks(reportId: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReport(reportId, teamId).addPathComponent('tasks')
+    }
+
+    // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
+    public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
+        return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
     }
 
     // # Signal Source Configs
@@ -5066,6 +5082,46 @@ const api = {
         },
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
+        },
+        // SignalReport ↔ Task linkage (read-only list). Backend: SignalReportTaskViewSet.
+        async tasks(reportId: SignalReport['id']): Promise<PaginatedResponse<SignalReportTask>> {
+            return await new ApiRequest().signalReportTasks(reportId).get()
+        },
+        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
+        async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
+            return await new ApiRequest().signalReport(id).withAction('state').create({ data })
+        },
+        async availableReviewers(
+            query?: string
+        ): Promise<{ results: { user_uuid: string; name: string; email: string }[]; count: number }> {
+            return await new ApiRequest()
+                .signalReports()
+                .withAction('available_reviewers')
+                .withQueryString(query ? { query } : undefined)
+                .get()
+        },
+    },
+
+    signalUserAutonomy: {
+        async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
+            try {
+                return await new ApiRequest().signalUserAutonomy(userId).get()
+            } catch (error: any) {
+                // 404 = no config yet (user hasn't opted in). Treat as null.
+                if (error?.status === 404) {
+                    return null
+                }
+                throw error
+            }
+        },
+        async update(
+            data: Partial<SignalUserAutonomyConfig>,
+            userId: string | '@me' = '@me'
+        ): Promise<SignalUserAutonomyConfig> {
+            return await new ApiRequest().signalUserAutonomy(userId).create({ data })
+        },
+        async remove(userId: string | '@me' = '@me'): Promise<void> {
+            await new ApiRequest().signalUserAutonomy(userId).delete()
         },
     },
 
