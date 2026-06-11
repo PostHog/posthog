@@ -38,6 +38,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
@@ -650,9 +651,10 @@ export const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, taxonomicGroups, includeStaleEvents, infiniteListCounts } =
+    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, infiniteListCounts, eventNames } =
         useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
         useValues(infiniteListLogic)
@@ -666,12 +668,10 @@ function InfiniteListEmptyState(): JSX.Element {
 
     // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
     // jump there so the user doesn't have to guess which tab their match lives in.
-    const allGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)
     const allSectionHasResults = (infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters] ?? 0) > 0
     const canOfferAllSwitch =
         !emptySearchQuery &&
         !isSuggestedFilters &&
-        !!allGroup &&
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
     return (
@@ -720,7 +720,13 @@ function InfiniteListEmptyState(): JSX.Element {
                             type="secondary"
                             size="xsmall"
                             data-attr="taxonomic-switch-to-all"
-                            onClick={() => setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)}
+                            onClick={() => {
+                                reportTaxonomicFilterCategorySelected(
+                                    TaxonomicFilterGroupType.SuggestedFilters,
+                                    eventNames?.[0]
+                                )
+                                setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
+                            }}
                         >
                             See results from other categories
                         </LemonButton>

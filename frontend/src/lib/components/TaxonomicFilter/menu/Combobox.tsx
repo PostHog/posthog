@@ -716,7 +716,9 @@ export function MenuFilterCombobox({
 
     // Only the active scope's groups are fetched, so a narrowed-to-one-category search
     // that comes up empty can't know whether other categories have matches. Offer a jump
-    // to "All" (which fetches every group) so the user can check without re-typing.
+    // to "All" (which fetches every group) so the user can check without re-typing. This is a
+    // deliberate divergence from the legacy `InfiniteList` empty state, which can read the
+    // aggregated count (`allSectionHasResults`) and only offers the jump when All has matches.
     const canOfferAllSwitch =
         showChips &&
         !!searchQuery.trim() &&
