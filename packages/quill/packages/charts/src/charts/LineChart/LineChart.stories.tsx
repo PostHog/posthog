@@ -308,6 +308,40 @@ export const DualYAxis: Story = {
     },
 }
 
+export const TripleYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            {
+                key: 'sessions',
+                label: 'Sessions',
+                color: '',
+                data: [70, 78, 72, 88, 75, 90, 80],
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            },
+            {
+                key: 'pageviews',
+                label: 'Pageviews',
+                color: '',
+                data: [140, 168, 150, 184, 160, 178, 170],
+                yAxisId: 'y1',
+            },
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [3500, 4200, 3600, 4500, 3800, 4100, 4000],
+                yAxisId: 'y2',
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 /** Plain line with the trailing segment dashed via stroke.partial — the in-progress tail. */
 export const InProgressTail: Story = {
     render: () => {

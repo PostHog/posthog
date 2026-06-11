@@ -86,7 +86,7 @@ HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
 
 def _get_properties_from_filters(
     filters: Union[dict, FlagFilters], property_type: str | None = None
-) -> Generator[FlagProperty, None, None]:
+) -> Generator[FlagProperty]:
     """
     Extract properties from filters by iterating through groups.
 
@@ -116,7 +116,7 @@ def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[i
     return cohort_ids
 
 
-def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty, None, None]:
+def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty]:
     """Extract flag properties from filters."""
     return _get_properties_from_filters(filters, PropertyFilterType.FLAG)
 
@@ -414,20 +414,6 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
         if include_cohorts
         else flag_definitions_without_cohorts_hypercache.get_from_cache(team)
     )
-
-
-def get_flags_response_if_none_match(
-    team: Team, include_cohorts: bool, client_etag: str | None
-) -> tuple[dict | None, str | None, bool]:
-    """
-    Get flags response with ETag support for HTTP 304 responses.
-
-    Returns: (data, etag, modified)
-    - If client_etag matches current: (None, current_etag, False) - 304 case
-    - Otherwise: (data, current_etag, True) - 200 case with full data
-    """
-    hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
-    return hypercache.get_if_none_match(team, client_etag)
 
 
 def _resolve_team(team: Team | int) -> Team | None:

@@ -327,9 +327,6 @@ ignore = [
     "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
-    "UP043",  # ~162: Generator[X, None, None] → Generator[X] (defer 3.13 sweep)
-    "UP035",  # ~2: typing_extensions.TypeIs → typing.TypeIs (defer 3.13 sweep)
-    "B911",   # ~9: itertools.batched without explicit strict (defer 3.13 sweep)
 ]
 select = [
     "B",
@@ -437,7 +434,9 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+# conftest.py: the root pytest bootstrap collides with services/stripe-mock/tests/conftest.py
+# (both resolve to top-level module "conftest")
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

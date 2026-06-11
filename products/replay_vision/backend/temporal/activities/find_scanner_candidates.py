@@ -44,16 +44,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
+    limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         last_seen_session_id=scanner.last_seen_session_id or None,
+        candidate_limit=limit,
     )
     candidates = candidate_query.run()
 
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=len(candidates) == DEFAULT_CANDIDATE_LIMIT,
+        # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
+        saturated=len(candidates) == limit,
     )
