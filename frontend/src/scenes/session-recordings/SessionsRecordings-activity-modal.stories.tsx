@@ -93,6 +93,9 @@ export const EventExplorerWithModalNotFound: Story = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind': eventsQuery,
+                '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': {
+                    properties: (eventsQuery.results[0][0] as Record<string, any>).properties,
+                },
             },
         })
 
