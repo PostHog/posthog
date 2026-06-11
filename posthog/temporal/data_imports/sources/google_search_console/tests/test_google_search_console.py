@@ -400,3 +400,39 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
     gsc._throttle("sc-domain:example.com")
 
     assert sleeps == [pytest.approx(gsc._MIN_REQUEST_INTERVAL_SECONDS)]
+
+
+class TestCredentialsStaleConnection:
+    """Regression test for stale Postgres connections inside `_credentials`.
+
+    When an import streams rows for many minutes, the Django connection that the
+    Temporal worker thread holds can be dropped server-side. The next call into
+    `Integration.objects.get(...)` from `get_rows` then raises
+    `OperationalError: server closed the connection unexpectedly`. We close stale
+    connections before the ORM query so the next lookup grabs a fresh one.
+    """
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_search_console.google_search_console.OAuthCredentials")
+    @mock.patch("posthog.temporal.data_imports.sources.google_search_console.google_search_console.Integration")
+    @mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.google_search_console.close_old_connections"
+    )
+    def test_credentials_closes_stale_connections_before_integration_lookup(
+        self, mock_close_old_connections, mock_integration_model, mock_oauth_credentials
+    ):
+        manager = mock.MagicMock()
+        manager.attach_mock(mock_close_old_connections, "close_old_connections")
+        manager.attach_mock(mock_integration_model.objects.get, "integration_get")
+
+        mock_integration = mock.MagicMock()
+        mock_integration.refresh_token = "fake-refresh-token"
+        mock_integration_model.objects.get.return_value = mock_integration
+
+        gsc._credentials(integration_id=42, team_id=7)
+
+        mock_close_old_connections.assert_called_once_with()
+        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=7)
+        # Order matters: closing stale connections AFTER the failing query would
+        # not prevent the OperationalError we are guarding against.
+        call_order = [name for name, _, _ in manager.mock_calls]
+        assert call_order.index("close_old_connections") < call_order.index("integration_get")
