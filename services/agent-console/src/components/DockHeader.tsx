@@ -313,17 +313,12 @@ function SettingsMenu({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
-                render={
-                    <button
-                        type="button"
-                        aria-label="Dock settings"
-                        title="Dock settings"
-                        className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                        <SettingsIcon className="h-3 w-3" />
-                    </button>
-                }
-            />
+                aria-label="Dock settings"
+                title="Dock settings"
+                className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+                <SettingsIcon className="h-3 w-3" />
+            </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
                 {hasOpen ? (
                     <DropdownMenuGroup>
@@ -411,18 +406,13 @@ function SessionHistoryMenu({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
-                render={
-                    <button
-                        type="button"
-                        aria-label="Recent conversations"
-                        title="Recent conversations"
-                        className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                        <HistoryIcon className="h-3 w-3" />
-                        <span className="text-[0.6875rem]">{history.length}</span>
-                    </button>
-                }
-            />
+                aria-label="Recent conversations"
+                title="Recent conversations"
+                className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+                <HistoryIcon className="h-3 w-3" />
+                <span className="text-[0.6875rem]">{history.length}</span>
+            </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
                 {resumable.length > 0 ? (
                     <DropdownMenuGroup>
