@@ -4482,6 +4482,20 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "memory": {
+        "description": "Read and write persistent memories about this user, their company, product, and preferences. Memories are stored per team (and attributed to the user) and searched by semantic similarity, with optional metadata tags that build up a taxonomy over time. Use this to remember durable facts across runs and to recall context the user references from previous work.\nSet `operation.action` to one of:\n- `query`: search existing memories by `query_text` (semantic search). Do this BEFORE creating a memory to avoid duplicates, and whenever you need context about the user's product or past discussions.\n- `create`: store a new memory (`contents`, optional `metadata`). Store memories pre-emptively when you learn something durable — you don't need to be asked.\n- `update`: change a memory's `contents` or `metadata` by `memory_id`.\n- `delete`: remove a memory by `memory_id_to_delete`.\n- `list_metadata_keys`: list the metadata keys in use, to keep tags consistent.\nKeep memories about durable facts (product setup, definitions, preferences), not transient task state. Newly created memories become searchable once their embedding is processed.",
+        "category": "Memory",
+        "feature": "memory",
+        "summary": "Store and recall persistent memories about the user and their product.",
+        "title": "Manage memories",
+        "required_scopes": ["business_knowledge:read", "business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",
