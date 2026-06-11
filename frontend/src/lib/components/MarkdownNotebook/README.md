@@ -2,7 +2,7 @@
 
 A notebook editor that uses markdown as its storage format. The document model is parsed from and serialized back to markdown on every edit, so the markdown string is always the source of truth.
 
-See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags).
+See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags) and [TODO.md](./TODO.md) for open work.
 
 ## Module layout
 
@@ -16,9 +16,20 @@ See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (
 | `listModel.ts` / `tableModel.ts`                                                                    | Pure list and table structure operations (depth shifting, row/column normalization)                                                                       |
 | `inlineContent.ts`                                                                                  | Pure inline-node operations: marks, links, splitting at offsets                                                                                           |
 | `domSelection.ts`                                                                                   | DOM selection reading/writing: mapping `window.getSelection()` to nodes and back                                                                          |
+| `registry.tsx`                                                                                      | Built-in component definitions (`Query`, `Image`, `Embed`, …) and the registry helpers                                                                    |
 | `editorTypes.ts` / `componentPanels.ts`                                                             | Internal shared types, constants, and component panel visibility state                                                                                    |
-| `Editable*.tsx`, `renderNode.tsx`                                                                   | Per-block render components (text, list, table, code, AI prompt)                                                                                          |
+| `Editable*.tsx`, `DividerBlock.tsx`, `renderNode.tsx`                                               | Per-block render components (text, list, table, code, divider, AI prompt)                                                                                 |
 | `NotebookComponentShell.tsx`, `InsertMenu.tsx`, `FormattingToolbar.tsx`, `InsertBoundaryButton.tsx` | Editor chrome                                                                                                                                             |
+
+## Supported markdown
+
+Inline: bold (`**`), italic (`*`), underline (`<u>`), strikethrough (`~~`), inline code, links, and hard breaks. Blocks: paragraphs, headings (`#`–`######` parse and round-trip; the UI offers H1–H3), blockquotes (including quoted lists), ordered/unordered lists with nesting, GFM tables with column alignment, fenced code blocks (language tag preserved), dividers (`---`/`***`/`___`, stored as a reserved `Divider` component tag), images (`![alt](src)`, stored as the `Image` component), and JSX-like component tags.
+
+## Visual grouping
+
+Consecutive text-like blocks (paragraphs, headings, lists, blockquotes, code blocks) render inside one shared card surface — a _text group_ (`getMarkdownNotebookVisualGroups` in `documentModel.ts`). Within a group, blockquote runs and code blocks form their own tinted sub-surfaces (`MarkdownNotebookTextSurface`: `text` | `quote` | `code`); a surface that starts or ends its group stretches flush to the card edge. Components, tables, and dividers render as standalone rows between groups.
+
+Code blocks render a non-editable line-number gutter next to the editable `<pre>`. Gutter numbers are absolutely positioned at line tops measured from the DOM (wrapped lines hang without numbers), so the gutter never participates in selection, copy, or text offsets. A trailing `<br>` sentinel keeps trailing blank lines visible; it contributes nothing to `textContent`, which keeps offsets stable.
 
 ## Event architecture: one editing host
 
@@ -26,9 +37,10 @@ The canvas (`.MarkdownNotebook__canvas`) is a single `contenteditable` editing h
 
 Because of this, all editing behavior must be dispatched from root-level handlers based on the current selection:
 
-- `handleRootEditableKeyDown` (canvas `onKeyDown`) — Tab indentation, Enter splits, Backspace/Delete semantics
-- the native `beforeinput` capture listener — `insertParagraph`, `deleteContent*`, `historyUndo/Redo`
+- `handleRootEditableKeyDown` (canvas `onKeyDown`) — Tab indentation, Enter splits, Backspace/Delete semantics, ArrowDown below a trailing code block
+- the native `beforeinput` capture listener — `insertParagraph`/`insertLineBreak` (inside code blocks these insert a literal `\n` through the model, since the browser default inserts `<br>` elements that are invisible to `textContent`), `deleteContent*`, `historyUndo/Redo`
 - `handleRootEditableInput` (canvas `onInput`) — syncing typed text back into the document model
+- `handleNotebookKeyDown` (notebook root `onKeyDownCapture`) — Cmd/Ctrl shortcuts: bold/italic/underline (`B`/`I`/`U`), strikethrough (`Shift+X`), scoped select-all (`A`), copy of a focused component (`C`)
 
 These resolve the affected block with `getInlineEditableElementForSelection` and the `data-markdown-notebook-*` attributes. Do **not** add keyboard handlers to inner block components: they only fire in JSDOM tests (where events are dispatched directly on inner elements), so they create behavior that passes tests but never runs in the app.
 

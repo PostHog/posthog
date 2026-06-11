@@ -181,7 +181,9 @@ If the node type does not exist yet, create the notebook node first under `front
 
 ## Reserved tags
 
-Do not reuse built-in markdown tags such as `Query`, `Image`, `Embed`, `Python`, or internal AI tags such as `Prompt` and `Chat`.
+Do not reuse the tags of the default registry (`registry.tsx`): `Query`, `Image`, `Divider`, `Embed`, `Latex`, `Python`, `DuckSQL`, `HogQLSQL`, `RecordingPlaylist`, `FeatureFlag`, `Experiment`, `Survey`, `Person`, `Group`, `Cohort`, `Map`.
+The internal AI tags `Prompt` and `Chat` are also reserved (registered by the notebooks scene).
+`Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 Choose a specific tag name that describes the persisted block.
 
 ## Testing checklist
