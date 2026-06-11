@@ -369,6 +369,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn decompress_deflate_raw_starting_with_0x78_treated_as_zlib() {
+        // Pin the known tradeoff: a raw deflate stream whose first byte is
+        // 0x78 gets misrouted to ZlibDecoder and fails. Same strategy as nginx.
+        let raw = compress_deflate(b"test payload");
+        let mut patched = raw.clone();
+        patched[0] = 0x78;
+        let compressed = Bytes::from(patched);
+
+        let result =
+            decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
+        assert!(
+            result.is_err(),
+            "raw deflate starting with 0x78 is misrouted to ZlibDecoder (accepted tradeoff)"
+        );
+    }
+
+    #[tokio::test]
     async fn decompress_br_exceeds_limit() {
         let big = vec![0u8; 64 * 1024];
         let compressed = Bytes::from(compress_brotli(&big));
