@@ -3,11 +3,14 @@ import { cleanup, renderHook } from '@testing-library/react'
 import { examples } from '~/queries/examples'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { QuerySchema } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { useWebTileExportAdapter } from './webTileHeaderHooks'
+
+const worldMapQuery = examples.WebAnalyticsWorldMap as QuerySchema
 
 describe('useWebTileExportAdapter', () => {
     let collection: ReturnType<typeof dataNodeCollectionLogic.build>
@@ -33,7 +36,7 @@ describe('useWebTileExportAdapter', () => {
             dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
         }
 
-        renderHook(() => useWebTileExportAdapter(examples.WebAnalyticsWorldMap, insightProps))
+        renderHook(() => useWebTileExportAdapter(worldMapQuery, insightProps))
 
         expect(registeredIds()).toContain(insightVizDataNodeKey(insightProps))
     })
@@ -48,10 +51,9 @@ describe('useWebTileExportAdapter', () => {
             dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
         }
 
-        const { rerender } = renderHook(
-            ({ insightProps }) => useWebTileExportAdapter(examples.WebAnalyticsWorldMap, insightProps),
-            { initialProps: { insightProps: firstProps } }
-        )
+        const { rerender } = renderHook(({ insightProps }) => useWebTileExportAdapter(worldMapQuery, insightProps), {
+            initialProps: { insightProps: firstProps },
+        })
         expect(registeredIds()).toContain(insightVizDataNodeKey(firstProps))
 
         rerender({ insightProps: secondProps })
