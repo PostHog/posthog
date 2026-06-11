@@ -792,6 +792,42 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+
+        it('pill flag resolving after mount still makes SuggestedFilters the default tab', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagDefault',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.taxonomicGroupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            testLogic.unmount()
+        })
+
+        it('an explicit tab choice made before the pill flag resolves is kept', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagExplicit',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Actions)
+
+            testLogic.unmount()
+        })
     })
 
     describe('promoted groups are reordered', () => {

@@ -378,28 +378,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
-    reducers(({ props, selectors }) => ({
+    reducers(({ props }) => ({
         searchQuery: [
             props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
-        activeTab: [
-            (state: any): TaxonomicFilterGroupType => {
-                const groupTypes = selectors.taxonomicGroupTypes(state)
-                const propsGroupType = selectors.groupType(state)
-                // If there's an existing filter type (e.g., SQL expression being edited),
-                // use that instead of defaulting to SuggestedFilters
-                if (propsGroupType && groupTypes.includes(propsGroupType)) {
-                    return propsGroupType
-                }
-                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                    return TaxonomicFilterGroupType.SuggestedFilters
-                }
-                const metaTypes = selectors.metaGroupTypes(state)
-                return groupTypes.find((t) => !metaTypes.has(t)) ?? groupTypes[0]
-            },
+        explicitActiveTab: [
+            // Only an explicit user/programmatic choice lands here; `activeTab` derives
+            // from it so the default can keep tracking late-arriving groups (e.g. the
+            // SuggestedFilters tab injected once feature flags resolve after mount).
+            null as TaxonomicFilterGroupType | null,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
@@ -1659,6 +1649,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
+        activeTab: [
+            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes],
+            (explicitActiveTab, propsGroupType, groupTypes, metaGroupTypes): TaxonomicFilterGroupType => {
+                if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
+                    return explicitActiveTab
+                }
+                // If there's an existing filter type (e.g., SQL expression being edited),
+                // use that instead of defaulting to SuggestedFilters
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
+                }
+                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                    return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
+            },
+        ],
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),

@@ -21,7 +21,7 @@
  *     and `taxonomicFilterPinnedPropertiesLogic`; the orchestrator only reads
  *     them via the bridge, doesn't write)
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import {
     hasRecentContext,
@@ -347,19 +347,18 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         return firstNonMeta ?? groupTypes[0] ?? TaxonomicFilterGroupType.Empty
     }, [initialGroupType, groupTypes, metaGroupTypes])
 
-    const [activeGroupType, setActiveGroupTypeInternal] = useState<TaxonomicFilterGroupType>(defaultActiveGroup)
-
-    // If the resolved tab list shrinks beneath the active type, fall back.
-    useEffect(() => {
-        if (!groupTypes.includes(activeGroupType)) {
-            setActiveGroupTypeInternal(defaultActiveGroup)
-        }
-    }, [groupTypes, activeGroupType, defaultActiveGroup])
+    // Only an explicit choice is stored; the active group derives from it so the
+    // default keeps tracking groups that arrive after mount (late feature flags,
+    // async group sources) instead of freezing the first render's answer. An
+    // explicit choice that's no longer in the tab list falls back to the default.
+    const [explicitActiveGroup, setExplicitActiveGroup] = useState<TaxonomicFilterGroupType | null>(null)
+    const activeGroupType =
+        explicitActiveGroup && groupTypes.includes(explicitActiveGroup) ? explicitActiveGroup : defaultActiveGroup
 
     const setActiveGroupType = useCallback(
         (t: TaxonomicFilterGroupType) => {
             if (groupTypes.includes(t)) {
-                setActiveGroupTypeInternal(t)
+                setExplicitActiveGroup(t)
             }
         },
         [groupTypes]
@@ -370,10 +369,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (idx <= 0) {
             return
         }
-        for (let i = idx - 1; i >= 0; i--) {
-            setActiveGroupTypeInternal(groupTypes[i])
-            return
-        }
+        setExplicitActiveGroup(groupTypes[idx - 1])
     }, [groupTypes, activeGroupType])
 
     const tabRight = useCallback(() => {
@@ -381,7 +377,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (idx === -1 || idx >= groupTypes.length - 1) {
             return
         }
-        setActiveGroupTypeInternal(groupTypes[idx + 1])
+        setExplicitActiveGroup(groupTypes[idx + 1])
     }, [groupTypes, activeGroupType])
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])

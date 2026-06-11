@@ -93,6 +93,37 @@ describe('useTaxonomicFilter', () => {
         expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.SuggestedFilters)
     })
 
+    it('SuggestedFilters injected by a late-growing group list becomes the default', () => {
+        const { result, rerender } = renderHook(
+            ({ types }: { types: TaxonomicFilterGroupType[] }) => useTaxonomicFilter({ taxonomicGroupTypes: types }),
+            { wrapper, initialProps: { types: [TaxonomicFilterGroupType.Events] } }
+        )
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.Events)
+
+        rerender({ types: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties] })
+
+        expect(result.current.groupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+    })
+
+    it('an explicit choice survives the group list growing', () => {
+        const { result, rerender } = renderHook(
+            ({ types }: { types: TaxonomicFilterGroupType[] }) => useTaxonomicFilter({ taxonomicGroupTypes: types }),
+            { wrapper, initialProps: { types: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions] } }
+        )
+        act(() => result.current.setActiveGroupType(TaxonomicFilterGroupType.Actions))
+
+        rerender({
+            types: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.PersonProperties,
+            ],
+        })
+
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.Actions)
+    })
+
     it('initial groupType prop is respected', () => {
         const { result } = renderHook(
             () =>
