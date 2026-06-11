@@ -40,7 +40,6 @@ from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
-from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
@@ -73,7 +72,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
@@ -3220,64 +3219,7 @@ class FeatureFlagViewSet(
 
         for key, value in filters.items():
             if key == "active":
-                if value == "STALE":
-                    # Get stale flags using the best available signal:
-                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
-                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-                    stale_threshold = thirty_days_ago()
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    config_based_queryset = queryset.filter(
-                        last_called_at__isnull=True,
-                        active=True,
-                        created_at__lt=stale_threshold,
-                    ).extra(
-                        where=[
-                            """
-                            (
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                                        WHERE variant->>'rollout_percentage' = '100'
-                                    )
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                        AND elem->'variant' IS NOT NULL
-                                        AND elem->>'variant' IS NOT NULL
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                                )
-                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                            )
-                            """
-                        ]
-                    )
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
-                else:
-                    # Handle both string "true"/"false" and boolean True/False
-                    is_active = value == "true" or value is True
-                    queryset = queryset.filter(active=is_active)
+                queryset = filter_flags_by_active_param(queryset, value)
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
