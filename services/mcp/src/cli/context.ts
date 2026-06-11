@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
@@ -11,8 +11,17 @@ import type { Context, Env, State } from '@/tools/types'
 
 import type { CliConfig } from './config'
 
+function cliIdentityKey(apiKey: string | undefined): string {
+    if (!apiKey) {
+        return 'anonymous'
+    }
+    return createHash('sha256').update(apiKey).digest('hex').slice(0, 16)
+}
+
 export async function buildCliContext(config: CliConfig): Promise<Context> {
-    const cache = new MemoryCache<State>(`cli:${config.apiKey ?? 'anonymous'}:${config.host}`)
+    const identityKey = cliIdentityKey(config.apiKey)
+    const fallbackDistinctId = `posthog-cli:${identityKey}`
+    const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}`)
     await cache.setMany({
         ...(config.organizationId ? { orgId: config.organizationId } : {}),
         ...(config.projectId ? { projectId: config.projectId } : {}),
@@ -46,7 +55,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                 const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
                 getPostHogClient().capture({
-                    distinctId: distinctId ?? `posthog-cli:${config.apiKey ?? 'anonymous'}`,
+                    distinctId: distinctId ?? fallbackDistinctId,
                     event,
                     ...(Object.keys(groups).length > 0 ? { groups } : {}),
                     properties: {

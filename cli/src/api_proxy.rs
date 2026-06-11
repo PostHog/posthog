@@ -7,24 +7,13 @@ use anyhow::{bail, Context, Result};
 use crate::error::CapturedError;
 use crate::utils::auth::{get_token, Token};
 
-fn find_repo_root() -> Option<PathBuf> {
-    let mut dir = env::current_dir().ok()?;
-    for _ in 0..10 {
-        if dir.join("posthog/settings/web.py").exists() {
-            return Some(dir);
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    None
-}
-
 fn find_script() -> Result<PathBuf> {
     if let Ok(path) = env::var("POSTHOG_API_CLI_PATH") {
         let path = PathBuf::from(path);
         if path.exists() {
-            return Ok(path);
+            return path
+                .canonicalize()
+                .context("Failed to canonicalize POSTHOG_API_CLI_PATH");
         }
     }
 
@@ -45,15 +34,8 @@ fn find_script() -> Result<PathBuf> {
         }
     }
 
-    if let Some(repo_root) = find_repo_root() {
-        let built = repo_root.join("services/mcp/dist/posthog-api-cli.mjs");
-        if built.exists() {
-            return Ok(built);
-        }
-    }
-
     bail!(
-        "Could not find the PostHog API CLI bundle. Run `pnpm --filter=@posthog/mcp build:cli` from the PostHog repository, or set POSTHOG_API_CLI_PATH."
+        "Could not find the PostHog API CLI bundle. Reinstall posthog-cli, or set POSTHOG_API_CLI_PATH to a trusted bundle."
     )
 }
 

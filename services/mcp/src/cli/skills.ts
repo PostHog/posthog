@@ -5,6 +5,8 @@ import * as path from 'node:path'
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
+import { errorCode } from './utils'
+
 export interface SkillListItem {
     id: string
     name: string
@@ -24,12 +26,6 @@ async function loadSkills(): Promise<{ archive: ReturnType<typeof unzipSync>; en
     return { archive, entries: filterValidEntries(manifest.resources, archive) }
 }
 
-function errorCode(error: unknown): unknown {
-    return typeof error === 'object' && error !== null && 'code' in error
-        ? (error as { code?: unknown }).code
-        : undefined
-}
-
 export async function listSkills(): Promise<SkillListItem[]> {
     const { entries } = await loadSkills()
     return entries
@@ -43,7 +39,11 @@ export async function listSkills(): Promise<SkillListItem[]> {
 }
 
 function targetSkillDirectory(targetRoot: string, skillId: string): string {
-    return path.resolve(targetRoot, '.agents', 'skills', skillId)
+    assertSafeSkillId(skillId)
+    const skillsRoot = path.resolve(targetRoot, '.agents', 'skills')
+    const destinationRoot = path.resolve(skillsRoot, skillId)
+    assertSafeDestination(skillsRoot, destinationRoot)
+    return destinationRoot
 }
 
 function assertSafeDestination(root: string, destination: string): void {
@@ -51,6 +51,12 @@ function assertSafeDestination(root: string, destination: string): void {
     const normalizedDestination = path.resolve(destination)
     if (normalizedDestination !== normalizedRoot && !normalizedDestination.startsWith(normalizedRoot + path.sep)) {
         throw new Error(`Refusing to write outside ${normalizedRoot}: ${normalizedDestination}`)
+    }
+}
+
+function assertSafeSkillId(skillId: string): void {
+    if (!skillId || skillId.includes('..') || /[/\\]/.test(skillId)) {
+        throw new Error(`Invalid skill ID "${skillId}": must not contain path separators or traversal sequences.`)
     }
 }
 

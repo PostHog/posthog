@@ -61,8 +61,7 @@ function printResult(result: unknown): void {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
-async function buildExec(): Promise<BuiltExec> {
-    const config = resolveCliConfig()
+async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
     const tools = getCliTools(config.version)
     const execTool = createExecTool(
@@ -88,10 +87,11 @@ async function buildExec(): Promise<BuiltExec> {
 }
 
 async function runExecCommand(command: string): Promise<void> {
-    const { execTool, config, context } = await buildExec()
+    const config = resolveCliConfig()
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
+    const { execTool, context } = await buildExec(config)
     const result = await execTool.handler(context, { command })
     printResult(result)
 }
