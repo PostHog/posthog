@@ -306,6 +306,78 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 f"expected error detail to mention the cap, got {response['detail']}"
             )
 
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing dashboard", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name, dashboard_name, search
+    ):
+        matching_id, _ = self.dashboard_api.create_dashboard({"name": dashboard_name})
+        self.dashboard_api.create_dashboard({"name": "Totally unrelated"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        results = response["results"]
+
+        match_type_by_id = {d["id"]: d["search_match_type"] for d in results}
+        assert match_type_by_id.get(matching_id) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(d["name"] != "Totally unrelated" for d in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+        for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
+            self.dashboard_api.create_dashboard({"name": name})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "dashboard"})
+        results = response["results"]
+
+        match_type_by_name = {d["name"]: d["search_match_type"] for d in results}
+        assert match_type_by_name == {
+            "dashboard overview": "exact",
+            "sales dashboard": "exact",
+            "dahsboard metrics": "similar",
+        }
+
+        match_types = [d["search_match_type"] for d in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        self.dashboard_api.create_dashboard({"name": "Alpha"})
+
+        response = self.dashboard_api.list_dashboards()
+        results = response["results"]
+
+        assert results
+        assert all("search_match_type" not in d for d in results)
+
+    def test_list_filter_by_search_matches_tag_content(self):
+        tagged_id, _ = self.dashboard_api.create_dashboard({"name": "Q4 review", "tags": ["revenue-forecast"]})
+        self.dashboard_api.create_dashboard({"name": "Unrelated", "tags": ["marketing"]})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "revenue-forecast"})
+        results = response["results"]
+
+        match_type_by_id = {d["id"]: d["search_match_type"] for d in results}
+        assert match_type_by_id.get(tagged_id) == "exact", "a dashboard whose tag name contains the term must match"
+        assert all(d["name"] != "Unrelated" for d in results)
+
+    def test_list_filter_by_search_does_not_duplicate_dashboard_with_multiple_matching_tags(self):
+        target_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "needle", "tags": ["needle-tag-a", "needle-tag-b", "needle-tag-c"]}
+        )
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "needle"})
+        matching = [d["id"] for d in response["results"] if d["id"] == target_id]
+
+        assert len(matching) == 1, (
+            f"search=needle must return the dashboard once even though three tags + the name match it; "
+            f"got {len(matching)} copies."
+        )
+
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
         dashboard_unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed"})

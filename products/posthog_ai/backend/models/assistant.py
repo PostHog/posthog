@@ -46,6 +46,19 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         DEEP_RESEARCH = "deep_research", "Deep research"
         SLACK = "slack", "Slack"
 
+    class Topic(models.TextChoices):
+        """Product domain a conversation is about, classified from the first question (see title generator)."""
+
+        WEB_ANALYTICS = "web_analytics", "Web analytics"
+        PRODUCT_ANALYTICS = "product_analytics", "Product analytics"
+        SESSION_REPLAY = "session_replay", "Session replay"
+        SURVEYS = "surveys", "Surveys"
+        FEATURE_FLAGS = "feature_flags", "Feature flags"
+        EXPERIMENTS = "experiments", "Experiments"
+        ERROR_TRACKING = "error_tracking", "Error tracking"
+        DATA_WAREHOUSE = "data_warehouse", "Data warehouse"
+        OTHER = "other", "Other"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
@@ -57,6 +70,13 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         blank=True,
         help_text="Title of the conversation.",
         max_length=TITLE_MAX_LENGTH,
+    )
+    topic = models.CharField(
+        null=True,
+        blank=True,
+        choices=Topic,
+        max_length=64,
+        help_text="Product domain the conversation is about, classified from the first question.",
     )
     is_internal = models.BooleanField(
         null=True,

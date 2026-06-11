@@ -29,6 +29,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("CHQueryErrorInvalidJoinOnExpression", True),
             ("CHQueryErrorUnknownTable", True),
             ("ExcelColumnLimitExceeded", True),
+            ("InvalidExportContext", True),
             # Non-user errors - should return False
             ("TimeoutError", False),
             ("ValueError", False),
@@ -60,6 +61,7 @@ class TestClassifyFailureType(TestCase):
             ("CHQueryErrorInvalidJoinOnExpression", FAILURE_TYPE_USER),
             ("CHQueryErrorUnknownTable", FAILURE_TYPE_USER),
             ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
+            ("InvalidExportContext", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
             ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),
