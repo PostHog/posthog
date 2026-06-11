@@ -12,7 +12,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -42,7 +41,8 @@ import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
-import { ErrorFilters } from '../../components/IssueFilters'
+import { NON_ISSUE_TAXONOMIC_GROUP_TYPES } from '../../components/IssueFilters/consts'
+import { FilterBar } from '../../components/IssueFilters/FilterBar'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
@@ -62,14 +62,6 @@ import {
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
 import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
-
-const ISSUE_SCENE_TAXONOMIC_GROUP_TYPES = [
-    TaxonomicFilterGroupType.ErrorTrackingProperties,
-    TaxonomicFilterGroupType.EventProperties,
-    TaxonomicFilterGroupType.PersonProperties,
-    TaxonomicFilterGroupType.Cohorts,
-    TaxonomicFilterGroupType.HogQLExpression,
-]
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -390,43 +382,26 @@ const ExceptionsTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <ErrorFilters.Root className="shrink-0 space-y-0">
-                <ErrorFilters.SearchBar variant="embedded">
-                    <div className="flex items-stretch overflow-hidden">
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            onClick={() => {
-                                reloadEvents()
-                                loadSummary()
-                            }}
-                            icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
-                            tooltip={summaryLoading ? 'Loading...' : 'Reload'}
-                        />
-                    </div>
-                    <ErrorFilters.SearchBarDivider />
-                    <div className="flex items-stretch overflow-hidden">
-                        <ErrorFilters.DateRange type="tertiary" />
-                    </div>
-                    <ErrorFilters.SearchBarDivider />
-                    <div className="flex items-stretch overflow-hidden">
-                        <ErrorFilters.SettingsMenu
-                            showIssueFilters={false}
-                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                            logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
-                        />
-                    </div>
-                    <ErrorFilters.SearchBarDivider />
-                    <div className="flex-1 overflow-hidden">
-                        <ErrorFilters.FilterGroup
-                            showIssueFilters={false}
-                            taxonomicGroupTypes={ISSUE_SCENE_TAXONOMIC_GROUP_TYPES}
-                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                            logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
-                        />
-                    </div>
-                </ErrorFilters.SearchBar>
-            </ErrorFilters.Root>
+            <FilterBar
+                className="shrink-0 border-0 rounded-none shadow-none bg-transparent"
+                reload={
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={() => {
+                            reloadEvents()
+                            loadSummary()
+                        }}
+                        icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
+                        tooltip={summaryLoading ? 'Loading...' : 'Reload'}
+                    />
+                }
+                logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
+                quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                taxonomicGroupTypes={NON_ISSUE_TAXONOMIC_GROUP_TYPES}
+                showIssueControls={false}
+                searchSubject="events"
+            />
             <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (

@@ -170,7 +170,7 @@ const FILTER_LOGICAL_OPERATOR_OPTIONS = [
     },
 ]
 
-const FilterOperatorToggle = (): JSX.Element | null => {
+export const FilterOperatorToggle = (): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { setGroupType } = useActions(universalFiltersLogic)
     const showOperatorToggle = filterGroup.values.length > 1 || filterGroup.type === FilterLogicalOperator.Or

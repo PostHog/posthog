@@ -16,10 +16,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { CyclotronJobFiltersType } from '~/types'
 
 import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
+import { FilterBar } from '../../components/IssueFilters/FilterBar'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
@@ -33,9 +35,8 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
-import { IssuesList, insightProps } from './tabs/issues/IssuesList'
+import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
-import { IssuesFiltersC } from './tabs/issues/variants/IssuesFiltersC'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
@@ -50,7 +51,7 @@ export const scene: SceneExport = {
     logic: errorTrackingSceneLogic,
 }
 
-const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {
+const IssuesTab = (): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
@@ -68,7 +69,11 @@ const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {
                     stuck bar has background buffer, and offset it with margins so the resting
                     gaps stay at 16px (top: 16 - 8 + 8, bottom: 8 + 8). */}
                 <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
-                    {filters}
+                    <FilterBar
+                        reload={<ListReloadButton />}
+                        logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                        quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                    />
                 </SceneStickyBar>
                 <IssuesList />
             </BindLogic>
@@ -101,7 +106,7 @@ export function ErrorTrackingScene(): JSX.Element {
         {
             key: 'issues',
             label: 'Issues',
-            content: <IssuesTab filters={<IssuesFiltersC />} />,
+            content: <IssuesTab />,
         },
         {
             key: 'insights',

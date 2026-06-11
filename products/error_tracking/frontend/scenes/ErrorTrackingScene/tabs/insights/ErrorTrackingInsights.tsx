@@ -6,10 +6,15 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
+import { NON_ISSUE_TAXONOMIC_GROUP_TYPES } from 'products/error_tracking/frontend/components/IssueFilters/consts'
+import { FilterBar } from 'products/error_tracking/frontend/components/IssueFilters/FilterBar'
+
+import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 import { ChartCard } from './ChartCard'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
-import { InsightsFilters } from './InsightsFilters'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
@@ -18,9 +23,9 @@ export function ErrorTrackingInsights(): JSX.Element {
     const { loadSummaryStats } = useActions(errorTrackingInsightsLogic)
 
     return (
-        <div className="space-y-4">
-            <SceneStickyBar showBorderBottom={false}>
-                <InsightsFilters
+        <>
+            <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
+                <FilterBar
                     reload={
                         <LemonButton
                             type="tertiary"
@@ -30,30 +35,38 @@ export function ErrorTrackingInsights(): JSX.Element {
                             tooltip={summaryStatsLoading ? 'Loading...' : 'Reload'}
                         />
                     }
+                    logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                    quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                    taxonomicGroupTypes={NON_ISSUE_TAXONOMIC_GROUP_TYPES}
+                    excludeFilterTypes={[PropertyFilterType.ErrorTrackingIssue]}
+                    showIssueControls={false}
+                    showSearch={false}
                 />
             </SceneStickyBar>
-            <SummaryStats />
+            <div className="space-y-4">
+                <SummaryStats />
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                <ChartCard
-                    title="Exception volume"
-                    description="Exceptions per day"
-                    query={exceptionVolumeQuery}
-                    chartKey="exception_volume"
-                />
-                <ChartCard
-                    title="Affected users"
-                    description="Unique users experiencing exceptions"
-                    query={affectedUsersQuery}
-                    chartKey="affected_users"
-                />
-                <ChartCard
-                    title="Crash-free sessions"
-                    description="Percentage of sessions without any exceptions"
-                    query={crashFreeSessionsQuery}
-                    chartKey="crash_free_sessions"
-                />
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    <ChartCard
+                        title="Exception volume"
+                        description="Exceptions per day"
+                        query={exceptionVolumeQuery}
+                        chartKey="exception_volume"
+                    />
+                    <ChartCard
+                        title="Affected users"
+                        description="Unique users experiencing exceptions"
+                        query={affectedUsersQuery}
+                        chartKey="affected_users"
+                    />
+                    <ChartCard
+                        title="Crash-free sessions"
+                        description="Percentage of sessions without any exceptions"
+                        query={crashFreeSessionsQuery}
+                        chartKey="crash_free_sessions"
+                    />
+                </div>
             </div>
-        </div>
+        </>
     )
 }

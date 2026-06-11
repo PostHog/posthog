@@ -9,3 +9,8 @@ export const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.HogQLExpression,
 ]
+
+/** For surfaces scoped to events/properties where issue filters make no sense (insights, issue detail). */
+export const NON_ISSUE_TAXONOMIC_GROUP_TYPES = TAXONOMIC_GROUP_TYPES.filter(
+    (type) => type !== TaxonomicFilterGroupType.ErrorTrackingIssues
+)
