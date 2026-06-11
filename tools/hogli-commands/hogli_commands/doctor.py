@@ -2022,7 +2022,11 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
         ("Checks", lambda: _checks_info(repo_root)),
     ]
     collected: list[list[tuple[str, str]]] = [[] for _ in sections]
-    with ThreadPoolExecutor(max_workers=len(sections)) as pool:
+    with ThreadPoolExecutor(max_workers=len(sections) + 1) as pool:
+        # The import probe is independent of the section collectors, so run it in
+        # the same batch rather than serially afterwards — it overlaps with the
+        # slowest section instead of adding its cost on top.
+        probe_future = pool.submit(_probe_command_imports, manifest)
         futures = {pool.submit(collect): i for i, (_, collect) in enumerate(sections)}
         for future in as_completed(futures):
             idx = futures[future]
@@ -2032,6 +2036,7 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
                 # A diagnostic is run precisely when the env misbehaves — one
                 # collector blowing up must not sink the whole report.
                 collected[idx] = [("error", f"{type(exc).__name__}: {str(exc)[:120]}")]
+        probed, failures = probe_future.result()
 
     for (title, _), pairs in zip(sections, collected):
         lines.append("")
@@ -2040,7 +2045,6 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
 
     lines.append("")
     lines.append("== Command imports ==")
-    probed, failures = _probe_command_imports(manifest)
     if not failures:
         lines.append(f"probed {probed} target(s): all import OK")
     else:
