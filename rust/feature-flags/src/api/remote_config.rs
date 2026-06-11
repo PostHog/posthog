@@ -73,20 +73,15 @@ pub async fn remote_config(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
 
-    // Django returns `filters["payloads"]["true"] or None` (falsy -> null).
-    let raw = filters
-        .get("payloads")
-        .and_then(|p| p.get("true"))
-        .filter(|v| !is_falsy(v))
-        .cloned();
+    let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
-    if has_encrypted_payloads != Some(true) {
-        return Ok(Json(raw.unwrap_or(Value::Null)).into_response());
-    }
-
-    // Encrypted: personal-key callers get plaintext, everyone else the redacted marker.
-    let body = if should_decrypt {
-        match raw {
+    // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`:
+    // the stored value (unencrypted), the decrypted plaintext (personal key), or the
+    // redacted marker (secret key on an encrypted flag).
+    let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
+        stored.cloned()
+    } else if should_decrypt {
+        match stored {
             Some(Value::String(token)) => {
                 let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
                     return Err(FlagError::Internal(
@@ -94,8 +89,8 @@ pub async fn remote_config(
                             .to_string(),
                     ));
                 };
-                match decryptor.decrypt(&token) {
-                    Ok(plaintext) => Value::String(plaintext),
+                match decryptor.decrypt(token) {
+                    Ok(plaintext) => Some(Value::String(plaintext)),
                     Err(e) => {
                         warn!("remote_config payload decrypt failed: {e}");
                         return Err(FlagError::Internal(
@@ -104,13 +99,29 @@ pub async fn remote_config(
                     }
                 }
             }
-            _ => Value::Null,
+            _ => None,
         }
     } else {
-        Value::String(REDACTED_PAYLOAD_VALUE.to_string())
+        Some(Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
     };
 
-    Ok(Json(body).into_response())
+    // Django applies `or None` to the final value and renders None as an empty body, not
+    // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
+    // string nulls out too.
+    match payload.filter(|v| !is_falsy(v)) {
+        Some(v) => Ok(Json(v).into_response()),
+        None => Ok(empty_json_ok()),
+    }
+}
+
+/// 200 with an empty body and a JSON content type, matching DRF's `Response(None)`.
+fn empty_json_ok() -> Response {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        axum::body::Body::empty(),
+    )
+        .into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload

@@ -361,6 +361,30 @@ async fn test_remote_config_oversized_numeric_id_returns_404() {
 }
 
 #[tokio::test]
+async fn test_remote_config_empty_payload_returns_empty_body() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    // Empty stored payload is falsy: Django renders `Response(None)` as an empty body.
+    insert_rc_flag(&context, team.id, "rc-empty", "", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-empty"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    // Empty body, not the JSON literal "null".
+    assert_eq!(response.text().await.unwrap(), "");
+}
+
+#[tokio::test]
 async fn test_remote_config_head_returns_200() {
     let config = Config::default_test_config();
     let _context = TestContext::new(Some(&config)).await;
