@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
-import { RGBToHex, lightenDarkenColor } from 'lib/utils'
+import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
 import { compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'

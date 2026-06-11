@@ -24,7 +24,6 @@ import {
     getDefaultInterval,
     getFormattedLastWeekDate,
     getRelativeNextPath,
-    hexToRGBA,
     humanFriendlyDuration,
     is12HoursOrLess,
     isExternalLink,
@@ -466,14 +465,6 @@ describe('lib/utils', () => {
             expect(areDatesValidForInterval('week', '2023-10-01', '2023-11-01')).toEqual(true)
             expect(areDatesValidForInterval('day', '2023-10-16', '2023-11-01')).toEqual(true)
             expect(areDatesValidForInterval('hour', '2023-11-01T12', '2023-11-01T18')).toEqual(true)
-        })
-    })
-
-    describe('hexToRGBA()', () => {
-        it('converts hex to RGBA correctly', () => {
-            expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
-            expect(hexToRGBA('#0000Cc', 0)).toEqual('rgba(0,0,204,0)')
-            expect(hexToRGBA('#5375ff', 1)).toEqual('rgba(83,117,255,1)')
         })
     })
     describe('humanFriendlyDuration()', () => {

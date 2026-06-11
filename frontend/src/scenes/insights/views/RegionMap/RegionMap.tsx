@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 
-import { gradateColor } from 'lib/utils'
+import { gradateColor } from 'lib/utils/colors'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
