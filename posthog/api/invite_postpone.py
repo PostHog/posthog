@@ -18,10 +18,14 @@ from posthog.event_usage import groups
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.organization_invite import OrganizationInvite
 
-# Recipients can postpone an invite arbitrarily far (validity extends with each postpone), but a
-# sane upper bound on a single hop guards against a forged/fat-fingered timestamp parking an invite
-# years out.
+# A single postpone can't park the re-send more than this many days out — guards against a
+# forged/fat-fingered timestamp.
 MAX_POSTPONE_HORIZON_DAYS = 90
+# Absolute ceiling on how long postponing can keep an invite (and its signup link) alive past its
+# creation. Each postpone extends expiry so the rescheduled email's link still works, but without
+# this cap anyone holding the invite email could extend the signup link indefinitely without an
+# admin ever reissuing the invite.
+MAX_INVITE_LIFETIME_DAYS = 90
 
 
 class InvitePostponeInfoSerializer(serializers.Serializer):
@@ -69,7 +73,9 @@ class InvitePostponeResultSerializer(serializers.Serializer):
 
 class InvitePostponeErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Human-readable explanation of why the postpone link can't be used.")
-    code = serializers.CharField(help_text="Machine-readable error code: invalid_token or expired.")
+    code = serializers.CharField(
+        help_text="Machine-readable error code: invalid_token, expired, or postpone_limit_reached."
+    )
 
 
 def _invite_from_token(token: str) -> OrganizationInvite | None:
@@ -172,8 +178,15 @@ class InvitePostponeView(APIView):
         # back almost immediately while testing, instead of waiting hours/days for the chosen time.
         if settings.DEBUG:
             send_at = now + timedelta(minutes=1)
-        # Extend validity so the rescheduled email's accept link is still good when it lands.
+        # Extend validity so the rescheduled email's accept link is still good when it lands — but
+        # never past the absolute lifetime cap, which bounds how long a recipient can keep the
+        # signup link alive without an admin reissuing the invite.
         new_expiry = send_at + timedelta(days=INVITE_DAYS_VALIDITY)
+        if new_expiry > invite.created_at + timedelta(days=MAX_INVITE_LIFETIME_DAYS):
+            return _error(
+                "This invite can't be postponed any further. Please ask your admin for a new invite.",
+                "postpone_limit_reached",
+            )
         # Bypass save()/activity logging: this is an unauthenticated, system-level write with no user.
         # invite was resolved from the signed token (the authorization), so pk=invite.pk targets only
         # that already-authorized invite, not arbitrary user input.

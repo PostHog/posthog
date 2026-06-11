@@ -364,7 +364,12 @@ SCHEDULED_INVITE_BATCH_SIZE = 1000
 
 def _dispatch_postponed_invites(invite_ids: list[str]) -> None:
     for invite_id in invite_ids:
-        send_invite.apply_async(kwargs={"invite_id": invite_id})
+        try:
+            send_invite.apply_async(kwargs={"invite_id": invite_id})
+        except Exception:
+            # scheduled_send_at was already cleared in the committed transaction, so no later poll
+            # will retry this invite — log loudly so it can be remediated manually.
+            logger.exception("send_scheduled_invites.dispatch_failed", invite_id=invite_id)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

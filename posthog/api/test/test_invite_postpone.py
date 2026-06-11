@@ -10,7 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.invite_postpone import MAX_POSTPONE_HORIZON_DAYS
+from posthog.api.invite_postpone import MAX_INVITE_LIFETIME_DAYS, MAX_POSTPONE_HORIZON_DAYS
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.organization_invite import OrganizationInvite
 
@@ -104,6 +105,37 @@ class TestInvitePostponeAPI(APIBaseTest):
 
         self.invite.refresh_from_db()
         self.assertIsNone(self.invite.scheduled_send_at)
+
+    def test_post_rejects_postpone_past_lifetime_cap(self) -> None:
+        # An old invite kept alive by prior postpones can't be extended past the absolute cap,
+        # so the signup link can't be kept valid indefinitely without an admin reissuing it.
+        OrganizationInvite.objects.filter(id=self.invite.id).update(
+            created_at=timezone.now() - timedelta(days=MAX_INVITE_LIFETIME_DAYS - 1),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        send_at = timezone.now() + timedelta(days=2)
+        response = self.client.post(
+            "/api/invite_postpone", {"token": _token_for(self.invite.id), "send_at": send_at.isoformat()}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "postpone_limit_reached")
+
+        self.invite.refresh_from_db()
+        self.assertIsNone(self.invite.scheduled_send_at)
+
+    def test_post_allows_postpone_within_lifetime_cap(self) -> None:
+        OrganizationInvite.objects.filter(id=self.invite.id).update(
+            created_at=timezone.now() - timedelta(days=MAX_INVITE_LIFETIME_DAYS - INVITE_DAYS_VALIDITY - 2),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        send_at = timezone.now() + timedelta(days=1)
+        response = self.client.post(
+            "/api/invite_postpone", {"token": _token_for(self.invite.id), "send_at": send_at.isoformat()}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.invite.refresh_from_db()
+        self.assertIsNotNone(self.invite.scheduled_send_at)
 
     @patch("posthoganalytics.capture")
     def test_post_captures_postpone_event(self, mock_capture: MagicMock) -> None:

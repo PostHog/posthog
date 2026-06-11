@@ -1983,6 +1983,27 @@ class TestSendScheduledInvites(APIBaseTest):
         self.assertEqual(not_due.postpone_count, 0)
 
     @patch("posthog.tasks.email.send_invite")
+    def test_dispatch_failure_does_not_block_other_invites(self, mock_send_invite: MagicMock) -> None:
+        # If the broker rejects one apply_async (e.g. it's unreachable), the failure is logged and
+        # the remaining due invites are still dispatched.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="first@posthog.com",
+            scheduled_send_at=timezone.now() - dt.timedelta(minutes=2),
+        )
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="second@posthog.com",
+            scheduled_send_at=timezone.now() - dt.timedelta(minutes=1),
+        )
+        mock_send_invite.apply_async.side_effect = [Exception("broker down"), None]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            send_scheduled_invites()
+
+        self.assertEqual(mock_send_invite.apply_async.call_count, 2)
+
+    @patch("posthog.tasks.email.send_invite")
     def test_does_nothing_when_no_invites_are_due(self, mock_send_invite: MagicMock) -> None:
         OrganizationInvite.objects.create(
             organization=self.organization,
