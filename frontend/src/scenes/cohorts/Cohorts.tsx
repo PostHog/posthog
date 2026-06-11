@@ -37,9 +37,17 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
-        useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
+    const {
+        cohorts,
+        cohortsLoading,
+        pagination,
+        cohortFilters,
+        shouldShowEmptyState,
+        cohortSorting,
+        cohortsLoadError,
+    } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
+        useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -295,6 +303,21 @@ export function Cohorts(): JSX.Element {
                 pagination={pagination}
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
+                emptyState={
+                    cohortsLoadError ? (
+                        <div className="flex flex-col items-center gap-2 p-4 text-center">
+                            <div className="text-danger">There was an error loading cohorts: {cohortsLoadError}</div>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => loadCohorts()}
+                                disabledReason={cohortsLoading ? 'Loading...' : undefined}
+                            >
+                                Try again
+                            </LemonButton>
+                        </div>
+                    ) : undefined
+                }
                 data-attr="cohorts-table"
                 sorting={cohortSorting}
                 onSort={(sorting) => {
