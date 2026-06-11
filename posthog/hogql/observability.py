@@ -24,6 +24,8 @@ from prometheus_client import (
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.query_tagging import Product, get_query_tags
+
 logger = structlog.get_logger(__name__)
 
 Precision = Literal["precise", "partial", "unknown"]
@@ -88,6 +90,12 @@ MATERIALIZED_PROPERTY_USAGE_TOTAL = PromCounter(
     "Materialized vs JSON property access by result.",
     labelnames=[*_BASE_LABELS, "result"],
 )
+MATERIALIZED_RANGE_REWRITE_TOTAL = PromCounter(
+    "hogql_materialized_range_rewrite_total",
+    "Range comparisons on materialized property columns by rewrite outcome. "
+    "'skipped' means a materialized source was identified but the bare (minmax-eligible) rewrite was unsafe.",
+    labelnames=[*_BASE_LABELS, "result"],
+)
 SQL_SHAPE_TOTAL = PromCounter(
     "hogql_sql_shape_total",
     "Generated SQL shape pathologies by kind.",
@@ -145,8 +153,9 @@ _UNKNOWN_REASONS = {
 # Allowed values for the `source` label. Bounded to keep Prometheus label cardinality
 # fixed even if a call site sets `context.observability_source` to a high-cardinality
 # value (URL path, view name, …); anything off-list collapses to "unknown".
-# Add new surfaces here as call sites are wired up.
-_KNOWN_SOURCES = {
+# When no explicit source is set, the per-request query-tagging Product (set by the API
+# layer) is used, so the bounded Product taxonomy is allowed alongside explicit names.
+_KNOWN_SOURCES = {product.value for product in Product} | {
     "sql_editor",
     "insights",
     "api",
@@ -155,6 +164,15 @@ _KNOWN_SOURCES = {
     "probe",
     "unknown",
 }
+
+_MATERIALIZED_PROPERTY_RESULTS = {
+    "materialized_column",
+    "dynamic_materialized_column",
+    "property_group",
+    "json",
+}
+
+_RANGE_REWRITE_RESULTS = {"fired_compare", "fired_if_null", "skipped"}
 
 
 @dataclass
@@ -177,6 +195,7 @@ class HogQLTypeObservability:
 
     property_typing: Counter[str] = field(default_factory=Counter)
     materialized_property_usage: Counter[str] = field(default_factory=Counter)
+    materialized_range_rewrite: Counter[str] = field(default_factory=Counter)
 
     sql_shape: Counter[str] = field(default_factory=Counter)
 
@@ -215,6 +234,14 @@ class HogQLTypeObservability:
         if unknown_count:
             self.record_unknown("unknown_property_metadata", unknown_count)
 
+    @_safe
+    def record_materialized_property_usage(self, result: str) -> None:
+        self.materialized_property_usage[_bounded(result, _MATERIALIZED_PROPERTY_RESULTS)] += 1
+
+    @_safe
+    def record_materialized_range_rewrite(self, result: str) -> None:
+        self.materialized_range_rewrite[_bounded(result, _RANGE_REWRITE_RESULTS)] += 1
+
 
 # Fraction of HogQL prepare+typecheck passes to instrument. The collectors walk the whole
 # prepared AST, so sampling bounds that cost; set to 0 to disable instrumentation entirely.
@@ -231,11 +258,21 @@ def create_hogql_type_observability(
     # beyond the sampling draw below.
     if TYPE_OBSERVABILITY_SAMPLE_RATE <= 0 or random() >= TYPE_OBSERVABILITY_SAMPLE_RATE:
         return None
+    if source == "unknown":
+        source = _source_from_query_tags()
     return HogQLTypeObservability(
         engine=_clean_tag(engine),
         dialect=_clean_tag(dialect),
         source=_bounded(_clean_tag(source), _KNOWN_SOURCES),
     )
+
+
+def _source_from_query_tags() -> str:
+    """Attribute the pass to the product surface the request layer already tagged it with."""
+    product = get_query_tags().product
+    if product is None:
+        return "unknown"
+    return str(getattr(product, "value", product))
 
 
 def classify_expr_type(type_: ast.Type | None) -> Precision:
@@ -334,6 +371,7 @@ def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
     _emit_counter(FUNCTION_SIGNATURE_MISMATCH_TOTAL, "function_group", stats.function_signature_mismatch_by_group, base)
     _emit_counter(PROPERTY_TYPING_TOTAL, "result", stats.property_typing, base)
     _emit_counter(MATERIALIZED_PROPERTY_USAGE_TOTAL, "result", stats.materialized_property_usage, base)
+    _emit_counter(MATERIALIZED_RANGE_REWRITE_TOTAL, "result", stats.materialized_range_rewrite, base)
     _emit_counter(SQL_SHAPE_TOTAL, "shape", stats.sql_shape, base)
 
 

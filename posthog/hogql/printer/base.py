@@ -35,12 +35,14 @@ from posthog.hogql.printer.types import (
     PrintableMaterializedColumn,
     PrintableMaterializedPropertyGroupItem,
 )
+from posthog.hogql.property_planner import get_dmat_column
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.clickhouse.materialized_columns import (
+    DMAT_STRING_COLUMN_NAME_PREFIX,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
@@ -63,6 +65,18 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
     return expr_type
+
+
+def _classify_materialized_property_source(
+    source: PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None,
+) -> str:
+    if source is None:
+        return "json"
+    if isinstance(source, PrintableMaterializedPropertyGroupItem):
+        return "property_group"
+    if source.column.strip("`\"'").startswith(DMAT_STRING_COLUMN_NAME_PREFIX):
+        return "dynamic_materialized_column"
+    return "materialized_column"
 
 
 class BasePrinter(Visitor[str]):
@@ -1313,6 +1327,7 @@ class BasePrinter(Visitor[str]):
                     table_prefix,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    type=materialized_column.type,
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -1325,6 +1340,7 @@ class BasePrinter(Visitor[str]):
                     table_prefix,
                     self._print_identifier(dmat_column),
                     is_nullable=True,
+                    type="Nullable(String)",
                     has_minmax_index=False,
                     has_ngram_lower_index=False,
                     has_bloom_filter_index=False,
@@ -1345,6 +1361,7 @@ class BasePrinter(Visitor[str]):
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    type=materialized_column.type,
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -1356,6 +1373,10 @@ class BasePrinter(Visitor[str]):
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
+        if self.context.type_observability is not None:
+            self.context.type_observability.record_materialized_property_usage(
+                _classify_materialized_property_source(materialized_property_source)
+            )
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
@@ -1586,24 +1607,7 @@ class BasePrinter(Visitor[str]):
         )
 
     def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
+        return get_dmat_column(self.context, table_name, field_name, property_name)
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
