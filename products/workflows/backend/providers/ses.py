@@ -10,11 +10,18 @@ import dns.name
 import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
+from types_boto3_ses.client import SESClient
+from types_boto3_sesv2.client import SESV2Client
+from types_boto3_sts.client import STSClient
 
 logger = logging.getLogger(__name__)
 
 
 class SESProvider:
+    sts_client: STSClient
+    ses_client: SESClient
+    ses_v2_client: SESV2Client
+
     def __init__(self):
         # Initialize the boto3 clients
         self.sts_client = boto3.client(
@@ -53,7 +60,10 @@ class SESProvider:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
             raise
-        return {t.get("TenantName") for t in resp.get("ResourceTenants", []) if t.get("TenantName")}
+        # `ResourceTenants` is a required field on the response shape — read it with
+        # subscript access so a future SDK rename fails the type checker, not prod.
+        # `TenantName` per the SDK is `NotRequired`, so `.get()` is the correct access.
+        return {name for t in resp["ResourceTenants"] if (name := t.get("TenantName"))}
 
     def create_email_domain(
         self,

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import boto3
 import dns.name
 import dns.resolver
 from parameterized import parameterized
@@ -35,6 +36,12 @@ class TestSESProvider(TestCase):
         mock_client_instance.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
         mock_client_instance.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
         mock_client_instance.get_caller_identity.return_value = {"Account": "123456789012"}
+
+    @classmethod
+    def tearDownClass(cls):
+        # Stop the patcher so it doesn't leak into other test classes in the same session
+        if cls.boto3_client_patcher is not None:
+            cls.boto3_client_patcher.stop()
 
     def setUp(self):
         # Remove all domains from SES (mocked)
@@ -334,3 +341,54 @@ class TestSESProvider(TestCase):
         for token in ("token1", "token2", "token3"):
             expected = "success" if token in present_tokens else "pending"
             assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
+
+
+class TestSESResponseShapeContract(TestCase):
+    """Pin the response shapes we read from boto3 against the live SDK service model.
+
+    Tests in this class deliberately do NOT use the class-level `boto3.client` patcher —
+    the SDK introspection needs a real, unpatched client to read the actual operation shape.
+    Mock-based unit tests can't catch a key rename (or a copy-paste typo) because the test
+    mock and the production code can agree with each other and disagree with reality.
+    Regression for #62844 — `_list_identity_tenants` previously read `Tenants` instead of the
+    real `ResourceTenants` key, bricking the SES verify path for every customer.
+    """
+
+    def test_list_resource_tenants_response_uses_resource_tenants_key(self):
+        sdk_fields = (
+            boto3.client("sesv2", region_name="us-east-1")
+            .meta.service_model.operation_model("ListResourceTenants")
+            .output_shape.members.keys()
+        )
+        assert "ResourceTenants" in sdk_fields, (
+            "AWS SES v2 ListResourceTenants response no longer exposes `ResourceTenants`. "
+            "Update _list_identity_tenants in products/workflows/backend/providers/ses.py."
+        )
+
+    def test_resource_tenant_metadata_exposes_tenant_name(self):
+        sdk_fields = (
+            boto3.client("sesv2", region_name="us-east-1")
+            .meta.service_model.shape_for("ResourceTenantMetadata")
+            .members.keys()
+        )
+        assert "TenantName" in sdk_fields, (
+            "AWS SES v2 ResourceTenantMetadata no longer exposes `TenantName`. "
+            "Update _list_identity_tenants in products/workflows/backend/providers/ses.py."
+        )
+
+    def test_list_identity_tenants_parses_real_shape(self):
+        provider = SESProvider()
+        with (
+            patch.object(provider.sts_client, "get_caller_identity", return_value={"Account": "123456789012"}),
+            patch.object(provider.ses_v2_client, "list_resource_tenants") as mock_list,
+        ):
+            mock_list.return_value = {
+                "ResourceTenants": [
+                    {"TenantName": "team-1", "TenantId": "t1", "ResourceArn": "arn"},
+                    {"TenantName": "team-2", "TenantId": "t2", "ResourceArn": "arn"},
+                    {"TenantId": "t3", "ResourceArn": "arn"},  # TenantName is NotRequired in the SDK
+                ],
+                "ResponseMetadata": {},
+            }
+            tenants = provider._list_identity_tenants("test.posthog.com")
+        assert tenants == {"team-1", "team-2"}
