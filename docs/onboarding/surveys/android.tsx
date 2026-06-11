@@ -18,8 +18,7 @@ function getSurveysAndroidSteps(ctx: OnboardingComponentsContext): StepDefinitio
                     <Markdown>
                         {dedent`
                             Add the optional \`posthog-android-surveys-compose\` module alongside the core SDK. It
-                            provides a ready-made [Jetpack Compose](https://developer.android.com/jetpack/compose) UI,
-                            kept in a separate module so apps that don't use surveys don't pay the extra APK size cost.
+                            provides a ready-made [Jetpack Compose](https://developer.android.com/jetpack/compose) UI.
                         `}
                     </Markdown>
                     <CodeBlock
@@ -63,7 +62,7 @@ function getSurveysAndroidSteps(ctx: OnboardingComponentsContext): StepDefinitio
                                         surveys = true
                                     }
 
-                                    PostHogAndroid.setup(this, config)
+                                    PostHogAndroid.setup(appContext, config)
                                 `,
                             },
                         ]}
