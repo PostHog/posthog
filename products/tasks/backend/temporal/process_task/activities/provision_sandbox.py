@@ -8,6 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.connection_token import (
@@ -16,7 +17,6 @@ from products.tasks.backend.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -353,14 +353,17 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             f"Provisioning sandbox from {prepared.image_source_label} (image build may take a few minutes on first run)",
         )
 
+        # The VM template bakes in Docker (and forces the VM runtime), so the agent
+        # can run nested containers; the default template has neither.
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
             metadata={"task_id": ctx.task_id},
-            vm_runtime=ctx.use_modal_vm_sandbox,
+            vm_runtime=use_vm_sandbox,
         )
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):

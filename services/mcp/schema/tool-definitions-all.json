@@ -347,7 +347,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -403,7 +403,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",
@@ -631,7 +631,68 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-list": {
+        "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge sources",
+        "title": "List business knowledge sources",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-retrieve": {
+        "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get business knowledge source",
+        "title": "Get business knowledge source",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-text-create": {
+        "description": "Save durable, reusable company knowledge as a searchable text source — the kind of reference material a team wants every future agent session to draw on. Good fits: product specs, internal docs, runbooks, policies, FAQs, glossaries, architecture/decision records, brand or style guides. Do NOT use this as a scratchpad for the current task or to dump transient material (raw web-search results, random articles, one-off snippets, chat logs) — only persist knowledge the user has asked to keep or that is clearly of lasting value to the whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing status.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create text business knowledge source",
+        "title": "Create text business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-url-create": {
+        "description": "Index a web page as durable, reusable company knowledge that every future agent session can draw on. Use it for authoritative, lasting references the whole team benefits from — public product docs, API references, help-center articles, changelogs, status/policy pages. Do NOT index pages you happened to open while researching the current task, arbitrary search-result links, or pages the user didn't ask to keep — this store is curated team knowledge, not a browsing history. Provide a name and a public HTTP(S) URL; the page is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is re-fetched automatically. Returns the created source with its processing status (initially \"processing\" while the URL is fetched in the background).",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create URL business knowledge source",
+        "title": "Create URL business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
     },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
@@ -969,6 +1030,34 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-messages-retrieve": {
+        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — use the limit and offset query params to page through long threads, and read count/next from the response envelope. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Read support ticket messages",
+        "title": "Read support ticket messages",
+        "required_scopes": ["ticket:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-tickets-reply-create": {
+        "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Reply to support ticket",
+        "title": "Reply to support ticket",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-retrieve": {
         "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
         "category": "Conversations",
@@ -1152,7 +1241,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema_hints (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters — see config_schema_hints.widgetFilters.entry).",
+        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -1166,7 +1255,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -1181,7 +1270,7 @@
         "feature_flag": "dashboard-widgets"
     },
     "dashboard-widgets-run": {
-        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Each successful result is a widget-type-specific payload (see run_widgets OpenAPI response and dashboard-widget-catalog-list config_schema_hints). Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list). Not available on public/shared dashboard views.",
+        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Each successful result is a widget-type-specific payload (see run_widgets OpenAPI response and dashboard-widget-catalog-list config_schema). Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list). Not available on public/shared dashboard views.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard widgets",
@@ -1453,6 +1542,20 @@
         "feature": "endpoints",
         "summary": "Get endpoint",
         "title": "Get endpoint",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-logs": {
+        "description": "Retrieve execution logs for an endpoint by name. Each run emits one entry with a timestamp, level (INFO or ERROR), and a message whose extra data is in key=value tokens (path=materialized|inline|ducklake, cache=hit|miss, duration_ms=, rows=, version=, error=). Filter by level (e.g. \"ERROR\"), text search (e.g. \"cache=miss\"), time range (after/before), a specific execution (instance_id), and limit (max 500). Use to debug why an endpoint failed, timed out, missed cache, or returned unexpected row counts.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint logs",
+        "title": "Get endpoint logs",
         "required_scopes": ["endpoint:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5360,8 +5463,22 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config",
+        "title": "Create a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -5389,7 +5506,7 @@
         }
     },
     "signals-scout-emit-signal": {
-        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
+        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Emit a finding for a run",
@@ -5417,7 +5534,7 @@
         }
     },
     "signals-scout-runs-emissions-list": {
-        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a scout run's emitted findings",
@@ -5431,7 +5548,7 @@
         }
     },
     "signals-scout-runs-list": {
-        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List recent scout runs",
@@ -5445,7 +5562,7 @@
         }
     },
     "signals-scout-runs-retrieve": {
-        "description": "Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`, `emitted_count`, and `emitted_finding_ids`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "description": "Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`, `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get a scout run by ID",
@@ -5487,7 +5604,7 @@
         }
     },
     "signals-scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Results capped at 100.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",
@@ -5836,21 +5953,6 @@
             "readOnlyHint": false
         }
     },
-    "tasks-file-create": {
-        "description": "Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "File a task into the project tree",
-        "title": "File a task into the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "tasks"
-    },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -5923,21 +6025,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "tasks"
-    },
-    "tasks-unfile-create": {
-        "description": "Remove a task's entry from the desktop project tree. The task itself is not deleted.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Remove a task from the project tree",
-        "title": "Remove a task from the project tree",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },
@@ -6882,7 +6969,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule is attached (workflows-schedule-create).",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -7064,7 +7151,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
+        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

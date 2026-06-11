@@ -33,12 +33,6 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.external_data_utils import (
-    get_external_data_source_created_by_info,
-    get_external_data_source_detail_name,
-)
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -86,9 +80,14 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
-    apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
-    detect_schema_clear_transition as detect_postgres_schema_clear_transition,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
+)
+from products.data_warehouse.backend.sql_warehouse_migration import (
+    apply_on_refresh as apply_sql_warehouse_refresh_migration,
+    apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
+    detect_schema_clear_transition as detect_sql_schema_clear_transition,
+    is_multi_schema_capable_sql_source,
+    source_namespace_is_blank,
 )
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
@@ -877,14 +876,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
-        # Postgres: clearing `job_inputs.schema` migrates legacy rows before the config change lands.
-        old_schema = detect_postgres_schema_clear_transition(
+        # Clearing a multi-schema source's namespace migrates legacy rows to qualified naming.
+        old_schema = detect_sql_schema_clear_transition(
             source_type=instance.source_type,
             existing_job_inputs=existing_job_inputs,
             incoming_job_inputs=incoming_job_inputs,
         )
         if old_schema is not None:
-            apply_postgres_warehouse_schema_clear_migration(instance, old_schema)
+            apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
@@ -1782,7 +1781,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
-            # Postgres-only: dedupe + migrate legacy rows so sync_old_schemas doesn't create duplicates.
+            # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
             name_substitutions: dict[str, str] = {}
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 name_substitutions = reconcile_postgres_refresh_name_substitutions(
@@ -1790,6 +1789,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schemas=schemas,
                     team_id=self.team_id,
                 )
+            elif source_namespace_is_blank(instance) and is_multi_schema_capable_sql_source(instance.source_type):
+                name_substitutions = apply_sql_warehouse_refresh_migration(source=instance, team_id=self.team_id)
 
             if name_substitutions:
                 schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
@@ -2898,53 +2899,3 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "error": result.error,
             },
         )
-
-
-@dataclasses.dataclass(frozen=True)
-class ExternalDataSourceContext(ActivityContextBase):
-    source_type: str
-    prefix: str | None
-    description: str | None
-    created_by_user_id: str | None
-    created_by_user_email: str | None
-    created_by_user_name: str | None
-
-
-@mutable_receiver(model_activity_signal, sender=ExternalDataSource)
-def handle_external_data_source_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    external_data_source = after_update or before_update
-
-    if not external_data_source:
-        return
-
-    created_by_user_id, created_by_user_email, created_by_user_name = get_external_data_source_created_by_info(
-        external_data_source
-    )
-    detail_name = get_external_data_source_detail_name(external_data_source)
-
-    context = ExternalDataSourceContext(
-        source_type=external_data_source.source_type or "",
-        prefix=external_data_source.prefix,
-        description=external_data_source.description,
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=external_data_source.team.organization_id,
-        team_id=external_data_source.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=external_data_source.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )
