@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
-import { LemonButton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -15,6 +15,9 @@ import { absoluteTraceUrl } from '../../traceLinks'
 import { formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { SpanLogsTab } from './SpanLogsTab'
+
+type InspectorTab = 'attributes' | 'logs'
 
 // Below this the inspector's content (the attribute KVP tables) stops being readable; clamp so a
 // drag can't crush it. The max is a flex `max-w` so a too-wide drag can't starve the waterfall.
@@ -33,9 +36,9 @@ export interface TraceDrawerProps {
 }
 
 // Master-detail split: waterfall on the left drives the span inspector on the right — the same
-// list→detail relationship the span list has with this drawer, one level down. Tabs were
-// deliberately rejected: they'd hide the waterfall while reading a span's attributes, breaking
-// the click-through-spans-and-compare loop.
+// list→detail relationship the span list has with this drawer, one level down. Tabs live *inside*
+// the inspector (Attributes / Logs), not at the drawer level — so the waterfall stays visible while
+// you read a span's attributes or its correlated logs.
 export function TraceDrawer({
     isOpen,
     traceId,
@@ -57,6 +60,7 @@ export function TraceDrawer({
         persistent: true,
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
+    const [inspectorTab, setInspectorTab] = useState<InspectorTab>('attributes')
 
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.
@@ -128,7 +132,26 @@ export function TraceDrawer({
                 >
                     <Resizer {...inspectorResizerProps} />
                     {inspectedSpan ? (
-                        <ExpandedSpanContent span={inspectedSpan} />
+                        <LemonTabs
+                            activeKey={inspectorTab}
+                            onChange={setInspectorTab}
+                            data-attr="tracing-inspector-tabs"
+                            tabs={[
+                                {
+                                    key: 'attributes',
+                                    label: 'Attributes',
+                                    content: <ExpandedSpanContent span={inspectedSpan} />,
+                                },
+                                {
+                                    key: 'logs',
+                                    label: 'Logs',
+                                    // Not keyed by span: the embedded viewer (keyed by trace_id) and the memoized
+                                    // pinned filter re-query in place when the selected span changes, so a remount
+                                    // would only churn its logics and lose scroll.
+                                    content: <SpanLogsTab span={inspectedSpan} />,
+                                },
+                            ]}
+                        />
                     ) : (
                         <div className="text-muted p-4">No spans in this trace</div>
                     )}
