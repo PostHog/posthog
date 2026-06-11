@@ -35,12 +35,13 @@ export const IconTrigger: Story = {
         <Collapsible className="max-w-60" variant="folder" defaultOpen>
             <CollapsibleHeader>
                 <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
-                <Button variant="link-muted" size="xs" className="px-0">
+                {/* Same Button shape as the child rows; flex-1 takes the remaining row width. */}
+                <Button variant="default" size="sm" left className="flex-1">
                     Sources
+                    <Text size="xs" variant="muted" render={<span />} className="ms-auto">
+                        2
+                    </Text>
                 </Button>
-                <Text size="xs" variant="muted" render={<span />} className="ms-auto pe-2">
-                    2
-                </Text>
             </CollapsibleHeader>
             <CollapsibleContent>
                 <ul className="flex flex-col gap-px">

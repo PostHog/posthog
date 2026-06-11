@@ -527,12 +527,13 @@ Icon-only trigger — only the chevron toggles, so the label can be a link and t
 <Collapsible variant="folder">
   <CollapsibleHeader>
     <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
-    <Button variant="link-muted" size="xs" className="px-0">
+    {/* Same Button shape as the child rows; flex-1 fills the remaining row width */}
+    <Button variant="default" size="sm" left className="flex-1">
       Sources
+      <Text size="xs" variant="muted" render={<span />} className="ms-auto">
+        2
+      </Text>
     </Button>
-    <Text size="xs" variant="muted" render={<span />} className="ms-auto">
-      2
-    </Text>
   </CollapsibleHeader>
   <CollapsibleContent>{/* rows */}</CollapsibleContent>
 </Collapsible>

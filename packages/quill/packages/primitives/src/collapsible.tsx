@@ -72,7 +72,7 @@ function CollapsibleTrigger({
                     'quill-collapsible__trigger quill-collapsible__trigger--icon group/collapsible-trigger',
                     className
                 )}
-                render={<Button size="icon-xs" />}
+                render={<Button size="icon-sm" />}
                 {...props}
             >
                 {/* Single chevron rotated via CSS: points into reading direction
