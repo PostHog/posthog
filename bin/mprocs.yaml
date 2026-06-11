@@ -271,7 +271,7 @@ procs:
             # Setup: see docs/agent-platform/docs/local-dev.md
             # ("Local ai-gateway") for the sibling-clone + .env + ledger
             # topup; design: docs/agent-platform/plans/ai-gateway-integration.md.
-            AGENT_USE_AI_GATEWAY: 'false'
+            AGENT_USE_AI_GATEWAY: 'true'
             POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
             # bucket `posthog` is pre-created by docker-compose.base.yml. The

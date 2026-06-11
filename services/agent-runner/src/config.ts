@@ -47,7 +47,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe('Operator override capping per-turn max_tokens below the model ceiling. Unset → model ceiling.'),
     useAiGateway: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
-        .default('0')
+        .default('1')
         .transform((v) => v === '1' || v === 'true')
         .describe(
             'When truthy (`1`/`true`), routes every model call through PostHog ai-gateway via posthogAiGatewayModel(). Spec.model still picks the underlying model id.'
@@ -66,7 +66,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
     codingEnabled: z
         .union([z.boolean(), z.string()])
-        .optional()
+        .default(true)
         .transform((v) => v === true || v === '1' || v === 'true')
         .describe(
             'Enable in-sandbox coding agents (spec.sandbox.loop_location=in_sandbox). Provisions the tier-2 coding pool.'
