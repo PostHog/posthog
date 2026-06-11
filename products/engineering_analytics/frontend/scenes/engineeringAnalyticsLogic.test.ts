@@ -116,6 +116,10 @@ describe('engineeringAnalyticsLogic', () => {
         initKeaTests()
         ApiConfig.setCurrentProjectId(1)
         jest.clearAllMocks()
+        // Happy-path defaults; individual tests override before mounting where needed.
+        mockCiCards.mockResolvedValue(CARDS)
+        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
+        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
     })
 
     afterEach(() => {
@@ -163,10 +167,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('card filters toggle the matching view and back', async () => {
-        mockCiCards.mockResolvedValue(CARDS)
-        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
-        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
-
         logic = engineeringAnalyticsLogic()
         logic.mount()
         expect(logic.values.activeCard).toBe('open')
@@ -179,6 +179,8 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBe('stuck')
         expect(logic.values.stuckOnly).toBe(true)
         expect(logic.values.ciStatusFilter).toBe('all')
+        // The stuck lens is an active filter — a filtered-to-zero table must offer "Clear filters".
+        expect(logic.values.hasActiveFilters).toBe(true)
 
         // Clicking the active card returns to the plain open view.
         logic.actions.applyCardFilter('stuck')
@@ -192,10 +194,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
-        mockCiCards.mockResolvedValue(CARDS)
-        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
-        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
-
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions([
@@ -217,10 +215,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
-        mockCiCards.mockResolvedValue(CARDS)
-        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
-        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
-
         logic = engineeringAnalyticsLogic()
         logic.mount()
         expect(logic.values.hasActiveFilters).toBe(false)
@@ -269,10 +263,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('loadLifecycle caches per PR, records failures as null, and tracks loading keys', async () => {
-        mockCiCards.mockResolvedValue(CARDS)
-        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
-        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
-
         const row = makePr({ number: 7 })
         const lifecycle: PRLifecycleApi = {
             pull_request: {

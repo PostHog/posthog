@@ -25,7 +25,11 @@ export interface LifecycleSummary {
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral'])
 
-/** ci_finished detail is "workflow name: conclusion"; the name itself may contain ": ". */
+/**
+ * ci_finished detail is "workflow name: conclusion" (the name itself may contain ": "), assembled
+ * by backend/logic/queries/pr_lifecycle.py from structured fields the API then flattens.
+ * TODO: expose workflow/conclusion as structured fields on PRLifecycleEventApi and delete this parse.
+ */
 function parseFinishedDetail(detail: string | null | undefined): { workflow: string; conclusion: string | null } {
     if (!detail) {
         return { workflow: 'unknown workflow', conclusion: null }

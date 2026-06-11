@@ -19,7 +19,13 @@ import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { PRLifecyclePanel } from '../components/PRLifecyclePanel'
 import { StatCard } from '../components/StatCard'
-import { CIStatusFilter, PRStateFilter, PullRequestRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import {
+    CIStatusFilter,
+    PRStateFilter,
+    PullRequestRow,
+    engineeringAnalyticsLogic,
+    prKeyOf,
+} from './engineeringAnalyticsLogic'
 
 function githubPrUrl(row: PullRequestRow): string {
     return `https://github.com/${row.repoOwner}/${row.repoName}/pull/${row.number}`
@@ -214,7 +220,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 size="small"
                 columns={columns}
                 dataSource={filteredPullRequests}
-                rowKey={(row) => `${row.repoOwner}/${row.repoName}#${row.number}`}
+                rowKey={prKeyOf}
                 loading={pullRequestsLoading}
                 expandable={{
                     expandedRowRender: (row) => <PRLifecyclePanel row={row} />,

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
 
 import {
     engineeringAnalyticsCiCards,
@@ -12,6 +13,7 @@ import {
 } from '../generated/api'
 import type { PRLifecycleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { LifecycleSummary, summarizeLifecycle } from '../lib/lifecycle'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
@@ -90,13 +92,8 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     stuckOnly: false,
 }
 
-export function isStuck(row: PullRequestRow, now: dayjs.Dayjs): boolean {
-    return (
-        row.state === 'open' &&
-        !row.isDraft &&
-        !row.isBot &&
-        dayjs(row.createdAt).isBefore(now.subtract(STUCK_AFTER_DAYS, 'day'))
-    )
+export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
+    return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
 }
 
 export function filterPullRequests(
@@ -105,6 +102,9 @@ export function filterPullRequests(
     now: dayjs.Dayjs = dayjs()
 ): PullRequestRow[] {
     const search = filters.search.trim().toLowerCase()
+    // Hoisted out of the per-row check: this selector re-runs on every search keystroke
+    // over up to 1000 rows, so the row loop should not allocate dayjs instances.
+    const stuckCutoffMs = filters.stuckOnly ? now.subtract(STUCK_AFTER_DAYS, 'day').valueOf() : 0
     return rows.filter((row) => {
         if (filters.state === 'open' && row.state !== 'open') {
             return false
@@ -112,7 +112,7 @@ export function filterPullRequests(
         if (filters.state === 'merged' && row.state !== 'merged') {
             return false
         }
-        if (filters.stuckOnly && !isStuck(row, now)) {
+        if (filters.stuckOnly && !isStuck(row, stuckCutoffMs)) {
             return false
         }
         if (filters.author && row.authorHandle !== filters.author) {
@@ -276,14 +276,13 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
             {} as Record<string, true>,
             {
                 loadLifecycle: (state, { row }) => ({ ...state, [prKeyOf(row)]: true }),
-                loadLifecycleSuccess: (state, { lifecycles }) => {
-                    const next: Record<string, true> = {}
-                    for (const key of Object.keys(state)) {
-                        if (lifecycles[key] === undefined) {
-                            next[key] = true
-                        }
+                // kea-loaders success actions carry the original action payload.
+                loadLifecycleSuccess: (state, { payload }) => {
+                    if (!payload) {
+                        return state
                     }
-                    return next
+                    const { [prKeyOf(payload.row)]: _, ...rest } = state
+                    return rest
                 },
             },
         ],
@@ -311,6 +310,18 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                 stuckOnly,
             }),
         ],
+        // Memoized on the lifecycles record: summarization loops over dozens of events per PR
+        // and must not re-run on every render of an expanded panel.
+        lifecycleSummaries: [
+            (s) => [s.lifecycles],
+            (lifecycles): Record<string, LifecycleSummary | null> => {
+                const summaries: Record<string, LifecycleSummary | null> = {}
+                for (const [key, lifecycle] of Object.entries(lifecycles)) {
+                    summaries[key] = lifecycle ? summarizeLifecycle(lifecycle.events) : null
+                }
+                return summaries
+            },
+        ],
         activeCard: [
             (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
             (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
@@ -332,12 +343,7 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         ],
         hasActiveFilters: [
             (s) => [s.filters],
-            (filters): boolean =>
-                filters.state !== DEFAULT_FILTERS.state ||
-                filters.author !== DEFAULT_FILTERS.author ||
-                filters.repo !== DEFAULT_FILTERS.repo ||
-                filters.ciStatus !== DEFAULT_FILTERS.ciStatus ||
-                filters.search.trim() !== DEFAULT_FILTERS.search,
+            (filters): boolean => !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
         ],
         authorOptions: [
             (s) => [s.pullRequests],

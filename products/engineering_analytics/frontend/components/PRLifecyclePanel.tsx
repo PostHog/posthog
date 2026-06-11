@@ -7,13 +7,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration, pluralize } from 'lib/utils'
 
-import { WorkflowVerdict, summarizeLifecycle } from '../lib/lifecycle'
+import { WorkflowVerdict } from '../lib/lifecycle'
 import { PullRequestRow, engineeringAnalyticsLogic, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 
 const MAX_LISTED_VERDICTS = 8
 
-function deltaFrom(start: string, end: string): string {
-    const seconds = dayjs(end).diff(dayjs(start), 'second')
+function deltaFrom(start: dayjs.Dayjs, end: string): string {
+    const seconds = dayjs(end).diff(start, 'second')
     return seconds <= 0 ? '<1s' : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
@@ -50,13 +50,13 @@ function VerdictRow({ verdict }: { verdict: WorkflowVerdict }): JSX.Element {
 }
 
 export function PRLifecyclePanel({ row }: { row: PullRequestRow }): JSX.Element {
-    const { lifecycles, lifecycleLoadingKeys } = useValues(engineeringAnalyticsLogic)
+    const { lifecycleSummaries, lifecycleLoadingKeys } = useValues(engineeringAnalyticsLogic)
     const { loadLifecycle } = useActions(engineeringAnalyticsLogic)
 
     const key = prKeyOf(row)
-    const lifecycle = lifecycles[key]
+    const summary = lifecycleSummaries[key]
 
-    if (lifecycle === undefined) {
+    if (summary === undefined) {
         return (
             <div className="flex flex-col gap-2 py-3">
                 <LemonSkeleton className="h-4 w-96" />
@@ -65,7 +65,7 @@ export function PRLifecyclePanel({ row }: { row: PullRequestRow }): JSX.Element 
         )
     }
 
-    if (lifecycle === null) {
+    if (summary === null) {
         return (
             <div className="flex items-center gap-3 py-3">
                 <span className="text-secondary">Couldn't load this pull request's lifecycle.</span>
@@ -81,14 +81,14 @@ export function PRLifecyclePanel({ row }: { row: PullRequestRow }): JSX.Element 
         )
     }
 
-    const summary = summarizeLifecycle(lifecycle.events)
     const openedAt = summary.openedAt ?? row.createdAt
+    const opened = dayjs(openedAt)
     const listedVerdicts = summary.notPassing.slice(0, MAX_LISTED_VERDICTS)
     const extraVerdicts = summary.notPassing.length - listedVerdicts.length
 
     // Chronological, not fixed, order: a PR's head-SHA runs can start (and finish) after the
     // merge, and the arrow flow should read true to the timestamps.
-    const milestones: { at: string; node: JSX.Element }[] = [
+    const dated: { at: string; node: JSX.Element }[] = [
         {
             at: openedAt,
             node: (
@@ -99,43 +99,47 @@ export function PRLifecyclePanel({ row }: { row: PullRequestRow }): JSX.Element 
         },
     ]
     if (summary.firstCiStartedAt) {
-        milestones.push({
+        dated.push({
             at: summary.firstCiStartedAt,
-            node: <Milestone label="First CI run">+{deltaFrom(openedAt, summary.firstCiStartedAt)}</Milestone>,
+            node: <Milestone label="First CI run">+{deltaFrom(opened, summary.firstCiStartedAt)}</Milestone>,
         })
     }
     if (summary.lastCiFinishedAt) {
-        milestones.push({
+        dated.push({
             at: summary.lastCiFinishedAt,
-            node: <Milestone label="Last CI verdict">+{deltaFrom(openedAt, summary.lastCiFinishedAt)}</Milestone>,
+            node: <Milestone label="Last CI verdict">+{deltaFrom(opened, summary.lastCiFinishedAt)}</Milestone>,
         })
     }
     if (summary.mergedAt) {
-        milestones.push({
+        dated.push({
             at: summary.mergedAt,
-            node: <Milestone label="Merged">+{deltaFrom(openedAt, summary.mergedAt)}</Milestone>,
+            node: <Milestone label="Merged">+{deltaFrom(opened, summary.mergedAt)}</Milestone>,
         })
     } else if (summary.closedAt) {
-        milestones.push({
+        dated.push({
             at: summary.closedAt,
-            node: <Milestone label="Closed without merging">+{deltaFrom(openedAt, summary.closedAt)}</Milestone>,
-        })
-    } else {
-        // '￿' sorts after any ISO timestamp, keeping the open-ended milestone last.
-        milestones.push({
-            at: '￿',
-            node: <Milestone label="Still open">{deltaFrom(openedAt, dayjs().toISOString())} and counting</Milestone>,
+            node: <Milestone label="Closed without merging">+{deltaFrom(opened, summary.closedAt)}</Milestone>,
         })
     }
-    milestones.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    dated.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+
+    const milestones = dated.map((milestone) => milestone.node)
+    if (!summary.mergedAt && !summary.closedAt) {
+        // Open-ended, so always last — no timestamp needed.
+        milestones.push(
+            <Milestone label="Still open">
+                {humanFriendlyDuration(dayjs().diff(opened, 'second'), { maxUnits: 2 })} and counting
+            </Milestone>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-3 py-3 pr-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                {milestones.map((milestone, index) => (
+                {milestones.map((node, index) => (
                     <span key={index} className="flex items-center gap-3">
                         {index > 0 && <Separator />}
-                        {milestone.node}
+                        {node}
                     </span>
                 ))}
             </div>
