@@ -317,11 +317,19 @@ class TestDeliverSlackReport(SimpleTestCase):
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], expected_channel)
 
+    @parameterized.expand(
+        [
+            # A stored value like "|#name" splits to an empty channel ID — the guard should skip it.
+            ("blank_channel_id", "|#some-channel"),
+            ("null_channel", None),
+        ]
+    )
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.models.integration.Integration.objects")
-    def test_skips_target_with_blank_channel_id(self, mock_integration_qs, mock_slack_integration):
-        # A stored value like "|#name" splits to an empty channel ID — the guard should skip it.
-        targets = [{"type": "slack", "integration_id": 1, "channel": "|#some-channel"}]
+    def test_skips_target_with_unusable_channel(
+        self, _name, stored_channel, mock_integration_qs, mock_slack_integration
+    ):
+        targets = [{"type": "slack", "integration_id": 1, "channel": stored_channel}]
         client = MagicMock()
         mock_slack_integration.return_value.client = client
 

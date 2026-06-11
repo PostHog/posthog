@@ -303,7 +303,9 @@ def deliver_slack_report(
 
         integration_id = target.get("integration_id")
         # The frontend SlackChannelPicker stores "<channel_id>|#<channel_name>" — Slack only accepts the ID.
-        channel = target.get("channel", "").split("|")[0]
+        # str() + `or ""` keep a malformed stored value (null, non-string) on the skip/error path
+        # instead of raising outside the try block and failing the whole delivery loop.
+        channel = str(target.get("channel") or "").split("|")[0]
         if not integration_id or not channel:
             continue
 
