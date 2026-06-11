@@ -18,7 +18,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___industry)]) AS prop_index,
           [toString(groups.properties___industry)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC
@@ -55,7 +55,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.`properties___does not exist`)]) AS prop_index,
           [toString(groups.`properties___does not exist`)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC
@@ -92,7 +92,7 @@
                  groups.group_key) AS groups ARRAY
      JOIN arrayEnumerate([toString(groups.properties___employee_count)]) AS prop_index,
           [toString(groups.properties___employee_count)] AS prop_value
-     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     WHERE and(isNotNull(prop_value), equals(groups.index, 0))
      ORDER BY groups.created_at DESC)
   GROUP BY prop_index
   ORDER BY prop_index ASC

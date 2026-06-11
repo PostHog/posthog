@@ -28,7 +28,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions
   WHERE
-      ifNull(equals(sessions.session_id, %(hogql_val_77)s), 0)
+      equals(sessions.session_id, %(hogql_val_77)s)
   LIMIT 1
   '''
 # ---
@@ -55,7 +55,7 @@
       GROUP BY
           raw_sessions.session_id_v7) AS sessions
   WHERE
-      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_10)s, 6, %(hogql_val_11)s)), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_12)s, 6, %(hogql_val_13)s)), 0), ifNull(equals(sessions.session_id, %(hogql_val_14)s), 0))
+      and(greaterOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_10)s, 6, %(hogql_val_11)s)), lessOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_12)s, 6, %(hogql_val_13)s)), equals(sessions.session_id, %(hogql_val_14)s))
   LIMIT 1
   '''
 # ---
