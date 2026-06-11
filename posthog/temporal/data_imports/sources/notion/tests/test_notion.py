@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.notion.notion import (
     _request,
     _search_body,
     _search_stream,
+    _should_retry_request,
     _wait_strategy,
     validate_credentials,
 )
@@ -176,6 +177,30 @@ class TestNotion:
                 cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
             )
         assert exc_info.value.retry_after == 7.0
+
+    def test_request_fails_fast_when_retry_after_exceeds_cap(self) -> None:
+        # Notion's Retry-After can be many minutes - far longer than the activity heartbeat
+        # budget - so retrying in-process is futile. The request must fail fast after a single
+        # attempt rather than burning the budget on guaranteed-rate-limited retries.
+        long_retry_after = str(MAX_RETRY_WAIT_SECONDS + 100)
+        session = FakeSession([FakeResponse({}, status_code=429, headers={"Retry-After": long_retry_after})])
+        with pytest.raises(NotionRetryableError):
+            _request(cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={})
+        assert len(session.calls) == 1
+
+    @parameterized.expand(
+        [
+            ("short_429", NotionRetryableError("rate limited", retry_after=5.0), True),
+            ("429_at_cap", NotionRetryableError("rate limited", retry_after=float(MAX_RETRY_WAIT_SECONDS)), True),
+            ("long_429", NotionRetryableError("rate limited", retry_after=MAX_RETRY_WAIT_SECONDS + 1), False),
+            ("5xx_no_retry_after", NotionRetryableError("server error", retry_after=None), True),
+            ("read_timeout", requests.ReadTimeout("timeout"), True),
+            ("connection_error", requests.ConnectionError("reset"), True),
+            ("http_error", requests.HTTPError("401 Client Error"), False),
+        ]
+    )
+    def test_should_retry_request(self, _name: str, exc: BaseException, expected: bool) -> None:
+        assert _should_retry_request(exc) is expected
 
     def test_request_5xx_raises_retryable_without_retry_after(self) -> None:
         session = FakeSession([FakeResponse({}, status_code=503)])

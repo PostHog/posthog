@@ -4,7 +4,7 @@ from typing import Any, Literal, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -80,8 +80,25 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _wait_exponential(retry_state)
 
 
+def _should_retry_request(exc: BaseException) -> bool:
+    # Transient network failures are worth a quick in-process retry.
+    if isinstance(exc, requests.ReadTimeout | requests.ConnectionError):
+        return True
+    if isinstance(exc, NotionRetryableError):
+        # A 429 whose Retry-After is longer than we can usefully wait in-process is futile to
+        # retry here: the activity's heartbeat budget (~2 min) is far smaller than Notion's
+        # multi-minute rate-limit window, so retrying would burn that budget on attempts that
+        # are guaranteed to be rate limited again - and risks a heartbeat timeout masking the
+        # real error. Fail fast and let Temporal reschedule the activity, whose backoff far
+        # exceeds anything we can sleep mid-request. 5xx and short 429s stay retryable.
+        if exc.retry_after is not None and exc.retry_after > MAX_RETRY_WAIT_SECONDS:
+            return False
+        return True
+    return False
+
+
 @retry(
-    retry=retry_if_exception_type((NotionRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    retry=retry_if_exception(_should_retry_request),
     stop=stop_after_attempt(5),
     wait=_wait_strategy,
     reraise=True,
