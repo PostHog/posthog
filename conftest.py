@@ -39,3 +39,11 @@ def pytest_runtestloop() -> None:
     # Safety net for processes that never run a local collection (e.g. the
     # pytest-xdist controller): end the window before the test loop starts.
     _end_gc_boot_window()
+
+
+def pytest_unconfigure() -> None:
+    # Frozen objects skip the final cyclic collections of interpreter shutdown, so their
+    # finalizers run in the late teardown phase where extension modules may already be
+    # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
+    # default heap state so shutdown behaves exactly as without the boot window.
+    gc.unfreeze()
