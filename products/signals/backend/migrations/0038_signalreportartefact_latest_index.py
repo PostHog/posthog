@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     atomic = False  # Required for AddIndexConcurrently
 
     dependencies = [
-        ("signals", "0035_signalreportartefact_updated_at_and_more"),
+        ("signals", "0037_signalreportartefact_updated_at_and_more"),
     ]
 
     operations = [

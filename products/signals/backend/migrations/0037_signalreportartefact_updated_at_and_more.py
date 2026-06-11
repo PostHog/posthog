@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0034_signalscoutemission"),
+        ("signals", "0036_signalteamconfig_backfill_default_autostart_p2"),
     ]
 
     operations = [
