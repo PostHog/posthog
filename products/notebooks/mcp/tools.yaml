@@ -33,6 +33,9 @@ tools:
     notebooks-collab-markdown-save-create:
         operation: notebooks_collab_markdown_save_create
         enabled: false
+    notebooks-collab-presence-create:
+        operation: notebooks_collab_presence_create
+        enabled: false
     notebooks-collab-save-create:
         operation: notebooks_collab_save_create
         enabled: false
