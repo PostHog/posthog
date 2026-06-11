@@ -35,8 +35,8 @@ tools:
         title: Search business knowledge
         description: >
             Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
-            document_id and ordinal — pass these to the document-window tool to drill down into surrounding context.
-            Use for any question about the team's own product, policies, domain knowledge, or internal docs.
+            document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
+            for any question about the team's own product, policies, domain knowledge, or internal docs.
         feature_flag: product-business-knowledge
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy

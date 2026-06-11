@@ -59,9 +59,9 @@ export const getBusinessKnowledgeDocumentsWindowListUrl = (
 }
 
 /**
- * Read-only access to parsed knowledge documents. Currently exposes only the
- * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
- * around a chunk it found via search.
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
  */
 export const businessKnowledgeDocumentsWindowList = async (
     projectId: string,
@@ -95,9 +95,9 @@ export const getBusinessKnowledgeDocumentsSearchListUrl = (
 }
 
 /**
- * Read-only access to parsed knowledge documents. Currently exposes only the
- * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
- * around a chunk it found via search.
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
  */
 export const businessKnowledgeDocumentsSearchList = async (
     projectId: string,

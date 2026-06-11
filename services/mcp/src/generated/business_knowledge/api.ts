@@ -9,9 +9,9 @@
 import * as zod from 'zod'
 
 /**
- * Read-only access to parsed knowledge documents. Currently exposes only the
- * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
- * around a chunk it found via search.
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
  */
 export const BusinessKnowledgeDocumentsWindowListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this knowledge document.'),
@@ -31,9 +31,9 @@ export const BusinessKnowledgeDocumentsWindowListQueryParams = /* @__PURE__ */ z
 })
 
 /**
- * Read-only access to parsed knowledge documents. Currently exposes only the
- * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
- * around a chunk it found via search.
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
  */
 export const BusinessKnowledgeDocumentsSearchListParams = /* @__PURE__ */ zod.object({
     project_id: zod
