@@ -41,6 +41,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
         if extractor is None:
             raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 
+        # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
         threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
         if not threshold or not threshold.bounds:
             return AlertEvaluationResult(value=0, breaches=[])

@@ -53,10 +53,9 @@ class AlertExtractionError(Exception):
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 
-    Mirrors the historical hardcoded ``last_x_intervals`` values in trends.py so the
-    extractor split is behavior-preserving: absolute needs the current + previous
-    interval (2); relative needs three intervals because, when the current interval is
-    still accumulating, it compares the previous interval against the one before it.
+    Absolute needs the current + previous interval (2); relative needs three intervals
+    because, when the current interval is still accumulating, it compares the previous
+    interval against the one before it.
     """
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
