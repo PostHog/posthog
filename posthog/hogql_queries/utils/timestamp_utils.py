@@ -189,7 +189,10 @@ def _get_earliest_timestamp_from_node(
     cache_key = _get_earliest_timestamp_cache_key(team, node)
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
-        return cached_result
+        # Coerce on read too: entries cached before the coercion fix shipped hold a raw
+        # str/date for up to the TTL window. Passing them through is idempotent for the
+        # datetime values written after the fix and repairs the stale ones.
+        return _coerce_to_datetime(cached_result, team.timezone_info)
 
     if (
         isinstance(node, DataWarehouseNode)
