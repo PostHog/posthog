@@ -12,7 +12,7 @@ from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel
 from rest_framework import exceptions
 
-from posthog.utils import get_ai_billing_groups
+from posthog.event_usage import groups
 
 logger = structlog.get_logger(__name__)
 
@@ -56,11 +56,11 @@ def generate_structured_output(
 
     trace_id = str(uuid.uuid4())
     properties = {**(posthog_properties or {})}
-    groups = {"project": str(team_id)} if team_id else {}
+    posthog_groups = {"project": str(team_id)} if team_id else {}
     if billable and team_id is not None:
         properties["team_id"] = team_id
         properties["$ai_billable"] = True
-        groups.update(get_ai_billing_groups())
+        posthog_groups.update(groups())
 
     try:
         response = client.models.generate_content(
@@ -70,7 +70,7 @@ def generate_structured_output(
             posthog_distinct_id=distinct_id or "",
             posthog_trace_id=trace_id,
             posthog_properties=properties,
-            posthog_groups=groups,
+            posthog_groups=posthog_groups,
         )
 
         if not response.text:

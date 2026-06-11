@@ -125,10 +125,9 @@ class TestSummarizeWithGemini:
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
 
-    @patch("posthog.utils.get_instance_region_url")
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_generation_is_tagged_billable(self, mock_create_client, mock_region_url):
-        mock_region_url.return_value = "https://us.posthog.com"
+    def test_generation_is_tagged_billable(self, mock_create_client):
         mock_client = MagicMock()
         mock_create_client.return_value = mock_client
         valid_response = {

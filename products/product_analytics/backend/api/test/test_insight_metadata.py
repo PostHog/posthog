@@ -31,10 +31,9 @@ class TestGenerateInsightMetadata(APIBaseTest):
         assert response.json()["name"] == "Daily Pageviews"
         assert response.json()["description"] == "Tracks daily page views."
 
-    @patch("posthog.utils.get_instance_region_url")
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch(MOCK_PATH)
-    def test_generation_is_tagged_billable(self, mock_openai, mock_region_url):
-        mock_region_url.return_value = "https://us.posthog.com"
+    def test_generation_is_tagged_billable(self, mock_openai):
         mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 

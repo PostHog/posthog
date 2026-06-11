@@ -474,10 +474,9 @@ class TestGenerateChangeSummary:
         assert call_kwargs.kwargs["temperature"] == 0.3
         assert call_kwargs.kwargs["max_tokens"] == 500
 
-    @patch("posthog.utils.get_instance_region_url")
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
-    def test_generation_is_tagged_billable(self, mock_get_client, mock_region_url):
-        mock_region_url.return_value = "https://us.posthog.com"
+    def test_generation_is_tagged_billable(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- summary", 10, 5)
 
