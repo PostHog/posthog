@@ -135,9 +135,18 @@ function RunSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }
     )
 }
 
+/** PR number from an implementation PR url, e.g. `#12001`. Null when there's no PR. */
+function prRef(prUrl: string | null | undefined): string | null {
+    if (!prUrl) {
+        return null
+    }
+    const match = prUrl.match(/\/pull\/(\d+)/)
+    return match ? `#${match[1]}` : null
+}
+
 export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    const runId = `…-${report.id.split('-').pop() ?? report.id}`
+    const pr = prRef(report.implementation_pr_url)
     const variant = resolveRunVariant(report)
     const meta = VARIANT_META[variant]
     const timestampSource = pickTimestamp(report, variant)
@@ -174,7 +183,7 @@ export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element 
                 <LemonTag size="small" type={meta.badgeType} className="select-none">
                     {meta.label}
                 </LemonTag>
-                <span className="font-mono tabular-nums text-[11px] text-tertiary">{runId}</span>
+                {pr ? <span className="font-mono tabular-nums text-[11px] text-tertiary">{pr}</span> : null}
             </div>
         </Link>
     )
