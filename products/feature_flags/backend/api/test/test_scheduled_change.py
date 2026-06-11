@@ -625,22 +625,37 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
-    def test_list_succeeds_with_read_scope(self):
+    def _write_request(self, action: str):
+        base = f"/api/projects/{self.team.id}/scheduled_changes/"
+        if action == "create":
+            return self.client.post(
+                base,
+                data={
+                    "record_id": str(self.feature_flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": "2023-12-09T12:00:00Z",
+                },
+            )
+        if action == "update":
+            return self.client.patch(
+                f"{base}{self.scheduled_change.id}/",
+                data={"payload": {"operation": "update_status", "value": True}, "scheduled_at": "2023-12-09T12:00:00Z"},
+            )
+        return self.client.delete(f"{base}{self.scheduled_change.id}/")
+
+    @parameterized.expand(["list", "retrieve"])
+    def test_read_succeeds_with_read_scope(self, action: str) -> None:
         self._authenticate_with_scopes(["feature_flag:read"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        ids = [row["id"] for row in response.json()["results"]]
-        assert self.scheduled_change.id in ids
-
-    def test_retrieve_succeeds_with_read_scope(self):
-        self._authenticate_with_scopes(["feature_flag:read"])
-
-        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["id"] == self.scheduled_change.id
+        if action == "list":
+            response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert self.scheduled_change.id in [row["id"] for row in response.json()["results"]]
+        else:
+            response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["id"] == self.scheduled_change.id
 
     @parameterized.expand(["list", "retrieve"])
     def test_read_forbidden_with_unrelated_scope(self, action: str) -> None:
@@ -655,51 +670,31 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
-    def test_create_succeeds_with_write_scope(self):
+    @parameterized.expand(
+        [
+            ("create", status.HTTP_201_CREATED),
+            ("update", status.HTTP_200_OK),
+            ("delete", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_write_succeeds_with_write_scope(self, action: str, expected_status: int) -> None:
         self._authenticate_with_scopes(["feature_flag:write"])
 
         with patch(
             "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
             return_value=True,
         ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/scheduled_changes/",
-                data={
-                    "record_id": str(self.feature_flag.id),
-                    "model_name": "FeatureFlag",
-                    "payload": {"operation": "update_status", "value": True},
-                    "scheduled_at": "2023-12-09T12:00:00Z",
-                },
-            )
+            response = self._write_request(action)
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.status_code == expected_status, response.content
 
-    def test_delete_succeeds_with_write_scope(self):
-        self._authenticate_with_scopes(["feature_flag:write"])
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
-        assert not ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
-
-    @parameterized.expand(["create", "delete"])
+    @parameterized.expand(["create", "update", "delete"])
     def test_write_forbidden_with_read_only_scope(self, action: str) -> None:
         self._authenticate_with_scopes(["feature_flag:read"])
 
-        if action == "create":
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/scheduled_changes/",
-                data={
-                    "record_id": str(self.feature_flag.id),
-                    "model_name": "FeatureFlag",
-                    "payload": {"operation": "update_status", "value": True},
-                    "scheduled_at": "2023-12-09T12:00:00Z",
-                },
-            )
-        else:
-            response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
+        response = self._write_request(action)
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         # The write must not have taken effect.
         assert ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
 
