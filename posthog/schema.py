@@ -4799,6 +4799,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
@@ -7556,6 +7564,12 @@ class FileSystemImport(BaseModel):
     last_viewed_at: str | None = Field(default=None, description="Timestamp when the file system entry was last viewed")
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
+    pinnedByDefault: bool | None = Field(
+        default=None,
+        description=(
+            "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row"
+        ),
+    )
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     reason: UserProductListReason | None = Field(
         default=None,

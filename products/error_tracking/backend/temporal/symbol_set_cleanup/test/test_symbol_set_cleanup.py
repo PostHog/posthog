@@ -73,18 +73,24 @@ class TestSymbolSetCleanupActivity(BaseTest):
         )
 
         with (
-            patch("products.error_tracking.backend.models.delete_symbol_set_contents") as delete_contents,
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many",
+                return_value=[],
+            ) as delete_contents,
             patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"),
         ):
-            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=1, total_per_run=10))
+            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=10, total_per_run=10))
 
         assert result == SymbolSetCleanupResult(objects_processed=2, objects_deleted=2, objects_failed=0)
         assert set(ErrorTrackingSymbolSet.objects.values_list("ref", flat=True)) == {"recent-used", "recent-unused"}
         assert not ErrorTrackingStackFrame.objects.filter(id=unresolved_frame.id).exists()
         resolved_frame.refresh_from_db()
         assert resolved_frame.symbol_set_id is None
-        assert {call.args[0] for call in delete_contents.call_args_list} == {"symbols/old-used", "symbols/old-unused"}
-        assert delete_contents.call_count == 2
+        assert {storage_ptr for call in delete_contents.call_args_list for storage_ptr in call.args[0]} == {
+            "symbols/old-used",
+            "symbols/old-unused",
+        }
+        assert delete_contents.call_count == 1
 
     def test_delete_unused_false_only_deletes_old_used_symbol_sets(self) -> None:
         self._create_symbol_set("old-used", created_at_days_ago=45, last_used_days_ago=31)
@@ -95,6 +101,28 @@ class TestSymbolSetCleanupActivity(BaseTest):
 
         assert result == SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
         assert list(ErrorTrackingSymbolSet.objects.values_list("ref", flat=True)) == ["old-unused"]
+
+    def test_storage_delete_failures_are_reported_separately(self) -> None:
+        self._create_symbol_set(
+            "old-used", created_at_days_ago=45, last_used_days_ago=31, storage_ptr="symbols/old-used"
+        )
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many",
+                return_value=["symbols/old-used"],
+            ),
+            patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"),
+        ):
+            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=10, total_per_run=10))
+
+        assert result == SymbolSetCleanupResult(
+            objects_processed=1,
+            objects_deleted=1,
+            objects_failed=0,
+            storage_objects_failed=1,
+        )
+        assert ErrorTrackingSymbolSet.objects.count() == 0
 
     def test_dry_run_returns_eligible_count_without_deleting(self) -> None:
         self._create_symbol_set("old-used", created_at_days_ago=45, last_used_days_ago=31)
@@ -158,8 +186,8 @@ class TestSymbolSetCleanupWorkflow:
         assert ErrorTrackingSymbolSetCleanupWorkflow.parse_inputs([]) == SymbolSetCleanupInputs(
             days_old=30,
             delete_unused=True,
-            total_per_run=50000,
-            batch_size=2000,
+            total_per_run=500000,
+            batch_size=10000,
             dry_run=False,
         )
 

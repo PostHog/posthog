@@ -78,6 +78,8 @@ class SandboxConfig(BaseModel):
     cpu_cores: float = 4
     disk_size_gb: float = 64
     vm_runtime: bool = False
+    # gVisor only — Modal rejects this under vm_runtime.
+    outbound_domain_allowlist: list[str] | None = None
 
 
 WORKING_DIR = "/tmp/workspace"

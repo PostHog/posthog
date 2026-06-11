@@ -2910,6 +2910,19 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
         },
+        async durationHistogram(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: { bucket_ns: number; service: string; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }

@@ -65,6 +65,10 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        durationHistogramData,
+        durationHistogramLoading,
+        visibleRowDurationRange,
+        isDurationMode,
         expandedSpanIds,
     } = useValues(tracingSceneLogic())
     const {
@@ -77,6 +81,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         setVisibleRowRange,
         toggleExpandSpan,
+        setSort,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
@@ -148,11 +153,13 @@ function TracingSceneContents(): JSX.Element {
             <TracingSetupPrompt>
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
+                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
+                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    visibleRowDurationRange={visibleRowDurationRange}
                 />
                 <SceneDivider />
                 <TracingFilterBar />
@@ -179,6 +186,15 @@ function TracingSceneContents(): JSX.Element {
                         onVisibleRowRangeChange={setVisibleRowRange}
                         expandedSpanIds={expandedSpanIds}
                         onToggleExpand={toggleExpandSpan}
+                        orderBy={filters.orderBy}
+                        orderDirection={filters.orderDirection}
+                        onSort={(column) =>
+                            // Click an active column to flip direction; a new column starts at DESC.
+                            setSort(
+                                column,
+                                column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
+                            )
+                        }
                         emptyState={
                             <div className="flex flex-col items-center gap-1">
                                 <span>No spans found</span>

@@ -359,6 +359,51 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.proactive_tasks_enabled !== undefined) {
             body['proactive_tasks_enabled'] = params.proactive_tasks_enabled
         }
+        if (params.revenue_analytics_config !== undefined) {
+            body['revenue_analytics_config'] = params.revenue_analytics_config
+        }
+        if (params.marketing_analytics_config !== undefined) {
+            body['marketing_analytics_config'] = params.marketing_analytics_config
+        }
+        if (params.customer_analytics_config !== undefined) {
+            body['customer_analytics_config'] = params.customer_analytics_config
+        }
+        if (params.workflows_config !== undefined) {
+            body['workflows_config'] = params.workflows_config
+        }
+        if (params.base_currency !== undefined) {
+            body['base_currency'] = params.base_currency
+        }
+        if (params.capture_dead_clicks !== undefined) {
+            body['capture_dead_clicks'] = params.capture_dead_clicks
+        }
+        if (params.cookieless_server_hash_mode !== undefined) {
+            body['cookieless_server_hash_mode'] = params.cookieless_server_hash_mode
+        }
+        if (params.human_friendly_comparison_periods !== undefined) {
+            body['human_friendly_comparison_periods'] = params.human_friendly_comparison_periods
+        }
+        if (params.feature_flag_confirmation_enabled !== undefined) {
+            body['feature_flag_confirmation_enabled'] = params.feature_flag_confirmation_enabled
+        }
+        if (params.feature_flag_confirmation_message !== undefined) {
+            body['feature_flag_confirmation_message'] = params.feature_flag_confirmation_message
+        }
+        if (params.default_evaluation_contexts_enabled !== undefined) {
+            body['default_evaluation_contexts_enabled'] = params.default_evaluation_contexts_enabled
+        }
+        if (params.require_evaluation_contexts !== undefined) {
+            body['require_evaluation_contexts'] = params.require_evaluation_contexts
+        }
+        if (params.default_data_theme !== undefined) {
+            body['default_data_theme'] = params.default_data_theme
+        }
+        if (params.onboarding_tasks !== undefined) {
+            body['onboarding_tasks'] = params.onboarding_tasks
+        }
+        if (params.web_analytics_pre_aggregated_tables_enabled !== undefined) {
+            body['web_analytics_pre_aggregated_tables_enabled'] = params.web_analytics_pre_aggregated_tables_enabled
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
