@@ -277,15 +277,15 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._assert_can_edit_target_flag(instance)
         super().perform_destroy(instance)
 
-    def _inaccessible_feature_flag_ids(self) -> "list[str]":
+    def _inaccessible_feature_flag_ids(self) -> set[str]:
         """Return record_ids of feature flags in this project the user may not access."""
         if not self.user_access_control.access_controls_supported:
-            return []
+            return set()
         flags = FeatureFlag.objects.filter(team__project_id=self.project_id)
         accessible = self.user_access_control.filter_queryset_by_access_level(flags, include_all_if_admin=True)
         all_ids = {str(pk) for pk in flags.values_list("id", flat=True)}
         accessible_ids = {str(pk) for pk in accessible.values_list("id", flat=True)}
-        return list(all_ids - accessible_ids)
+        return all_ids - accessible_ids
 
     def _assert_can_edit_target_flag(self, instance: ScheduledChange) -> None:
         if instance.model_name != "FeatureFlag" or not instance.record_id:
