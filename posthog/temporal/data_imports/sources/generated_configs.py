@@ -807,7 +807,9 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MatomoSourceConfig(config.Config):
-    pass
+    host: str
+    site_id: str
+    api_token: str
 
 
 @config.config

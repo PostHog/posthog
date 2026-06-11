@@ -95,6 +95,7 @@ the row lists both.
 | mailchimp        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
+| matomo           | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
@@ -255,7 +256,6 @@ doesn't conflict with concurrent PRs.
 - lightspeed_retail
 - mailgun
 - marketo
-- matomo
 - microsoft_teams
 - mollie
 - monday
