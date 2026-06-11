@@ -68,7 +68,8 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
         [available]
     )
 
-    const update = (next: RowFilter[]): void => {
+    // Commit a new filter list to local state and report it upward (null when empty).
+    const applyFilters = (next: RowFilter[]): void => {
         setFilters(next)
         onChange?.(next.length ? next : null)
     }
@@ -79,18 +80,18 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
     const addFilter = (): void => {
         const firstColumn = available[0]?.name ?? ''
         const category = categoryFor(firstColumn)
-        update([
+        applyFilters([
             ...filters,
             { column: firstColumn, operator: DEFAULT_OPERATOR, value: defaultValueForCategory(category) },
         ])
     }
 
     const removeFilter = (index: number): void => {
-        update(filters.filter((_, i) => i !== index))
+        applyFilters(filters.filter((_, i) => i !== index))
     }
 
     const patchFilter = (index: number, patch: Partial<RowFilter>): void => {
-        update(
+        applyFilters(
             filters.map((filter, i) => {
                 if (i !== index) {
                     return filter
@@ -189,7 +190,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                 <div className="flex items-center justify-between gap-2 mt-2">
                     <LemonButton
                         type="tertiary"
-                        onClick={() => update([])}
+                        onClick={() => applyFilters([])}
                         disabledReason={filters.length === 0 ? 'No filters to clear' : undefined}
                     >
                         Clear all filters
