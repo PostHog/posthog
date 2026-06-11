@@ -940,6 +940,62 @@ snapshots:
         hash: v1.k794b7964.f0d1a421636fd514a006c43ba1d8b21322af048e84ca99a874cf90671e147bb4.7zakEU0v42lQJnldEmtQkZ-qqYEsFcNe8DEnyFiweac
     components-markdown-editor-rich--with-markdown--light:
         hash: v1.k794b7964.a73d574094e4664a4cfe8a28bbb74d6bf7d6b7cbe0b5f05aeb3a11fc42a8109e.fHAFZolNByYE1LYlKSbW0YVDUxDdmt31lCq06SkXjYA
+    components-markdown-notebook--component-catalog--dark:
+        hash: v1.k794b7964.1e29e311559f3a62ad3ff3b2a159b6b7dd7c6aa592dd0d0e6912b6c64ad7281c.luYAv9uhYq9QLK_0qcZm4WhZltnpjD4dlG7WQ4P2lK4
+    components-markdown-notebook--component-catalog--light:
+        hash: v1.k794b7964.811acc078f2719939b755005a43049a4dfe40d6ff2ef1df067f5e8ae56b760ff.1cWue6jgvi8msqFE6Q6aBeP3DmMs550VjOk4R1nICyQ
+    components-markdown-notebook--edit-mode--dark:
+        hash: v1.k794b7964.1e29e311559f3a62ad3ff3b2a159b6b7dd7c6aa592dd0d0e6912b6c64ad7281c.sel1o1tApXYbWuPySddNegrWK9vLYT-zwKTC6XkWfoA
+    components-markdown-notebook--edit-mode--light:
+        hash: v1.k794b7964.811acc078f2719939b755005a43049a4dfe40d6ff2ef1df067f5e8ae56b760ff.N5QAiXnj5Q3AsiH_HH5Q5wL01m3cbB7P5fygYFyqEHo
+    components-markdown-notebook--embeds--dark:
+        hash: v1.k794b7964.cabe7f7f9760530f574b8ee0a9b3084678ae281f64cdcdd6b0bbe1d32023ae80.X1TxhzkzMjvQtTiVxTKjKGzci_A48lf1G132eWpI35Y
+    components-markdown-notebook--embeds--light:
+        hash: v1.k794b7964.60b4b1c26bdf20afe28959218a3e700d405e48dab0cb808dc5a7c97658300206.sEX3WrOCdGhpd9pamLR1OdZbi6GVK35OnPEWk8qiNNA
+    components-markdown-notebook--empty-notebook--dark:
+        hash: v1.k794b7964.7cbb426de8251a2f8900f5f337a12700fed06f62d0183b036fdf440f1eaf834c.ybu_f4PLUm4LpIkQjQxmXIuGfJuTYgAk-bayazPjuV4
+    components-markdown-notebook--empty-notebook--light:
+        hash: v1.k794b7964.8507d86783b916083379c574e8442ed13aa4a56fd53754ba04dfeb35f9a29b9a.o23DG2q59zuGo1S-waZNnwHQw_zpQjqK6jr9jf9MPBw
+    components-markdown-notebook--headings-and-inline-formatting--dark:
+        hash: v1.k794b7964.28d37a32c1ae05766ff540240a3ee74e68dda68869edfe23220f580f2f06f9c7.drrZHAJqA1V_cTcpKGgJRRALw9Pp_PzwGGdNg7IiYXQ
+    components-markdown-notebook--headings-and-inline-formatting--light:
+        hash: v1.k794b7964.9888596d00b9118969f20922a0b9aa8ed5f3d4d68aeba808135d874ce4cca75a.j7WtT6se9xAQ2fuaVFTxyDEmUkU2rQf5nSNZ0E_TUXc
+    components-markdown-notebook--invalid-component-props--dark:
+        hash: v1.k794b7964.3ec50ff3704d240455077fcc0a6d5afbcec8b5caa14b14232126531e512a2e0b.WxLpCScEuKCM6kkcDzy6v_4Tr3V4Sk3bZwBJ4ztvvp8
+    components-markdown-notebook--invalid-component-props--light:
+        hash: v1.k794b7964.a0f81daf461faf93c867c077248b946287a439398dd099fe7e0896645a81d278.QJbiVYwNj2gJ2Q7zZlK91DZu72dTwuLpQqcqSQ_f3Ls
+    components-markdown-notebook--lists-and-links--dark:
+        hash: v1.k794b7964.f297156d1df3c6035912804191bb37f1f600e0aef7d89c57586f9f2dd16fde7b.UUkk7YL8gZFJax8sdj6zy8iCbLyCvaPfSCoJxehtNlM
+    components-markdown-notebook--lists-and-links--light:
+        hash: v1.k794b7964.de20a22b8743ce35a27d05890701a69a760f2c0a06f111964d9a48bb32feb5d3.V032JeIsD8hjIUOMI0myvgUmyMtfJ33bmRhIGEPnoe8
+    components-markdown-notebook--malformed-markdown-recovery--dark:
+        hash: v1.k794b7964.52d7777de0917b35b334a9b384fafff389562bf1a19cfc951fe6237a54f0eb83.KAPga8GO3wSl5G64hoJPHUoqm5yEozhVTV1lsrxCSEM
+    components-markdown-notebook--malformed-markdown-recovery--light:
+        hash: v1.k794b7964.4085234d80d5775b0325e8167e1897ba0e7d2d10f063dda1572d5dc0d5bd9cca.A-kA9v8XIANObJcvG06bPMlodjwvrxfe1iYK2xMJwWs
+    components-markdown-notebook--mocked-collaboration--dark:
+        hash: v1.k794b7964.4ab36b0926c112ec9811f610705add99e45384d8daf2f65898379764daedffbc.yfnAmvNCRFmrWzZU6LzG1inw6fXuDvLb8IHqDKT0A5s
+    components-markdown-notebook--mocked-collaboration--light:
+        hash: v1.k794b7964.555af845b4e3c034ab539dc8d3f848634384ac52bc3ad33d8853cf81dc4f961f.Z6tTedgGI3CKh_IqC_v9sLJkeXE4gM382-9GTcXzLm4
+    components-markdown-notebook--query-block--dark:
+        hash: v1.k794b7964.753e218f374e46381ff687defb3f9f5decf7709684352a5156151c27fa218a3d.fKdXklO2rLYekX4mRs9dZ07EPgtwF9vYID9Vp5O9XGg
+    components-markdown-notebook--query-block--light:
+        hash: v1.k794b7964.abb371f06091dde16e1c7d1679476b561d3288011efee1519c0d6e0c21250c84.d-ASypB9T-8Wc2x68pbu0RIWzDfEQV6cmOKHCdi1fpc
+    components-markdown-notebook--selection-toolbar-state--dark:
+        hash: v1.k794b7964.1876a07a52dc178b35cb6b3f7bdcc74abc969388870ec43628ffebe3d7215002.1z3a27YZfbYj3emxVsYe6kzYl7aPTKEiHZe41Ntqqu0
+    components-markdown-notebook--selection-toolbar-state--light:
+        hash: v1.k794b7964.559a8c39cc81a311501c0092908afbb7f9fcbd94c97c0f2aad60d901a7a40660.bexLivfwoF6qOLx-b3EpM4PLFqks9RvpyB_YdQ-Bq9k
+    components-markdown-notebook--slash-menu-and-insertion--dark:
+        hash: v1.k794b7964.fcf994a3b3e0dbb80444cb08fee58d72437a83a4d749736f7ddd0a1d8ee15a8e.EGEDRc0h3DxW1E12tBF6TE0oHC_1YWSKjb6d8I_8jkM
+    components-markdown-notebook--slash-menu-and-insertion--light:
+        hash: v1.k794b7964.8320b3a0682639a76b440a707c137e35e4d0803f503a9458cc1bdd0487a16951.viEJl7kqEnOsdT2-hjF4tbZhgvFBlN6LIvbLzH0EOOQ
+    components-markdown-notebook--text-only-notebook--dark:
+        hash: v1.k794b7964.298a1e2473f9147f7a7ba29b7031f78de546dc7f6cd43ec114704d470a2eda4d.UmxAr-vuRtRwDc2unArm5A6OXTLjn7LR-CJPzx2kCR8
+    components-markdown-notebook--text-only-notebook--light:
+        hash: v1.k794b7964.89af8ce1d2e6e3afc514da924859c879202ac9e111f6b4891a0f23652281bf83.J2dE30jjUPG_uqTDim-GjmL3lstX9-QA2ah6ovGh1mI
+    components-markdown-notebook--view-mode--dark:
+        hash: v1.k794b7964.38b4da41bef1b65ec0ad205bec9eb73ed90617bfa2d4ca49755fd581df92fe34.tDsWlsKQmyt-dRdzq6sPAKiL6UivKXRmsfp5T0j9WZw
+    components-markdown-notebook--view-mode--light:
+        hash: v1.k794b7964.d79b7f3c495c5d9b19b9b609f2f86655502223cce703c53846d37063183bc753.W9taJXUyY9fDpp1l5JNF4pnffUaavEM8SmRGP3lWhQI
     components-mcp-hint-toast--annotations-create--dark:
         hash: v1.k794b7964.bef4544b1170fd5d46af679c869c7d962143786c2329058cba6488c441c65f26.3QVsYYxpE1AngWtWDNxi7cub9Vl59GlkiaNk3974Srg
     components-mcp-hint-toast--annotations-create--light:
