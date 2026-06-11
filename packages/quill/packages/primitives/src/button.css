@@ -164,7 +164,7 @@
         background-color: color-mix(in oklab, var(--muted) 50%, transparent);
     }
 
-    :is(.dark, [theme='dark']) .quill-button--variant-outline:hover {
+    :is(.dark, [theme='dark']) .quill-button--variant-outline:not(:disabled):hover {
         color: var(--foreground);
     }
 
@@ -379,6 +379,10 @@
     .quill-button[data-loading] {
         position: relative;
         color: transparent;
+
+        /* No hover/active reactions while busy — variant hover rules would
+           otherwise repaint the label color over the spinner. */
+        pointer-events: none;
         transition: color 150ms ease;
     }
 
