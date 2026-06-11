@@ -2762,6 +2762,11 @@ class TikTokAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class TraceOrderColumn(StrEnum):
+    TIMESTAMP = "timestamp"
+    DURATION = "duration"
+
+
 class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"

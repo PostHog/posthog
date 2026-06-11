@@ -262,6 +262,7 @@ from posthog.schema_enums import (
     TikTokAdsTableExclusions as TikTokAdsTableExclusions,
     TikTokAdsTableKeywords as TikTokAdsTableKeywords,
     TimeWindowMode as TimeWindowMode,
+    TraceOrderColumn as TraceOrderColumn,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -2743,11 +2744,6 @@ class TraceNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class TraceOrderColumn(StrEnum):
-    TIMESTAMP = "timestamp"
-    DURATION = "duration"
 
 
 class TrendsFilterLegacy(BaseModel):
