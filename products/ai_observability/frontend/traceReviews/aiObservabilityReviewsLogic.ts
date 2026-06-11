@@ -213,7 +213,14 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
             }
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // Spread current params first — this logic only owns the review_* /
+                // human_reviews_tab params and must not strip anyone else's.
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),

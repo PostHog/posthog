@@ -501,10 +501,9 @@ function AIObservabilitySceneContent(): JSX.Element {
     useAppShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
-        intent: 'Go to Reviews',
+        intent: 'Go to Errors',
         interaction: 'function',
-        callback: () => push(combineUrl(urls.aiObservabilityReviews(), searchParams).url),
-        disabled: !isTraceReviewEnabled,
+        callback: () => push(combineUrl(urls.aiObservabilityErrors(), searchParams).url),
         scope: Scene.AIObservability,
     })
 

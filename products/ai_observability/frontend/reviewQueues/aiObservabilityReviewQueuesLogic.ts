@@ -594,7 +594,13 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
         selectQueue: () => {
@@ -606,7 +612,13 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
         setQueueItemFilters: () => {
@@ -618,7 +630,13 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),
