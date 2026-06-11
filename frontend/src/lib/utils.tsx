@@ -163,8 +163,7 @@ export function parseTagsFilter(raw: unknown): string[] | undefined {
 
 /** Parse a URL/query param into a list of numeric IDs. Accepts an array, a JSON-encoded list, or a comma-separated string. */
 export function parseNumericArrayFilter(raw: unknown): number[] | undefined {
-    const toNumbers = (values: unknown[]): number[] =>
-        values.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+    const toNumbers = (values: unknown[]): number[] => values.map((v) => Number(v)).filter((n) => Number.isFinite(n))
 
     let values: unknown[] | undefined
 

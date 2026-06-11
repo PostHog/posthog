@@ -925,8 +925,26 @@ class HedgeboxMatrix(Matrix):
             pass  # This can happen if demo data generation is re-run for the same project
 
         # Feature flags
+        # Spread flag authorship across a couple of users so the creator filter has real variety
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.user import User
+
+        second_author = User.objects.filter(email="flag.author@hedgebox.net").first()
+        if second_author is None:
+            second_author = User.objects.create_and_join(
+                team.organization,
+                "flag.author@hedgebox.net",
+                None,
+                "Riley Flagsmith",
+                OrganizationMembership.Level.MEMBER,
+            )
+
         def create_experiment_flag(
-            key: str, name: str, variants: list[tuple[str, int]], created_at: dt.datetime
+            key: str,
+            name: str,
+            variants: list[tuple[str, int]],
+            created_at: dt.datetime,
+            created_by: "User | None" = None,
         ) -> FeatureFlag:
             return FeatureFlag.objects.create(
                 team=team,
@@ -936,7 +954,7 @@ class HedgeboxMatrix(Matrix):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {"variants": [{"key": k, "rollout_percentage": pct} for k, pct in variants]},
                 },
-                created_by=user,
+                created_by=created_by or user,
                 created_at=created_at,
             )
 
@@ -964,7 +982,7 @@ class HedgeboxMatrix(Matrix):
                         }
                     ]
                 },
-                created_by=user,
+                created_by=second_author,
                 created_at=self.now - dt.timedelta(days=15),
             )
 
@@ -980,6 +998,7 @@ class HedgeboxMatrix(Matrix):
                 "File engagement boost",
                 [("control", 34), ("red", 33), ("blue", 33)],
                 self.file_engagement_experiment_start - dt.timedelta(hours=2),
+                created_by=second_author,
             )
             pricing_flag = create_experiment_flag(
                 FLAG_PRICING_PAGE_EXPERIMENT,
@@ -992,6 +1011,7 @@ class HedgeboxMatrix(Matrix):
                 "File sharing incentive",
                 [("control", 50), ("test", 50)],
                 self.sharing_experiment_start - dt.timedelta(hours=1),
+                created_by=second_author,
             )
             upgrade_prompt_flag = create_experiment_flag(
                 FLAG_UPGRADE_PROMPT_EXPERIMENT,
@@ -1016,6 +1036,7 @@ class HedgeboxMatrix(Matrix):
                 "Bias warning demo: uneven split with multi-variant",
                 [("control", 90), ("test", 10)],
                 self.bias_warning_experiment_start - dt.timedelta(hours=1),
+                created_by=second_author,
             )
         except IntegrityError:
             # Flags already exist, fetch them

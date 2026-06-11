@@ -3403,7 +3403,17 @@ class TestExperimentService(APIBaseTest):
 
         assert set(queryset.values_list("name", flat=True)) == expected_names
 
-    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(self) -> None:
+    @parameterized.expand(
+        [
+            # JSON-encoded list of user IDs matches experiments created by any of them
+            ("json_list", lambda ids: json.dumps([ids["user"], ids["other"]]), {"Creator self", "Creator other"}),
+            # Comma-separated list behaves the same
+            ("comma_separated", lambda ids: f"{ids['user']},{ids['third']}", {"Creator self", "Creator third"}),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(
+        self, _name: str, build_param, expected_names: set[str]
+    ) -> None:
         service = self._service()
         other_user = self._create_user("other-user@example.com")
         third_user = self._create_user("third-user@example.com")
@@ -3418,21 +3428,13 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="created-by-third",
         )
 
-        # JSON-encoded list of user IDs matches experiments created by any of them
-        json_queryset = service.filter_experiments_queryset(
+        ids = {"user": self.user.id, "other": other_user.id, "third": third_user.id}
+        queryset = service.filter_experiments_queryset(
             Experiment.objects.filter(team=self.team),
             action="list",
-            query_params={"created_by_id": json.dumps([self.user.id, other_user.id])},
+            query_params={"created_by_id": build_param(ids)},
         )
-        assert set(json_queryset.values_list("name", flat=True)) == {"Creator self", "Creator other"}
-
-        # Comma-separated list behaves the same
-        comma_queryset = service.filter_experiments_queryset(
-            Experiment.objects.filter(team=self.team),
-            action="list",
-            query_params={"created_by_id": f"{self.user.id},{third_user.id}"},
-        )
-        assert set(comma_queryset.values_list("name", flat=True)) == {"Creator self", "Creator third"}
+        assert set(queryset.values_list("name", flat=True)) == expected_names
 
     @parameterized.expand(
         [

@@ -68,6 +68,14 @@ export function MemberMultiSelect({
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    // When the filter is pre-populated (e.g. from a `?created_by_id=...` URL) the popover may never open,
+    // so load members on mount to resolve the selected user(s) into a meaningful button label.
+    useEffect(() => {
+        if (value && value.length > 0) {
+            ensureAllMembersLoaded()
+        }
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+
     const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user.id))
 
     const selectedCount = value?.length || 0
@@ -107,17 +115,19 @@ export function MemberMultiSelect({
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
+                                    icon={
+                                        <input
+                                            type="checkbox"
+                                            className="cursor-pointer"
+                                            checked={value?.includes(member.user.id) || false}
+                                            readOnly
+                                        />
+                                    }
                                     onClick={() => handleMemberToggle(member.user.id)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={value?.includes(member.user.id) || false}
-                                                readOnly
-                                            />
+                                            <ProfilePicture size="md" user={member.user} />
                                             <span>{fullName(member.user)}</span>
                                         </span>
                                         <span className="text-secondary">
