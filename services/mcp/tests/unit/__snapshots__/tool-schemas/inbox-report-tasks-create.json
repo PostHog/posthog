@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "product": {
+            "description": "Product identifier for the task_run activity-log entry (lowercase letters, numbers, underscores, hyphens). Defaults to 'tasks'.",
+            "type": "string"
+        },
         "report_id": {
             "type": "string"
         },
@@ -16,6 +20,10 @@
                 }
             ],
             "description": "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
+        },
+        "type": {
+            "description": "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'.",
+            "type": "string"
         }
     },
     "required": ["report_id"],

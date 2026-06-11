@@ -129,6 +129,12 @@ const inboxReportTasksCreate = (): ToolBase<
         if (params.task_id !== undefined) {
             body['task_id'] = params.task_id
         }
+        if (params.product !== undefined) {
+            body['product'] = params.product
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
         const result = await context.api.request<Schemas.SignalReportTask>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/tasks/`,

@@ -3140,7 +3140,7 @@
         }
     },
     "inbox-report-tasks-create": {
-        "description": "Associate a task with a signal report. If, while working, you query a report (e.g. via inbox-reports-list / inbox-reports-retrieve) and decide your current work relates to it, call this with no arguments beyond the report id — your own task is associated automatically — and then record your work on the report with inbox-report-artefacts-create (commits you push via git_signed_commit are recorded automatically). A task may be associated with multiple reports. Idempotent: re-associating an already-linked task returns the existing association.",
+        "description": "Associate a task with a signal report. If, while working, you query a report (e.g. via inbox-reports-list / inbox-reports-retrieve) and decide your current work relates to it, call this with no arguments beyond the report id — your own task is associated automatically — and then record your work on the report with inbox-report-artefacts-create (commits you push via git_signed_commit are recorded automatically). A new association is also recorded in the report's activity log as a task_run artefact; optionally pass `product` and `type` to label it (defaults: tasks / agent_run). A task may be associated with multiple reports. Idempotent: re-associating an already-linked task returns the existing association.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Associate a task with a report",

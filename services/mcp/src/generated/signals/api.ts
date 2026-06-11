@@ -234,7 +234,7 @@ export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header).
+ * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` artefact to the report's activity log so the link is visible in the work log.
  * @summary Associate a task with a report
  */
 export const SignalsReportTasksCreateParams = /* @__PURE__ */ zod.object({
@@ -263,9 +263,21 @@ export const SignalsReportTasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
             ),
+        product: zod
+            .string()
+            .optional()
+            .describe(
+                "Product identifier for the task_run activity-log entry (lowercase letters, numbers, underscores, hyphens). Defaults to 'tasks'."
+            ),
+        type: zod
+            .string()
+            .optional()
+            .describe(
+                "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'."
+            ),
     })
     .describe(
-        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts."
+        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts.\nA new association also appends a `task_run` artefact to the report's activity log, labelled\nwith `product` / `type` (the custom-agent identifier convention)."
     )
 
 /**

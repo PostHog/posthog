@@ -247,6 +247,8 @@ class SignalReportTaskCreateSerializer(serializers.Serializer):
     """Body for associating a task with a report.
 
     The association is unlabelled — the task's purpose is derived from the report's artefacts.
+    A new association also appends a `task_run` artefact to the report's activity log, labelled
+    with `product` / `type` (the custom-agent identifier convention).
     """
 
     task_id = serializers.UUIDField(
@@ -255,6 +257,19 @@ class SignalReportTaskCreateSerializer(serializers.Serializer):
         help_text=(
             "Task to associate with the report (must belong to this project). Omit to associate "
             "the calling agent's own task, derived from the X-PostHog-Task-Id header."
+        ),
+    )
+    product = serializers.CharField(
+        required=False,
+        help_text=(
+            "Product identifier for the task_run activity-log entry (lowercase letters, numbers, "
+            "underscores, hyphens). Defaults to 'tasks'."
+        ),
+    )
+    type = serializers.CharField(
+        required=False,
+        help_text=(
+            "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'."
         ),
     )
 

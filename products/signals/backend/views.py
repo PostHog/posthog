@@ -30,6 +30,7 @@ from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -91,6 +92,7 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -1511,7 +1513,8 @@ class SignalReportTaskViewSet(
         description=(
             "Associate a task with this report. Idempotent — re-associating an already-linked task "
             "returns the existing association. Omit task_id to associate the calling agent's own task "
-            "(derived from the X-PostHog-Task-Id header)."
+            "(derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` "
+            "artefact to the report's activity log so the link is visible in the work log."
         ),
         operation_id="signals_report_tasks_create",
     )
@@ -1543,6 +1546,26 @@ class SignalReportTaskViewSet(
             report_id=report_id,
             task_id=str(task_id),
         )
+        if created:
+            # The association itself is a unit of work — record it in the activity log so the
+            # link is visible there too (the Runs section reads the link rows directly).
+            # Pipeline-created associations (auto-start, tasks API) write their own task_run
+            # artefact at creation, so only new free-form links land here.
+            try:
+                append_task_run_artefact(
+                    team_id=self.team.id,
+                    report_id=str(report_id),
+                    product=request.validated_data.get("product") or "tasks",
+                    type=request.validated_data.get("type") or "agent_run",
+                    task_id=str(task_id),
+                )
+            except (ArtefactContentValidationError, PydanticValidationError) as e:
+                # Invalid product/type identifiers — surface as a 400 rather than a broken link.
+                link.delete()
+                return Response(
+                    {"error": f"invalid task_run product/type: {e}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         return Response(
             SignalReportTaskSerializer(link).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,

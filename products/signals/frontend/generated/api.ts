@@ -362,7 +362,7 @@ export const getSignalsReportTasksCreateUrl = (projectId: string, reportId: stri
 }
 
 /**
- * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header).
+ * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` artefact to the report's activity log so the link is visible in the work log.
  * @summary Associate a task with a report
  */
 export const signalsReportTasksCreate = async (
