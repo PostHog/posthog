@@ -328,6 +328,17 @@ class TestValidateAlertConfig:
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
 
+    def test_detector_config_rejected_for_non_trends_insight(self) -> None:
+        with pytest.raises(ValueError, match="Anomaly detection alerts are only supported for trends insights"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition(),
+                _hogql_config(),
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
+
     def test_skips_threshold_bounds_when_not_required(self) -> None:
         validate_alert_config(
             _base_query(),

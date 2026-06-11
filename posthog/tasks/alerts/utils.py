@@ -126,6 +126,11 @@ def validate_alert_config(
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
 
+    # The anomaly detector only has a trends extractor; a non-trends detector alert would
+    # raise NotImplementedError at evaluation time, so reject it at configuration time.
+    if detector_config is not None and kind != NodeKind.TRENDS_QUERY:
+        raise ValueError("Anomaly detection alerts are only supported for trends insights")
+
     if config_type == "HogQLAlertConfig":
         # SQL insights own their time window; there is no series_index or ongoing-interval concept,
         # so only the query kind, condition/threshold compatibility, and bounds are validated.
