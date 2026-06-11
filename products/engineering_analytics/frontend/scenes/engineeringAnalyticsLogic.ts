@@ -6,9 +6,11 @@ import { dayjs } from 'lib/dayjs'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
+import type { PRLifecycleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
@@ -64,6 +66,10 @@ export interface WorkflowHealthRow {
     p50Seconds: number | null
     p95Seconds: number | null
     lastFailureAt: string | null
+}
+
+export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
+    return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
 
 export interface PullRequestFilters {
@@ -144,7 +150,34 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         refresh: true,
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
+        // Keyed by prKeyOf(row); null marks a failed load so the panel can offer a retry.
+        lifecycles: [
+            {} as Record<string, PRLifecycleApi | null>,
+            {
+                loadLifecycle: async ({
+                    row,
+                    force = false,
+                }: {
+                    row: PullRequestRow
+                    force?: boolean
+                }): Promise<Record<string, PRLifecycleApi | null>> => {
+                    const key = prKeyOf(row)
+                    if (!force && values.lifecycles[key] !== undefined) {
+                        return values.lifecycles
+                    }
+                    try {
+                        const lifecycle = await engineeringAnalyticsPrLifecycle(projectId(), {
+                            pr_number: row.number,
+                            repo: `${row.repoOwner}/${row.repoName}`,
+                        })
+                        return { ...values.lifecycles, [key]: lifecycle }
+                    } catch {
+                        return { ...values.lifecycles, [key]: null }
+                    }
+                },
+            },
+        ],
         cards: [
             null as CardsData | null,
             {
@@ -233,6 +266,23 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                 setStuckOnly: (_, { stuckOnly }) => stuckOnly,
                 setStateFilter: () => false,
                 resetFilters: () => DEFAULT_FILTERS.stuckOnly,
+            },
+        ],
+        // Per-PR loading state: the shared lifecyclesLoading flag can't tell rows apart
+        // when several are expanded at once.
+        lifecycleLoadingKeys: [
+            {} as Record<string, true>,
+            {
+                loadLifecycle: (state, { row }) => ({ ...state, [prKeyOf(row)]: true }),
+                loadLifecycleSuccess: (state, { lifecycles }) => {
+                    const next: Record<string, true> = {}
+                    for (const key of Object.keys(state)) {
+                        if (lifecycles[key] === undefined) {
+                            next[key] = true
+                        }
+                    }
+                    return next
+                },
             },
         ],
         // The endpoints 400 when the team has no GitHub warehouse source connected.

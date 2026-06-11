@@ -17,6 +17,7 @@ import { humanFriendlyDuration, humanFriendlyNumber, pluralize } from 'lib/utils
 
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { PRLifecyclePanel } from '../components/PRLifecyclePanel'
 import { StatCard } from '../components/StatCard'
 import { CIStatusFilter, PRStateFilter, PullRequestRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
@@ -42,8 +43,16 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         hasActiveFilters,
         activeCard,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
-        useActions(engineeringAnalyticsLogic)
+    const {
+        setStateFilter,
+        setAuthor,
+        setRepo,
+        setCiStatusFilter,
+        setSearch,
+        resetFilters,
+        applyCardFilter,
+        loadLifecycle,
+    } = useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
         return <ConnectGitHubSource />
@@ -207,6 +216,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 dataSource={filteredPullRequests}
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}#${row.number}`}
                 loading={pullRequestsLoading}
+                expandable={{
+                    expandedRowRender: (row) => <PRLifecyclePanel row={row} />,
+                    onRowExpand: (row) => loadLifecycle({ row }),
+                    noIndent: true,
+                }}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
                 emptyState={
