@@ -628,7 +628,9 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     if not memberships_to_email:
         return
 
-    today = datetime.date.today().strftime("%Y-%m-%d")
+    # UTC date, not date.today() — the daily catch-up cron is anchored to this key
+    # resetting at midnight UTC, and date.today() follows the OS timezone.
+    today = timezone.now().date().strftime("%Y-%m-%d")
     campaign_key = f"external_data_failure_digest_{team_id}_{today}"
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
