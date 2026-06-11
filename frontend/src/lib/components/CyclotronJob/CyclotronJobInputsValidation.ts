@@ -77,6 +77,9 @@ const detectInputWarning = (
     if (!input || input.secret) {
         return
     }
+    if (inputSchema.templating === false) {
+        return
+    }
     const language = input.templating ?? 'hog'
 
     if (['string', 'json'].includes(inputSchema.type)) {
