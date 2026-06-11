@@ -282,8 +282,10 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
-        for type in node.types:
-            self.visit(type)
+        for select_type in node.types:
+            self.visit(select_type)
+        for column_type in node.columns.values():
+            self.visit(column_type)
 
     def visit_table_type(self, node: ast.TableType):
         pass
@@ -358,6 +360,13 @@ class TraversingVisitor(Visitor[None]):
     def visit_tuple_type(self, node: ast.TupleType):
         for expr in node.item_types:
             self.visit(expr)
+
+    def visit_aggregate_state_type(self, node: ast.AggregateStateType):
+        self.visit(node.wrapped_type)
+
+    def visit_map_type(self, node: ast.MapType):
+        self.visit(node.key_type)
+        self.visit(node.value_type)
 
     def visit_date_type(self, node: ast.DateType):
         pass

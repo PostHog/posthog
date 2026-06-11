@@ -24,8 +24,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
 from posthog.models.scoping import with_team_scope
+from posthog.models.team.team import Team
 from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
@@ -1758,6 +1760,28 @@ def search_knowledge(
         )
         for c in ordered
     ]
+
+
+def search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """
+    Sync orchestration of hybrid BK search: embed the query, then call
+    ``search_knowledge``. Falls back to FTS-only on any embedding failure.
+
+    Used by the DRF search endpoint (sync view). The async PHAI tool path
+    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
+    as the common layer, not this wrapper.
+    """
+    embedding: list[float] | None = None
+    try:
+        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
 
 
 # ---------------------------------------------------------------------------

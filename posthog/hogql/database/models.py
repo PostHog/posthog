@@ -105,6 +105,7 @@ class StructDatabaseField(DatabaseField):
         return TupleType(
             nullable=self.is_nullable(),
             item_types=[field.get_constant_type() for field in self.fields.values()],
+            field_names=list(self.fields.keys()),
         )
 
 
@@ -120,9 +121,9 @@ class StringArrayDatabaseField(DatabaseField):
 
 class FloatArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import FloatType
+        from posthog.hogql.ast import ArrayType, FloatType
 
-        return FloatType(nullable=self.is_nullable())
+        return ArrayType(nullable=self.is_nullable(), item_type=FloatType(nullable=False))
 
     def default_value(self) -> Any:
         return ""
