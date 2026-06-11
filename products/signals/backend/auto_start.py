@@ -27,7 +27,13 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
-from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, aappend_task_run_artefact
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    ahas_signals_task_run,
+    append_task_run_artefact,
+    has_signals_task_run,
+)
 from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
@@ -93,23 +99,24 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
 ) -> Task | None:
-    """Create the implementation task + its `SignalReportTask` link, serialized per report.
+    """Create the implementation task, its association, and its `task_run` artefact, serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
     the agentic pipeline, and custom agents — so two evaluations can race. A bare check-then-create
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
-    inside the lock makes the decision atomic: the second evaluation blocks, then sees the link row
-    and returns ``None``. Returns the created ``Task``, or ``None`` if one already exists / the
-    report is gone.
+    inside the lock makes the decision atomic: the second evaluation blocks, then sees the
+    implementation `task_run` artefact (written in the same transaction as the task) and returns
+    ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report is gone.
     """
     with transaction.atomic():
         if SignalReport.objects.select_for_update().filter(id=report_id).first() is None:
             return None
-        already_started = SignalReportTask.objects.filter(
-            team_id=team_id, report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-        ).exists()
-        if already_started:
+        # "Implementation already started" is derived from the report's task_run artefacts —
+        # the association rows are unlabelled, so they can't distinguish research from
+        # implementation. This pipeline (and the manual start-task API) is the only writer of
+        # signals/implementation task_run artefacts, always in the same transaction as the task.
+        if has_signals_task_run(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION):
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
         task = Task.create_and_run(
@@ -121,14 +128,26 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
-            posthog_mcp_scopes="read_only",
+            posthog_mcp_scopes="signals_report",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
         )
         SignalReportTask.objects.create(
             team_id=team_id,
             report_id=report_id,
             task=task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        task_run = task.runs.order_by("-created_at").first()
+        if task_run is None:
+            raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
+        # Written inside the lock so the existence check above and this insert are serialized —
+        # the artefact is the idempotency marker, so it must be visible before the lock releases.
+        append_task_run_artefact(
+            team_id=team_id,
+            report_id=report_id,
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
         )
         return task
 
@@ -207,12 +226,13 @@ async def maybe_autostart_implementation_task(
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
-    Idempotent: skipped if an IMPLEMENTATION task already exists for the report,
-    if the report is not immediately actionable, if it's already addressed, if
-    priority is missing, if there are no suggested reviewers, or if no reviewer's
-    autonomy threshold is met. The "already exists" check is enforced atomically
-    under a row lock in `_create_implementation_task_if_absent`, so concurrent
-    evaluations (reviewer-edit hook, pipeline, custom agent) can't double-start.
+    Idempotent: skipped if an implementation task already started for the report
+    (derived from its `task_run` artefacts), if the report is not immediately
+    actionable, if it's already addressed, if priority is missing, if there are no
+    suggested reviewers, or if no reviewer's autonomy threshold is met. The
+    "already started" check is enforced atomically under a row lock in
+    `_create_implementation_task_if_absent`, so concurrent evaluations
+    (reviewer-edit hook, pipeline, custom agent) can't double-start.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -221,9 +241,7 @@ async def maybe_autostart_implementation_task(
     """
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = await SignalReportTask.objects.filter(
-        team_id=team_id, report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-    ).aexists()
+    task_exists = await ahas_signals_task_run(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION)
     if (
         actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         or actionability.already_addressed
@@ -260,18 +278,6 @@ async def maybe_autostart_implementation_task(
     if task is None:
         # Another evaluation won the race and already created the implementation task.
         return
-    task_run = await task.runs.order_by("-created_at").afirst()
-    if task_run is None:
-        raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
-
-    await aappend_task_run_artefact(
-        team_id=team_id,
-        report_id=report_id,
-        product=SIGNALS_PRODUCT,
-        type=SignalReportTask.Relationship.IMPLEMENTATION,
-        task_id=str(task.id),
-        run_id=str(task_run.id),
-    )
 
 
 async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:

@@ -7,7 +7,12 @@ import logging
 
 from django.db import transaction
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    InvalidStatusTransition,
+    SignalReport,
+    SignalReportArtefact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +44,12 @@ def suppress_report_from_slack(team_id: int, report_id: str, *, slack_user_id: s
             return False
 
         report.save(update_fields=updated_fields)
-        SignalReportArtefact.objects.create(
+        # System-attributed: the click came from a Slack identity, which doesn't map to a
+        # PostHog user here — the slack_user_id in the content is the human-readable trace.
+        SignalReportArtefact.append_dismissal(
             team_id=team_id,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            report_id=str(report.id),
             content=json.dumps({"reason": "slack_dismiss", "note": None, "slack_user_id": slack_user_id}),
+            attribution=ArtefactAttribution.system(),
         )
     return True

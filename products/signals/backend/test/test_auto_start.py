@@ -14,7 +14,8 @@ from products.signals.backend.auto_start import (
 )
 from products.signals.backend.models import SignalReport, SignalReportTask, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import Priority
-from products.tasks.backend.models import Task
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
+from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest.fixture
@@ -76,13 +77,15 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     )
 
     def _fake_create_and_run(**kwargs):
-        return Task.objects.create(
+        task = Task.objects.create(
             team=team,
             title=kwargs["title"],
             description=kwargs["description"],
             created_by=user,
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
+        TaskRun.objects.create(task=task, team=team)
+        return task
 
     kwargs = {
         "team_id": team.id,
@@ -100,9 +103,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert first is not None
     assert second is None
     assert mock_create.call_count == 1
-    assert (
-        SignalReportTask.objects.filter(
-            report=report, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-        ).count()
-        == 1
-    )
+    # One (unlabelled) association, and one implementation task_run artefact — the artefact is
+    # both the work-log entry and the idempotency marker the second evaluation observed.
+    assert SignalReportTask.objects.filter(report=report).count() == 1
+    assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(first.id)]

@@ -2,19 +2,22 @@
 
 from django.db.models.fields.json import KeyTextTransform
 
-from products.signals.backend.models import SignalReportTask
 from products.tasks.backend.models import TaskRun
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL from the latest implementation task run for each report, when available."""
+    """PR URL from the latest task run with one, across each report's associated tasks.
+
+    Associations are unlabelled (a task's purpose is derived from artefacts), so this is simply
+    the newest PR produced by any task working on the report — matching
+    `_annotate_implementation_pr_url` on the report viewset.
+    """
     if not report_ids:
         return {}
 
     latest_runs = (
         TaskRun.objects.filter(
             task__signal_report_tasks__report_id__in=report_ids,
-            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
             output__pr_url__isnull=False,
         )
         .exclude(output__pr_url="")

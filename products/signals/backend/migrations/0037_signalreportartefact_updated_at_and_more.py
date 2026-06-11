@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                     ("code_reference", "Code Reference"),
                     ("code_diff", "Code Diff"),
                     ("line_reference", "Line Reference"),
-                    ("pushed_branch", "Pushed Branch"),
+                    ("commit", "Commit"),
                     ("task_run", "Task Run"),
                     ("note", "Note"),
                 ],

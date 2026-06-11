@@ -12,7 +12,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.tasks.backend.models import Task
 
 
 def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> None:
@@ -457,7 +458,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
             ("code_diff", SignalReportArtefact.ArtefactType.CODE_DIFF),
             ("line_reference", SignalReportArtefact.ArtefactType.LINE_REFERENCE),
-            ("pushed_branch", SignalReportArtefact.ArtefactType.PUSHED_BRANCH),
+            ("commit", SignalReportArtefact.ArtefactType.COMMIT),
             ("task_run", SignalReportArtefact.ArtefactType.TASK_RUN),
             ("note", SignalReportArtefact.ArtefactType.NOTE),
         ]
@@ -579,11 +580,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert str(report.id) in ids
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
-        # Log content is stored as arbitrary JSON; a non-object pushed_branch payload must not 500.
+        # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()
         artefact = self._create_artefact(
             report,
-            artefact_type=SignalReportArtefact.ArtefactType.PUSHED_BRANCH,
+            artefact_type=SignalReportArtefact.ArtefactType.COMMIT,
             content=[1, 2, 3],
         )
 
@@ -648,7 +649,10 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             ("code_reference", _CODE_REFERENCE_CONTENT),
             ("code_diff", {"file_path": "a.py", "diff": "@@ -1 +1 @@", "relevance_note": "x"}),
             ("line_reference", {"file_path": "a.py", "line": 3, "note": "here"}),
-            ("pushed_branch", {"repository": "PostHog/posthog", "branch": "fix/foo", "base_branch": "master"}),
+            (
+                "commit",
+                {"repository": "PostHog/posthog", "branch": "fix/foo", "commit_sha": "abc123f", "message": "fix"},
+            ),
             ("task_run", {"task_id": "abc", "product": "signals", "type": "research"}),
             ("note", {"note": "a free-form note"}),
         ]
@@ -750,6 +754,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report_id=str(report.id),
             type=SignalReportArtefact.ArtefactType.NOTE,
             content=json.dumps({"note": "before"}),
+            attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
         response = self.client.patch(
@@ -790,6 +795,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report_id=str(other_report.id),
             type=SignalReportArtefact.ArtefactType.NOTE,
             content=json.dumps({"note": "x"}),
+            attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
         response = self.client.patch(
@@ -808,6 +814,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report_id=str(report.id),
             type=SignalReportArtefact.ArtefactType.CODE_DIFF,
             content=json.dumps({"file_path": "a.py", "diff": "d", "relevance_note": "r"}),
+            attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
@@ -835,6 +842,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report_id=str(other_report.id),
             type=SignalReportArtefact.ArtefactType.NOTE,
             content=json.dumps({"note": "x"}),
+            attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
         response = self.client.delete(self._detail_url(str(other_report.id), str(artefact.id)))
@@ -849,3 +857,232 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestSignalReportArtefactAttribution(APIBaseTest):
+    """Attribution of API writes: X-PostHog-Task-Id header → task, otherwise the requesting user."""
+
+    def _list_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_report(self, team: Team | None = None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_task(self, team: Team | None = None) -> Task:
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _post_note(self, report: SignalReport, **extra) -> object:
+        return self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "hello"}}),
+            content_type="application/json",
+            **extra,
+        )
+
+    def test_post_without_header_attributes_to_user(self):
+        report = self._create_report()
+        response = self._post_note(report)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        artefact = SignalReportArtefact.objects.get(id=response.json()["id"])
+        assert artefact.created_by_id == self.user.id
+        assert artefact.task_id is None
+        assert response.json()["task_id"] is None
+
+    def test_post_with_header_attributes_to_task(self):
+        report = self._create_report()
+        task = self._create_task()
+        response = self._post_note(report, headers={"X-PostHog-Task-Id": str(task.id)})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        artefact = SignalReportArtefact.objects.get(id=response.json()["id"])
+        assert str(artefact.task_id) == str(task.id)
+        assert artefact.created_by_id is None
+        assert response.json()["task_id"] == str(task.id)
+
+    def test_post_with_foreign_team_task_header_returns_400(self):
+        report = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        foreign_task = self._create_task(team=other_team)
+        response = self._post_note(report, headers={"X-PostHog-Task-Id": str(foreign_task.id)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    @parameterized.expand([("not-a-uuid",), ("0000",)])
+    def test_post_with_malformed_task_header_returns_400(self, header_value):
+        report = self._create_report()
+        response = self._post_note(report, headers={"X-PostHog-Task-Id": header_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_post_with_unknown_task_header_returns_400(self):
+        report = self._create_report()
+        response = self._post_note(report, headers={"X-PostHog-Task-Id": str(uuid.uuid4())})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_exposes_created_by_and_task_id(self):
+        report = self._create_report()
+        assert self._post_note(report).status_code == status.HTTP_201_CREATED
+        task = self._create_task()
+        assert (
+            self._post_note(report, headers={"X-PostHog-Task-Id": str(task.id)}).status_code == status.HTTP_201_CREATED
+        )
+
+        response = self.client.get(self._list_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        by_task = {row["task_id"]: row for row in response.json()["results"]}
+        user_row = by_task[None]
+        task_row = by_task[str(task.id)]
+        assert user_row["created_by"]["id"] == self.user.id
+        assert task_row["created_by"] is None
+
+    def test_dismissal_via_state_action_is_attributed(self):
+        report = self._create_report()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/state/",
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "not_a_bug"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert dismissal.created_by_id == self.user.id
+
+    def test_post_rejects_content_not_matching_type_schema(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "commit", "content": {"repository": "a/b"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_rejects_content_not_matching_type_schema(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content={"note": "before"},
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        response = self.client.patch(
+            f"{self._list_url(str(report.id))}{artefact.id}/",
+            data=json.dumps({"content": {"note": "   "}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content) == {"note": "before"}
+
+
+_COMMIT_CONTENT = {
+    "repository": "PostHog/posthog",
+    "branch": "posthog-code/fix-foo",
+    "commit_sha": "abc123f",
+    "message": "fix: foo",
+}
+
+
+class TestSignalReportCommitDiff(APIBaseTest):
+    """The commit artefact `diff` action — status-code contract the UI relies on."""
+
+    def _diff_url(self, report_id: str, artefact_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/{artefact_id}/diff/"
+
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_commit_artefact(self, report: SignalReport, content: dict | list | None = None) -> SignalReportArtefact:
+        return SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.COMMIT,
+            content=json.dumps(content if content is not None else _COMMIT_CONTENT),
+        )
+
+    def test_diff_rejects_non_commit_artefact(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "x"}),
+        )
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "commit artefacts" in response.json()["error"]
+
+    @parameterized.expand(
+        [
+            ("missing_repository", {"branch": "b", "commit_sha": "abc123f", "message": "m"}),
+            ("missing_sha", {"repository": "PostHog/posthog", "branch": "b", "message": "m"}),
+        ]
+    )
+    def test_diff_rejects_incomplete_content(self, _name, content):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report, content)
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_diff_validates_refs_before_integration_lookup(self):
+        # A crafted repository must be rejected before it can reach the GitHub access check.
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report, {**_COMMIT_CONTENT, "repository": "PostHog/../evil?x="})
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as mock_lookup:
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_lookup.assert_not_called()
+
+    def test_diff_returns_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _mock_github(self, result: dict):
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_commit_diff.return_value = result
+        return github
+
+    def test_diff_success_returns_diff_and_truncated(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._mock_github({"success": True, "diff": "diff --git a b", "truncated": False})
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"diff": "diff --git a b", "truncated": False}
+
+    def test_diff_maps_upstream_404(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_diff_maps_upstream_failure_to_502(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._mock_github({"success": False, "error": "boom", "status_code": 500})
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY

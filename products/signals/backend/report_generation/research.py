@@ -3,10 +3,20 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
-from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
+
+# Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
+# persisted as artefacts); re-exported here because this module is where research callers and
+# prompts historically import them from.
+from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+    SignalFinding,
+)
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -15,112 +25,23 @@ from pydantic import BaseModel, Field, field_validator
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
 
-
-class ActionabilityChoice(str, Enum):
-    IMMEDIATELY_ACTIONABLE = "immediately_actionable"
-    REQUIRES_HUMAN_INPUT = "requires_human_input"
-    NOT_ACTIONABLE = "not_actionable"
-
-
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
-
-
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "ActionabilityAssessment",
+    "ActionabilityChoice",
+    "Priority",
+    "PriorityAssessment",
+    "ReportPresentationOutput",
+    "ReportResearchOutput",
+    "SignalFinding",
+    "run_multi_turn_research",
+]
+
 # TODO: Signals deduplication step before the research
-
-
-class SignalFinding(BaseModel):
-    signal_id: str = Field(description="The signal_id from the input signal list")
-    relevant_code_paths: list[str] = Field(
-        description=(
-            "File paths in the codebase relevant to this signal, ordered from most critical first. "
-            "The first path should be the highest-impact file (e.g. the buggy module or core feature file). "
-            "Then include supporting paths."
-        ),
-    )
-    relevant_commit_hashes: dict[str, str] = Field(
-        default_factory=dict,
-        json_schema_extra={"minProperties": 1},
-        description=(
-            "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
-            "Values are short explanations of WHY each commit is relevant. "
-            "Use `git blame` on the most critical code paths to identify commits that caused, or are most closely related to, "
-            "the issue described by this report. Prioritize causative commits "
-            "(e.g. the commit that introduced a bug) over general authorship commits. Include 1-5 commits."
-        ),
-    )
-    data_queried: str = Field(
-        description=(
-            "What PostHog MCP queries you ran (e.g. execute-sql, query-run, insight-query) "
-            "and what the results showed. If no relevant queries could be run, explain why."
-        ),
-    )
-    verified: bool = Field(
-        description=(
-            "Whether you could confirm the signal's claim by finding supporting evidence "
-            "in code or data. False if the claim couldn't be verified either way."
-        ),
-    )
-
-
-class ActionabilityAssessment(BaseModel):
-    explanation: str = Field(
-        description=(
-            "2-3 sentence evidence-grounded explanation of your actionability assessment. "
-            "Reference specific code paths and data points from your research."
-        ),
-    )
-    actionability: ActionabilityChoice = Field(
-        description="Overall actionability assessment. Must be one of the allowed enum values — do not invent new ones.",
-    )
-    already_addressed: bool = Field(
-        description=(
-            "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
-        ),
-    )
-
-    @field_validator("explanation")
-    @classmethod
-    def explanation_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Explanation must not be empty")
-        return v
-
-
-class PriorityAssessment(BaseModel):
-    explanation: str = Field(
-        description=(
-            "2-3 sentence justification for the priority level. "
-            "Reference quantified user impact, error frequency, or scope of affected code paths."
-        ),
-    )
-    priority: Priority = Field(description="Priority (P0-P4)")
-    dollar_value: float | None = Field(
-        default=None,
-        description=(
-            "Peak estimate (USD) of the real dollar value of merging the fix/change this report leads to. "
-            "Reason internally about a plausible value range first; set this to the most likely point "
-            "within that range (the peak of your belief distribution). Should align with the assigned "
-            "priority. Nullable for backward compatibility only — prefer a best-effort peak over null."
-        ),
-    )
-
-    @field_validator("explanation")
-    @classmethod
-    def explanation_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Explanation must not be empty")
-        return v
 
 
 class ReportPresentationOutput(BaseModel):
@@ -169,6 +90,11 @@ class ReportResearchOutput(BaseModel):
     actionability: ActionabilityAssessment = Field(description="Actionability assessment.")
     priority: PriorityAssessment | None = Field(
         default=None, description="Priority assessment. None when not actionable."
+    )
+    research_task_id: str | None = Field(
+        default=None,
+        description="UUID of the sandbox task that performed the research; artefacts persisted from "
+        "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
     )
 
 
@@ -578,22 +504,25 @@ async def run_multi_turn_research(
     # - otherwise an orphaned sandbox can keep running until the workflow inactivity timeout
 
     try:
-        # Record the research task relationship immediately after task creation
+        # Record the research task association immediately after task creation
         if signal_report_id:
             from products.signals.backend.models import SignalReportTask
-            from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, aappend_task_run_artefact
+            from products.signals.backend.task_run_artefacts import (
+                SIGNALS_PRODUCT,
+                TASK_RUN_TYPE_RESEARCH,
+                aappend_task_run_artefact,
+            )
 
             await SignalReportTask.objects.acreate(
                 team_id=context.team_id,
                 report_id=signal_report_id,
                 task_id=str(session.task.id),
-                relationship=SignalReportTask.Relationship.RESEARCH,
             )
             await aappend_task_run_artefact(
                 team_id=context.team_id,
                 report_id=signal_report_id,
                 product=SIGNALS_PRODUCT,
-                type=SignalReportTask.Relationship.RESEARCH,
+                type=TASK_RUN_TYPE_RESEARCH,
                 task_id=str(session.task.id),
             )
 
@@ -682,4 +611,5 @@ async def run_multi_turn_research(
         findings=findings,
         actionability=actionability_result,
         priority=priority_result,
+        research_task_id=str(session.task.id),
     )

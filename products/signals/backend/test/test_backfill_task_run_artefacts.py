@@ -5,6 +5,11 @@ from posthog.test.base import BaseTest
 from django.core.management import call_command
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.task_run_artefacts import (
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_REPO_SELECTION,
+    TASK_RUN_TYPE_RESEARCH,
+)
 from products.tasks.backend.models import Task
 
 
@@ -40,9 +45,9 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
     def test_backfills_and_maps_relationships(self):
         report = self._report()
-        research = self._link(report, SignalReportTask.Relationship.RESEARCH)
-        implementation = self._link(report, SignalReportTask.Relationship.IMPLEMENTATION)
-        repo_selection = self._link(report, SignalReportTask.Relationship.REPO_SELECTION)
+        research = self._link(report, TASK_RUN_TYPE_RESEARCH)
+        implementation = self._link(report, TASK_RUN_TYPE_IMPLEMENTATION)
+        repo_selection = self._link(report, TASK_RUN_TYPE_REPO_SELECTION)
 
         call_command("backfill_task_run_artefacts")
 
@@ -54,7 +59,7 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
     def test_backdates_created_at_to_task_run(self):
         report = self._report()
-        link = self._link(report, SignalReportTask.Relationship.RESEARCH)
+        link = self._link(report, TASK_RUN_TYPE_RESEARCH)
 
         call_command("backfill_task_run_artefacts")
 
@@ -63,7 +68,7 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
     def test_is_idempotent(self):
         report = self._report()
-        self._link(report, SignalReportTask.Relationship.RESEARCH)
+        self._link(report, TASK_RUN_TYPE_RESEARCH)
 
         call_command("backfill_task_run_artefacts")
         call_command("backfill_task_run_artefacts")
@@ -72,7 +77,7 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
     def test_dry_run_writes_nothing(self):
         report = self._report()
-        self._link(report, SignalReportTask.Relationship.RESEARCH)
+        self._link(report, TASK_RUN_TYPE_RESEARCH)
 
         call_command("backfill_task_run_artefacts", "--dry-run")
 
@@ -80,10 +85,29 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
     def test_team_id_scopes_backfill(self):
         report = self._report()
-        self._link(report, SignalReportTask.Relationship.RESEARCH)
+        self._link(report, TASK_RUN_TYPE_RESEARCH)
 
         other_team_command_team_id = self.team.id + 99999
         call_command("backfill_task_run_artefacts", "--team-id", str(other_team_command_team_id))
 
         # Nothing for our team's report, since we scoped to a different (non-existent) team.
         assert self._task_run_artefacts(report) == []
+
+    def test_skips_rows_without_legacy_relationship(self):
+        # Post-labelling-removal rows carry no relationship — their task_run artefact was written
+        # at creation time, so the backfill must leave them alone.
+        report = self._report()
+        SignalReportTask.objects.create(team=self.team, report=report, task=self._task())
+
+        call_command("backfill_task_run_artefacts")
+
+        assert self._task_run_artefacts(report) == []
+
+    def test_backfilled_artefacts_are_attributed_to_the_task(self):
+        report = self._report()
+        link = self._link(report, TASK_RUN_TYPE_RESEARCH)
+
+        call_command("backfill_task_run_artefacts")
+
+        artefact = self._task_run_artefacts(report)[0]
+        assert str(artefact.task_id) == str(link.task_id)

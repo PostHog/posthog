@@ -1,175 +1,129 @@
-# Plan: report artefacts as a living "log of work done"
+# Signal report artefacts: an attributed, validated "log of work done"
 
-> Status: planning doc for the work that extends this PR. Folds into
+> Status: design doc for the artefact-log work shipped in this PR. Folds into
 > `products/signals/ARCHITECTURE.md` (and is removed) once shipped.
 
 ## Why
 
-Today a `SignalReportArtefact` is a **write-once, replaced snapshot**: the agentic
-pipeline deletes and re-creates its artefact types on every run, and nothing else
-writes them. We want artefacts to become an **append-but-deletable, mutable log of
-the work done on a report** — so a signal report reads as a living document: the
-evidence the research agent gathered, the diffs and branches it produced, the task
-runs that executed, and free-form notes, all accumulating over time.
+A `SignalReportArtefact` used to be a write-once snapshot owned by the pipeline. Artefacts are
+now an **append-only log of the work done on a report** — so a signal report reads as a living
+document: the evidence the research agent gathered, the commits it pushed, the task runs that
+executed, and free-form notes, accumulating over time. Three properties hold for every new row:
 
-This is a fairly routine data-modeling change plus some handling of legacy data.
-**Simplicity is the guiding principle — do not over-engineer.** All of the work below
-ships in a single PR (this one). The UI that renders the timeline lives in the
-PostHog Code app and is a separate, later change.
+1. **Validated** — content matches a per-type schema, enforced on the write path.
+2. **Attributed** — every write declares who produced it: a user, a task, or (explicitly) the system.
+3. **Unlabelled associations** — tasks are simply _associated_ with reports; a task's purpose is
+   derived from the artefacts it produced, not stored on the link.
 
-## Where we are today
+## Data model
 
-- `SignalReportArtefact` (`products/signals/backend/models.py`): `team`, `report`
-  (FK, `related_name="artefacts"`), `type` (`CharField` choices), `content`
-  (`TextField` holding JSON), `created_at`. No `updated_at` — write-once.
-- The agentic pipeline (`temporal/agentic/report.py`) deletes + re-creates its five
-  artefact types every run (`_replace_agentic_report_artefacts`); on re-promotion
-  `_load_previous_research()` reconstructs prior research by reading those rows back.
-- No agent writes artefacts directly — agents return structured output and orchestrator
-  Python persists the rows afterward.
-- API: `SignalReportArtefactViewSet` (`views.py`) is read-only except `PUT`, which is
-  allow-listed to `suggested_reviewers` **only**. It declares `scope_object = "task"`,
-  so the write requires `task:write` — and `task:write` is already in `INTERNAL_SCOPES`
-  (`posthog/temporal/oauth.py`), so every agent token (research / implementation /
-  custom, running the `read_only` preset) already carries it.
-- `SignalReportTask` (`models.py`) joins a report to a `tasks.Task` and powers the
-  implementation-PR-url annotation on the report serializer.
-
-## Design
+`SignalReportArtefact` (`models.py`): `team`, `report`, `type`, `content` (JSON text),
+`created_at`, `updated_at` (nullable, `auto_now`), and the attribution columns
+`created_by` (FK `posthog.User`, `SET_NULL`) and `task` (FK `tasks.Task`, `SET_NULL`).
+Legacy rows carry NULLs in both attribution columns.
 
 ### Two kinds of artefact: `status` and `log`
 
-- **`status` artefacts are singletons** — at most one per `(report, type)`. They
-  represent the report's current state. Existing status types: `safety_judgment`,
+Everything is append-only; the sets classify what an entry _means_:
+
+- **`status` artefacts** describe the report's current state — `safety_judgment`,
   `actionability_judgment`, `priority_judgment`, `repo_selection`, `suggested_reviewers`.
-- **`log` artefacts are a log** — many per report, time-ordered, append-but-deletable.
-  New log types: `code_reference`, `code_diff`, `line_reference`, `pushed_branch`,
-  `task_run`, `note`.
-- `signal_finding` is N-per-report and stays owned by the existing pipeline replace
-  logic. It predates this split and is **not** reclassified here.
+  Each (re)assessment appends a row; the current status is the latest row of that type.
+- **`log` artefacts** record discrete work — `code_reference`, `code_diff`, `line_reference`,
+  `commit`, `task_run`, `note`. They accumulate and are addressable by UUID (update/delete).
+- `signal_finding` is keyed by `(report, content.signal_id)` (latest per signal wins); `dismissal`
+  entries stack. Both have dedicated appenders.
 
-The split is expressed as two sets on the model (`STATUS_ARTEFACT_TYPES`,
-`LOG_ARTEFACT_TYPES`) with a comment stating the singleton-vs-log contract.
+### Unified content schemas
 
-### Mutability and identity
+`artefact_schemas.py` is the canonical, pydantic-only home of **every** content shape, collected
+in `ARTEFACT_CONTENT_SCHEMAS` (one schema per `ArtefactType`; a test asserts exact coverage).
+`validate_artefact_content(type, content)` is the single write gate — called by the model helpers
+and the API serializers. Validation is a gate, not a rewrite: forward-compatible extra keys are
+preserved. Reads stay legacy-tolerant — old rows are never re-validated.
 
-- Add `updated_at` (`auto_now`, nullable). Artefacts are now mutable.
-- Artefacts are deletable — by agents (via MCP) and deterministically in code.
-- Artefacts are addressed by **UUID**: create returns the new UUID; update and delete
-  address by UUID.
-- Singleton-ness for `status` types is **maintained in the model class**, not via a DB
-  unique constraint (a `signal_finding` is N-per-report, and the pipeline's
-  delete-then-recreate would make a partial-failure unique-constraint state fragile).
+The judgment models (`SignalFinding`, `ActionabilityAssessment`, `PriorityAssessment`) double as
+LLM output schemas; `report_generation/research.py` re-exports them. `RepoSelection` mirrors the
+tasks-product `RepoSelectionResult` (no cross-product import; a parity test guards drift).
 
-### Business logic lives on the model
+### Attribution
 
-The model class is the home for artefact business logic; the viewset and deterministic
-producers stay thin and call into it:
+`ArtefactAttribution` (`models.py`) is a required kw-only argument on every write helper
+(`append_status` / `add_log` / `append_finding` / `append_dismissal`), with exactly three kinds:
+`from_user(user_id)` | `from_task(task_id)` | `system()`. No write site can silently skip it.
 
-- `SignalReportArtefact.upsert_status(*, team_id, report_id, type, content)` — enforce the
-  singleton: update the existing same-type row or create one (and collapse any pre-existing
-  duplicates). Used by the viewset's status path and by deterministic producers — the safety
-  judge (`temporal/report_safety_judge.py`) now upserts its `safety_judgment` through this,
-  which also stops re-promotion from stacking duplicate judgments.
-- `SignalReportArtefact.add_log(*, team_id, report_id, type, content)` — append a log entry.
-- `update_content(content)` — replace an artefact's content in place (bumps `updated_at`).
-  Deletion is a plain `delete()` — no dedicated helper needed.
+| Writer                                                     | Attribution                                                                          |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| API writes (artefact CRUD, reviewers PUT, dismissals)      | the `X-PostHog-Task-Id` header's task when present, else `request.user`              |
+| Agentic research pipeline (findings, judgments, reviewers) | the research sandbox task (`ReportResearchOutput.research_task_id`)                  |
+| Repo selection                                             | the selection sandbox task when one ran (`RepoSelectionResult.task_id`), else system |
+| Custom agents                                              | their `MultiTurnSession` task                                                        |
+| Safety judge, Slack dismissals                             | system                                                                               |
+| `task_run` artefacts                                       | always the task they record (derived in `task_run_artefacts.py`)                     |
 
-Helpers take already-serialized `content` (JSON text); the caller that holds the typed object
-serializes it. **No type→schema registry and no per-type validation dispatch.** The generic
-write endpoint validates only (a) the artefact type is an allowed _log_ type and (b) `content`
-is a JSON object/array, then stores it. The per-type Pydantic schemas in `artefact_schemas.py`
-are the source of truth for _producers_ (deterministic code, the backfill command, and the
-shapes the MCP tool documents) — they are not wired into a server-side dispatch.
+**Deterministic task identity for agents:** sandbox provisioning bakes the agent's task id into
+an `X-PostHog-Task-Id` header on its MCP config (`get_sandbox_ph_mcp_configs`); the MCP server
+forwards it on every API call (`services/mcp/src/lib/request-properties.ts` → `api/client.ts`).
+The LLM never handles its own task id. The header is attribution metadata, not an authorization
+boundary — the token is team-scoped and the named task must belong to the same team.
 
-### Write surface
+### Commits, not branches
 
-- The **viewset** gains programmatic create / update / delete actions. This is the
-  surface the MCP tools wrap (and is independently useful for in-app and deterministic
-  callers).
-- **No new scope or preset.** Reuse `scope_object = "task"` (`task:write`) — the same
-  authorization as the existing `suggested_reviewers` update, already held by agent
-  tokens. The viewset's existing team-scoped `safely_get_queryset` is the access
-  boundary (a foreign artefact UUID 404s; a deleted parent report is unreachable).
-- The existing `suggested_reviewers` `PUT` path is **untouched** (it has bespoke
-  reviewer enrichment); the new actions are additive.
+Agents push exclusively through the `git_signed_commit` tool (raw `git push` is blocked), so the
+agent harness records one `commit` artefact (`{repository, branch, commit_sha, message, note?}`)
+per pushed commit per associated report, automatically, after each successful signed-commit push.
+The artefact viewset's `diff` action renders a commit's unified diff on demand via
+`GitHubIntegration.get_commit_diff` (single-commit GitHub API, `diff` media type, 1 MB cap).
 
-### `task_run` artefacts and `SignalReportTask`
+### Task↔report association (`SignalReportTask`)
 
-- For now, `task_run` artefacts **coexist** with `SignalReportTask`. A management
-  command backfills a `task_run` artefact from each existing `SignalReportTask` row.
-- The `task_run` content carries a `(product, type)` pair following the custom-agent
-  identifier shape: the built-in signals pipeline uses `product="signals"` with `type`
-  in `{research, implementation, repo_selection}`; custom agents supply their own
-  `identifier()` pair (e.g. `("billing", "anomaly_scan")`).
-- Removing `SignalReportTask` _creation_ is deferred to a later PR (we keep reading it
-  until the backfill has run everywhere).
+A plain, unlabelled link (unique per `(report, task)`). The legacy `relationship` column is
+nullable, no longer read or written; the column drop is a follow-up migration. Purpose is derived
+from `task_run` artefacts: the built-in pipeline writes `product="signals"` with `type` in
+`{research, implementation, repo_selection}` (`TASK_RUN_TYPE_*` constants); custom agents supply
+their own `identifier()` pair.
 
-## Artefact content shapes (new types)
+- **Auto-start idempotency** (`auto_start.py`): "implementation already started" :=
+  an implementation `task_run` artefact exists (`has_signals_task_run`), checked and written
+  inside the report-row `select_for_update` transaction so concurrent evaluations can't double-start.
+  The manual "start implementation" path (tasks API with a `signal_report`) writes the same artefact.
+- **`implementation_pr_url`** is the newest PR produced by any associated task's runs.
+- **Free-form association**: `POST /signals/reports/{id}/tasks/` associates a task (body `task_id`,
+  defaulting to the header — "associate me"); idempotent. The reports list accepts `?task_id=` so an
+  agent (or the commit hook) can find the reports a task works against.
 
-| Type             | Content                                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------- |
-| `code_reference` | `{file_path, start_line, end_line, contents, relevance_note}` — a contiguous span (exists)          |
-| `code_diff`      | `{file_path, diff, relevance_note}` — a unified diff for one file (exists)                          |
-| `line_reference` | a single line of code (a point) for tour-style callouts — `{file_path, line, note}`                 |
-| `pushed_branch`  | a pushed remote branch (no PR opened) used to render a full would-be PR diff in the UI              |
-| `task_run`       | reference to a `tasks.Task` run as `{task_id, run_id, product, type}` (e.g. `signals` / `research`) |
-| `note`           | free-form note authored by an agent or by code                                                      |
+## Write surface
 
-Schemas are simple Pydantic models in `products/signals/backend/artefact_schemas.py`, a
-dependency-light module (pydantic only) so the API layer can import it without pulling in the
-report-research / sandbox machinery. `CodeReference` / `CodeDiff` were moved here from
-`report_generation/research.py` so all artefact content schemas live together.
+`SignalReportArtefactViewSet`: POST / PATCH / DELETE for log artefacts (per-type schema
+validation; status types 400), the bespoke `suggested_reviewers` PUT, and the commit `diff`
+action. All gated by `scope_object = "task"` (`task:write`).
 
-## Implementation steps (this PR)
+MCP tools (`products/signals/mcp/tools.yaml`): `inbox-report-artefacts-create` / `-update` /
+`-delete`, `inbox-report-tasks-create`, plus the read tools. Sandbox agents reach the write tools
+via the `signals_report` MCP preset (`posthog/temporal/oauth.py`) — scope-wise identical to
+`read_only`, but `has_write_scopes` reports True so read-only mode doesn't strip the
+`task:write`-gated tools. Used by auto-started implementation tasks, the research sandbox, and
+signal-report runs started from the API.
 
-1. **Model + migration.** Add `updated_at` (nullable, `auto_now`); add the new
-   `ArtefactType` values; add `STATUS_ARTEFACT_TYPES` / `LOG_ARTEFACT_TYPES` with the
-   contract comment; add the `upsert_status` / `add_log` / update / delete helpers. One
-   additive migration: `AddField(updated_at, null=True)` + a state-only
-   `AlterField(type, choices=…)`.
-2. **Content schemas.** Pydantic models for `LineReference`, `PushedBranch`,
-   `TaskRunArtefact` (with `product` / `type` identifier parts), `NoteArtefact`.
-3. **Viewset actions.** `create` (POST, returns UUID), `update` (PATCH by UUID),
-   `delete` (DELETE by UUID) on `SignalReportArtefactViewSet`, reusing
-   `scope_object = "task"`, delegating to the model helpers, with a log-type allow-list
-   (non-allowed types → 400). The `suggested_reviewers` PUT stays as-is.
-4. **MCP tools.** `inbox-report-artefacts-create` / `-update` / `-delete` in
-   `products/signals/mcp/tools.yaml` (scopes `[task:write]`, `readOnly: false`). Run
-   `hogli build:openapi` to regenerate the OpenAPI spec, MCP handlers, and frontend types
-   (not run in the authoring environment — no DB).
-5. **Backfill command.** `backfill_task_run_artefacts` converts every
-   `SignalReportTask` into a `task_run` artefact; idempotent (skips a report that
-   already has a `task_run` referencing that task), with `--dry-run` and `--team-id`.
+## Backfill
 
-### Agent MCP activation (deferred)
-
-The sandbox agents (research / implementation / custom) run the `read_only` MCP preset, so the
-sandbox sends `x-posthog-read-only: true` (`products/tasks/backend/temporal/process_task/utils.py`)
-and the MCP server strips every `readOnly:false` tool — even though their token already carries
-`task:write` via `INTERNAL_SCOPES`. So the new write tools are live for full-scope MCP clients but
-do **not** yet surface to those agents.
-
-Surfacing them to the agents needs `has_write_scopes` to be true for their preset — the same
-mechanism the scout uses. The intended follow-up (no new _scope_ — reuses `task:write`) is a
-dedicated `signals_report` MCP preset mirroring `signals_scout` in `posthog/temporal/oauth.py`
-(`McpScopePreset`, `MCP_SCOPE_PRESETS`, `resolve_scopes`, `has_write_scopes`), with the three agent
-call sites flipped from `"read_only"` to it. Deferred so this PR stays a focused data-model +
-API + tooling change; deterministic code can already write artefacts via the model helpers.
+`backfill_task_run_artefacts` converts legacy `SignalReportTask` rows (which carry the old
+relationship label) into `task_run` artefacts, attributed to their task and backdated to the
+link's `created_at`; idempotent; rows without a legacy label are skipped (their artefact was
+written at creation time).
 
 ## Guardrails
 
-- `_replace_agentic_report_artefacts` must **never** widen its `type__in` to include
-  `log` types — that would wipe agent work on re-promotion. A test asserts
-  `_AGENTIC_ARTEFACT_TYPES ∩ LOG_ARTEFACT_TYPES == ∅`.
-- No `(report, type)` DB unique constraint — singleton-ness lives in the model helper.
-- Reads stay generic (`json.loads`) for back-compat; only the new write path is typed.
-- `updated_at` is nullable to keep the migration a fast, rolling-deploy-safe
-  `ADD COLUMN … NULL`.
+- `_AGENTIC_ARTEFACT_TYPES ∩ LOG_ARTEFACT_TYPES == ∅` (tested) — re-promotion never touches log entries.
+- All writes funnel through `SignalReportArtefact._create_validated` — no unvalidated or
+  unattributed row is constructible via the helpers.
+- Reads stay generic (`json.loads`, tolerant parsing) for legacy rows.
+- Attribution FKs are `SET_NULL`: deleting a user/task degrades attribution rather than
+  destroying the report's work log.
 
 ## Out of scope (future work)
 
-- Removing `SignalReportTask` creation once backfill is complete everywhere.
-- Associating manually-started tasks with existing or new reports.
-- The PostHog Code UI: timeline renderer, `pushed_branch` diff view, and `task_run`
-  log viewer.
+- Dropping the `relationship` column (and the redundant `signals_sig_report_type_idx`) once the
+  rolling deploy completes.
+- Commit artefacts for `git_signed_rewrite` (force-push rewrites).
+- A tool-surface review of everything `task:write` exposes under the `signals_report` preset.

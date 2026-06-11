@@ -3,7 +3,13 @@ import json
 from django.core.management.base import BaseCommand
 
 from products.signals.backend.models import SignalReportArtefact, SignalReportTask
-from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, append_task_run_artefact
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_REPO_SELECTION,
+    TASK_RUN_TYPE_RESEARCH,
+    append_task_run_artefact,
+)
 
 
 class Command(BaseCommand):
@@ -45,18 +51,20 @@ class Command(BaseCommand):
         if team_id is not None:
             report_tasks = report_tasks.filter(team_id=team_id)
 
-        valid_types = set(SignalReportTask.Relationship.values)
+        valid_types = {TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_REPO_SELECTION}
 
         created = 0
         skipped = 0
         for report_task in report_tasks.iterator():
-            # SignalReportTask rows are all signals-pipeline runs: product is `signals`, type is
-            # the relationship (research / implementation / repo_selection).
+            # Legacy SignalReportTask rows are all signals-pipeline runs: product is `signals`,
+            # type is the legacy relationship label (research / implementation / repo_selection).
+            # Rows without one (created after labelling was removed) need no backfill — their
+            # task_run artefact was written at creation time.
             task_type = report_task.relationship
             if task_type not in valid_types:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"Skipping SignalReportTask {report_task.id}: unknown relationship '{task_type}'."
+                        f"Skipping SignalReportTask {report_task.id}: no/unknown legacy relationship '{task_type}'."
                     )
                 )
                 skipped += 1

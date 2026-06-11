@@ -1078,47 +1078,64 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
-    def test_get_branch_diff_rejects_unsafe_repo_and_refs(self):
-        # repository / branch / base_branch flow in from artefact content; a crafted value must not
-        # be able to escape the intended compare endpoint (path traversal / query injection).
+    def test_get_commit_diff_rejects_unsafe_repo_and_sha(self):
+        # repository / sha flow in from artefact content; a crafted value must not be able to
+        # escape the intended commits endpoint (path traversal / query injection).
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         cases = [
-            ("../../../../repos/o/r/contents/x", "main", "main"),
-            ("PostHog/posthog", "../../etc/passwd", "main"),
-            ("PostHog/posthog", "main", "../../../../repos/o/r/contents/x?ref=y#"),
-            ("PostHog/posthog", "feature?x=1", "main"),
+            ("../../../../repos/o/r/contents/x", "abc123f"),
+            ("PostHog/posthog", "../../etc/passwd"),
+            ("PostHog/posthog", "abc123f?ref=y#"),
+            ("PostHog/posthog", "main"),  # a branch name is not a commit SHA
+            ("PostHog/posthog", "abc12"),  # too short
         ]
         with patch.object(github, "_github_api_get") as mock_get:
-            for repository, branch, base_branch in cases:
-                result = github.get_branch_diff(repository, branch, base_branch)
-                assert result["success"] is False, (repository, branch, base_branch)
+            for repository, sha in cases:
+                result = github.get_commit_diff(repository, sha)
+                assert result["success"] is False, (repository, sha)
                 assert result["status_code"] == 400
             mock_get.assert_not_called()
 
-    def test_get_branch_diff_allows_nested_branch_names(self):
+    def test_get_commit_diff_returns_diff(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
         with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
-            result = github.get_branch_diff("PostHog/posthog", "feature/nested-branch", "master")
+            result = github.get_commit_diff("PostHog/posthog", "abc123f")
             assert result == {
                 "success": True,
                 "diff": "diff --git a b",
-                "base_branch": "master",
                 "truncated": False,
             }
             mock_get.assert_called_once()
+            assert "/commits/abc123f" in mock_get.call_args.args[0]
 
-    def test_get_branch_diff_truncates_oversized_diff(self):
-        from posthog.models.integration import _MAX_BRANCH_DIFF_CHARS
+    def test_get_commit_diff_maps_upstream_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_commit_diff("PostHog/posthog", "abc123f")
+        assert result == {"success": False, "error": "Not Found", "status_code": 404}
+
+    def test_get_commit_diff_handles_request_exception(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+            result = github.get_commit_diff("PostHog/posthog", "abc123f")
+        assert result["success"] is False
+        assert result["status_code"] == 502
+
+    def test_get_commit_diff_truncates_oversized_diff(self):
+        from posthog.models.integration import _MAX_DIFF_CHARS
 
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
-        oversized = "x" * (_MAX_BRANCH_DIFF_CHARS + 100)
+        oversized = "x" * (_MAX_DIFF_CHARS + 100)
         mock_response = MagicMock(status_code=200, text=oversized)
         with patch.object(github, "_github_api_get", return_value=mock_response):
-            result = github.get_branch_diff("PostHog/posthog", "feature/huge", "master")
+            result = github.get_commit_diff("PostHog/posthog", "abc123f")
         assert result["success"] is True
         assert result["truncated"] is True
         assert len(result["diff"]) < len(oversized)

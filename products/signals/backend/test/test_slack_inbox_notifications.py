@@ -358,7 +358,6 @@ def _create_implementation_task_with_run(
         team=team,
         report=report,
         task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
     )
     TaskRun.objects.create(
         team=team,

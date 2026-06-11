@@ -26,7 +26,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.models import TaskRun
 
@@ -47,20 +48,17 @@ class InboxNotificationState:
 
 
 def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNotificationState:
-    has_task = SignalReportTask.objects.filter(
-        team_id=team_id,
-        report_id=report_id,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-    ).exists()
-    if not has_task:
+    # Which tasks are implementations is derived from the report's task_run artefacts — the
+    # task↔report association rows are unlabelled.
+    implementation_task_ids = signals_task_ids(report_id=report_id, type=TASK_RUN_TYPE_IMPLEMENTATION)
+    if not implementation_task_ids:
         return InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 
     pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
     latest_run = (
         TaskRun.objects.filter(
-            task__signal_report_tasks__team_id=team_id,
-            task__signal_report_tasks__report_id=report_id,
-            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            task__team_id=team_id,
+            task_id__in=implementation_task_ids,
         )
         .order_by("-created_at", "-id")
         .first()

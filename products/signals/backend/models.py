@@ -1,5 +1,6 @@
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -13,6 +14,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
+
+from products.signals.backend.artefact_schemas import validate_artefact_content
 
 logger = logging.getLogger(__name__)
 
@@ -337,6 +340,44 @@ class SignalEmissionRecord(UUIDModel):
         ]
 
 
+@dataclass(frozen=True)
+class ArtefactAttribution:
+    """Who (or what) produced an artefact — exactly one of a user, a task, or the system.
+
+    Required on every artefact write helper so no write site can silently skip attribution:
+    callers must consciously pick `from_user` / `from_task` / `system()`. System attribution
+    covers pipeline writers with neither in scope (e.g. the safety judge); it stores NULLs,
+    indistinguishable from legacy rows by design.
+    """
+
+    kind: Literal["user", "task", "system"]
+    user_id: int | None = None
+    task_id: str | None = None
+
+    def __post_init__(self) -> None:
+        match self.kind:
+            case "user":
+                valid = self.user_id is not None and self.task_id is None
+            case "task":
+                valid = self.task_id is not None and self.user_id is None
+            case _:
+                valid = self.user_id is None and self.task_id is None
+        if not valid:
+            raise ValueError(f"ArtefactAttribution kind {self.kind!r} does not match its id fields")
+
+    @classmethod
+    def from_user(cls, user_id: int) -> "ArtefactAttribution":
+        return cls(kind="user", user_id=user_id)
+
+    @classmethod
+    def from_task(cls, task_id: str) -> "ArtefactAttribution":
+        return cls(kind="task", task_id=str(task_id))
+
+    @classmethod
+    def system(cls) -> "ArtefactAttribution":
+        return cls(kind="system")
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -350,7 +391,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REFERENCE = "code_reference"
         CODE_DIFF = "code_diff"
         LINE_REFERENCE = "line_reference"
-        PUSHED_BRANCH = "pushed_branch"
+        COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
 
@@ -379,7 +420,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REFERENCE,
             ArtefactType.CODE_DIFF,
             ArtefactType.LINE_REFERENCE,
-            ArtefactType.PUSHED_BRANCH,
+            ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
         }
@@ -393,6 +434,13 @@ class SignalReportArtefact(UUIDModel):
     # Nullable so the migration is a fast, rolling-deploy-safe `ADD COLUMN ... NULL`; `auto_now`
     # populates it on every subsequent save, so existing rows fill in the next time they change.
     updated_at = models.DateTimeField(auto_now=True, null=True)
+    # Attribution: who produced this artefact. Exactly one of (created_by, task) is set on new
+    # rows — enforced at the write helpers via `ArtefactAttribution`, not as a DB constraint,
+    # because legacy rows (and explicit system writes) legitimately carry NULLs in both.
+    # SET_NULL: deleting a user/task degrades attribution to "system/unknown" rather than
+    # destroying the report's work log.
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         indexes = [
@@ -405,19 +453,44 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
+    def _create_validated(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        type: str,
+        content: str | dict | list,
+        attribution: ArtefactAttribution,
+    ) -> "SignalReportArtefact":
+        """Single write funnel: validate content against the type's schema, map attribution to
+        columns, and insert. All public append helpers go through here so no row can be written
+        unvalidated or unattributed. Raises `ArtefactContentValidationError` on schema mismatch.
+        """
+        return cls.objects.create(
+            team_id=team_id,
+            report_id=report_id,
+            type=type,
+            content=validate_artefact_content(type, content),
+            created_by_id=attribution.user_id,
+            task_id=attribution.task_id,
+        )
+
+    @classmethod
     def append_status(
         cls,
         *,
         team_id: int,
         report_id: str,
         type: str,
-        content: str,
+        content: str | dict | list,
+        attribution: ArtefactAttribution,
         reevaluate_autostart: bool = True,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
         Status artefacts are append-only: each (re)assessment creates a new row, and the report's
-        current status is the latest row of that type (by `created_at`). `content` is JSON text.
+        current status is the latest row of that type (by `created_at`). `content` is JSON text or
+        a JSON-serializable object, validated against the type's schema on write.
 
         Appending a `suggested_reviewers` status re-evaluates auto-start on commit (idempotent),
         since changing reviewers can newly satisfy it. Callers that orchestrate auto-start
@@ -426,21 +499,46 @@ class SignalReportArtefact(UUIDModel):
         """
         if type not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type!r} is not a status artefact type")
-        artefact = cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+        artefact = cls._create_validated(
+            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
+        )
         if reevaluate_autostart and type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
 
     @classmethod
-    def append_finding(cls, *, team_id: int, report_id: str, content: str) -> "SignalReportArtefact":
+    def append_finding(
+        cls, *, team_id: int, report_id: str, content: str | dict | list, attribution: ArtefactAttribution
+    ) -> "SignalReportArtefact":
         """Append a `signal_finding` artefact (one investigation result; latest per `signal_id` wins).
 
         `signal_finding` is neither a status nor a log type — it has its own identity keyed by the
         finding's `signal_id` — so it gets a dedicated appender rather than going through
-        `append_status` / `add_log`. `content` is serialized JSON text.
+        `append_status` / `add_log`.
         """
-        return cls.objects.create(
-            team_id=team_id, report_id=report_id, type=cls.ArtefactType.SIGNAL_FINDING, content=content
+        return cls._create_validated(
+            team_id=team_id,
+            report_id=report_id,
+            type=cls.ArtefactType.SIGNAL_FINDING,
+            content=content,
+            attribution=attribution,
+        )
+
+    @classmethod
+    def append_dismissal(
+        cls, *, team_id: int, report_id: str, content: str | dict | list, attribution: ArtefactAttribution
+    ) -> "SignalReportArtefact":
+        """Append a `dismissal` artefact (dismissal/snooze feedback; entries stack over time).
+
+        `dismissal` is neither a status nor a log type — each dismissal is its own point-in-time
+        record — so it gets a dedicated appender.
+        """
+        return cls._create_validated(
+            team_id=team_id,
+            report_id=report_id,
+            type=cls.ArtefactType.DISMISSAL,
+            content=content,
+            attribution=attribution,
         )
 
     @staticmethod
@@ -467,36 +565,50 @@ class SignalReportArtefact(UUIDModel):
         transaction.on_commit(_run)
 
     @classmethod
-    def add_log(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
+    def add_log(
+        cls, *, team_id: int, report_id: str, type: str, content: str | dict | list, attribution: ArtefactAttribution
+    ) -> "SignalReportArtefact":
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
-        Log artefacts accumulate — each call creates a new row. `content` is serialized JSON text.
+        Log artefacts accumulate — each call creates a new row.
         """
         if type not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type!r} is not a log artefact type")
-        return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+        return cls._create_validated(
+            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
+        )
 
-    def update_content(self, content: str) -> None:
-        """Replace this artefact's content in place (bumps `updated_at`). `content` is JSON text."""
-        self.content = content
+    def update_content(self, content: str | dict | list) -> None:
+        """Replace this artefact's content in place (bumps `updated_at`), validated against the
+        row's type. Attribution is creation-time only — edits don't reassign it."""
+        self.content = validate_artefact_content(self.type, content)
         self.save(update_fields=["content", "updated_at"])
 
 
 class SignalReportTask(UUIDModel):
-    class Relationship(models.TextChoices):
-        REPO_SELECTION = "repo_selection"
-        RESEARCH = "research"
-        IMPLEMENTATION = "implementation"
+    """Associates a `tasks.Task` with a report — a plain, unlabelled link.
+
+    A task's *purpose* is not stored here: it is derived from the report's artefacts (its
+    `task_run` entry, commits, notes, …). Tasks associate freely — the pipeline links the tasks
+    it spawns, and a running agent can associate its own task with any report it decides its
+    work relates to.
+    """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
     task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
-    relationship = models.CharField(max_length=200, choices=Relationship)
+    # Deprecated label ("repo_selection" / "research" / "implementation" on legacy rows). No
+    # longer read or written — purpose is derived from artefacts instead. Nullable so new rows
+    # can omit it during the rolling deploy; the column drop is a follow-up migration.
+    relationship = models.CharField(max_length=200, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+        constraints = [
+            models.UniqueConstraint(fields=["report", "task"], name="unique_signal_report_task"),
+        ]
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────

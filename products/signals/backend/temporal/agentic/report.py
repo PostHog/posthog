@@ -14,7 +14,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -197,10 +197,12 @@ def _append_agentic_report_artefacts(
     team_id: int,
     report_id: str,
     repo_selection_json: str,
+    repo_selection_task_id: str | None,
     finding_jsons: list[str],
     actionability_json: str,
     priority_json: str | None,
     reviewers_json: str | None,
+    research_task_id: str | None,
 ) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -210,20 +212,38 @@ def _append_agentic_report_artefacts(
     # log types in tests). Written through the model helpers (the single artefact write path) in
     # one transaction; the caller orchestrates auto-start explicitly, so the suggested_reviewers
     # append opts out of the model's auto-start re-evaluation hook.
+    #
+    # Attribution: the research findings / judgments / reviewers were produced by the research
+    # sandbox agent, so they're attributed to its task. Repo selection has its own task when a
+    # selection agent ran (N candidates); the 0/1-candidate shortcuts and reused selections fall
+    # back to system. These activities run on the Temporal worker but only *persist* what the
+    # sandbox agents produced.
+    research_attribution = (
+        ArtefactAttribution.from_task(research_task_id) if research_task_id else ArtefactAttribution.system()
+    )
+    repo_selection_attribution = (
+        ArtefactAttribution.from_task(repo_selection_task_id)
+        if repo_selection_task_id
+        else ArtefactAttribution.system()
+    )
     with transaction.atomic():
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
             content=repo_selection_json,
+            attribution=repo_selection_attribution,
         )
         for finding_json in finding_jsons:
-            SignalReportArtefact.append_finding(team_id=team_id, report_id=report_id, content=finding_json)
+            SignalReportArtefact.append_finding(
+                team_id=team_id, report_id=report_id, content=finding_json, attribution=research_attribution
+            )
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
             content=actionability_json,
+            attribution=research_attribution,
         )
         if priority_json is not None:
             SignalReportArtefact.append_status(
@@ -231,6 +251,7 @@ def _append_agentic_report_artefacts(
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
                 content=priority_json,
+                attribution=research_attribution,
             )
         if reviewers_json is not None:
             SignalReportArtefact.append_status(
@@ -238,6 +259,7 @@ def _append_agentic_report_artefacts(
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                 content=reviewers_json,
+                attribution=research_attribution,
                 reevaluate_autostart=False,
             )
 
@@ -256,10 +278,12 @@ async def _persist_agentic_report_artefacts(
         team_id=team_id,
         report_id=report_id,
         repo_selection_json=repo_selection.model_dump_json(),
+        repo_selection_task_id=repo_selection.task_id,
         finding_jsons=[finding.model_dump_json() for finding in result.findings],
         actionability_json=result.actionability.model_dump_json(),
         priority_json=result.priority.model_dump_json() if result.priority else None,
         reviewers_json=json.dumps(reviewers_content) if reviewers_content else None,
+        research_task_id=result.research_task_id,
     )
 
     try:
@@ -305,7 +329,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
+                # Read for queries/insights, plus the signals artefact write surface so the
+                # research agent can record artefacts (notes, code references, associations).
+                posthog_mcp_scopes="signals_report",
             )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)

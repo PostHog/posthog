@@ -12,6 +12,11 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    append_task_run_artefact,
+)
 from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     InboxNotificationState,
@@ -34,10 +39,18 @@ def _link_implementation_task(team: Team, report: SignalReport, *, pr_url: str |
     task = Task.objects.create(
         team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
     )
-    SignalReportTask.objects.create(
-        team=team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+    SignalReportTask.objects.create(team=team, report=report, task=task)
+    run = TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
+    # "Which task is the implementation" is derived from the report's task_run artefacts now —
+    # the association row is unlabelled.
+    append_task_run_artefact(
+        team_id=team.id,
+        report_id=str(report.id),
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_IMPLEMENTATION,
+        task_id=str(task.id),
+        run_id=str(run.id),
     )
-    TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
 
 
 @pytest.fixture

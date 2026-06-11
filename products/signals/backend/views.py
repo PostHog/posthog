@@ -52,6 +52,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -71,18 +72,24 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
-    PushedBranchDiffResponseSerializer,
+    CommitDiffResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
+    SignalReportTaskCreateSerializer,
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+)
+from products.signals.backend.task_attribution import (
+    TASK_ID_HEADER,
+    resolve_request_attribution,
+    resolve_task_id_from_header,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -100,7 +107,7 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -401,6 +408,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
@@ -508,6 +516,18 @@ class SignalReportViewSet(
                 )
             )
         )
+
+    def _apply_signal_report_task_filter(self, queryset):
+        # Reports a given task is associated with — used by running agents ("which reports am I
+        # working against?") and by the agent harness to fan commit artefacts out to them.
+        task_filter = self.request.query_params.get("task_id")
+        if not task_filter:
+            return queryset
+        try:
+            task_uuid = uuid.UUID(task_filter.strip())
+        except (ValueError, AttributeError) as e:
+            raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
+        return queryset.filter(report_tasks__task_id=task_uuid)
 
     def _apply_signal_report_priority_filter(self, queryset):
         # Filters on the `priority_rank` annotation, which must be applied first.
@@ -646,12 +666,13 @@ class SignalReportViewSet(
         )
 
     def _annotate_implementation_pr_url(self, queryset):
-        # Find the latest TaskRun output->pr_url for the implementation task linked to each report.
-        # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
+        # Find the latest TaskRun output->pr_url across the tasks associated with each report.
+        # Associations are unlabelled (a task's purpose is derived from artefacts), so this is
+        # simply "the newest PR produced by any task working on this report".
+        # Path: SignalReportTask -> Task -> TaskRun(latest with a pr_url) -> output->'pr_url'
         latest_impl_pr_url = Subquery(
             TaskRun.objects.filter(
                 task__signal_report_tasks__report_id=OuterRef("id"),
-                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
                 output__pr_url__isnull=False,
             )
             .exclude(output__pr_url="")
@@ -765,6 +786,13 @@ class SignalReportViewSet(
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
                 ),
+            ),
+            OpenApiParameter(
+                name="task_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only reports associated with this task (via the report's task associations).",
             ),
         ],
     )
@@ -932,11 +960,11 @@ class SignalReportViewSet(
                     if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
                     else None,
                 }
-                SignalReportArtefact.objects.create(
-                    team=self.team,
-                    report=report,
-                    type=SignalReportArtefact.ArtefactType.DISMISSAL,
-                    content=json.dumps(artefact_content),
+                SignalReportArtefact.append_dismissal(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    content=artefact_content,
+                    attribution=resolve_request_attribution(request, self.team.id),
                 )
 
         return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
@@ -993,17 +1021,21 @@ class SignalReportArtefactViewSet(
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
     - POST / PATCH / DELETE manage *log* artefacts — the appendable work-log entries
-      (`code_reference`, `code_diff`, `line_reference`, `pushed_branch`, `task_run`, `note`).
-      Only log types are accepted; status / pipeline-owned types return 400. Team scoping is
-      enforced by `safely_get_queryset`, so an artefact id from another team / a deleted report
-      404s.
+      (`code_reference`, `code_diff`, `line_reference`, `commit`, `task_run`, `note`).
+      Only log types are accepted; status / pipeline-owned types return 400, and content is
+      validated against the type's schema. Team scoping is enforced by `safely_get_queryset`,
+      so an artefact id from another team / a deleted report 404s.
+
+    Writes are attributed: to the task named by the `X-PostHog-Task-Id` header (set automatically
+    for sandbox agents) when present, else to the requesting user.
     """
 
     serializer_class = SignalReportArtefactSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SignalReportArtefact.objects.all().order_by("-created_at")
+    # select_related: the read serializer renders `created_by` inline.
+    queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset):
@@ -1051,6 +1083,9 @@ class SignalReportArtefactViewSet(
         write_serializer = SignalReportArtefactWriteSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
         entries = write_serializer.validated_data["content"]
+
+        # Resolved before the locked transaction below — header validation must not hold the lock.
+        attribution = resolve_request_attribution(request, self.team.id)
 
         # Resolve any user_uuid → canonical github_login via team org membership.
         uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
@@ -1153,7 +1188,8 @@ class SignalReportArtefactViewSet(
                 team_id=self.team.id,
                 report_id=str(artefact.report_id),
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps(new_content),
+                content=new_content,
+                attribution=attribution,
             )
 
         # Return the read-shape (enriched) so the client sees the canonical result.
@@ -1182,6 +1218,7 @@ class SignalReportArtefactViewSet(
                 "content": parsed_content,
                 "created_at": artefact.created_at,
                 "updated_at": artefact.updated_at,
+                "task_id": artefact.task_id,
             }
         ).data
 
@@ -1191,14 +1228,30 @@ class SignalReportArtefactViewSet(
             201: OpenApiResponse(
                 response=SignalReportArtefactWriteResponseSerializer, description="Log artefact created."
             ),
-            400: OpenApiResponse(description="Unknown or non-log artefact type, or malformed content."),
+            400: OpenApiResponse(
+                description="Unknown or non-log artefact type, content not matching the type's schema, "
+                "or an invalid X-PostHog-Task-Id header."
+            ),
             404: OpenApiResponse(description="Report not found for this project."),
         },
+        parameters=[
+            OpenApiParameter(
+                name=TASK_ID_HEADER,
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.HEADER,
+                required=False,
+                description=(
+                    "Task to attribute the artefact to (must belong to this project). Set automatically "
+                    "for sandbox agents; when absent the artefact is attributed to the requesting user."
+                ),
+            ),
+        ],
         summary="Append a log artefact to a report",
         description=(
-            "Append a work-log entry (code reference, code diff, line reference, pushed branch, "
+            "Append a work-log entry (code reference, code diff, line reference, commit, "
             "task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. "
-            "Only log artefact types are accepted; status / pipeline-owned types are rejected."
+            "Only log artefact types are accepted; status / pipeline-owned types are rejected. "
+            "Content is validated against the type's schema."
         ),
         operation_id="signals_report_artefacts_create",
     )
@@ -1224,12 +1277,19 @@ class SignalReportArtefactViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        artefact = SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=report_id,
-            type=artefact_type,
-            content=json.dumps(request.validated_data["content"]),
-        )
+        try:
+            artefact = SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=report_id,
+                type=artefact_type,
+                content=request.validated_data["content"],
+                attribution=resolve_request_attribution(request, self.team.id),
+            )
+        except ArtefactContentValidationError as e:
+            return Response(
+                {"error": f"content does not match the '{artefact_type}' schema: {e}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -1238,11 +1298,17 @@ class SignalReportArtefactViewSet(
             200: OpenApiResponse(
                 response=SignalReportArtefactWriteResponseSerializer, description="Log artefact updated."
             ),
-            400: OpenApiResponse(description="Artefact is not a log type, or malformed content."),
+            400: OpenApiResponse(
+                description="Artefact is not a log type, or content does not match the type's schema."
+            ),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
         summary="Replace a log artefact's content",
-        description="Replace the content of an existing log artefact, addressed by id. Only log types are editable.",
+        description=(
+            "Replace the content of an existing log artefact, addressed by id. Only log types are "
+            "editable, and the new content is validated against the artefact's type schema. "
+            "Attribution is creation-time only — edits don't reassign it."
+        ),
         operation_id="signals_report_artefacts_partial_update",
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
@@ -1254,7 +1320,13 @@ class SignalReportArtefactViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        artefact.update_content(json.dumps(request.validated_data["content"]))
+        try:
+            artefact.update_content(request.validated_data["content"])
+        except ArtefactContentValidationError as e:
+            return Response(
+                {"error": f"content does not match the '{artefact.type}' schema: {e}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
@@ -1282,28 +1354,26 @@ class SignalReportArtefactViewSet(
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=PushedBranchDiffResponseSerializer,
-                description="The pushed branch's unified diff against its base branch.",
+                response=CommitDiffResponseSerializer,
+                description="The commit's unified diff (against its first parent).",
             ),
-            400: OpenApiResponse(description="Artefact is not a pushed_branch, or is missing repository/branch."),
+            400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/commit_sha."),
             404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
-            502: OpenApiResponse(
-                description="GitHub could not produce the diff (branch not found, comparison failed)."
-            ),
+            502: OpenApiResponse(description="GitHub could not produce the diff (commit not found, fetch failed)."),
         },
-        summary="Fetch the diff for a pushed_branch artefact",
+        summary="Fetch the diff for a commit artefact",
         description=(
-            "Fetch the unified diff of a `pushed_branch` artefact's branch against its base branch via the "
-            "team's GitHub integration — lets the UI render the would-be PR diff without a PR being opened."
+            "Fetch the unified diff introduced by a `commit` artefact's commit via the team's GitHub "
+            "integration — lets the UI render exactly what an agent pushed, commit by commit."
         ),
         operation_id="signals_report_artefacts_diff",
     )
     @action(detail=True, methods=["get"], url_path="diff", required_scopes=["task:read"])
     def diff(self, request: Request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
-        if artefact.type != SignalReportArtefact.ArtefactType.PUSHED_BRANCH:
+        if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
             return Response(
-                {"error": f"Diffs are only available for pushed_branch artefacts, not '{artefact.type}'."},
+                {"error": f"Diffs are only available for commit artefacts, not '{artefact.type}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -1311,28 +1381,24 @@ class SignalReportArtefactViewSet(
         except (json.JSONDecodeError, ValueError):
             content = {}
         if not isinstance(content, dict):
-            # Log artefacts store arbitrary JSON; a non-object payload has no repository/branch.
+            # Log artefacts store arbitrary JSON; a non-object payload has no repository/commit.
             content = {}
         repository = content.get("repository")
-        branch = content.get("branch")
-        base_branch = content.get("base_branch")
-        if not repository or not branch:
+        commit_sha = content.get("commit_sha")
+        if not repository or not commit_sha:
             return Response(
-                {"error": "Artefact is missing a repository or branch."},
+                {"error": "Artefact is missing a repository or commit_sha."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # These reach the GitHub API URL path (the repo also via `first_for_team_repository`'s
-        # access check, before `get_branch_diff` runs its own validation). Validate here too so a
+        # access check, before `get_commit_diff` runs its own validation). Validate here too so a
         # crafted artefact value can't redirect the authenticated request (path traversal / query
-        # injection). The same charset/anti-traversal rule covers a bare name or `owner/repo`.
-        if (
-            not _is_safe_github_ref(repository)
-            or not _is_safe_github_ref(branch)
-            or (base_branch and not _is_safe_github_ref(base_branch))
-        ):
+        # injection). The same charset/anti-traversal rule covers a bare name or `owner/repo`;
+        # the SHA's hex shape is enforced by `get_commit_diff`.
+        if not _is_safe_github_ref(repository) or not _is_safe_github_ref(str(commit_sha)):
             return Response(
-                {"error": "Invalid repository or branch."},
+                {"error": "Invalid repository or commit SHA."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1343,49 +1409,48 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
         try:
-            result = github.get_branch_diff(repository, branch, base_branch)
+            result = github.get_commit_diff(repository, str(commit_sha))
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(
-                "signals pushed_branch diff fetch errored",
+                "signals commit diff fetch errored",
                 repository=repository,
-                branch=branch,
+                commit_sha=commit_sha,
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this branch."},
+                {"error": "GitHub could not produce the diff for this commit."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
             # Surface a clean message rather than the raw GitHub error body. A 404 from the
-            # compare API means the branch (or repo) isn't on the remote — most often a branch
-            # that was deleted or never pushed.
+            # commits API means the commit (or repo) isn't on the remote — most often a branch
+            # that was force-rewritten or deleted.
             if result.get("status_code") == 404:
                 return Response(
                     {
-                        "error": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
-                        "it may have been deleted, or the branch was never pushed."
+                        "error": f"Commit '{commit_sha}' or repository '{repository}' was not found on GitHub — "
+                        "the commit may have been rewritten away, or the branch deleted."
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
             if result.get("status_code") == 400:
-                # Malformed repository / branch in the artefact content — surface our own message.
+                # Malformed repository / SHA in the artefact content — surface our own message.
                 return Response(
-                    {"error": result.get("error", "Invalid repository or branch.")},
+                    {"error": result.get("error", "Invalid repository or commit SHA.")},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             logger.warning(
-                "signals pushed_branch diff fetch failed",
+                "signals commit diff fetch failed",
                 repository=repository,
-                branch=branch,
+                commit_sha=commit_sha,
                 status_code=result.get("status_code"),
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this branch."},
+                {"error": "GitHub could not produce the diff for this commit."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(
             {
                 "diff": result["diff"],
-                "base_branch": result["base_branch"],
                 "truncated": result.get("truncated", False),
             }
         )
@@ -1395,9 +1460,16 @@ class SignalReportArtefactViewSet(
 class SignalReportTaskViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
+    mixins.CreateModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Read-only list of tasks associated with a signal report."""
+    """Tasks associated with a signal report.
+
+    Associations are unlabelled — a task's purpose is derived from the report's artefacts (its
+    `task_run` entry, commits, notes, …), not stored on the link. POST lets any caller — notably
+    a running agent that decides its current work relates to this report — associate a task, then
+    start producing artefacts against the report.
+    """
 
     serializer_class = SignalReportTaskSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -1405,10 +1477,74 @@ class SignalReportTaskViewSet(
     scope_object = "task"
     queryset = SignalReportTask.objects.all().order_by("-created_at")
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["relationship", "task_id", "created_at"]
+    filterset_fields = ["task_id", "created_at"]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
+
+    @validated_request(
+        request_serializer=SignalReportTaskCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalReportTaskSerializer, description="Task associated with the report."),
+            200: OpenApiResponse(response=SignalReportTaskSerializer, description="Association already existed."),
+            400: OpenApiResponse(
+                description="No task to associate (neither body task_id nor X-PostHog-Task-Id header), "
+                "or the task does not belong to this project."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        parameters=[
+            OpenApiParameter(
+                name=TASK_ID_HEADER,
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.HEADER,
+                required=False,
+                description=(
+                    "The calling agent's own task id (set automatically for sandbox agents). Used when "
+                    "the body omits task_id — 'associate me with this report'."
+                ),
+            ),
+        ],
+        summary="Associate a task with a report",
+        description=(
+            "Associate a task with this report. Idempotent — re-associating an already-linked task "
+            "returns the existing association. Omit task_id to associate the calling agent's own task "
+            "(derived from the X-PostHog-Task-Id header)."
+        ),
+        operation_id="signals_report_tasks_create",
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        report_id = self.parents_query_dict["report_id"]
+        # Mirror the artefact viewset: a deleted / foreign report must not accept associations.
+        report_exists = (
+            SignalReport.objects.filter(id=report_id, team=self.team)
+            .exclude(status=SignalReport.Status.DELETED)
+            .exists()
+        )
+        if not report_exists:
+            raise NotFound()
+        task_id = request.validated_data.get("task_id")
+        if task_id is not None and not Task.objects.filter(id=task_id, team=self.team).exists():
+            return Response(
+                {"error": "Unknown task for this project."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if task_id is None:
+            task_id = resolve_task_id_from_header(request, self.team.id)
+        if task_id is None:
+            return Response(
+                {"error": "Provide task_id in the body, or call with an X-PostHog-Task-Id header."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        link, created = SignalReportTask.objects.get_or_create(
+            team_id=self.team.id,
+            report_id=report_id,
+            task_id=str(task_id),
+        )
+        return Response(
+            SignalReportTaskSerializer(link).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class SignalUserAutonomyConfigView(APIView):

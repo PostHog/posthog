@@ -310,7 +310,6 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             team=self.team,
             report=self.report,
             task=self.task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
 
     def _post_pr_webhook(self, action: str, merged: bool):

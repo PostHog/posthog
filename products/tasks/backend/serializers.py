@@ -16,6 +16,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    append_task_run_artefact,
+)
 
 from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -115,19 +120,6 @@ class TaskSerializer(serializers.ModelSerializer):
         required=False,
         help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
     )
-    # Write-only: which SignalReportTask row to create when linking a task to a report from the
-    # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
-    # selection links are created by server-side flows.
-    signal_report_task_relationship = serializers.ChoiceField(
-        choices=[
-            (
-                SignalReportTask.Relationship.IMPLEMENTATION.value,
-                SignalReportTask.Relationship.IMPLEMENTATION.label,
-            ),
-        ],
-        required=False,
-        write_only=True,
-    )
 
     class Meta:
         model = Task
@@ -143,7 +135,6 @@ class TaskSerializer(serializers.ModelSerializer):
             "github_integration",
             "github_user_integration",
             "signal_report",
-            "signal_report_task_relationship",
             "json_schema",
             "internal",
             "archived",
@@ -203,16 +194,6 @@ class TaskSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        rel = attrs.get("signal_report_task_relationship")
-        if rel is not None:
-            if not attrs.get("signal_report"):
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": "Requires signal_report when set."}
-                )
-            if attrs.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
-                )
         if (
             attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
             and attrs.get("github_user_integration") is not None
@@ -228,11 +209,6 @@ class TaskSerializer(serializers.ModelSerializer):
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
-
-        link_relationship = validated_data.pop(
-            "signal_report_task_relationship",
-            SignalReportTask.Relationship.IMPLEMENTATION,
-        )
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -263,18 +239,24 @@ class TaskSerializer(serializers.ModelSerializer):
         elif title:
             validated_data.setdefault("title_manually_set", True)
 
-        # Inbox / PostHog Code: tasks created via this API with a signal report use the same
-        # origin_product as server-side flows, but only those flows previously called
-        # SignalReportTask.objects.create. Link implementation tasks here so report task
-        # listings (e.g. getSignalReportTasks) match autostarted implementations.
+        # Inbox / PostHog Code: a task created via this API with a signal report is a manual
+        # "start implementation". Associate it with the report and record the implementation
+        # task_run artefact in the same transaction — the artefact is what derives the task's
+        # purpose and what blocks the auto-start pipeline from double-starting.
         with transaction.atomic():
             task = super().create(validated_data)
             if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-                SignalReportTask.objects.create(
+                SignalReportTask.objects.get_or_create(
                     team_id=task.team_id,
                     report_id=task.signal_report_id,
                     task=task,
-                    relationship=link_relationship,
+                )
+                append_task_run_artefact(
+                    team_id=task.team_id,
+                    report_id=str(task.signal_report_id),
+                    product=SIGNALS_PRODUCT,
+                    type=TASK_RUN_TYPE_IMPLEMENTATION,
+                    task_id=str(task.id),
                 )
             return task
 
@@ -282,9 +264,8 @@ class TaskSerializer(serializers.ModelSerializer):
         # These fields are immutable after creation. origin_product controls
         # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
         # so allowing updates would let a user escalate a private task's visibility.
-        # signal_report and its relationship are set-once associations.
+        # signal_report is a set-once association.
         validated_data.pop("signal_report", None)
-        validated_data.pop("signal_report_task_relationship", None)
         validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True

@@ -506,7 +506,6 @@ class TestSignalReportListAPI(APIBaseTest):
             team=self.team,
             report=report,
             task=task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
         run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
         run = TaskRun.objects.create(
@@ -573,7 +572,6 @@ class TestSignalReportListAPI(APIBaseTest):
             team=self.team,
             report=report,
             task=task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
         old_run = TaskRun.objects.create(
             team=self.team,
@@ -813,3 +811,129 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+
+class TestSignalReportTaskAssociationAPI(APIBaseTest):
+    """The unlabelled task↔report association surface: POST tasks/ + the reports task_id filter."""
+
+    def _tasks_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/tasks/"
+
+    def _create_report(self, team=None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Report",
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_task(self, team=None) -> Task:
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def test_associate_task_by_body(self):
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self.client.post(
+            self._tasks_url(str(report.id)),
+            data=json.dumps({"task_id": str(task.id)}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["task_id"] == str(task.id)
+        assert "relationship" not in body
+        assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+
+    def test_associate_is_idempotent(self):
+        report = self._create_report()
+        task = self._create_task()
+        body = json.dumps({"task_id": str(task.id)})
+
+        first = self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
+        second = self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+
+    def test_associate_defaults_to_header_task(self):
+        # "Associate me with this report" — a running agent's own task comes from the header.
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self.client.post(
+            self._tasks_url(str(report.id)),
+            data=json.dumps({}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert SignalReportTask.objects.filter(report=report, task=task).exists()
+
+    def test_associate_without_task_returns_400(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._tasks_url(str(report.id)), data=json.dumps({}), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_associate_foreign_team_task_returns_400(self):
+        report = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        foreign_task = self._create_task(team=other_team)
+
+        response = self.client.post(
+            self._tasks_url(str(report.id)),
+            data=json.dumps({"task_id": str(foreign_task.id)}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportTask.objects.filter(report=report).exists()
+
+    def test_associate_on_deleted_report_returns_404(self):
+        report = self._create_report()
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status"])
+        task = self._create_task()
+
+        response = self.client.post(
+            self._tasks_url(str(report.id)),
+            data=json.dumps({"task_id": str(task.id)}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_task_list_has_no_relationship_field(self):
+        report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task)
+
+        response = self.client.get(self._tasks_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert len(rows) == 1
+        assert set(rows[0].keys()) == {"id", "report_id", "task_id", "created_at"}
+
+    def test_reports_list_filters_by_task_id(self):
+        report = self._create_report()
+        other_report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(report.id)}
+        assert str(other_report.id) not in ids
+
+    def test_reports_list_rejects_malformed_task_id(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

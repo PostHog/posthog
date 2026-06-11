@@ -91,10 +91,11 @@ GITHUB_API_VERSION = "2022-11-28"
 # authenticated request to a different endpoint.
 _GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
-# Upper bound on the branch-diff text we return, to keep a pathological diff (generated/vendored
+# Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
-_MAX_BRANCH_DIFF_CHARS = 1_000_000
+_MAX_DIFF_CHARS = 1_000_000
 
 
 def _is_safe_github_ref(ref: str) -> bool:
@@ -2604,31 +2605,28 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
-    def get_branch_diff(self, repository: str, branch: str, base_branch: str | None = None) -> dict[str, Any]:
-        """Return the unified diff of ``branch`` against ``base_branch`` for ``repository``.
+    def get_commit_diff(self, repository: str, sha: str) -> dict[str, Any]:
+        """Return the unified diff introduced by commit ``sha`` in ``repository``.
 
         ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
-        org). ``base_branch`` defaults to the repository's default branch. Uses the GitHub compare
-        API with the ``diff`` media type, so the response body is raw unified-diff text.
+        org). ``sha`` is a full or abbreviated (7-40 hex chars) commit SHA. Uses the GitHub
+        single-commit API with the ``diff`` media type, so the response body is raw unified-diff
+        text (the commit against its first parent).
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        # repository / branch / base_branch reach this from artefact content and are interpolated
-        # into the GitHub API URL path; validate them so a crafted value can't redirect the
-        # authenticated request to a different endpoint (path traversal / query injection).
+        # repository / sha reach this from artefact content and are interpolated into the GitHub
+        # API URL path; validate them so a crafted value can't redirect the authenticated request
+        # to a different endpoint (path traversal / query injection).
         if not _is_safe_github_repo_path(repo_path):
             return {"success": False, "error": "Invalid repository.", "status_code": 400}
-        if not _is_safe_github_ref(branch):
-            return {"success": False, "error": "Invalid branch name.", "status_code": 400}
+        if not _GITHUB_COMMIT_SHA_RE.fullmatch(sha):
+            return {"success": False, "error": "Invalid commit SHA.", "status_code": 400}
         access_token = self.integration.sensitive_config["access_token"]
-        if not base_branch:
-            base_branch = self.get_default_branch(repository)
-        elif not _is_safe_github_ref(base_branch):
-            return {"success": False, "error": "Invalid base branch name.", "status_code": 400}
 
         try:
             response = self._github_api_get(
-                f"https://api.github.com/repos/{repo_path}/compare/{base_branch}...{branch}",
-                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                f"https://api.github.com/repos/{repo_path}/commits/{sha}",
+                endpoint="/repos/{owner}/{repo}/commits/{ref}",
                 headers={
                     "Accept": "application/vnd.github.diff",
                     "Authorization": f"Bearer {access_token}",
@@ -2641,14 +2639,14 @@ class GitHubIntegration(GitHubIntegrationBase):
             return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
             return {"success": False, "error": response.text, "status_code": response.status_code}
-        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # Cap the diff we return: a commit touching generated/vendored files can produce a diff of
         # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
         # the consumer can tell the diff was cut rather than silently showing a partial diff.
         diff_text = response.text
-        truncated = len(diff_text) > _MAX_BRANCH_DIFF_CHARS
+        truncated = len(diff_text) > _MAX_DIFF_CHARS
         if truncated:
-            diff_text = diff_text[:_MAX_BRANCH_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
-        return {"success": True, "diff": diff_text, "base_branch": base_branch, "truncated": truncated}
+            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

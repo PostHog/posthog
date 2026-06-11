@@ -2,8 +2,12 @@ import json
 
 from posthog.test.base import BaseTest
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from parameterized import parameterized
+
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.agentic.report import _AGENTIC_ARTEFACT_TYPES
+from products.tasks.backend.models import Task
 
 
 class TestSignalReportArtefactHelpers(BaseTest):
@@ -17,12 +21,21 @@ class TestSignalReportArtefactHelpers(BaseTest):
             total_weight=1.0,
         )
 
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
     def _add_log(self, report: SignalReport, note: str = "x") -> SignalReportArtefact:
         return SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(report.id),
             type=SignalReportArtefact.ArtefactType.NOTE,
             content=json.dumps({"note": note}),
+            attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
     def _append_priority(self, report: SignalReport, priority: str) -> SignalReportArtefact:
@@ -31,6 +44,13 @@ class TestSignalReportArtefactHelpers(BaseTest):
             report_id=str(report.id),
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             content=json.dumps({"priority": priority, "explanation": "because"}),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    @staticmethod
+    def _finding_content(signal_id: str) -> str:
+        return json.dumps(
+            {"signal_id": signal_id, "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": True}
         )
 
     # --- classification ---
@@ -42,6 +62,69 @@ class TestSignalReportArtefactHelpers(BaseTest):
         # The agentic pipeline appends _AGENTIC_ARTEFACT_TYPES versions on every run. The set must
         # stay disjoint from the log types so the two write paths never collide on a type.
         assert set(_AGENTIC_ARTEFACT_TYPES).isdisjoint(SignalReportArtefact.LOG_ARTEFACT_TYPES)
+
+    # --- attribution ---
+
+    @parameterized.expand(
+        [
+            ("user_missing_id", {"kind": "user"}),
+            ("user_with_task", {"kind": "user", "user_id": 1, "task_id": "t"}),
+            ("task_missing_id", {"kind": "task"}),
+            ("task_with_user", {"kind": "task", "task_id": "t", "user_id": 1}),
+            ("system_with_user", {"kind": "system", "user_id": 1}),
+            ("system_with_task", {"kind": "system", "task_id": "t"}),
+        ]
+    )
+    def test_attribution_rejects_mismatched_fields(self, _name, kwargs):
+        with self.assertRaises(ValueError):
+            ArtefactAttribution(**kwargs)
+
+    def test_user_attribution_persists_created_by(self):
+        artefact = self._add_log(self._report())
+        assert artefact.created_by_id == self.user.id
+        assert artefact.task_id is None
+
+    def test_task_attribution_persists_task(self):
+        report = self._report()
+        task = self._task()
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content={"note": "from an agent"},
+            attribution=ArtefactAttribution.from_task(str(task.id)),
+        )
+        assert str(artefact.task_id) == str(task.id)
+        assert artefact.created_by_id is None
+
+    def test_system_attribution_persists_nulls(self):
+        artefact = self._append_priority(self._report(), "P1")
+        assert artefact.created_by_id is None
+        assert artefact.task_id is None
+
+    # --- content validation ---
+
+    def test_add_log_rejects_content_not_matching_schema(self):
+        report = self._report()
+        with self.assertRaises(ArtefactContentValidationError):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                content={"not_a_note": True},
+                attribution=ArtefactAttribution.from_user(self.user.id),
+            )
+
+    def test_append_status_rejects_content_not_matching_schema(self):
+        report = self._report()
+        with self.assertRaises(ArtefactContentValidationError):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content={"priority": "P9", "explanation": "x"},
+                attribution=ArtefactAttribution.system(),
+            )
 
     # --- add_log ---
 
@@ -65,7 +148,8 @@ class TestSignalReportArtefactHelpers(BaseTest):
                 team_id=self.team.id,
                 report_id=str(report.id),
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content=json.dumps({"priority": "P1"}),
+                content=json.dumps({"priority": "P1", "explanation": "x"}),
+                attribution=ArtefactAttribution.system(),
             )
 
     # --- append_status ---
@@ -92,6 +176,7 @@ class TestSignalReportArtefactHelpers(BaseTest):
                 report_id=str(report.id),
                 type=SignalReportArtefact.ArtefactType.NOTE,
                 content=json.dumps({"note": "x"}),
+                attribution=ArtefactAttribution.system(),
             )
 
     # --- append_finding ---
@@ -99,10 +184,16 @@ class TestSignalReportArtefactHelpers(BaseTest):
     def test_append_finding_appends_signal_finding(self):
         report = self._report()
         first = SignalReportArtefact.append_finding(
-            team_id=self.team.id, report_id=str(report.id), content=json.dumps({"signal_id": "s1"})
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=self._finding_content("s1"),
+            attribution=ArtefactAttribution.system(),
         )
         second = SignalReportArtefact.append_finding(
-            team_id=self.team.id, report_id=str(report.id), content=json.dumps({"signal_id": "s2"})
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=self._finding_content("s2"),
+            attribution=ArtefactAttribution.system(),
         )
 
         assert first.type == SignalReportArtefact.ArtefactType.SIGNAL_FINDING
@@ -111,6 +202,31 @@ class TestSignalReportArtefactHelpers(BaseTest):
             SignalReportArtefact.objects.filter(
                 report=report, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING
             ).count()
+            == 2
+        )
+
+    # --- append_dismissal ---
+
+    def test_append_dismissal_stacks_and_attributes(self):
+        report = self._report()
+        first = SignalReportArtefact.append_dismissal(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content={"reason": "not_a_bug", "note": None, "user_id": self.user.id, "user_uuid": None},
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        second = SignalReportArtefact.append_dismissal(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content={"reason": "wont_fix", "note": "later", "user_id": None, "user_uuid": None},
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert first.id != second.id
+        assert first.created_by_id == self.user.id
+        assert second.created_by_id is None
+        assert (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL).count()
             == 2
         )
 
@@ -124,3 +240,9 @@ class TestSignalReportArtefactHelpers(BaseTest):
         artefact.refresh_from_db()
         assert json.loads(artefact.content) == {"note": "after"}
         assert artefact.updated_at is not None
+
+    def test_update_content_validates_against_row_type(self):
+        report = self._report()
+        artefact = self._add_log(report, "before")
+        with self.assertRaises(ArtefactContentValidationError):
+            artefact.update_content({"note": "   "})

@@ -311,6 +311,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert repo_selection_content == {
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
+            "task_id": None,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]

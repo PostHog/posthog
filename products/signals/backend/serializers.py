@@ -9,6 +9,7 @@ from rest_framework import serializers
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
+from .artefact_schemas import ArtefactContentValidationError, validate_artefact_content
 from .models import (
     AutonomyPriority,
     SignalReport,
@@ -234,10 +235,28 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
 
 
 class SignalReportTaskSerializer(serializers.ModelSerializer):
+    report_id = serializers.UUIDField(read_only=True, help_text="The report this task is associated with.")
+
     class Meta:
         model = SignalReportTask
-        fields = ["id", "relationship", "task_id", "created_at"]
+        fields = ["id", "report_id", "task_id", "created_at"]
         read_only_fields = fields
+
+
+class SignalReportTaskCreateSerializer(serializers.Serializer):
+    """Body for associating a task with a report.
+
+    The association is unlabelled — the task's purpose is derived from the report's artefacts.
+    """
+
+    task_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Task to associate with the report (must belong to this project). Omit to associate "
+            "the calling agent's own task, derived from the X-PostHog-Task-Id header."
+        ),
+    )
 
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
@@ -375,10 +394,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     content = serializers.SerializerMethodField()
+    created_by = _UserSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User the artefact is attributed to, when a user produced it. Null for task/system writes.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user/system writes.",
+    )
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at", "updated_at"]
+        fields = ["id", "type", "content", "created_at", "updated_at", "created_by", "task_id"]
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
@@ -464,7 +493,7 @@ _LOG_ARTEFACT_TYPES_HELP = (
 )
 
 
-def _validate_artefact_content(value: object) -> dict | list:
+def _validate_artefact_content_is_container(value: object) -> dict | list:
     if not isinstance(value, dict | list):
         raise serializers.ValidationError("content must be a JSON object or array.")
     return value
@@ -474,7 +503,8 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
     """Body for appending a log artefact (a work-log entry) to a report.
 
     Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
-    `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+    `artefact_type` and is validated against the type's schema
+    (see `products/signals/backend/artefact_schemas.py`).
     """
 
     # Plain CharField (not ChoiceField) on purpose: the value is validated against
@@ -482,20 +512,38 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
     # collision-prone enum-name path in the generated OpenAPI types.
     artefact_type = serializers.CharField(help_text=_LOG_ARTEFACT_TYPES_HELP)
     content = serializers.JSONField(
-        help_text="The artefact payload as a JSON object or array; shape depends on artefact_type.",
+        help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
+        "and is validated against its schema.",
     )
 
     def validate_content(self, value: object) -> dict | list:
-        return _validate_artefact_content(value)
+        return _validate_artefact_content_is_container(value)
+
+    def validate(self, attrs: dict) -> dict:
+        # Per-type schema validation, for log types only — non-log types get the view's
+        # dedicated "only log artefact types" 400 rather than a schema error here. The model
+        # helper re-validates as a backstop for non-API writers.
+        artefact_type = attrs.get("artefact_type")
+        if artefact_type in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+            try:
+                validate_artefact_content(artefact_type, attrs["content"])
+            except ArtefactContentValidationError as e:
+                raise serializers.ValidationError({"content": str(e)})
+        return attrs
 
 
 class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):
-    """Body for replacing the content of an existing log artefact (addressed by id)."""
+    """Body for replacing the content of an existing log artefact (addressed by id).
 
-    content = serializers.JSONField(help_text="The new artefact payload as a JSON object or array.")
+    Per-type schema validation happens in the view, which knows the artefact's type.
+    """
+
+    content = serializers.JSONField(
+        help_text="The new artefact payload as a JSON object or array, matching the artefact type's schema."
+    )
 
     def validate_content(self, value: object) -> dict | list:
-        return _validate_artefact_content(value)
+        return _validate_artefact_content_is_container(value)
 
 
 class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
@@ -514,18 +562,19 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
         help_text="When the artefact was last written — set on creation and refreshed on each edit. "
         "Null only for rows created before this field existed.",
     )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+    )
 
 
-class PushedBranchDiffResponseSerializer(serializers.Serializer):
-    """Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base."""
+class CommitDiffResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact diff endpoint — the commit rendered against its parent."""
 
     diff = serializers.CharField(
         read_only=True,
-        help_text="Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API.",
-    )
-    base_branch = serializers.CharField(
-        read_only=True,
-        help_text="The base branch the diff was computed against (resolved to the repo default when the artefact omits one).",
+        help_text="Unified diff (patch) text introduced by the commit, from the GitHub commits API.",
     )
     truncated = serializers.BooleanField(
         read_only=True,

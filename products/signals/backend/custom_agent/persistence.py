@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from django.db import transaction
 
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
@@ -42,19 +42,24 @@ def create_custom_agent_ready_report(
 
         # Written through the model helpers (the single artefact write path). Auto-start is
         # orchestrated explicitly by the caller after persistence, so the suggested_reviewers
-        # append opts out of the model's auto-start re-evaluation hook.
+        # append opts out of the model's auto-start re-evaluation hook. Everything the agent
+        # produced is attributed to its sandbox task; runs that never spawned one (no `send()`
+        # call) fall back to system attribution.
         report_id = str(report.id)
+        attribution = ArtefactAttribution.from_task(task_id) if task_id is not None else ArtefactAttribution.system()
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
             content=repo_selection.model_dump_json(),
+            attribution=attribution,
         )
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
             content=final_report.actionability.model_dump_json(),
+            attribution=attribution,
         )
         if final_report.priority is not None:
             SignalReportArtefact.append_status(
@@ -62,6 +67,7 @@ def create_custom_agent_ready_report(
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
                 content=final_report.priority.model_dump_json(),
+                attribution=attribution,
             )
         if final_report.assignees:
             SignalReportArtefact.append_status(
@@ -69,6 +75,7 @@ def create_custom_agent_ready_report(
                 report_id=report_id,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                 content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
+                attribution=attribution,
                 reevaluate_autostart=False,
             )
 
@@ -77,7 +84,6 @@ def create_custom_agent_ready_report(
                 team_id=team_id,
                 report=report,
                 task_id=task_id,
-                relationship=SignalReportTask.Relationship.RESEARCH,
             )
             product, type = agent_identifier
             append_task_run_artefact(
