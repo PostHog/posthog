@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -34,15 +33,8 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
     config: EmitEventStepConfig<O>
 ): ProcessingStep<T, void> {
     return function emitEventStep(input) {
-        const { eventsToEmit, headers, message } = input
-        const { outputs, groupId } = config
-
-        // Record ingestion lag metric if we have the required data
-        if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
-            const lag = Date.now() - headers.now.getTime()
-            ingestionLagGauge.labels({ topic: message.topic, partition: String(message.partition), groupId }).set(lag)
-            ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
-        }
+        const { eventsToEmit } = input
+        const { outputs } = config
 
         const sideEffects: Promise<void>[] = []
 
