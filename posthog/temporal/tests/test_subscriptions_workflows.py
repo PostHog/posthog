@@ -2505,7 +2505,7 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
-@patch(_GENERATE_MARKDOWN, return_value="# Preview report")
+@patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Preview report", diagnostics=()))
 @pytest.mark.asyncio
 async def test_preview_ai_subscription_generates_without_delivering_or_advancing_schedule(
     mock_generate: MagicMock,
