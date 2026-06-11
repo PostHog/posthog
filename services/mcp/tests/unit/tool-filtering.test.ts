@@ -750,7 +750,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'product-business-knowledge',
             ])
         )
-        expect(flags).toHaveLength(15)
+        expect(flags).toHaveLength(16)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

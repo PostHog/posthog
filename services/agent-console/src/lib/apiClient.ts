@@ -995,29 +995,29 @@ export interface AIGatewayLedgerListOpts {
     referenceIdPrefix?: string
 }
 
+// The agent ai_gateway API was dropped for v0 (see the master catch-up merge on
+// ass), so /ai_gateway/wallet/ + /ai_gateway/ledger/ no longer exist server-side.
+// Mock both so the billing UI renders empty instead of erroring; rewire to the
+// real endpoints when the gateway billing read plane ships again.
 export async function getWallet(teamId: number): Promise<AIGatewayWallet> {
-    return getJson<AIGatewayWallet>(posthogUrl(teamId, `/ai_gateway/wallet/`))
+    return {
+        team_id: teamId,
+        available_usd: '0',
+        pending_usd: '0',
+        balance_usd: '0',
+        spendable_usd: '0',
+        currency: 'USD',
+        account: { profile: 'A', overage_allowance_usd: '0', period: 'monthly', period_anchor: '' },
+        rolling_hour_usd: null,
+        kill_switch: { tripped: false, threshold_usd: null, tripped_at: null },
+    }
 }
 
 export async function listLedger(
-    teamId: number,
-    opts: AIGatewayLedgerListOpts = {}
+    _teamId: number,
+    _opts: AIGatewayLedgerListOpts = {}
 ): Promise<AIGatewayLedgerListResponse> {
-    const params = new URLSearchParams()
-    if (opts.limit !== undefined) {
-        params.set('limit', String(opts.limit))
-    }
-    if (opts.cursor) {
-        params.set('cursor', opts.cursor)
-    }
-    if (opts.transactionType) {
-        params.set('transaction_type', opts.transactionType)
-    }
-    if (opts.referenceIdPrefix) {
-        params.set('reference_id_prefix', opts.referenceIdPrefix)
-    }
-    const qs = params.toString()
-    return getJson<AIGatewayLedgerListResponse>(posthogUrl(teamId, `/ai_gateway/ledger/${qs ? `?${qs}` : ''}`))
+    return { results: [], next_cursor: null }
 }
 
 /* ── Memory ──────────────────────────────────────────────────────── */
