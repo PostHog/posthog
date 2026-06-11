@@ -1,3 +1,25 @@
+// Kernel types below are authored in frontend/src/queries/schema (x-schema-source:
+// posthog.schema.*) — aliased instead of re-emitting a lossy generated copy.
+import type {
+    ExperimentApiEventSource,
+    ExperimentApiExposureConfig,
+    ExperimentApiExposureCriteria,
+    ExperimentApiMetric,
+    ExperimentMetricOutlierHandling,
+    ExperimentParameters,
+    ExperimentVariant,
+} from '~/queries/schema/schema-general'
+import type { EventPropertyFilter } from '~/types'
+
+export type EventPropertyFilterApi = EventPropertyFilter
+export type ExperimentApiEventSourceApi = ExperimentApiEventSource
+export type ExperimentApiExposureConfigApi = ExperimentApiExposureConfig
+export type ExperimentApiExposureCriteriaApi = ExperimentApiExposureCriteria
+export type ExperimentApiMetricApi = ExperimentApiMetric
+export type ExperimentMetricOutlierHandlingApi = ExperimentMetricOutlierHandling
+export type ExperimentParametersApi = ExperimentParameters
+export type ExperimentVariantApi = ExperimentVariant
+
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -225,27 +247,6 @@ export interface MinimalFeatureFlagApi {
     readonly evaluation_contexts: readonly string[]
 }
 
-export interface ExperimentVariantApi {
-    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
-    key: string
-    /** Human-readable variant name. */
-    name?: string | null
-    rollout_percentage?: number | null
-    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
-    split_percent?: number | null
-}
-
-export interface ExperimentParametersApi {
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[] | null
-    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
-    feature_flag_variants?: ExperimentVariantApi[] | null
-    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
-    minimum_detectable_effect?: number | null
-    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
-    rollout_percentage?: number | null
-}
-
 export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number
@@ -313,31 +314,6 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface ExperimentApiExposureConfigApi {
-    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
-    event?: string | null
-    /** Action ID. Required when kind is 'ActionsNode'. */
-    id?: number | null
-    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-    kind?: Kind1Api | null
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilterApi[]
-}
-
-export interface ExperimentApiExposureCriteriaApi {
-    exposure_config?: ExperimentApiExposureConfigApi | null
-    filterTestAccounts?: boolean | null
-}
-
 export type KindApi = (typeof KindApi)[keyof typeof KindApi]
 
 export const KindApi = {
@@ -368,32 +344,6 @@ export const MathGroupTypeIndexApi = {
     Number3: 3,
     Number4: 4,
 } as const
-
-export interface ExperimentApiEventSourceApi {
-    /** Event name, e.g. '$pageview'. Required for EventsNode. */
-    event?: string | null
-    /** Action ID. Required for ActionsNode. */
-    id?: number | null
-    kind: KindApi
-    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
-    math?: ExperimentMetricMathTypeApi | null
-    /** Group type index to aggregate over. Required when math is 'unique_group'. */
-    math_group_type_index?: MathGroupTypeIndexApi | null
-    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
-    math_hogql?: string | null
-    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
-    math_property?: string | null
-    /** Event property filters to narrow which events are counted. */
-    properties?: EventPropertyFilterApi[] | null
-}
-
-export interface ExperimentMetricOutlierHandlingApi {
-    ignore_zeros?: boolean | null
-    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-    lower_bound_percentile?: number | null
-    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-    upper_bound_percentile?: number | null
-}
 
 export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
 
@@ -429,45 +379,6 @@ export const StartHandlingApi = {
     FirstSeen: 'first_seen',
     LastSeen: 'last_seen',
 } as const
-
-export interface ExperimentApiMetricApi {
-    /** For retention metrics: completion event. */
-    completion_event?: ExperimentApiEventSourceApi | null
-    /** Conversion window duration. */
-    conversion_window?: number | null
-    /** For ratio metrics: denominator source. */
-    denominator?: ExperimentApiEventSourceApi | null
-    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
-    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
-    /** Whether higher or lower values indicate success. */
-    goal?: ExperimentMetricGoalApi | null
-    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
-    ignore_zeros?: boolean | null
-    kind?: 'ExperimentMetric'
-    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation. */
-    lower_bound_percentile?: number | null
-    metric_type: ExperimentMetricTypeApi
-    /** Human-readable metric name. */
-    name?: string | null
-    /** For ratio metrics: numerator source. */
-    numerator?: ExperimentApiEventSourceApi | null
-    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
-    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
-    retention_window_end?: number | null
-    retention_window_start?: number | null
-    retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
-    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
-    series?: ExperimentApiEventSourceApi[] | null
-    /** For mean metrics: event source. */
-    source?: ExperimentApiEventSourceApi | null
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSourceApi | null
-    start_handling?: StartHandlingApi | null
-    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
-    upper_bound_percentile?: number | null
-    /** Unique identifier. Auto-generated if omitted. */
-    uuid?: string | null
-}
 
 /**
  * List wrapper for OpenAPI schema generation — the field stores an array of metrics.

@@ -1,3 +1,51 @@
+// Kernel types below are authored in frontend/src/queries/schema (x-schema-source:
+// posthog.schema.*) — aliased instead of re-emitting a lossy generated copy.
+import type {
+    CohortPropertyFilter,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EmptyPropertyFilter,
+    ErrorTrackingIssueFilter,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    FeaturePropertyFilter,
+    FlagPropertyFilter,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    PersonPropertyFilter,
+    PropertyGroupFilterValue,
+    RecordingPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
+    SessionPropertyFilter,
+    SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
+} from '~/types'
+
+export type CohortPropertyFilterApi = CohortPropertyFilter
+export type DataWarehousePersonPropertyFilterApi = DataWarehousePersonPropertyFilter
+export type DataWarehousePropertyFilterApi = DataWarehousePropertyFilter
+export type ElementPropertyFilterApi = ElementPropertyFilter
+export type EmptyPropertyFilterApi = EmptyPropertyFilter
+export type ErrorTrackingIssueFilterApi = ErrorTrackingIssueFilter
+export type EventMetadataPropertyFilterApi = EventMetadataPropertyFilter
+export type EventPropertyFilterApi = EventPropertyFilter
+export type FeaturePropertyFilterApi = FeaturePropertyFilter
+export type FlagPropertyFilterApi = FlagPropertyFilter
+export type GroupPropertyFilterApi = GroupPropertyFilter
+export type HogQLPropertyFilterApi = HogQLPropertyFilter
+export type LogEntryPropertyFilterApi = LogEntryPropertyFilter
+export type LogPropertyFilterApi = LogPropertyFilter
+export type PersonPropertyFilterApi = PersonPropertyFilter
+export type PropertyGroupFilterValueApi = PropertyGroupFilterValue
+export type RecordingPropertyFilterApi = RecordingPropertyFilter
+export type RevenueAnalyticsPropertyFilterApi = RevenueAnalyticsPropertyFilter
+export type SessionPropertyFilterApi = SessionPropertyFilter
+export type SpanPropertyFilterApi = SpanPropertyFilter
+export type WorkflowVariablePropertyFilterApi = WorkflowVariablePropertyFilter
+
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -85,24 +133,6 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -112,39 +142,6 @@ export const Key10Api = {
     Selector: 'selector',
 } as const
 
-export interface ElementPropertyFilterApi {
-    key: Key10Api
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'element'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface EventMetadataPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'event_metadata'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
-}
-
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
 
 export const DurationTypeApi = {
@@ -153,91 +150,11 @@ export const DurationTypeApi = {
     InactiveSeconds: 'inactive_seconds',
 } as const
 
-export interface RecordingPropertyFilterApi {
-    key: DurationTypeApi | string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'recording'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface LogEntryPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'log_entry'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
-
-export interface GroupPropertyFilterApi {
-    group_key_names?: GroupPropertyFilterApiGroupKeyNames
-    group_type_index?: number | null
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'group'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface FeaturePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Event property with "$feature/" prepended */
-    type?: 'feature'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface FlagPropertyFilterApi {
-    /** The key should be the flag ID */
-    key: string
-    label?: string | null
-    /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: 'flag_evaluates_to'
-    /** Feature flag dependency */
-    type?: 'flag'
-    /** The value can be true, false, or a variant name */
-    value: boolean | string
-}
-
-export interface HogQLPropertyFilterApi {
-    key: string
-    label?: string | null
-    type?: 'hogql'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
 
 export const EmptyPropertyFilterApiValue = {
     type: 'empty',
 } as const
-export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
-
-export interface DataWarehousePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'data_warehouse'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface DataWarehousePersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'data_warehouse_person_property'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface ErrorTrackingIssueFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'error_tracking_issue'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
 
 export const LogPropertyFilterTypeApi = {
@@ -246,14 +163,6 @@ export const LogPropertyFilterTypeApi = {
     LogResourceAttribute: 'log_resource_attribute',
 } as const
 
-export interface LogPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type: LogPropertyFilterTypeApi
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -261,57 +170,6 @@ export const SpanPropertyFilterTypeApi = {
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
 } as const
-
-export interface SpanPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type: SpanPropertyFilterTypeApi
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface RevenueAnalyticsPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'revenue_analytics'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface WorkflowVariablePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'workflow_variable'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PropertyGroupFilterValueApi {
-    type: FilterLogicalOperatorApi
-    values: (
-        | PropertyGroupFilterValueApi
-        | EventPropertyFilterApi
-        | PersonPropertyFilterApi
-        | ElementPropertyFilterApi
-        | EventMetadataPropertyFilterApi
-        | SessionPropertyFilterApi
-        | CohortPropertyFilterApi
-        | RecordingPropertyFilterApi
-        | LogEntryPropertyFilterApi
-        | GroupPropertyFilterApi
-        | FeaturePropertyFilterApi
-        | FlagPropertyFilterApi
-        | HogQLPropertyFilterApi
-        | EmptyPropertyFilterApi
-        | DataWarehousePropertyFilterApi
-        | DataWarehousePersonPropertyFilterApi
-        | ErrorTrackingIssueFilterApi
-        | LogPropertyFilterApi
-        | SpanPropertyFilterApi
-        | RevenueAnalyticsPropertyFilterApi
-        | WorkflowVariablePropertyFilterApi
-    )[]
-}
 
 /**
  * * `user` - user
