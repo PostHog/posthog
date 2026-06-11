@@ -7,7 +7,10 @@
 category: Workflows
 feature: workflows
 url_prefix: /workflows/library/templates
-ui_apps: {}
+ui_apps:
+    email-template:
+        type: detail
+        view_prop: template
 tools:
     workflows-create-email-template:
         operation: messaging_templates_create
@@ -29,8 +32,9 @@ tools:
             inline in this call exactly as authored. Use the template in a workflow's function_email action.
         response:
             exclude:
-                - content
+                - content.email.design
                 - created_by
+        ui_app: email-template
     workflows-get-email-template:
         operation: messaging_templates_retrieve
         enabled: true
@@ -87,5 +91,6 @@ tools:
             design on save.
         response:
             exclude:
-                - content
+                - content.email.design
                 - created_by
+        ui_app: email-template
