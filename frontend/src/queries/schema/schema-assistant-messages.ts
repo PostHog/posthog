@@ -518,6 +518,7 @@ export type AssistantTool =
     | 'marketing_suggest_utm_mappings'
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
+    | 'search_replay_vision_observations'
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'

@@ -209,8 +209,19 @@ class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
+class EmbedObservationInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits embedding requests for an observation's reasoning/summary."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    scanner_id: UUID
+    model_output: AnyScannerOutput
+
+
 class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Input to the summarizer-side-effect activity that emits per-facet embedding requests."""
+    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
+    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
 
     team_id: int
     session_id: str
