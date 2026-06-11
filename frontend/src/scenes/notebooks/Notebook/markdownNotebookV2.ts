@@ -274,8 +274,12 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
             .join('\n')
     }
 
-    if (node.type === 'bulletList' || node.type === 'orderedList') {
+    if (node.type === 'bulletList' || node.type === 'orderedList' || node.type === 'taskList') {
         return serializeList(node, node.type === 'orderedList', listDepth)
+    }
+
+    if (node.type === 'horizontalRule') {
+        return '---'
     }
 
     if (node.type === 'codeBlock') {
@@ -331,6 +335,9 @@ function applyMarks(text: string, marks: JSONContent['marks']): string {
         if (mark.type === 'underline') {
             return `<u>${markedText}</u>`
         }
+        if (mark.type === 'strike') {
+            return `~~${markedText}~~`
+        }
         if (mark.type === 'code') {
             return `\`${markedText}\``
         }
@@ -341,26 +348,64 @@ function applyMarks(text: string, marks: JSONContent['marks']): string {
     }, text)
 }
 
+const LIST_NODE_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
+const LIST_ITEM_NODE_TYPES = new Set(['listItem', 'taskItem'])
+
 function serializeList(node: JSONContent, ordered: boolean, depth: number): string {
-    return (node.content ?? [])
-        .filter((child) => child.type === 'listItem')
-        .map((item, index) => serializeListItem(item, ordered, depth, index))
-        .join('\n')
+    // The markdown notebook list model only holds one inline line per item, so block content inside a
+    // list item (extra paragraphs, code blocks, quotes) is emitted as standalone blocks after the item,
+    // splitting the list rather than dropping the content.
+    const blocks: string[] = []
+    let pendingListLines: string[] = []
+    const flushListLines = (): void => {
+        if (pendingListLines.length) {
+            blocks.push(pendingListLines.join('\n'))
+            pendingListLines = []
+        }
+    }
+
+    const items = (node.content ?? []).filter((child) => LIST_ITEM_NODE_TYPES.has(child.type ?? ''))
+    items.forEach((item, index) => {
+        const { listLines, trailingBlocks } = serializeListItem(item, ordered, depth, index)
+        pendingListLines.push(...listLines)
+        if (trailingBlocks.length) {
+            flushListLines()
+            blocks.push(...trailingBlocks)
+        }
+    })
+    flushListLines()
+
+    return blocks.join('\n\n')
 }
 
-function serializeListItem(item: JSONContent, ordered: boolean, depth: number, index: number): string {
+function serializeListItem(
+    item: JSONContent,
+    ordered: boolean,
+    depth: number,
+    index: number
+): { listLines: string[]; trailingBlocks: string[] } {
     const marker = ordered ? `${index + 1}.` : '-'
     const children = item.content ?? []
     const firstParagraph = children.find((child) => child.type === 'paragraph')
-    const nestedLists = children.filter((child) => child.type === 'bulletList' || child.type === 'orderedList')
-    const itemText = firstParagraph ? serializeInlineContent(firstParagraph.content) : ''
-    const nestedMarkdown = nestedLists
-        .map((child) => serializeRichContentNode(child, depth + 1))
-        .filter(Boolean)
-        .join('\n')
-    const currentLine = `${'  '.repeat(depth)}${marker} ${itemText}`
+    const nestedLists = children.filter((child) => LIST_NODE_TYPES.has(child.type ?? ''))
+    const extraBlocks = children.filter((child) => child !== firstParagraph && !LIST_NODE_TYPES.has(child.type ?? ''))
+    const checkbox = item.type === 'taskItem' ? (item.attrs?.checked ? '[x] ' : '[ ] ') : ''
+    // List lines cannot contain raw newlines in the markdown notebook model
+    const itemText = (firstParagraph ? serializeInlineContent(firstParagraph.content) : '').replace(/\s*\n\s*/g, ' ')
+    const listLines = [`${'  '.repeat(depth)}${marker} ${checkbox}${itemText}`.trimEnd()]
 
-    return nestedMarkdown ? `${currentLine}\n${nestedMarkdown}` : currentLine
+    for (const nestedList of nestedLists) {
+        const nestedMarkdown = serializeRichContentNode(nestedList, depth + 1)
+        if (nestedMarkdown) {
+            listLines.push(nestedMarkdown)
+        }
+    }
+
+    const trailingBlocks = extraBlocks
+        .map((child) => serializeRichContentNode(child))
+        .filter((block) => block.trim().length > 0)
+
+    return { listLines, trailingBlocks }
 }
 
 function serializeTable(node: JSONContent): string {
@@ -376,6 +421,7 @@ function serializeTable(node: JSONContent): string {
                 (cell.content ?? [])
                     .map((child) => serializeRichContentNode(child))
                     .join(' ')
+                    .replace(/\s*\n\s*/g, ' ')
                     .replace(/\|/g, '\\|')
             )
     )

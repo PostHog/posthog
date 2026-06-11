@@ -1,3 +1,4 @@
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import {
@@ -93,6 +94,178 @@ A **bold** paragraph.
 <Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
+    })
+
+    it('converts legacy task lists to checkbox list markdown', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskList',
+                    content: [
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: true },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Done thing' }] }],
+                        },
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: false },
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'Open thing' }] },
+                                {
+                                    type: 'taskList',
+                                    content: [
+                                        {
+                                            type: 'taskItem',
+                                            attrs: { checked: false },
+                                            content: [
+                                                {
+                                                    type: 'paragraph',
+                                                    content: [{ type: 'text', text: 'Nested open' }],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`- [x] Done thing
+- [ ] Open thing
+  - [ ] Nested open`)
+    })
+
+    it('keeps extra block content from legacy list items instead of dropping it', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'bulletList',
+                    content: [
+                        {
+                            type: 'listItem',
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'first para' }] },
+                                { type: 'paragraph', content: [{ type: 'text', text: 'second para' }] },
+                                {
+                                    type: 'codeBlock',
+                                    attrs: { language: 'sql' },
+                                    content: [{ type: 'text', text: 'select 1' }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'next item' }] }],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`- first para
+
+second para
+
+\`\`\`sql
+select 1
+\`\`\`
+
+- next item`)
+    })
+
+    it('converts horizontal rules and strikethrough marks', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'struck', marks: [{ type: 'strike' }] }] },
+                { type: 'horizontalRule' },
+                { type: 'paragraph', content: [{ type: 'text', text: 'after' }] },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`~~struck~~
+
+---
+
+after`)
+    })
+
+    it('flattens hard breaks inside table cells so rows stay on one line', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'H1' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [
+                                        {
+                                            type: 'paragraph',
+                                            content: [
+                                                { type: 'text', text: 'line1' },
+                                                { type: 'hardBreak' },
+                                                { type: 'text', text: 'line2' },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`| H1 |
+| --- |
+| line1 line2 |`)
+    })
+
+    it('produces markdown that parses without errors in the markdown notebook model', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Mixed' }] },
+                {
+                    type: 'taskList',
+                    content: [
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: true },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'task' }] }],
+                        },
+                    ],
+                },
+                { type: 'horizontalRule' },
+                {
+                    type: 'blockquote',
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'quote' }] }],
+                },
+            ],
+        }
+
+        const parsed = parseMarkdownNotebook(convertNotebookContentToMarkdown(content))
+        expect(parsed.errors).toEqual([])
+        expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'paragraph', 'blockquote'])
     })
 
     it('converts notebook artifacts to markdown notebook content', () => {
