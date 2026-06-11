@@ -138,8 +138,8 @@ fn flag_service(state: &AppState) -> FlagService {
 
 /// Authenticates and resolves the decrypt gate, mirroring Django.
 ///
-/// - `phs_` (team/project secret): the token's team must be `project_id`, else 403.
-///   Never decrypts.
+/// - `phs_` (team/project secret): the token's team must be `project_id`. On mismatch,
+///   403 if another team owns the project, 404 if no such project exists. Never decrypts.
 /// - `phx_` (personal API key): validated (scopes + access) against the team whose id
 ///   is `project_id`. Decrypts.
 async fn authenticate(
@@ -160,7 +160,16 @@ async fn authenticate(
             auth::validate_secret_api_token(state, &token).await?;
         // Django: authenticated_team.id == view.team.id, where view.team = Team(id=project_id).
         if team_id != project_id {
-            return Ok(AuthOutcome::Forbidden);
+            // Mismatch resolves like Django: 403 when a real (different) team owns the
+            // project, 404 when no such team exists (Django's `view.team` raises). The
+            // lookup only runs on this error path, never on the matching hot path.
+            return match flag_service(state).get_team_by_id(project_id).await {
+                Ok(_) => Ok(AuthOutcome::Forbidden),
+                Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
+                    Ok(AuthOutcome::ProjectNotFound)
+                }
+                Err(e) => Err(e),
+            };
         }
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
