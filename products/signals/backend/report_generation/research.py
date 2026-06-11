@@ -590,10 +590,13 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=first_previous,
     )
+    first_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
+        SignalFindingUpdate if first_previous else SignalFinding
+    )
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,
-        model=SignalFindingUpdate if first_previous else SignalFinding,
+        model=first_schema,
         branch=branch,
         step_name="report_research",
         verbose=verbose,
@@ -644,9 +647,12 @@ async def run_multi_turn_research(
                 total,
                 previous_finding=previous_finding,
             )
+            followup_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
+                SignalFindingUpdate if previous_finding else SignalFinding
+            )
             response = await session.send_followup(
                 followup_prompt,
-                SignalFindingUpdate if previous_finding else SignalFinding,
+                followup_schema,
                 label=f"signal_{i}_of_{total}",
             )
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
@@ -664,9 +670,12 @@ async def run_multi_turn_research(
             output_fn("Assessing actionability...")
         previous_actionability = previous_report_research.actionability if previous_report_research else None
         actionability_prompt = build_actionability_prompt(total, previous_actionability=previous_actionability)
+        actionability_schema: type[ActionabilityAssessment] | type[ActionabilityUpdate] = (
+            ActionabilityUpdate if previous_actionability else ActionabilityAssessment
+        )
         actionability_response = await session.send_followup(
             actionability_prompt,
-            ActionabilityUpdate if previous_actionability else ActionabilityAssessment,
+            actionability_schema,
             label="actionability",
         )
         if isinstance(actionability_response, ActionabilityUpdate):
@@ -692,9 +701,12 @@ async def run_multi_turn_research(
                 output_fn("Assessing priority...")
             previous_priority = previous_report_research.priority if previous_report_research else None
             priority_prompt = build_priority_prompt(total, previous_priority=previous_priority)
+            priority_schema: type[PriorityAssessment] | type[PriorityUpdate] = (
+                PriorityUpdate if previous_priority else PriorityAssessment
+            )
             priority_response = await session.send_followup(
                 priority_prompt,
-                PriorityUpdate if previous_priority else PriorityAssessment,
+                priority_schema,
                 label="priority",
             )
             if isinstance(priority_response, PriorityUpdate):

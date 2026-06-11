@@ -103,7 +103,9 @@ def record_implementation_task(
     gate never depends on the freeform, API-mutable artefact log. Call inside the transaction
     that created the task. Shared by auto-start and the manual start-task API.
     """
-    SignalReport.objects.filter(id=report_id, implementation_task__isnull=True).update(implementation_task_id=task_id)
+    SignalReport.objects.filter(id=report_id, team_id=team_id, implementation_task__isnull=True).update(
+        implementation_task_id=task_id
+    )
     return append_task_run_artefact(
         team_id=team_id,
         report_id=report_id,

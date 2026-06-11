@@ -103,7 +103,7 @@ def _create_implementation_task_if_absent(
     ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report is gone.
     """
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().filter(id=report_id).first()
+        report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return None
         # The gate is a real column, not the artefact log: task_run artefacts are freeform
@@ -215,7 +215,7 @@ async def maybe_autostart_implementation_task(
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
     Idempotent: skipped if an implementation task already started for the report
-    (derived from its `task_run` artefacts), if the report is not immediately
+    (the `implementation_task` gate column), if the report is not immediately
     actionable, if it's already addressed, if priority is missing, if there are no
     suggested reviewers, or if no reviewer's autonomy threshold is met. The
     "already started" check is enforced atomically under a row lock in
@@ -229,7 +229,9 @@ async def maybe_autostart_implementation_task(
     """
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = await SignalReport.objects.filter(id=report_id, implementation_task__isnull=False).aexists()
+    task_exists = await SignalReport.objects.filter(
+        id=report_id, team_id=team_id, implementation_task__isnull=False
+    ).aexists()
     if (
         actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         or actionability.already_addressed
@@ -321,7 +323,7 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     `maybe_autostart_implementation_task`, which is idempotent — it no-ops if an implementation
     task already exists for the report.
     """
-    report = await SignalReport.objects.filter(id=report_id).only("title", "summary").afirst()
+    report = await SignalReport.objects.filter(id=report_id, team_id=team_id).only("title", "summary").afirst()
     if report is None or not report.title or not report.summary:
         return
 

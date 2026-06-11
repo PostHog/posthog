@@ -1164,7 +1164,7 @@ class SignalReportArtefactViewSet(
         # simultaneous edits would both read the same row and one would be silently lost.
         seen: set[str] = set()
         with transaction.atomic():
-            SignalReport.objects.select_for_update().filter(id=artefact.report_id).first()
+            SignalReport.objects.select_for_update().filter(id=artefact.report_id, team_id=self.team_id).first()
 
             # Merge commits/names forward from the *current* reviewers (the latest status row), not
             # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.

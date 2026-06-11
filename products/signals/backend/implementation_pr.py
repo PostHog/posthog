@@ -44,7 +44,7 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
         if run is None or not run[1]:
             continue
         key = str(report_id)
-        if key not in result or run[0] > newest[key]:  # type: ignore[operator]
+        if key not in result or run[0] > newest[key]:
             result[key] = run[1]
             newest[key] = run[0]
     return result

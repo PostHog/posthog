@@ -47,4 +47,7 @@ def resolve_request_attribution(request: Request, team_id: int) -> ArtefactAttri
     task_id = resolve_task_id_from_header(request, team_id)
     if task_id is not None:
         return ArtefactAttribution.from_task(task_id)
-    return ArtefactAttribution.from_user(request.user.id)
+    user_id = request.user.id
+    if user_id is None:  # unreachable behind authentication, but keeps attribution honest
+        raise ValidationError("Cannot attribute a write to an anonymous user.")
+    return ArtefactAttribution.from_user(user_id)

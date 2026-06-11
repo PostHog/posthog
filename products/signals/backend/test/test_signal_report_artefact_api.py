@@ -942,7 +942,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
 
-    def _post_note(self, report: SignalReport, **extra) -> object:
+    def _post_note(self, report: SignalReport, **extra):
         return self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": "note", "content": {"note": "hello"}}),
