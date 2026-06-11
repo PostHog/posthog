@@ -28,11 +28,13 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .max(metricsQueryCreateBodyQueryOneMetricNameMax)
                 .describe("Exact metric name to query (e.g. 'http.server.duration')."),
             aggregation: zod
-                .enum(['sum', 'avg', 'count', 'p95'])
-                .describe('\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95')
+                .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase'])
+                .describe(
+                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase'
+                )
                 .default(metricsQueryCreateBodyQueryOneAggregationDefault)
                 .describe(
-                    'Aggregation applied per time bucket.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95'
+                    "Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase"
                 ),
             filters: zod
                 .array(

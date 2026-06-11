@@ -21,6 +21,8 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.SUM: "sum",
     MetricAggregation.AVG: "avg",
     MetricAggregation.COUNT: "count",
+    MetricAggregation.RATE: "rate",
+    MetricAggregation.INCREASE: "increase",
 }
 
 

@@ -28,6 +28,8 @@ export interface AppMetricsTotalsResponseApi {
  * * `avg` - avg
  * * `count` - count
  * * `p95` - p95
+ * * `rate` - rate
+ * * `increase` - increase
  */
 export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
 
@@ -36,6 +38,8 @@ export const AggregationEnumApi = {
     Avg: 'avg',
     Count: 'count',
     P95: 'p95',
+    Rate: 'rate',
+    Increase: 'increase',
 } as const
 
 /**
@@ -132,12 +136,14 @@ export interface _MetricQueryBodyApi {
      * @maxLength 255
      */
     metricName: string
-    /** Aggregation applied per time bucket.
+    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
      *
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
-     * * `p95` - p95 */
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase */
     aggregation?: AggregationEnumApi
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
