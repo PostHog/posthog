@@ -226,6 +226,7 @@ class TestFingerprintEmbeddingResultActivity:
 
         assert result == 0
 
+    @pytest.mark.django_db
     def test_merge_fingerprint_raises_when_source_fingerprint_is_missing(self) -> None:
         fingerprint_query = MagicMock()
         fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = []
@@ -244,6 +245,7 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
             )
 
+    @pytest.mark.django_db
     def test_merge_fingerprint_moves_source_fingerprint_to_closest_issue(self) -> None:
         source_issue_id = uuid.uuid4()
         target_issue_id = uuid.uuid4()
