@@ -10,7 +10,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE
+from products.tasks.backend.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -105,6 +105,22 @@ class InjectFreshTokensOnResumeInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str | None
+
+
+def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
+    """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
+
+    Modal fences the whole sandbox, so union in the infra (and local tunnel) domains
+    the agent needs, and drop loopback aliases Modal rejects as invalid domains.
+    """
+    domains = list(allowed_domains)
+    extra = list(INFRASTRUCTURE_DOMAINS)
+    if settings.DEBUG:
+        extra += _get_debug_only_domains()
+    for domain in extra:
+        if domain not in domains:
+            domains.append(domain)
+    return [d for d in domains if "." in d and d != "host.docker.internal"]
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -365,6 +381,15 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             metadata={"task_id": ctx.task_id},
             vm_runtime=use_vm_sandbox,
         )
+
+        # gVisor only — Modal's domain allowlist breaks vm_runtime.
+        if ctx.modal_network_allowlist_active and ctx.allowed_domains is not None:
+            config.outbound_domain_allowlist = _to_modal_domain_allowlist(ctx.allowed_domains)
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
+            )
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
             sandbox = Sandbox.create(config)

@@ -363,6 +363,9 @@ class ModalSandbox(SandboxBase):
             if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
+
             if secrets:
                 create_kwargs["secrets"] = secrets
 
