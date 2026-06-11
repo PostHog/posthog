@@ -1258,7 +1258,9 @@ class SurveyMonkeySourceConfig(config.Config):
 
 @config.config
 class TaboolaSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
