@@ -95,22 +95,12 @@ describe('Business knowledge sources', { concurrent: false }, () => {
         // awaited here, so the URL only needs to pass SSRF, not return real content.
         const PUBLIC_TEST_URL = 'https://example.com/'
 
-        it('should create a URL source with source_type dispatched correctly', async () => {
+        // A URL source is claimed in PROCESSING and ingested in the background; the
+        // backend enforces a single PROCESSING source per team, so a second concurrent
+        // create would 409. We therefore exercise dispatch + refresh_interval in one
+        // create rather than two.
+        it('should dispatch source_type=url and persist refresh_interval', async () => {
             const name = generateUniqueKey('MCP URL Source')
-            const result = await urlCreateTool.handler(context, {
-                name,
-                url: PUBLIC_TEST_URL,
-            })
-            const source = parseToolResponse(result)
-
-            expect(source.id).toBeTruthy()
-            expect(source.name).toBe(name)
-            expect(source.source_type).toBe('url')
-            createdSourceIds.push(source.id)
-        })
-
-        it('should accept refresh_interval', async () => {
-            const name = generateUniqueKey('MCP URL Refresh')
             const result = await urlCreateTool.handler(context, {
                 name,
                 url: PUBLIC_TEST_URL,
@@ -119,6 +109,7 @@ describe('Business knowledge sources', { concurrent: false }, () => {
             const source = parseToolResponse(result)
 
             expect(source.id).toBeTruthy()
+            expect(source.name).toBe(name)
             expect(source.source_type).toBe('url')
             expect(source.refresh_interval).toBe('24h')
             createdSourceIds.push(source.id)
