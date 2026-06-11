@@ -1,3 +1,4 @@
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -9,8 +10,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
-
-from posthog.schema import SubscriptionFreeTierLimit
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
@@ -26,8 +25,23 @@ if TYPE_CHECKING:
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
-# Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
-SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
+
+# Single source of truth shared with the frontend create gate via generated schema
+# (SubscriptionFreeTierLimit.COUNT). Resolved lazily via PEP 562 so posthog.schema (the
+# pydantic models) stays off django.setup(), where this model loads in every process.
+def __getattr__(name: str) -> object:
+    if name == "SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER":
+        from posthog.schema import SubscriptionFreeTierLimit  # noqa: PLC0415
+
+        return SubscriptionFreeTierLimit.model_fields["root"].default
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _free_tier_subscription_limit() -> int:
+    # Module-attribute lookup (not a direct global read) so tests patching
+    # SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER on this module still take effect.
+    return sys.modules[__name__].SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER
+
 
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
@@ -265,8 +279,8 @@ class Subscription(ModelActivityMixin, models.Model):
             # A None limit means unlimited (paid plans without a numeric cap).
             if allowed is not None and existing_count >= allowed:
                 return f"Your team has reached the limit of {allowed} subscriptions on your plan."
-        elif existing_count >= SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER:
-            return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
+        elif existing_count >= _free_tier_subscription_limit():
+            return f"Your plan is limited to {_free_tier_subscription_limit()} subscriptions."
 
         return None
 

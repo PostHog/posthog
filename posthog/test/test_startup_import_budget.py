@@ -35,6 +35,7 @@ FORBIDDEN_AT_SETUP = [
     "pandas",  # only query/export paths need it — reached via clickhouse_connect's import-time probe
     "pyarrow",  # arrow tables — reached via pandas.compat and batch-export internals, both deferred
     "numpy",  # alert detectors / weighted sampling / warehouse coercion — all call-time now
+    "posthog.schema",  # the generated pydantic data model (~2s) — enums live in posthog.schema_enums
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot

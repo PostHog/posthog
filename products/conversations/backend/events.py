@@ -19,7 +19,6 @@ from posthog.models.user import User
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
-from products.conversations.backend.person_lookup import _get_persons_by_email
 
 logger = structlog.get_logger(__name__)
 
@@ -91,6 +90,10 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
 
     email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
     if email:
+        # person_lookup pulls the HogQL query layer; this module loads at django.setup()
+        # via the conversations signal wiring, so import it lazily.
+        from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
+
         person = _get_persons_by_email(team, [email]).get(email.lower())
         if person is not None and person.distinct_ids:
             membership = (
