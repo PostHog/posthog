@@ -6,10 +6,10 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.celery_queues import CeleryQueue
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.tasks.utils import CeleryQueue
 
 from products.actions.backend.models.action import Action
 
