@@ -27,7 +27,14 @@ Controls whether INSERTs into a Distributed table are synchronous or asynchronou
 
 Previously named `insert_distributed_sync`.
 
-**Already enabled globally**: PostHog's ClickHouse config sets `insert_distributed_sync=1` in `docker/clickhouse/users.xml`. This means layer 1 (distributed table routing) is already solved for all queries. The `posthog/dags/sessions.py` DAG explicitly overrides this to `0` for large INSERTs to avoid OOM, confirming the global default is `1`.
+**Set per-query by the executor** (`_get_insert_settings`), under the legacy `insert_distributed_sync` name for ClickHouse-version compatibility. Do not rely on server profiles for this guarantee:
+
+- Dev's `docker/clickhouse/users.xml` sets `insert_distributed_sync=1` on the `default` profile, so dev and CI always behave synchronously — which also makes the async failure mode invisible in every test environment.
+- Production profiles are not the dev config. At least one production cluster explicitly sets `distributed_foreground_insert=0` (async) on the `default` profile used for writes, while carrying the legacy `insert_distributed_sync=1` only on the `readonly` profile — where it is inert, since readonly users cannot INSERT.
+- An earlier revision of this document concluded the setting was "already enabled globally", citing the dev config and the `posthog/dags/sessions.py` override comment. Both observe intent, not production behavior, and the conclusion was wrong: with async forwarding, INSERTs returned after merely enqueueing to the initiator's distribution queue, jobs were marked READY immediately, and rows became visible to readers only over the following minutes — producing badly undercounted funnel results right after every window recompute.
+- To verify actual behavior, check `Settings['insert_distributed_sync']` on real INSERT rows in `system.query_log`, or per-host profile contents in `system.settings_profile_elements`. Unit tests on `_get_insert_settings` pin our side; only production telemetry pins the environment's.
+
+Large synchronous distributed inserts buffer per-shard splits on the initiator — the reason `posthog/dags/sessions.py` sets `0` for its bulk INSERTs. Lazy computation inserts are bounded by daily windows; if a very large recompute ever hits memory limits, chunk the windows instead of reverting to async.
 
 Sources:
 
@@ -240,7 +247,7 @@ Write to `sharded_preaggregation_results` directly on a specific node, run the S
 ### Approach E: Deterministic replica routing (Sentry's approach)
 
 ```text
-INSERT: (distributed_foreground_insert=1 is already global)
+INSERT: distributed_foreground_insert=1 (set per-query by the executor — see above)
 SELECT: optimize_skip_unused_shards=1, load_balancing='in_order'
 ```
 
@@ -248,7 +255,7 @@ Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-
 
 **Pros**: zero ZK overhead on reads, no per-table serialization, per-query settings only
 **Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates lazy computation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when lazy computation is a small fraction of total query volume, but worth monitoring as it grows.
-**INSERT latency**: none extra (already global)
+**INSERT latency**: the synchronous forward to the target shard (previously assumed free via a global server setting)
 **SELECT latency**: none extra (may be slightly faster with shard pruning)
 
 **Optional hardening: add quorum writes.** Adding `insert_quorum='auto'` ensures the INSERT is acknowledged by a majority of replicas before returning. This covers the failover edge case: if replica 1 goes down between INSERT and SELECT, `in_order` falls back to replica 2, which has the data thanks to quorum. Importantly, since we're using `load_balancing='in_order'` instead of `select_sequential_consistency`, we do NOT need `insert_quorum_parallel=0` — parallel quorum (the default) works fine, so there's no per-table lock and no throughput limit. The cost is +20-100ms INSERT latency for the quorum wait.
@@ -276,7 +283,7 @@ The choice of sharding key depends on which consistency approach is used:
 ## Other approaches investigated but not applicable
 
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.
-- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but `distributed_foreground_insert=1` already solves this and is already enabled globally.
+- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but the executor sets `distributed_foreground_insert=1` per-query, which solves this directly. (Also, with pooled connections there is no guarantee the FLUSH would run on the node holding the queue.)
 - **`distributed_group_by_no_merge`**: performance optimization that skips coordinator-level re-aggregation for single-shard queries — not a consistency mechanism.
 - **Kafka coordination layer**: Sentry also built a `SynchronizedConsumer` that uses Kafka commit log topics as a write confirmation barrier. Not applicable to the lazy computation system's `INSERT...SELECT` workload.
 - **ClickHouse transactions**: experimental `BEGIN TRANSACTION` / `COMMIT` support exists but is limited to single-table operations on ReplicatedMergeTree, not production-ready, and doesn't directly address read-after-write consistency.
@@ -296,7 +303,7 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 
 | Setting                           | Scope                         | ZK ops added | Latency          | Contention               | Impact on other queries                               |
 | --------------------------------- | ----------------------------- | ------------ | ---------------- | ------------------------ | ----------------------------------------------------- |
-| `distributed_foreground_insert=1` | Global (already set)          | None         | +1-10ms          | None                     | None                                                  |
+| `distributed_foreground_insert=1` | Per-query (set by executor)   | None         | +1-10ms          | None                     | None                                                  |
 | `insert_quorum='auto'`            | Per-query                     | 2-3 writes   | +20-100ms        | None                     | None                                                  |
 | `insert_quorum_parallel=0`        | Per-query (lock is per-table) | None extra   | None extra       | ~100ms window per INSERT | None (lock only affects quorum INSERTs to same table) |
 | `select_sequential_consistency=1` | Per-query                     | 1 read       | +1-10ms          | None                     | None                                                  |
