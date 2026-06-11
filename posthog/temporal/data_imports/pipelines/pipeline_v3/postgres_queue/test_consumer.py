@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+import psycopg
 import structlog
 
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
@@ -441,6 +442,23 @@ class TestConnectionRecovery:
             assert conn is original
 
     @pytest.mark.asyncio
+    async def test_concurrent_ensure_main_conn_dials_only_once(self):
+        # All concurrent groups hitting a dead conn must share one reconnect, not dial N connections.
+        consumer = _make_consumer()
+        consumer._conn = _make_healthy_conn(closed=True)
+        fresh = _make_healthy_conn()
+
+        async def slow_connect() -> AsyncMock:
+            await asyncio.sleep(0)  # yield so the other coroutines reach the check while we're "dialing"
+            return fresh
+
+        with patch.object(consumer, "_connect", side_effect=slow_connect) as mock_connect:
+            conns = await asyncio.gather(*[consumer._ensure_main_conn() for _ in range(5)])
+
+        assert mock_connect.call_count == 1
+        assert all(conn is fresh for conn in conns)
+
+    @pytest.mark.asyncio
     async def test_ensure_recovery_conn_reconnects_when_dead(self):
         consumer = _make_consumer()
         consumer._recovery_conn = _make_healthy_conn(closed=True)
@@ -470,6 +488,28 @@ class TestConnectionRecovery:
             ),
         ):
             await consumer._process_group((1, "schema-1"), [_make_batch()])
+
+    @pytest.mark.asyncio
+    async def test_process_group_does_not_raise_when_process_single_raises(self):
+        # An unguarded queue-DB write blowing up mid-batch must cost the group, not crash the gather()/pod.
+        consumer = _make_consumer()
+
+        with (
+            patch.object(
+                consumer,
+                "_process_single",
+                new_callable=AsyncMock,
+                side_effect=psycopg.OperationalError("the connection is closed"),
+            ) as mock_single,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._process_group((1, "schema-1"), [_make_batch(), _make_batch(batch_index=1)])
+
+        mock_single.assert_awaited_once()  # group halts after the failed batch
+        mock_unlock.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_recovery_sweep_uses_reconnected_conn(self):

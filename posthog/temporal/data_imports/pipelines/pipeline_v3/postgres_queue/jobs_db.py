@@ -392,20 +392,29 @@ class BatchQueue:
         lookback_seconds: int,
         limit: int,
     ) -> list[FailedRunRef]:
-        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``."""
+        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
+
+        Ordered by latest failure first so fresh failures still land in the window when
+        already-reconciled runs outnumber ``limit`` within the lookback.
+        """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT DISTINCT ON (b.run_uuid)
-                    b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response
-                FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s.job_state = 'failed'
-                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND s.created_at >= now() - make_interval(secs => %(lookback)s)
-                ORDER BY b.run_uuid, s.created_at DESC
+                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
+                FROM (
+                    SELECT DISTINCT ON (b.run_uuid)
+                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
+                        s.created_at AS failed_at
+                    FROM {BATCH_TABLE} b
+                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'failed'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                    ORDER BY b.run_uuid, s.created_at DESC
+                ) failed_runs
+                ORDER BY failed_at DESC
                 LIMIT %(limit)s
                 """,
                 {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},

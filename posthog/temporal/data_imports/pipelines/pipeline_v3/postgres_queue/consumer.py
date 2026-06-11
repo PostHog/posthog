@@ -104,6 +104,9 @@ class BatchConsumer:
         self._shutdown = asyncio.Event()
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
+        # Serialize reconnects: concurrent groups all hit _ensure_*_conn on a bounce; without a lock each would dial its own connection and orphan all but the last.
+        self._main_conn_lock = asyncio.Lock()
+        self._recovery_conn_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
@@ -117,17 +120,24 @@ class BatchConsumer:
 
     async def _ensure_main_conn(self) -> psycopg.AsyncConnection[Any]:
         """Return the main queue connection, reconnecting if a failover/pgbouncer bounce dropped it."""
-        if self._conn is None or self._conn.closed or self._conn.broken:
-            logger.warning("queue_db_main_connection_reconnecting")
-            self._conn = await self._connect()
-        return self._conn
+        if self._conn is not None and not self._conn.closed and not self._conn.broken:
+            return self._conn
+        async with self._main_conn_lock:
+            # Re-check under the lock: another coroutine may have already reconnected while we waited.
+            if self._conn is None or self._conn.closed or self._conn.broken:
+                logger.warning("queue_db_main_connection_reconnecting")
+                self._conn = await self._connect()
+            return self._conn
 
     async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
         """Return the recovery/reconcile connection, reconnecting so a dropped one can't disable the sweeps forever."""
-        if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
-            logger.warning("queue_db_recovery_connection_reconnecting")
-            self._recovery_conn = await self._connect()
-        return self._recovery_conn
+        if self._recovery_conn is not None and not self._recovery_conn.closed and not self._recovery_conn.broken:
+            return self._recovery_conn
+        async with self._recovery_conn_lock:
+            if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
+                logger.warning("queue_db_recovery_connection_reconnecting")
+                self._recovery_conn = await self._connect()
+            return self._recovery_conn
 
     async def _wait_or_shutdown(self, timeout: float) -> None:
         try:
@@ -220,7 +230,19 @@ class BatchConsumer:
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                succeeded = await self._process_single(batch)
+                try:
+                    succeeded = await self._process_single(batch)
+                except Exception as e:
+                    # A queue-DB write failing mid-batch (e.g. stale conn after a bounce) must cost this group, not the pod.
+                    logger.exception(
+                        "process_single_unhandled_error",
+                        team_id=team_id,
+                        external_data_schema_id=schema_id,
+                        batch_id=batch.id,
+                        batch_index=batch.batch_index,
+                    )
+                    capture_exception(e)
+                    succeeded = False
                 if not succeeded:
                     # Stop processing sibling batches in this group
                     logger.info(
