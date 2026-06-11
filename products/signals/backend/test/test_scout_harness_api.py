@@ -3,13 +3,9 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.conf import settings
-from django.test import override_settings
-
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import (
@@ -19,6 +15,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -28,10 +25,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
-
-# Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
-# default). Same pattern as `posthog/test/test_permissions.py` and the OAuth provider tests.
-_OIDC_RSA_KEY = generate_rsa_key()
 
 
 def _authenticate_as_scout(test: APIBaseTest) -> None:
@@ -52,8 +45,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "client_type": OAuthApplication.CLIENT_PUBLIC,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://app.posthog.com/callback",
-                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint; the
-                # `_OIDC_RSA_KEY` override on the test class satisfies the signing-key requirement.
+                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
                 "algorithm": "RS256",
             },
         )
@@ -152,6 +144,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         expected = emitting if emitted_param == "true" else quiet
         assert ids == [str(expected.id)]
 
+    def test_list_skill_name_filter_scopes_to_one_scout(self) -> None:
+        errors = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-llm")
+        response = self.client.get(f"{self._list_url()}?skill_name=signals-scout-errors")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["run_id"] for row in response.json()]
+        assert ids == [str(errors.id)]
+
+    def test_list_surfaces_error_and_failure_reason_for_failed_run(self) -> None:
+        run = _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["error"] == "boom: sandbox died\nstack line 2"
+        assert row["failure_reason"] == "boom: sandbox died"
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
@@ -206,7 +215,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
     def test_returns_emissions_for_run_newest_first(self) -> None:
         run = _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
         _make_emission(self.team, run, finding_id="f-a")
-        newer = _make_emission(self.team, run, finding_id="f-b")
+        newer = _make_emission(self.team, run, finding_id="f-b", tags=["cost-spike"])
         response = self.client.get(self._emissions_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -217,7 +226,10 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert first["weight"] == 0.7
         assert first["confidence"] == 0.85
         assert first["severity"] == "P1"
+        assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
+        # Untagged emissions surface an empty list, not null.
+        assert body[1]["tags"] == []
 
     def test_emissions_scoped_to_the_requested_run(self) -> None:
         run_a = _make_run(self.team)
@@ -246,7 +258,6 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -300,6 +311,31 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         # Idempotency is via the deterministic `source_id` keyed on (run, finding).
         assert mock_emit.await_args.kwargs["source_id"] == f"run:{run.id}:finding:f-1"
 
+    def test_emit_finding_normalizes_tags_into_extra(self) -> None:
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)),
+                data=self._payload(tags=["Cost Spike", "cost_spike", "silent-failure"]),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert mock_emit.await_args.kwargs["extra"]["tags"] == ["cost-spike", "silent-failure"]
+        emission = SignalScoutEmission.objects.get(scout_run=run)
+        assert emission.tags == ["cost-spike", "silent-failure"]
+
+    def test_emit_finding_rejects_too_many_tags(self) -> None:
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)),
+                data=self._payload(tags=[f"tag-{i}" for i in range(11)]),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_emit.assert_not_called()
+
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
@@ -327,7 +363,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -372,6 +407,20 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
+
+    def test_search_keys_only_blanks_content(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
+        response = self.client.get(f"{self._list_url()}?keys_only=true")
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["key"] == "k1"
+        assert row["content"] == ""
+
+    def test_search_content_max_chars_truncates_preview(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="abcdefghij")
+        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["content"] == "abcd"
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -440,7 +489,6 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """The project profile is the scout's orientation surface — read once at run start.
 
@@ -567,6 +615,59 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 60
+
+    @parameterized.expand(
+        [
+            ("skill_present", "Watches error tracking for new and spiking issues."),
+            ("skill_absent", None),
+        ]
+    )
+    def test_list_surfaces_skill_description(self, _name: str, skill_description: str | None) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        if skill_description is not None:
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-errors", description=skill_description, body="..."
+            )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        # Absent skill (or no description) falls back to "".
+        assert response.json()[0]["description"] == (skill_description or "")
+
+    def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="stale",
+            body="...",
+            version=1,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="current",
+            body="...",
+            version=2,
+            is_latest=True,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other_team, name="signals-scout-errors", description="other team", body="...")
+
+        response = self.client.get(self._list_url())
+
+        assert response.json()[0]["description"] == "current"
+
+    def test_partial_update_surfaces_skill_description(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "Foo scout."
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

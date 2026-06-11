@@ -22,8 +22,7 @@ from posthog.schema import LogsAlertFilters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -1183,30 +1182,3 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         self._track("logs alert deleted", instance)
         super().perform_destroy(instance)
-
-
-@mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)
-def handle_logs_alert_activity(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    user,
-    was_impersonated=False,
-    **kwargs,
-):
-    instance = after_update or before_update
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=instance.name,
-        ),
-    )

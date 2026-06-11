@@ -1,7 +1,7 @@
 import math
 import hashlib
 from datetime import timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -32,7 +32,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -42,13 +42,14 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend import collab
+from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
+from products.tasks.backend.exceptions import SandboxProvisionError
 from products.tasks.backend.services.sandbox import SandboxStatus
-from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
@@ -66,28 +67,6 @@ def depluralize(string: str | None) -> str | None:
         return string[:-1]
     else:
         return string
-
-
-def log_notebook_activity(
-    activity: str,
-    notebook: Notebook,
-    organization_id: UUIDT,
-    team_id: int,
-    user: User,
-    was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
-) -> None:
-    short_id = str(notebook.short_id)
-    log_activity(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=notebook.short_id,
-        scope="Notebook",
-        activity=activity,
-        detail=Detail(changes=changes, short_id=short_id, name=notebook.title),
-    )
 
 
 _NOTEBOOK_FIELD_HELP_TEXTS = {

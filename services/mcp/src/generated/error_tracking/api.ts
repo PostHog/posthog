@@ -2994,38 +2994,14 @@ export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed')
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]).optional(),
-            type: zod.string().optional(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.string().optional(),
-                integration: zod
-                    .object({
-                        id: zod.number().optional(),
-                        kind: zod.string().optional(),
-                        display_name: zod.string().optional(),
-                    })
-                    .optional(),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.string(),
-                external_url: zod.string().optional(),
-            })
-        )
-        .optional(),
+    name: zod.string().nullish().describe('Optional issue display name.'),
+    description: zod.string().nullish().describe('Optional issue description.'),
 })
 
 export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
