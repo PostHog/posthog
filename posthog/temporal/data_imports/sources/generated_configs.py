@@ -37,6 +37,14 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class ElasticsearchAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class GithubAuthMethodConfig(config.Config):
     github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["oauth", "pat"] = "oauth"
@@ -523,7 +531,8 @@ class EbaySourceConfig(config.Config):
 
 @config.config
 class ElasticsearchSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: ElasticsearchAuthMethodConfig
 
 
 @config.config

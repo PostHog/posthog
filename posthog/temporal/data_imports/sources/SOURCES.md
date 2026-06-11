@@ -73,6 +73,7 @@ the row lists both.
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
 | freshsales       | HTTP                        | requests                                                        | ✅                          |
+| elasticsearch    | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
@@ -228,7 +229,6 @@ doesn't conflict with concurrent PRs.
 - dynamics365
 - dynamodb
 - ebay
-- elasticsearch
 - eloqua
 - expensify
 - facebook_pages
