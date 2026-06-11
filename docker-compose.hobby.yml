@@ -104,9 +104,9 @@ services:
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ROLLOUT_PERCENTAGE: '100'
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
-            BROWSERLESS_TOKEN: $POSTHOG_SECRET
+            BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
-            HEATMAP_BROWSERLESS_TOKEN: $POSTHOG_SECRET
+            HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             # blockConsentModals is a browserless.io cloud API extension; the OSS image 400s on it
             HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS: 'false'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
@@ -350,7 +350,7 @@ services:
         restart: on-failure
         logging: *default-logging
         environment:
-            TOKEN: $POSTHOG_SECRET
+            TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
 
     asyncmigrationscheck:
         extends:
@@ -412,9 +412,9 @@ services:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
-            BROWSERLESS_TOKEN: $POSTHOG_SECRET
+            BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
-            HEATMAP_BROWSERLESS_TOKEN: $POSTHOG_SECRET
+            HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             # blockConsentModals is a browserless.io cloud API extension; the OSS image 400s on it
             HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS: 'false'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
