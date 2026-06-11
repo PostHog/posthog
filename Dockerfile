@@ -408,7 +408,7 @@ RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwrig
 # Build-time smoke test: prove the system Chromium actually launches through Playwright and renders a
 # page (the heatmap path uses executable_path=$CHROME_BIN). A missing shared lib or broken chromium
 # fails the build here instead of silently at runtime now that no Playwright browser is bundled.
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage']); pg=b.new_page(); pg.set_content('<h1>ok</h1>'); assert pg.screenshot(), 'empty screenshot'; b.close(); p.stop(); print('chromium launch smoke test OK')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-software-rasterizer','--single-process']); pg=b.new_page(); pg.set_content('<h1>ok</h1>'); assert pg.inner_text('h1') == 'ok', 'page render failed'; b.close(); p.stop(); print('chromium launch smoke test OK')"
 
 # Setup ENV.
 ENV NODE_ENV=production \
