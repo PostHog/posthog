@@ -125,7 +125,7 @@ class OAuthApplication(AbstractApplication):
     # is the $ai_gateway_slug attribution value; one gateway holds many keys.
     gateway: "Gateway | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Gateway",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="oauth_applications",

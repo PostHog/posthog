@@ -49,16 +49,6 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-    # First-party gateway this key binds to; its slug is the $ai_gateway_slug
-    # attribution value. Null for ordinary keys.
-    gateway = models.ForeignKey(
-        "posthog.Gateway",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="personal_api_keys",
-    )
-
     # DEPRECATED: value is no longer persisted; use secure_value for hash of value
     value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation

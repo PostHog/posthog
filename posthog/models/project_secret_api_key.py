@@ -49,6 +49,17 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
+    # First-party gateway this key binds to; its slug is the $ai_gateway_slug
+    # attribution value. Null for ordinary keys. PROTECT so a gateway can't be
+    # deleted out from under a key still routing through it — drain first.
+    gateway = models.ForeignKey(
+        "posthog.Gateway",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="project_secret_api_keys",
+    )
+
     class Meta:
         db_table = "posthog_projectsecretapikey"
         indexes = [models.Index(fields=["team", "created_at"])]

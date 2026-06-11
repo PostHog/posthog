@@ -2,27 +2,26 @@ from collections import defaultdict
 
 from django.db import migrations
 
-_GATEWAY_SCOPE = "llm_gateway:read"
 # Slug of the gateway seeded by 1216; this catch-up binds to it by slug.
 _DEFAULT_SLUG = "default"
 
 
 def backfill_credential_gateway_bindings(apps, schema_editor):
-    """Bind pre-existing llm_gateway:read credentials to their team's seeded gateway.
+    """Bind pre-existing llm_gateway:read OAuth applications to their team's seeded gateway.
 
     Runs after 1216, so every canonical team already has its initial gateway. A
-    gateway can hold many keys (ForeignKey), so all of a team's eligible credentials
+    gateway can hold many keys (ForeignKey), so all of an org's eligible applications
     bind to the one seeded gateway. Idempotent: only rows still unbound are touched;
-    new credentials are bound at mint time, so this is a one-time catch-up. Signals
+    new applications are bound at mint time, so this is a one-time catch-up. Signals
     don't fire — historical models are distinct classes from the ones receivers target.
 
-    Binds only when a single authoritative team is derivable (a singleton scoped_team,
-    or a singleton scoped_organization's root team). Anything ambiguous is left unbound
-    — a guessed binding silently misattributes billing, whereas an unbound credential
-    fails closed and can be bound explicitly later. Writes are grouped by resolved
-    gateway and issued as one UPDATE per gateway rather than a save() per row.
+    Binds only when a single authoritative team is derivable (the org's one root team).
+    Anything ambiguous is left unbound — a guessed binding silently misattributes
+    billing, whereas an unbound credential fails closed and can be bound explicitly
+    later. Project secret keys are not backfilled: they're directly team-scoped and were
+    minted for other purposes, so auto-binding them to a gateway would misattribute.
+    Writes are grouped by resolved gateway and issued as one UPDATE per gateway.
     """
-    PersonalAPIKey = apps.get_model("posthog", "PersonalAPIKey")
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
     OAuthAccessToken = apps.get_model("posthog", "OAuthAccessToken")
     Team = apps.get_model("posthog", "Team")
@@ -48,29 +47,15 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
     def org_root_team_id(organization_id: int | str | None) -> int | None:
         if not organization_id:
             return None
-        return (
+        # Bind only when the org has exactly one root team — a multi-project org has no
+        # single authoritative gateway, so leave the credential unbound. Fetch two to
+        # detect ambiguity without counting the whole set.
+        roots = list(
             Team.objects.filter(organization_id=organization_id, parent_team_id__isnull=True)
-            .values_list("id", flat=True)
-            .first()
+            .order_by("id")
+            .values_list("id", flat=True)[:2]
         )
-
-    # Personal keys carry the scope directly. Resolve a single authoritative team
-    # (singleton scoped_team, else singleton scoped_organization's root team); leave
-    # ambiguous keys unbound rather than guessing from mutable session state.
-    pak_binds: dict[int, list] = defaultdict(list)
-    paks = PersonalAPIKey.objects.filter(scopes__contains=[_GATEWAY_SCOPE], gateway__isnull=True)
-    for pak in paks.iterator():
-        if pak.scoped_teams and len(pak.scoped_teams) == 1:
-            team_id = pak.scoped_teams[0]
-        elif pak.scoped_organizations and len(pak.scoped_organizations) == 1:
-            team_id = org_root_team_id(pak.scoped_organizations[0])
-        else:
-            team_id = None
-        gateway_id = default_gateway_id(team_id)
-        if gateway_id is not None:
-            pak_binds[gateway_id].append(pak.pk)
-    for gateway_id, ids in pak_binds.items():
-        PersonalAPIKey.objects.filter(pk__in=ids).update(gateway_id=gateway_id)
+        return roots[0] if len(roots) == 1 else None
 
     # OAuth scope lives on issued tokens; the binding is per-application. An app
     # belongs to an organization, so attribute it to the org's root team; an app with

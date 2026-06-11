@@ -4,7 +4,7 @@ from posthog.test.base import NonAtomicTestMigrations
 
 from django.utils import timezone
 
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.utils import generate_random_token_secret, hash_key_value
 
 GATEWAY_SCOPE = "llm_gateway:read"
 
@@ -21,80 +21,54 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         Team = apps.get_model("posthog", "Team")
         User = apps.get_model("posthog", "User")
         Gateway = apps.get_model("posthog", "Gateway")
-        PersonalAPIKey = apps.get_model("posthog", "PersonalAPIKey")
+        OAuthApplication = apps.get_model("posthog", "OAuthApplication")
+        OAuthAccessToken = apps.get_model("posthog", "OAuthAccessToken")
+        ProjectSecretAPIKey = apps.get_model("posthog", "ProjectSecretAPIKey")
 
-        org = Organization.objects.create(name="o")
-        project = Project.objects.create(id=987654321, organization=org, name="p")
-        self.team = Team.objects.create(id=project.id, name="t", organization=org, project=project)
-        # The provision-on-create signal targets the real Team class, not this
-        # historical one, so create the seeded gateway explicitly.
-        # Historical Gateway's default manager is `all_teams`, so there's no `.objects`.
-        self.default_gateway = Gateway._default_manager.create(team=self.team, slug="default")
-        user = User.objects.create(email="u@example.com", current_team=self.team)
-
-        # Scoped to a single team → binds to that team's gateway.
-        self.eligible = PersonalAPIKey.objects.create(
-            label="eligible",
-            user=user,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=[GATEWAY_SCOPE],
-            scoped_teams=[self.team.id],
-        )
-        self.ineligible = PersonalAPIKey.objects.create(
-            label="ineligible",
-            user=user,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=["feature_flag:read"],
-        )
-        # Eligible but no scoped_teams/scoped_organizations → no authoritative team,
-        # so left unbound rather than guessed from mutable current_team session state.
-        self.unscoped = PersonalAPIKey.objects.create(
-            label="unscoped",
-            user=user,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=[GATEWAY_SCOPE],
-        )
-
-        # A single-team org so scoped_organizations resolves to one unambiguous root.
+        # A single-root org → its root team is the one unambiguous gateway owner.
         org_solo = Organization.objects.create(name="solo", slug="solo")
-        project_solo = Project.objects.create(id=987654323, organization=org_solo, name="psolo")
+        project_solo = Project.objects.create(id=987654321, organization=org_solo, name="psolo")
         self.team_solo = Team.objects.create(
             id=project_solo.id, name="tsolo", organization=org_solo, project=project_solo
         )
+        # The provision-on-create signal targets the real Team class, not this
+        # historical one, so create the seeded gateway explicitly. Historical
+        # Gateway's default manager is `all_teams`, so there's no `.objects`.
         self.default_gateway_solo = Gateway._default_manager.create(team=self.team_solo, slug="default")
-        self.scoped_to_org = PersonalAPIKey.objects.create(
-            label="scoped_org",
-            user=user,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=[GATEWAY_SCOPE],
-            scoped_organizations=[str(org_solo.id)],
-        )
+        user = User.objects.create(email="u@example.com", current_team=self.team_solo)
 
-        # A second project whose gateway the scoped key should bind to, proving
-        # scoped_teams wins over the user's current_team (which is self.team).
-        project2 = Project.objects.create(id=987654322, organization=org, name="p2")
-        self.team2 = Team.objects.create(id=project2.id, name="t2", organization=org, project=project2)
-        self.default_gateway2 = Gateway._default_manager.create(team=self.team2, slug="default")
-        self.scoped_to_team2 = PersonalAPIKey.objects.create(
-            label="scoped",
-            user=user,
-            secure_value=hash_key_value(generate_random_token_personal()),
-            scopes=[GATEWAY_SCOPE],
-            scoped_teams=[self.team2.id],
-        )
-
-        # OAuth scope lives on issued tokens; the migration binds the application.
-        OAuthApplication = apps.get_model("posthog", "OAuthApplication")
-        OAuthAccessToken = apps.get_model("posthog", "OAuthAccessToken")
         expires = timezone.now() + timedelta(hours=1)
 
-        self.eligible_app = self._make_app(OAuthApplication, org, user, "elig")
+        # OAuth scope lives on issued tokens; the migration binds the application to
+        # its org's single root team's gateway.
+        self.eligible_app = self._make_app(OAuthApplication, org_solo, user, "elig")
         OAuthAccessToken.objects.create(
             user=user, application=self.eligible_app, token="tok-elig", expires=expires, scope=GATEWAY_SCOPE
         )
-        self.ineligible_app = self._make_app(OAuthApplication, org, user, "inelig")
+        self.ineligible_app = self._make_app(OAuthApplication, org_solo, user, "inelig")
         OAuthAccessToken.objects.create(
             user=user, application=self.ineligible_app, token="tok-inelig", expires=expires, scope="feature_flag:read"
+        )
+
+        # A multi-root org: two root teams → no single authoritative gateway, so an
+        # eligible app here must be left unbound rather than guessing a root.
+        org_multi = Organization.objects.create(name="multi", slug="multi")
+        for project_id, name in ((987654322, "p1"), (987654323, "p2")):
+            project = Project.objects.create(id=project_id, organization=org_multi, name=name)
+            team = Team.objects.create(id=project.id, name=name, organization=org_multi, project=project)
+            Gateway._default_manager.create(team=team, slug="default")
+        self.multiroot_app = self._make_app(OAuthApplication, org_multi, user, "multi")
+        OAuthAccessToken.objects.create(
+            user=user, application=self.multiroot_app, token="tok-multi", expires=expires, scope=GATEWAY_SCOPE
+        )
+
+        # Project secret keys are directly team-scoped and minted for other purposes,
+        # so the migration never backfills them — even an eligible one stays unbound.
+        self.secret_key = ProjectSecretAPIKey.objects.create(
+            label="secret",
+            team=self.team_solo,
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=[GATEWAY_SCOPE],
         )
 
     @staticmethod
@@ -110,38 +84,23 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
             user=user,
         )
 
-    def test_binds_only_eligible_personal_keys(self):
-        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
-
-        eligible = PersonalAPIKey.objects.get(pk=self.eligible.pk)
-        ineligible = PersonalAPIKey.objects.get(pk=self.ineligible.pk)
-
-        self.assertEqual(eligible.gateway_id, self.default_gateway.pk)
-        self.assertIsNone(ineligible.gateway_id)
-
-    def test_leaves_unscoped_key_unbound(self):
-        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
-
-        unscoped = PersonalAPIKey.objects.get(pk=self.unscoped.pk)
-        self.assertIsNone(unscoped.gateway_id)
-
-    def test_binds_personal_key_to_its_scoped_team(self):
-        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
-
-        scoped = PersonalAPIKey.objects.get(pk=self.scoped_to_team2.pk)
-        self.assertEqual(scoped.gateway_id, self.default_gateway2.pk)
-
-    def test_binds_personal_key_to_its_scoped_organization_root(self):
-        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
-
-        scoped = PersonalAPIKey.objects.get(pk=self.scoped_to_org.pk)
-        self.assertEqual(scoped.gateway_id, self.default_gateway_solo.pk)
-
     def test_binds_only_oauth_apps_with_an_eligible_token(self):
         OAuthApplication = self.apps.get_model("posthog", "OAuthApplication")  # type: ignore
 
         eligible = OAuthApplication.objects.get(pk=self.eligible_app.pk)
         ineligible = OAuthApplication.objects.get(pk=self.ineligible_app.pk)
 
-        self.assertEqual(eligible.gateway_id, self.default_gateway.pk)
+        self.assertEqual(eligible.gateway_id, self.default_gateway_solo.pk)
         self.assertIsNone(ineligible.gateway_id)
+
+    def test_leaves_oauth_app_unbound_when_org_has_multiple_root_teams(self):
+        OAuthApplication = self.apps.get_model("posthog", "OAuthApplication")  # type: ignore
+
+        multiroot = OAuthApplication.objects.get(pk=self.multiroot_app.pk)
+        self.assertIsNone(multiroot.gateway_id)
+
+    def test_does_not_backfill_project_secret_keys(self):
+        ProjectSecretAPIKey = self.apps.get_model("posthog", "ProjectSecretAPIKey")  # type: ignore
+
+        secret_key = ProjectSecretAPIKey.objects.get(pk=self.secret_key.pk)
+        self.assertIsNone(secret_key.gateway_id)

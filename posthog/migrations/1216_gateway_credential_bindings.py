@@ -27,19 +27,19 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
+                on_delete=django.db.models.deletion.PROTECT,
                 related_name="oauth_applications",
                 to="posthog.gateway",
             ),
         ),
         migrations.AddField(
-            model_name="personalapikey",
+            model_name="projectsecretapikey",
             name="gateway",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="personal_api_keys",
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="project_secret_api_keys",
                 to="posthog.gateway",
             ),
         ),
