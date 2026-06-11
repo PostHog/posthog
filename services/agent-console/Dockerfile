@@ -47,13 +47,11 @@ COPY services/agent-console/ services/agent-console/
 # still goes through `main`/`exports` resolution).
 #
 # `@posthog/quill...` (trailing `...`) selects quill + every workspace
-# package it depends on. agent-console doesn't depend on quill-charts
-# and `pnpm --filter '@posthog/agent-console...' install` doesn't
-# install charts' deps, so a glob like `@posthog/quill-*` would also
-# pick up charts and fail with tsc-can't-resolve at build time. The
-# `...` form excludes it naturally (quill itself doesn't depend on
-# charts) and stays correct if new quill subpackages get added.
-RUN pnpm --dir packages/quill -r --filter '@posthog/quill...' build
+# package it depends on. The console also imports `@posthog/quill-charts`
+# directly (FleetAnalytics), which quill itself doesn't depend on, so add
+# `@posthog/quill-charts...` to build charts + its deps too. Both ship
+# `main: "./dist/..."`, so they must be built before next can resolve them.
+RUN pnpm --dir packages/quill -r --filter '@posthog/quill...' --filter '@posthog/quill-charts...' build
 
 WORKDIR /code/services/agent-console
 RUN pnpm run build

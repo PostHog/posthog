@@ -29,7 +29,7 @@ import type {
     SkillTemplateSummaryApi,
     SkillTemplateUsageApi,
     TemplateVersionEntryApi,
-} from '@/generated/agent-platform.api.schemas'
+} from './registryApiTypes'
 
 // ── error shape ────────────────────────────────────────────────────────────
 
