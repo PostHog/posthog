@@ -102,6 +102,7 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Teams with at least one exception in the last 7 days, used for digest routing."""
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
 
@@ -121,7 +122,8 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     {team_filter}
     """
 
-    results = sync_execute(query, query_params)
+    # Cross-team scan for a weekly batch job — keep it off the online cluster.
+    results = sync_execute(query, query_params, workload=Workload.OFFLINE)
     return results if isinstance(results, list) else []
 
 

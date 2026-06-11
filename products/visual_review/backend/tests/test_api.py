@@ -1,6 +1,6 @@
 """Unit tests for visual_review facade API."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import patch
@@ -189,12 +189,55 @@ class TestRunAPI:
             team_id=repo.team_id,
         )
 
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
 
         assert len(snapshots) == 2
         assert all(isinstance(s.id, UUID) for s in snapshots)
         identifiers = {s.identifier for s in snapshots}
         assert identifiers == {"Button", "Card"}
+
+    @pytest.mark.parametrize(
+        ("include_quarantined", "expected_identifiers"),
+        [
+            (True, {"Button", "Card"}),
+            (False, {"Card"}),
+        ],
+    )
+    def test_get_run_snapshots_filters_quarantined_but_always_counts(
+        self, repo, user, include_quarantined, expected_identifiers
+    ):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button", content_hash="hash1"),
+                    SnapshotManifestItem(identifier="Card", content_hash="hash2"),
+                ],
+            ),
+            team_id=repo.team_id,
+        )
+        logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=user.id,
+            team_id=repo.team_id,
+        )
+
+        result = api.get_run_snapshots(
+            create_result.run_id, team_id=repo.team_id, include_quarantined=include_quarantined
+        )
+
+        assert {s.identifier for s in result.snapshots} == expected_identifiers
+        assert result.quarantined_count == 1
+
+    def test_get_run_snapshots_excluding_quarantined_requires_team_id(self):
+        with pytest.raises(ValueError):
+            api.get_run_snapshots(uuid4(), include_quarantined=False)
 
     @pytest.mark.parametrize(
         ("filters", "expected_commits"),
@@ -330,7 +373,7 @@ class TestApproveRunAPI:
         assert result.approved_at is None
 
         # Snapshot-level approval fields were set, result preserved
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         button_snap = next(s for s in snapshots if s.identifier == "Button")
         assert button_snap.result == SnapshotResult.CHANGED
         assert button_snap.approved_hash == "new_hash"

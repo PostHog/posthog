@@ -128,6 +128,5 @@ Make sure the data center below matches the one that issued your key (US or EU).
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )

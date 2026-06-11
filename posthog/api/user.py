@@ -91,6 +91,7 @@ from posthog.models.user import (
     OnboardingSkippedReason,
     ShortcutPosition,
 )
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -238,9 +239,9 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key and has not yet acknowledged "
-            "their existing credentials. Used to gate a one-shot review screen on first "
-            "post-provisioning login. Becomes False once the user POSTs to "
+            "True if the user has at least one Personal API Key or passkey and has not yet "
+            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
+            "first post-provisioning login. Becomes False once the user POSTs to "
             "`/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -386,7 +387,9 @@ class UserSerializer(serializers.ModelSerializer):
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
-        return PersonalAPIKey.objects.filter(user=instance).exists()
+        if PersonalAPIKey.objects.filter(user=instance).exists():
+            return True
+        return WebauthnCredential.objects.filter(user=instance).exists()
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
@@ -662,14 +665,28 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             new_email = validated_data["email"]
+            # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
+            # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
+            current_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+            new_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            is_same_org_migration = (
+                bool(current_sso_enforced)
+                and bool(new_sso_enforced)
+                and current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+            if current_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email because SSO is enforced on your current email's domain.",
                     code="sso_enforced_current_email",
                 )
             # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+            if new_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
@@ -919,6 +936,11 @@ class UserViewSet(
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
         if default_device(user) or passkeys_enabled_for_2fa:
             return Response({"success": True, "token": token, "requires_2fa": True})
+
+        # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
+        # must not become a password-backend login path around the IdP. The user logs in via SSO.
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return Response({"success": True, "token": token, "requires_sso": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
@@ -1252,7 +1274,8 @@ class UserViewSet(
             "Mark the user as having reviewed their existing credentials. Idempotent. "
             "Flips `requires_credential_review` to False so the post-login interstitial "
             "isn't shown again. Does not modify any credentials; the user revokes "
-            "individual Personal API Keys via the existing PAT endpoints from the same screen."
+            "individual Personal API Keys and passkeys via their existing endpoints from "
+            "the same screen."
         ),
     )
     @action(
@@ -1262,9 +1285,9 @@ class UserViewSet(
         authentication_classes=[SessionAuthentication],
     )
     def credentials_review_complete(self, request, **kwargs):
-        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
-        # screen, so accepting PersonalAPIKeyAuthentication here would let the
-        # attacker who minted the PAK silently dismiss their own surfacing.
+        # Session-only auth: this endpoint dismisses the partner-issued-credential
+        # review screen, so accepting PersonalAPIKeyAuthentication here would let
+        # the attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
         if user.credentials_reviewed_at is None:
             user.credentials_reviewed_at = django_timezone.now()

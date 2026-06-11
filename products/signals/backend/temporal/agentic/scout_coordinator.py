@@ -21,10 +21,9 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +47,10 @@ MAX_RUNS_PER_TICK = 50
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
 COORDINATOR_INTERVAL_MINUTES = 30
+
+# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
+# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
+DUE_GRACE_SECONDS = 60
 
 
 @dataclass
@@ -168,7 +171,7 @@ def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",
                 team_id=team.id,
             )
-        live_skills = _register_missing_configs(team)
+        live_skills = register_missing_configs(team.id)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
@@ -259,33 +262,12 @@ def _enrolled_team_ids() -> set[int]:
         return set(fallback)
 
 
-def _register_missing_configs(team: Team) -> set[str]:
-    """Auto-create an enabled, default-schedule config for each scout skill lacking a row.
-
-    The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
-    a row on the next tick with no further wiring. Returns the set of live `signals-scout-*`
-    skill names for the team, so the caller can skip dispatching configs whose skill is gone.
-    """
-    skill_names = set(
-        LLMSkill.objects.filter(
-            team_id=team.id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
-    )
-    existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
-    for name in sorted(skill_names - existing):
-        SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
-    return skill_names
-
-
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due, or None if not yet due. Never-run rows are maximally overdue."""
+    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60
-    return overdue if overdue >= 0 else None
+    return overdue if overdue >= -DUE_GRACE_SECONDS else None
 
 
 @workflow.defn(name="run-signals-scout-coordinator")
