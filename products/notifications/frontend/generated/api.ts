@@ -41,6 +41,17 @@ export const notificationsList = async (
     })
 }
 
+export const getNotificationsClearCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notifications/${id}/clear/`
+}
+
+export const notificationsClearCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotificationsClearCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getNotificationsMarkReadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/notifications/${id}/mark_read/`
 }
@@ -68,6 +79,34 @@ export const notificationsMarkUnreadCreate = async (
     return apiMutator<void>(getNotificationsMarkUnreadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getNotificationsClearAllCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/clear_all/`
+}
+
+export const notificationsClearAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotificationsClearAllCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getNotificationsClearBulkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/clear_bulk/`
+}
+
+export const notificationsClearBulkCreate = async (
+    projectId: string,
+    bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsClearBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkNotificationIdsRequestApi),
     })
 }
 

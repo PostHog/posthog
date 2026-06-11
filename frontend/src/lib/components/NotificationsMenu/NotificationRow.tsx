@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
@@ -54,7 +54,7 @@ export function NotificationRow({
     notification: InAppNotification
     onNavigate?: () => void
 }): JSX.Element {
-    const { navigateToNotification, toggleRead } = useActions(sidePanelNotificationsLogic)
+    const { navigateToNotification, toggleRead, clearNotification } = useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
 
@@ -72,6 +72,11 @@ export function NotificationRow({
     const handleToggleRead = (e: React.MouseEvent): void => {
         e.stopPropagation()
         toggleRead(notification.id)
+    }
+
+    const handleClear = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        clearNotification(notification.id)
     }
 
     return (
@@ -113,6 +118,16 @@ export function NotificationRow({
                                 )}
                             </button>
                         </Tooltip>
+                        {notification.clearable && (
+                            <Tooltip title="Clear">
+                                <button
+                                    className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
+                                    onClick={handleClear}
+                                >
+                                    <IconX className="size-4" />
+                                </button>
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
                 {notification.body && (

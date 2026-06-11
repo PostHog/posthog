@@ -21,7 +21,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
-from products.notifications.backend.models import NotificationEvent, NotificationReadState
+from products.notifications.backend.models import NotificationClearState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
 _BULK_NOTIFICATION_IDS_MAX = 500
@@ -88,6 +88,12 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         notification_event_id=OuterRef("id"),
                         user_id=user.id,
                     ).values("created_at")[:1]
+                ),
+                cleared=Exists(
+                    NotificationClearState.objects.filter(
+                        notification_event_id=OuterRef("id"),
+                        user_id=user.id,
+                    )
                 ),
             )
             .order_by("-created_at")
@@ -204,7 +210,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if not self._is_feature_enabled():
             return Response({"results": [], "next": None, "previous": None, "count": 0})
 
-        queryset = self._get_base_queryset()
+        queryset = self._get_base_queryset().filter(cleared=False)
         queryset = self._apply_filters(queryset, request)
         queryset = self._filter_by_access_control(queryset)
         page = self.paginate_queryset(queryset)
@@ -223,7 +229,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         org_id = self.team.organization_id
         count = get_unread_count(user.id, org_id)
         if count is None:
-            queryset = self._get_base_queryset()
+            queryset = self._get_base_queryset().filter(cleared=False)
             queryset = self._filter_by_access_control(queryset)
             count = queryset.filter(read=False).count()
             set_unread_count(user.id, org_id, count)
@@ -236,7 +242,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        queryset = self._get_base_queryset().filter(read=False)
+        queryset = self._get_base_queryset().filter(read=False, cleared=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
             read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids]
@@ -327,3 +333,57 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             ).delete()
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
+
+    @extend_schema(request=None)
+    @action(methods=["POST"], detail=True, url_path="clear")
+    def clear(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"status": "ok"})
+
+        user = self._get_user()
+        event = self.get_object()
+        if event.clearable:
+            # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+            NotificationClearState.objects.get_or_create(notification_event=event, user=user)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"status": "ok"})
+
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
+    @action(methods=["POST"], detail=False, url_path="clear_bulk")
+    def clear_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.validated_data["notification_ids"]
+        if not ids:
+            return Response({"updated": 0})
+
+        eligible_ids = list(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+                clearable=True,
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            clear_states = [NotificationClearState(notification_event_id=eid, user=user) for eid in eligible_ids]
+            NotificationClearState.objects.bulk_create(clear_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})
+
+    @extend_schema(request=None)
+    @action(methods=["POST"], detail=False, url_path="clear_all")
+    def clear_all(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        queryset = self._get_base_queryset().filter(clearable=True, cleared=False)
+        event_ids = list(queryset.values_list("id", flat=True))
+        if event_ids:
+            clear_states = [NotificationClearState(notification_event_id=eid, user=user) for eid in event_ids]
+            NotificationClearState.objects.bulk_create(clear_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(event_ids)})

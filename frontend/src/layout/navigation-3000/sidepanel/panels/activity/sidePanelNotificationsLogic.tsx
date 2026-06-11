@@ -24,6 +24,9 @@ import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { InAppNotification, InsightShortId } from '~/types'
 
 import {
+    notificationsClearAllCreate,
+    notificationsClearBulkCreate,
+    notificationsClearCreate,
     notificationsList,
     notificationsMarkAllReadCreate,
     notificationsMarkReadBulkCreate,
@@ -125,6 +128,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
+        clearNotification: (id: string) => ({ id }),
+        clearGroup: (group: NotificationGroup) => ({ group }),
+        clearAll: true,
+        removeNotifications: (ids: string[]) => ({ ids }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
@@ -165,6 +172,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     return [...state, ...newItems]
                 },
                 notificationReceived: (state, { notification }) => [notification, ...state],
+                removeNotifications: (state, { ids }) => {
+                    const toRemove = new Set(ids)
+                    return state.filter((n) => !toRemove.has(n.id))
+                },
                 markAsRead: (state, { id }) =>
                     state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
                 toggleRead: (state, { id }) =>
@@ -576,6 +587,64 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     // Swallow
                 }
             },
+            clearNotification: async ({ id }) => {
+                const notification = values.inAppNotifications.find((n) => n.id === id)
+                if (!notification || !notification.clearable) {
+                    return
+                }
+                actions.removeNotifications([id])
+                if (!notification.read) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - 1))
+                }
+                try {
+                    await notificationsClearCreate((values.currentProjectId ?? '').toString(), id)
+                } catch {
+                    // Swallow
+                }
+            },
+            clearGroup: async ({ group }) => {
+                if (!group.full_children_loaded) {
+                    await fetchGroupChildren(group)
+                }
+                const refreshed = values.groups.find((g) => g.group_key === group.group_key)
+                if (!refreshed) {
+                    return
+                }
+                const clearable = refreshed.children.filter((c) => c.clearable)
+                const ids = clearable.map((c) => c.id)
+                if (ids.length === 0) {
+                    return
+                }
+                const unreadCleared = clearable.filter((c) => !c.read).length
+                actions.removeNotifications(ids)
+                if (unreadCleared > 0) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadCleared))
+                }
+                try {
+                    await notificationsClearBulkCreate((values.currentProjectId ?? '').toString(), {
+                        notification_ids: ids,
+                    })
+                } catch {
+                    // Swallow
+                }
+            },
+            clearAll: async () => {
+                const clearable = values.inAppNotifications.filter((n) => n.clearable)
+                const ids = clearable.map((n) => n.id)
+                if (ids.length === 0) {
+                    return
+                }
+                const unreadCleared = clearable.filter((n) => !n.read).length
+                actions.removeNotifications(ids)
+                if (unreadCleared > 0) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadCleared))
+                }
+                try {
+                    await notificationsClearAllCreate((values.currentProjectId ?? '').toString())
+                } catch {
+                    // Swallow
+                }
+            },
             loadCurrentTeamSuccess: () => {
                 if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
                     cache.nextStartReason = 'team_reload'
@@ -701,6 +770,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        hasClearableNotifications: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): boolean => inAppNotifications.some((n) => n.clearable),
+        ],
         unreadCount: [
             (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],
             (realTimeEnabled, legacyNotifications, inAppUnreadCount): number => {

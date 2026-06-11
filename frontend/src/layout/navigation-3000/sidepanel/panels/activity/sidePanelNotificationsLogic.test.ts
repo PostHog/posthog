@@ -24,6 +24,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         created_at: '2026-05-07T12:00:00Z',
         read: false,
         read_at: null,
+        clearable: false,
         ...overrides,
     }
 }
@@ -191,6 +192,57 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
         logic.actions.markGroupChildrenLoaded(key)
         await logic.actions.toggleGroupRead(logic.values.groups[0])
         expect(logic.values.groups[0].has_unread).toBe(true)
+    })
+})
+
+describe('sidePanelNotificationsLogic.clear', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/projects/:tid/notifications/:id/clear/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/clear_bulk/': () => [200, { updated: 2 }],
+                '/api/projects/:tid/notifications/clear_all/': () => [200, { updated: 2 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('removes a cleared notification and decrements unread count', async () => {
+        const a = makeNotification({ id: 'a', clearable: true, read: false })
+        const b = makeNotification({ id: 'b', resource_id: 'other' })
+        logic.actions.setInAppNotifications([a, b], false)
+        logic.actions.setInAppUnreadCount(2)
+        await logic.actions.clearNotification('a')
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+        expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+
+    it('does not clear a non-clearable notification', async () => {
+        const a = makeNotification({ id: 'a', clearable: false })
+        logic.actions.setInAppNotifications([a], false)
+        await logic.actions.clearNotification('a')
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['a'])
+    })
+
+    it('clearAll removes only clearable notifications', async () => {
+        const a = makeNotification({ id: 'a', clearable: true, resource_id: 'a' })
+        const b = makeNotification({ id: 'b', clearable: false, resource_id: 'b' })
+        logic.actions.setInAppNotifications([a, b], false)
+        await logic.actions.clearAll()
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+    })
+
+    it('hasClearableNotifications reflects presence of a clearable notification', () => {
+        logic.actions.setInAppNotifications([makeNotification({ id: 'a', clearable: true })], false)
+        expect(logic.values.hasClearableNotifications).toBe(true)
+        logic.actions.setInAppNotifications([makeNotification({ id: 'b', clearable: false })], false)
+        expect(logic.values.hasClearableNotifications).toBe(false)
     })
 })
 

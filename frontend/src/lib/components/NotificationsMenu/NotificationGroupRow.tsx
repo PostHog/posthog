@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { NotificationRow } from 'lib/components/NotificationsMenu/NotificationRow'
@@ -21,7 +21,8 @@ export function NotificationGroupRow({
     onNavigate?: () => void
 }): JSX.Element {
     const { expandedGroupKeys, loadingGroupKeys } = useValues(sidePanelNotificationsLogic)
-    const { toggleGroupExpanded, loadGroupChildren, toggleGroupRead } = useActions(sidePanelNotificationsLogic)
+    const { toggleGroupExpanded, loadGroupChildren, toggleGroupRead, clearGroup } =
+        useActions(sidePanelNotificationsLogic)
     const isExpanded = expandedGroupKeys.has(group.group_key)
     const isLoading = loadingGroupKeys.has(group.group_key)
 
@@ -40,6 +41,11 @@ export function NotificationGroupRow({
     const handleToggleRead = (e: React.MouseEvent): void => {
         e.stopPropagation()
         toggleGroupRead(group)
+    }
+
+    const handleClear = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        clearGroup(group)
     }
 
     const allRead = !group.has_unread
@@ -77,6 +83,16 @@ export function NotificationGroupRow({
                                     )}
                                 </button>
                             </Tooltip>
+                            {group.representative.clearable && (
+                                <Tooltip title="Clear group">
+                                    <button
+                                        className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
+                                        onClick={handleClear}
+                                    >
+                                        <IconX className="size-4" />
+                                    </button>
+                                </Tooltip>
+                            )}
                             <button
                                 className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary"
                                 onClick={handleExpand}

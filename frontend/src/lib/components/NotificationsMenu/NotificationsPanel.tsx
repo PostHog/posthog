@@ -18,9 +18,15 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
-        useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
+    const {
+        groups,
+        inAppUnreadCount,
+        importantChangesLoading,
+        hasMoreNotifications,
+        isLoadingMore,
+        hasClearableNotifications,
+    } = useValues(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadMoreNotifications, clearAll } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
     const filteredGroups = activeTab === 'unread' ? groups.filter((g: NotificationGroup) => g.has_unread) : groups
@@ -51,11 +57,18 @@ export function NotificationsPanel(): JSX.Element {
                     )}
                 </button>
             </div>
-            {inAppUnreadCount > 0 && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
-                    Mark all as read
-                </LemonButton>
-            )}
+            <div className="flex items-center gap-1 ml-auto">
+                {inAppUnreadCount > 0 && (
+                    <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()}>
+                        Mark all as read
+                    </LemonButton>
+                )}
+                {hasClearableNotifications && (
+                    <LemonButton size="xsmall" type="secondary" onClick={() => clearAll()}>
+                        Clear all
+                    </LemonButton>
+                )}
+            </div>
         </div>
     )
 

@@ -18,6 +18,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         body: '',
         read: false,
         read_at: null,
+        clearable: false,
         resource_type: null,
         resource_id: '',
         target_type: 'user',
