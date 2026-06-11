@@ -1,5 +1,6 @@
-import { actions, afterMount, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
@@ -45,6 +46,14 @@ function runPhaseMessage(phase: string): string {
         return 'wizard started running'
     }
     return `wizard phase: ${phase}`
+}
+
+function elapsedSecondsFrom(startedAt: string, now: number): number {
+    const started = new Date(startedAt).getTime()
+    if (Number.isNaN(started)) {
+        return 0
+    }
+    return Math.max(0, Math.floor((now - started) / 1000))
 }
 
 function taskStatusVerb(status: string): string {
@@ -168,19 +177,10 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         ],
         elapsedSeconds: [
             (s) => [s.latestSession, s.now],
-            (latestSession, now): number => {
-                if (!latestSession) {
-                    return 0
-                }
-                const startedAt = new Date(latestSession.started_at).getTime()
-                if (Number.isNaN(startedAt)) {
-                    return 0
-                }
-                return Math.max(0, Math.floor((now - startedAt) / 1000))
-            },
+            (latestSession, now): number => (latestSession ? elapsedSecondsFrom(latestSession.started_at, now) : 0),
         ],
     }),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, cache }) => ({
         connectionStatus: (status, prev) => {
             if (status === prev) {
                 return
@@ -206,6 +206,18 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             const isFresh = !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
             if (isFresh) {
                 actions.markSessionCurrent()
+                // Reach metric: count each live wizard session the sync surfaces, once per
+                // session_id. Gated on freshness so stale terminal rows sitting in the DB —
+                // which never reach the user — don't inflate the funnel.
+                if (cache.reportedDetectedId !== session.session_id) {
+                    cache.reportedDetectedId = session.session_id
+                    posthog.capture('setup wizard sync session detected', {
+                        workflow_id: WORKFLOW_ID,
+                        skill_id: session.skill_id,
+                        run_phase: session.run_phase,
+                        task_count: session.tasks.length,
+                    })
+                }
             }
             // Keep the global detector in sync so the FAB survives a navigation
             // away from the install step. Gate on the detector's shared
@@ -235,6 +247,21 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
             if (session.run_phase !== prev.run_phase) {
                 actions.appendActivity(runPhaseMessage(session.run_phase))
+                const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
+                // Outcome metric: fire once when a run the user watched live reaches a
+                // terminal phase. Terminal phases are sticky, so this transition is observed
+                // at most once per session — the id guard covers any SSE redelivery.
+                if (isTerminal && cache.reportedFinishedId !== session.session_id) {
+                    cache.reportedFinishedId = session.session_id
+                    posthog.capture('setup wizard sync session finished', {
+                        workflow_id: WORKFLOW_ID,
+                        skill_id: session.skill_id,
+                        outcome: session.run_phase,
+                        task_count: session.tasks.length,
+                        completed_task_count: session.tasks.filter((t) => t.status === 'completed').length,
+                        elapsed_seconds: elapsedSecondsFrom(session.started_at, now),
+                    })
+                }
             }
             const prevTaskKeys = new Set(prev.tasks.map((t) => `${t.id}::${t.status}`))
             for (const task of session.tasks) {
@@ -246,6 +273,15 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                     }
                 }
             }
+        },
+    })),
+    listeners(({ values }) => ({
+        dismiss: () => {
+            posthog.capture('setup wizard sync dismissed', {
+                workflow_id: WORKFLOW_ID,
+                outcome: values.displayState,
+                elapsed_seconds: values.elapsedSeconds,
+            })
         },
     })),
     afterMount(({ actions, cache, values }) => {

@@ -1,6 +1,7 @@
 import './WizardProgressFab.scss'
 
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChevronDown, IconX } from '@posthog/icons'
@@ -72,7 +73,18 @@ function WizardProgressFabInner(): JSX.Element | null {
             >
                 <button
                     type="button"
-                    onClick={() => setExpanded((v) => !v)}
+                    onClick={() => {
+                        const next = !expanded
+                        setExpanded(next)
+                        // Only the expand direction is an intentful "show me the details"
+                        // signal worth tracking; collapsing is just tidying up.
+                        if (next) {
+                            posthog.capture('setup wizard sync progress expanded', {
+                                display_state: displayState,
+                                progress_pct: progressPct,
+                            })
+                        }
+                    }}
                     className="w-full text-left flex items-center gap-3 px-3 py-3 hover:bg-bg-3000 transition-colors cursor-pointer"
                     aria-label={expanded ? 'Collapse wizard details' : 'Expand wizard details'}
                     aria-expanded={expanded}

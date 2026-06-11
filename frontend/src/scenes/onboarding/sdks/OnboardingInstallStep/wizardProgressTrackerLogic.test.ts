@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -60,11 +61,15 @@ describe('wizardProgressTrackerLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        ;(posthog.capture as jest.Mock).mockClear()
         streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
         detector = wizardActiveSessionDetectorLogic()
         logic = wizardProgressTrackerLogic()
         logic.mount()
     })
+
+    const capturedEvents = (name: string): any[][] =>
+        (posthog.capture as jest.Mock).mock.calls.filter((call) => call[0] === name)
 
     afterEach(() => {
         logic?.unmount()
@@ -106,5 +111,80 @@ describe('wizardProgressTrackerLogic', () => {
             streamLogic.actions.sessionUpdated(pastCap)
         }).toNotHaveDispatchedActions(['markActive'])
         await expectLogic(detector).toMatchValues({ hasActiveSession: false, shouldStream: false })
+    })
+
+    it('captures "session detected" once per session_id for a fresh session', async () => {
+        streamLogic.actions.sessionUpdated(makeSession({ run_phase: 'running' }))
+        await expectLogic(logic).toMatchValues({ sessionIsCurrent: true })
+
+        expect(posthog.capture).toHaveBeenCalledWith('setup wizard sync session detected', {
+            workflow_id: WORKFLOW_ID,
+            skill_id: 'nextjs',
+            run_phase: 'running',
+            task_count: 0,
+        })
+
+        // A later update for the same session must not re-fire the reach metric.
+        streamLogic.actions.sessionUpdated(makeSession({ run_phase: 'running' }))
+        expect(capturedEvents('setup wizard sync session detected')).toHaveLength(1)
+    })
+
+    it('does not capture "session detected" for a stale session', async () => {
+        const stale = makeSession({
+            run_phase: 'completed',
+            updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+        })
+        streamLogic.actions.sessionUpdated(stale)
+        expect(capturedEvents('setup wizard sync session detected')).toHaveLength(0)
+    })
+
+    it.each(['completed', 'error'] as const)(
+        'captures "session finished" once when a running session transitions to %s',
+        async (outcome) => {
+            streamLogic.actions.sessionUpdated(
+                makeSession({
+                    run_phase: 'running',
+                    tasks: [
+                        { id: 't1', title: 'Install SDK', status: 'completed' },
+                        { id: 't2', title: 'Capture events', status: 'in_progress' },
+                    ],
+                })
+            )
+            streamLogic.actions.sessionUpdated(
+                makeSession({
+                    run_phase: outcome,
+                    tasks: [
+                        { id: 't1', title: 'Install SDK', status: 'completed' },
+                        { id: 't2', title: 'Capture events', status: 'completed' },
+                    ],
+                })
+            )
+
+            expect(posthog.capture).toHaveBeenCalledWith('setup wizard sync session finished', {
+                workflow_id: WORKFLOW_ID,
+                skill_id: 'nextjs',
+                outcome,
+                task_count: 2,
+                completed_task_count: 2,
+                elapsed_seconds: expect.any(Number),
+            })
+
+            // Re-delivering the terminal state must not double-count the outcome.
+            streamLogic.actions.sessionUpdated(makeSession({ run_phase: outcome }))
+            expect(capturedEvents('setup wizard sync session finished')).toHaveLength(1)
+        }
+    )
+
+    it('captures "session dismissed" with the terminal outcome', async () => {
+        streamLogic.actions.sessionUpdated(makeSession({ run_phase: 'completed' }))
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.dismiss()
+
+        expect(posthog.capture).toHaveBeenCalledWith('setup wizard sync dismissed', {
+            workflow_id: WORKFLOW_ID,
+            outcome: 'completed',
+            elapsed_seconds: expect.any(Number),
+        })
     })
 })
