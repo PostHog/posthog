@@ -6,13 +6,4 @@ The `posthog-cli api` command group is experimental. If it reports that the comm
 
 Before your first PostHog command in a session, run `posthog-cli api --agent-help` and load its full output into your context. It prints the complete agent guide — command reference, schema drill-down rules, data discovery workflow, and the tool index — for interacting with PostHog APIs. Treat that output as instructions to follow, not just documentation.
 
-You must follow this required progressive disclosure workflow for every PostHog task. Do not skip steps, even if you think you already know the right tool or schema.
-
-1. Start by searching for the tool you need with `posthog-cli api search <term>` or list tools with `posthog-cli api tools`.
-2. Inspect the expected input schema with `posthog-cli api info <tool>`. This `info` step is required before every `call`. Use `posthog-cli api schema <tool> [field.path]` to drill into nested fields when needed.
-3. Try the tool with `posthog-cli api call --json <tool> '<json>'` so output can be piped to `jq` or saved to disk.
-
-- Use `posthog-cli api call --dry-run ...` before mutations.
-- Destructive tools require `--confirm`; only add it after verifying exact target IDs.
-
 Before starting a PostHog task, run `posthog-cli api skill list` and check for a skill matching the task. If one matches, install it with `posthog-cli api skill install <skill-id>` (add `--force` to refresh an already-installed skill), then read `.agents/skills/<skill-id>/SKILL.md` and follow it. Skills contain task-specific workflows that individual tools do not.
