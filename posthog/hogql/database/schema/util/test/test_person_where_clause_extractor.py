@@ -32,10 +32,10 @@ def _select(
     return parsed
 
 
-def jsonfield(blob: str, *keys: Union[str, int]) -> ast.JSONFieldAccess:
-    """The lowered form of a `blob.key...` property read: `jsonfield("properties", "email")` matches `properties.email`
-    after lowering. Build expected clauses with it via placeholders, e.g. `_expr("{e} = 'x'", {"e": jsonfield(...)})`."""
-    return ast.JSONFieldAccess(expr=ast.Field(chain=[blob]), keys=list(keys))
+def prop_read(blob: str, *keys: Union[str, int]) -> ast.PropertyAccess:
+    """The lowered form of a `blob.key...` property read: `prop_read("properties", "email")` matches `properties.email`
+    after lowering. Build expected clauses with it via placeholders, e.g. `_expr("{e} = 'x'", {"e": prop_read(...)})`."""
+    return ast.PropertyAccess(expr=ast.Field(chain=[blob]), keys=list(keys))
 
 
 class RemoveHiddenAliases(CloningVisitor):
@@ -92,12 +92,12 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
 
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_andor_1(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or false")
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_andor_2(self):
@@ -110,7 +110,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         expected = _expr(
             "{e1} = 'jimmy@posthog.com' and {e2} = 'timmy@posthog.com'",
-            {"e1": jsonfield("properties", "email"), "e2": jsonfield("properties", "email")},
+            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
         )
         assert actual == expected
 
@@ -120,7 +120,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         expected = _expr(
             "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": jsonfield("properties", "email"), "e2": jsonfield("properties", "email")},
+            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
         )
         assert actual == expected
 
@@ -130,7 +130,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         expected = _expr(
             "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": jsonfield("properties", "email"), "e2": jsonfield("properties", "email")},
+            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
         )
         assert actual == expected
 
@@ -140,7 +140,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         expected = _expr(
             "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": jsonfield("properties", "email"), "e2": jsonfield("properties", "email")},
+            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
         )
         assert actual == expected
 
@@ -154,7 +154,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE event == '$pageview' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_andor_9(self):
@@ -173,26 +173,26 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_array(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email IN ['jimmy@posthog.com']")
-        expected = _expr("{e} IN ['jimmy@posthog.com']", {"e": jsonfield("properties", "email")})
+        expected = _expr("{e} IN ['jimmy@posthog.com']", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_function_calls(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
         )
-        expected = _expr("toString({e}) = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("toString({e}) = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_function_call_args(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, 10) = 'jimmy@posthog.com'"
         )
-        expected = _expr("substring({e}, 10) = 'jimmy@posthog.com'", {"e": jsonfield("properties", "email")})
+        expected = _expr("substring({e}, 10) = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
         assert actual == expected
 
     def test_person_properties_function_call_args_complex(self):

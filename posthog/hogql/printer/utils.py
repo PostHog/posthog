@@ -161,7 +161,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
-        # Lower JSON-blob property reads to dialect-neutral JSONFieldAccess nodes. The warehouse dialects have no
+        # Lower JSON-blob property reads to dialect-neutral PropertyAccess nodes. The warehouse dialects have no
         # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
@@ -205,8 +205,8 @@ def prepare_ast_for_printing(
 
         # The two passes that replaced the printer's old property handling, in order. Both run AFTER the PropertySwapper
         # passes, so any scalar cast already wraps the property. (1) Lowering replaces every blob `PropertyType` Field with
-        # a `JSONFieldAccess` — a plain "read these keys from this blob", no decision about how. (2) Property resolution
-        # then picks the source: each `JSONFieldAccess` backed by a materialized / skip-index / property-group column is
+        # a `PropertyAccess` — a plain "read these keys from this blob", no decision about how. (2) Property resolution
+        # then picks the source: each `PropertyAccess` backed by a materialized / skip-index / property-group column is
         # rewritten to read that column; the rest survive and print as the raw JSON extract. The within_non_hogql_query
         # (lightweight-DELETE) path runs through here too; the printer renders every column bare there (the single-table
         # mutation analyzer rejects table prefixes), so no extra marking is needed.

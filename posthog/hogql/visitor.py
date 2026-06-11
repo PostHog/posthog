@@ -133,7 +133,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.exprs:
             self.visit(expr)
 
-    def visit_jsonfield_access(self, node: ast.JSONFieldAccess):
+    def visit_property_access(self, node: ast.PropertyAccess):
         self.visit(node.expr)
 
     def visit_lambda(self, node: ast.Lambda):
@@ -712,8 +712,8 @@ class CloningVisitor(Visitor[Any]):
             exprs=[self.visit(expr) for expr in node.exprs],
         )
 
-    def visit_jsonfield_access(self, node: ast.JSONFieldAccess):
-        return ast.JSONFieldAccess(
+    def visit_property_access(self, node: ast.PropertyAccess):
+        return ast.PropertyAccess(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
