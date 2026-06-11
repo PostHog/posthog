@@ -15,4 +15,5 @@ class SymbolSetCleanupResult:
     objects_processed: int
     objects_deleted: int
     objects_failed: int
+    storage_objects_failed: int = 0
     eligible_count: int | None = None

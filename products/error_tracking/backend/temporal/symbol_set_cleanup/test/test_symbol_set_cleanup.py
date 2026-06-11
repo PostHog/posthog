@@ -102,6 +102,28 @@ class TestSymbolSetCleanupActivity(BaseTest):
         assert result == SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
         assert list(ErrorTrackingSymbolSet.objects.values_list("ref", flat=True)) == ["old-unused"]
 
+    def test_storage_delete_failures_are_reported_separately(self) -> None:
+        self._create_symbol_set(
+            "old-used", created_at_days_ago=45, last_used_days_ago=31, storage_ptr="symbols/old-used"
+        )
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many",
+                return_value=["symbols/old-used"],
+            ),
+            patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"),
+        ):
+            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=10, total_per_run=10))
+
+        assert result == SymbolSetCleanupResult(
+            objects_processed=1,
+            objects_deleted=1,
+            objects_failed=0,
+            storage_objects_failed=1,
+        )
+        assert ErrorTrackingSymbolSet.objects.count() == 0
+
     def test_dry_run_returns_eligible_count_without_deleting(self) -> None:
         self._create_symbol_set("old-used", created_at_days_ago=45, last_used_days_ago=31)
         self._create_symbol_set("old-unused", created_at_days_ago=45, last_used_days_ago=None)

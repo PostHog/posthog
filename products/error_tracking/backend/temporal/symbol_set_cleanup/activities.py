@@ -82,7 +82,8 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
 
     total_processed = 0
     total_deleted = 0
-    total_failed = 0
+    total_db_failed = 0
+    total_storage_failed = 0
     failed_ids: set[str] = set()
 
     while total_processed < inputs.total_per_run:
@@ -103,7 +104,7 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
 
         deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
         total_deleted += deleted_count
-        total_failed += len(batch_failed_ids)
+        total_db_failed += len(batch_failed_ids)
         failed_ids.update(batch_failed_ids)
 
         deleted_storage_ptrs = [
@@ -118,14 +119,14 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
                 failed_storage_ptrs = deleted_storage_ptrs
                 logger.exception(
                     "error_tracking.symbol_set_cleanup.s3_batch_delete_failed",
-                    objects_failed=len(failed_storage_ptrs),
+                    storage_objects_failed=len(failed_storage_ptrs),
                     error=str(exc),
                 )
             if failed_storage_ptrs:
-                total_failed += len(failed_storage_ptrs)
+                total_storage_failed += len(failed_storage_ptrs)
                 logger.warning(
                     "error_tracking.symbol_set_cleanup.s3_delete_failures",
-                    objects_failed=len(failed_storage_ptrs),
+                    storage_objects_failed=len(failed_storage_ptrs),
                 )
 
         total_processed += len(symbol_sets)
@@ -133,18 +134,21 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
             "error_tracking.symbol_set_cleanup.progress",
             objects_processed=total_processed,
             objects_deleted=total_deleted,
-            objects_failed=total_failed,
+            objects_failed=total_db_failed,
+            storage_objects_failed=total_storage_failed,
         )
 
-    if total_failed > 0:
+    if total_db_failed > 0 or total_storage_failed > 0:
         logger.warning(
             "error_tracking.symbol_set_cleanup.failures",
             objects_processed=total_processed,
-            objects_failed=total_failed,
+            objects_failed=total_db_failed,
+            storage_objects_failed=total_storage_failed,
         )
 
     return SymbolSetCleanupResult(
         objects_processed=total_processed,
         objects_deleted=total_deleted,
-        objects_failed=total_failed,
+        objects_failed=total_db_failed,
+        storage_objects_failed=total_storage_failed,
     )
