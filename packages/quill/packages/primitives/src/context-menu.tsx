@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 
@@ -241,8 +242,8 @@ function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Sepa
     )
 }
 
-function ContextMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
+function ContextMenuShortcut({ className, ...props }: React.ComponentProps<typeof Kbd>): React.ReactElement {
+    return <Kbd data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
 }
 
 export {
