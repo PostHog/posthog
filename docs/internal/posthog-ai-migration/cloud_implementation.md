@@ -8,6 +8,8 @@ All file references are absolute paths in this repo, with line numbers, so claim
 
 ## 0. In-monorepo mapping (read this first)
 
+> **Known gaps and drift:** this spec is a snapshot (last revised 2026-06-01) and Twig has moved since — including a repo-layout refactor that invalidates the file paths cited throughout. See [`cloud_implementation_gaps.md`](./cloud_implementation_gaps.md) before relying on §§ 5–6 (SSE/commands), § 10.8 (notification payloads), or § 19 (file index).
+
 This document reverse-engineers the Twig desktop consumer (`../code/`),
 but the REST/SSE/command CONTRACT it documents is IMPLEMENTED IN THIS MONOREPO at `products/tasks/backend/`.
 The Twig Electron app is one consumer of that contract;
