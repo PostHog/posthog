@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from django.conf import settings
+from django.db import close_old_connections
+
 import psycopg
 import structlog
 from psycopg import sql
@@ -19,6 +22,17 @@ logger = structlog.get_logger(__name__)
 
 DUCKGRES_APPLY_TABLE = "_posthog_source_batch_duckgres_apply"
 
+# Duckgres-side apply markers older than this are pruned opportunistically at the
+# start of each run. Must comfortably exceed the queue's eligibility window
+# (PARTITION_PRUNING_INTERVAL, 14d) — the ordering gate and has_applied read them.
+APPLY_MARKER_RETENTION_DAYS = 30
+
+EXTRACT_READ_SECRET_NAME = "posthog_extract_read"
+
+
+class DuckgresBatchAlreadyAppliedError(Exception):
+    """A concurrent processor applied this batch first; our write was rolled back."""
+
 
 @dataclass(frozen=True)
 class DuckgresColumn:
@@ -34,6 +48,10 @@ class BatchApplyOperation:
 
 
 def process_batch(batch: PendingBatch) -> None:
+    # Threads are reused across batches; drop stale app-DB connections so the ORM
+    # reads below reconnect instead of failing every attempt after a DB bounce.
+    close_old_connections()
+
     job = ExternalDataJob.objects.select_related("schema", "schema__source").get(
         id=batch.job_id,
         team_id=batch.team_id,
@@ -43,8 +61,25 @@ def process_batch(batch: PendingBatch) -> None:
         raise ValueError(f"ExternalDataJob {batch.job_id} has no schema")
 
     with _connect_to_duckgres(batch.team_id) as conn:
-        setup_duckgres_session(conn)
-        _process_batch(conn, batch, schema)
+        # The sink only reads parquet over S3; httpfs is bundled in the duckgres
+        # worker image so INSTALL is a local no-op. Do NOT add extensions that are
+        # not bundled (e.g. delta): egress-restricted workers silently drop the
+        # CDN download and the statement hangs.
+        setup_duckgres_session(conn, extensions=("httpfs",))
+        _create_extract_read_secret(conn)
+        try:
+            _process_batch(conn, batch, schema)
+        except DuckgresBatchAlreadyAppliedError:
+            # A concurrent processor (lost advisory-lock session + recovery sweep)
+            # won the marker insert; its committed write is the canonical one and
+            # ours rolled back. Treat as applied.
+            logger.info(
+                "duckgres_batch_applied_by_concurrent_processor",
+                team_id=batch.team_id,
+                schema_id=batch.schema_id,
+                run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
+            )
 
 
 def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
@@ -57,7 +92,64 @@ def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
         user=config["DUCKGRES_USERNAME"],
         password=config["DUCKGRES_PASSWORD"],
         autocommit=True,
+        # A half-open connection to a dead worker would otherwise block the sync
+        # thread for the OS TCP timeout (hours). Keepalives bound it to ~2 minutes;
+        # the consumer's stuck-batch watchdog is the backstop above that.
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
     )
+
+
+def _create_extract_read_secret(conn: psycopg.Connection[Any]) -> None:
+    """Grant this duckgres session read access to PostHog's extract bucket.
+
+    read_parquet() executes on the duckgres worker, whose ambient credentials are
+    org-scoped to the org's own lake bucket — they cannot read the internal
+    DATAWAREHOUSE_BUCKET where v3 batches live. Mint short-lived credentials from
+    the consumer's own identity and inject them as a session secret SCOPEd to the
+    extract bucket, so it wins prefix resolution there and nowhere else.
+    """
+    bucket = settings.DATAWAREHOUSE_BUCKET
+    scope = f"s3://{bucket}"
+
+    if settings.USE_LOCAL_SETUP:
+        parts = [
+            "TYPE S3",
+            f"KEY_ID {_sql_str(settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY)}",
+            f"SECRET {_sql_str(settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET)}",
+            f"ENDPOINT {_sql_str(settings.OBJECT_STORAGE_ENDPOINT.replace('http://', '').replace('https://', ''))}",
+            "URL_STYLE 'path'",
+            "USE_SSL false",
+            f"SCOPE {_sql_str(scope)}",
+        ]
+    else:
+        import boto3
+
+        session = boto3.Session()
+        creds = session.get_credentials()
+        if creds is None:
+            raise RuntimeError("No AWS credentials available to read the extract bucket from duckgres")
+        frozen = creds.get_frozen_credentials()
+        parts = [
+            "TYPE S3",
+            f"KEY_ID {_sql_str(frozen.access_key)}",
+            f"SECRET {_sql_str(frozen.secret_key)}",
+            f"REGION {_sql_str(session.region_name or 'us-east-1')}",
+            f"SCOPE {_sql_str(scope)}",
+        ]
+        if frozen.token:
+            parts.insert(3, f"SESSION_TOKEN {_sql_str(frozen.token)}")
+
+    conn.execute(
+        f"CREATE OR REPLACE SECRET {EXTRACT_READ_SECRET_NAME} ({', '.join(parts)})"  # noqa: S608
+    )
+
+
+def _sql_str(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: ExternalDataSchema) -> None:
@@ -72,6 +164,8 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
         raise ValueError("Duckgres batch sink does not support CDC batches yet")
 
     _ensure_duckgres_apply_table(conn, duckgres_schema)
+    if batch.batch_index == 0 and not batch.is_final_batch:
+        _prune_duckgres_apply_markers(conn, duckgres_schema)
     if _has_duckgres_batch_applied(conn, duckgres_schema, batch=batch):
         logger.info(
             "duckgres_batch_already_applied",
@@ -245,7 +339,7 @@ def _has_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: 
 
 
 def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: str, *, batch: PendingBatch) -> None:
-    conn.execute(
+    cursor = conn.execute(
         sql.SQL(
             """
             INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id)
@@ -258,6 +352,28 @@ def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema:
         ),
         [batch.schema_id, batch.run_uuid, batch.batch_index, batch.id],
     )
+    if not cursor.rowcount:
+        # The marker insert shares the data write's transaction, so raising here
+        # rolls the data write back: the marker table is the arbiter that makes
+        # concurrent double-apply impossible regardless of advisory-lock state.
+        raise DuckgresBatchAlreadyAppliedError(
+            f"batch {batch.schema_id}/{batch.run_uuid}/{batch.batch_index} already applied"
+        )
+
+
+def _prune_duckgres_apply_markers(conn: psycopg.Connection[Any], duckgres_schema: str) -> None:
+    """Opportunistic retention for the duckgres-side marker table (runs at batch 0)."""
+    try:
+        conn.execute(
+            sql.SQL("DELETE FROM {}.{} WHERE applied_at < now() - INTERVAL {}").format(
+                sql.Identifier(duckgres_schema),
+                sql.Identifier(DUCKGRES_APPLY_TABLE),
+                sql.Literal(f"{APPLY_MARKER_RETENTION_DAYS} days"),
+            )
+        )
+    except Exception:
+        # Retention is best-effort; never fail a batch over it.
+        logger.exception("duckgres_apply_marker_prune_failed", duckgres_schema=duckgres_schema)
 
 
 def _read_parquet_columns(conn: psycopg.Connection[Any], s3_path: str) -> list[str]:

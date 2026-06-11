@@ -1,10 +1,12 @@
+import time
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer import (
     DuckgresBatchConsumer,
+    DuckgresBatchConsumerAdapter,
     DuckgresConsumerConfig,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
@@ -169,3 +171,77 @@ class TestDuckgresProcessSingle:
             await consumer._process_single(_make_batch(latest_attempt=3))
 
         mock_fail.assert_called_once()
+
+
+class TestDuckgresEnablementGating:
+    @pytest.mark.asyncio
+    async def test_fetch_returns_empty_without_querying_when_no_teams_enabled(self):
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = []
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+            new_callable=AsyncMock,
+        ) as mock_fetch:
+            batches = await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=0)
+
+        assert batches == []
+        mock_fetch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fetch_passes_team_ids_and_runs_maintenance(self):
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1, 2]
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_fetch,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.supersede_replaced_runs",
+                new_callable=AsyncMock,
+                return_value=0,
+            ) as mock_supersede,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
+                new_callable=AsyncMock,
+                return_value=(0, None),
+            ) as mock_backlog,
+        ):
+            await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=30)
+
+        assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
+        assert mock_fetch.call_args[1]["retry_backoff_base_seconds"] == 30
+        mock_supersede.assert_called_once()
+        mock_backlog.assert_called_once()
+
+
+class TestStuckBatchWatchdog:
+    @pytest.mark.asyncio
+    async def test_health_withheld_while_a_batch_is_stuck(self):
+        reporter = MagicMock()
+        consumer = _make_consumer(stuck_batch_timeout_seconds=10.0)
+        consumer._health_reporter = reporter
+        consumer._inflight_started = {"batch-1": time.monotonic() - 60}
+
+        consumer._report_health()
+
+        reporter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_health_reported_when_batches_are_fresh_or_absent(self):
+        reporter = MagicMock()
+        consumer = _make_consumer(stuck_batch_timeout_seconds=10.0)
+        consumer._health_reporter = reporter
+
+        consumer._report_health()
+        consumer._inflight_started = {"batch-1": time.monotonic()}
+        consumer._report_health()
+
+        assert reporter.call_count == 2

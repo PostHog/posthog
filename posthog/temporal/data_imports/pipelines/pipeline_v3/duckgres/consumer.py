@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
 import psycopg
+import structlog
+from asgiref.sync import sync_to_async
+from prometheus_client import Gauge
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -14,12 +19,38 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     ProcessBatchFn,
     _group_by_key,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import duckgres_sink_team_ids
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import DuckgresBatchQueue
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import make_consumer_metrics
 
 from products.warehouse_sources_queue.backend.models import SourceBatchDuckgresStatus
 
+logger = structlog.get_logger(__name__)
+
 DuckgresConsumerConfig = BatchConsumerConfig
+
+# How often the fetch path refreshes the enabled-team set and runs the
+# supersede sweep + backlog gauges (the poll loop itself runs every ~2s).
+ENABLEMENT_REFRESH_SECONDS = 60.0
+MAINTENANCE_INTERVAL_SECONDS = 30.0
+
+SINK_ELIGIBLE_BACKLOG = Gauge(
+    "duckgres_sink_eligible_backlog",
+    "Delta-succeeded data batches not yet applied to Duckgres (non-failed runs)",
+    multiprocess_mode="livemax",
+)
+SINK_OLDEST_ELIGIBLE_AGE_SECONDS = Gauge(
+    "duckgres_sink_oldest_eligible_age_seconds",
+    "Age of the oldest delta-succeeded batch the Duckgres sink has not applied. "
+    "Queue retention permanently drops batches after RETENTION_DAYS — alert well before that.",
+    multiprocess_mode="livemax",
+)
+SINK_SUPERSEDED_BATCHES_TOTAL = Gauge(
+    "duckgres_sink_superseded_batches",
+    "Batches retired because a newer replace-run made their work obsolete (last sweep)",
+    multiprocess_mode="livemax",
+)
 
 
 class DuckgresBatchConsumerAdapter:
@@ -28,6 +59,44 @@ class DuckgresBatchConsumerAdapter:
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
 
+    def __init__(self) -> None:
+        self._team_ids: list[int] | None = None
+        self._team_ids_fetched_at: float | None = None
+        self._last_maintenance_at = 0.0
+
+    async def _enabled_team_ids(self) -> list[int] | None:
+        """Cached duckgres-enabled team set; keeps the previous set on app-DB errors."""
+        now = time.monotonic()
+        if self._team_ids_fetched_at is not None and now - self._team_ids_fetched_at < ENABLEMENT_REFRESH_SECONDS:
+            return self._team_ids
+        try:
+            self._team_ids = await sync_to_async(duckgres_sink_team_ids, thread_sensitive=False)()
+            self._team_ids_fetched_at = now
+        except Exception as e:
+            logger.exception("duckgres_sink_enablement_refresh_failed")
+            capture_exception(e)
+            if self._team_ids_fetched_at is None:
+                # Never had a set: claim nothing rather than everything.
+                self._team_ids = []
+                self._team_ids_fetched_at = now
+        return self._team_ids
+
+    async def _run_maintenance(self, conn: psycopg.AsyncConnection[Any], team_ids: list[int] | None) -> None:
+        """Supersede obsolete runs and refresh the sink lag gauges (every ~30s)."""
+        now = time.monotonic()
+        if now - self._last_maintenance_at < MAINTENANCE_INTERVAL_SECONDS:
+            return
+        self._last_maintenance_at = now
+
+        superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
+        SINK_SUPERSEDED_BATCHES_TOTAL.set(superseded)
+        if superseded:
+            logger.info("duckgres_superseded_obsolete_batches", count=superseded)
+
+        backlog, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=team_ids)
+        SINK_ELIGIBLE_BACKLOG.set(backlog)
+        SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
+
     async def fetch_and_lock(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -35,10 +104,17 @@ class DuckgresBatchConsumerAdapter:
         limit: int,
         retry_backoff_base_seconds: int,
     ) -> list[PendingBatch]:
+        team_ids = await self._enabled_team_ids()
+        if team_ids is not None and not team_ids:
+            return []
+
+        await self._run_maintenance(conn, team_ids)
+
         return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
+            team_ids=team_ids,
         )
 
     async def unlock(
@@ -73,7 +149,16 @@ class DuckgresBatchConsumerAdapter:
         batch: PendingBatch,
         reason: str,
     ) -> None:
-        await DuckgresBatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+        # Contract: fail_run must not raise (see BatchConsumerAdapter docstring).
+        try:
+            await DuckgresBatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+        except Exception as e:
+            logger.exception(
+                "duckgres_fail_run_queue_update_failed",
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+            )
+            capture_exception(e)
 
     async def get_stale_executing(
         self,
@@ -131,6 +216,7 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
             process_batch=process_batch,
             adapter=DuckgresBatchConsumerAdapter(),
             health_reporter=health_reporter,
+            metrics=make_consumer_metrics("duckgres"),
         )
 
 

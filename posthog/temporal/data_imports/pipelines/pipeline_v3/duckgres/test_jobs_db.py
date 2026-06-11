@@ -249,3 +249,117 @@ class TestDuckgresBatchQueueEligibility:
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
 
         assert batches == []
+
+
+async def _mark_applied_raw(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batch_id: str,
+    run_uuid: str,
+    batch_index: int,
+    team_id: int = 1,
+    schema_id: str = "schema-1",
+) -> None:
+    await conn.execute(
+        f"""
+        INSERT INTO {DUCKGRES_APPLY_TABLE} (team_id, schema_id, run_uuid, batch_index, batch_id, row_count)
+        VALUES (%s, %s, %s, %s, %s, 0)
+        """,
+        [team_id, schema_id, run_uuid, batch_index, batch_id],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresCrossRunOrdering:
+    @pytest.mark.asyncio
+    async def test_newer_run_blocked_while_older_run_incomplete(self, conn):
+        # run-1: batch 0 applied, batch 1 delta-succeeded but unapplied -> incomplete
+        old0 = await _insert_batch(conn, run_uuid="run-1", batch_index=0)
+        old1 = await _insert_batch(conn, run_uuid="run-1", batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=old0, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=old1, job_state="succeeded", attempt=1)
+        await _mark_applied_raw(conn, batch_id=old0, run_uuid="run-1", batch_index=0)
+
+        # run-2 (newer, same schema): batch 0 delta-succeeded
+        new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+
+        # Only the older run's next batch is eligible; run-2 waits behind it.
+        assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 1)]
+
+    @pytest.mark.asyncio
+    async def test_newer_run_eligible_once_older_run_failed(self, conn):
+        old0 = await _insert_batch(conn, run_uuid="run-1", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=old0, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=old0, job_state="failed", attempt=3)
+
+        new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+
+        assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
+
+    @pytest.mark.asyncio
+    async def test_supersede_retires_older_run_when_replace_head_pending(self, conn):
+        # run-1: batch 0 applied, batch 1 delta-succeeded but unapplied
+        old0 = await _insert_batch(conn, run_uuid="run-1", batch_index=0)
+        old1 = await _insert_batch(conn, run_uuid="run-1", batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=old0, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=old1, job_state="succeeded", attempt=1)
+        await _mark_applied_raw(conn, batch_id=old0, run_uuid="run-1", batch_index=0)
+
+        # run-2: a full_refresh replace head (batch 0) is delta-succeeded
+        new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0, sync_type="full_refresh")
+        await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
+
+        superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
+        assert superseded == 1  # run-1's pending batch 1
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
+
+    @pytest.mark.asyncio
+    async def test_supersede_does_not_touch_incremental_successor(self, conn):
+        old0 = await _insert_batch(conn, run_uuid="run-1", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=old0, job_state="succeeded", attempt=1)
+
+        # Newer incremental (not first-ever) run does not replace the table, so the
+        # older run's work must still apply first.
+        new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0, sync_type="incremental")
+        await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
+
+        superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
+        assert superseded == 0
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 0)]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresTeamFilterAndBacklog:
+    @pytest.mark.asyncio
+    async def test_team_filter(self, conn):
+        batch_id = await _insert_batch(conn, team_id=1)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        # Advisory locks are session-reentrant, so repeated fetches on one conn are fine.
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[2]) == []
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[1, 2])) == 1
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=None)) == 1
+
+    @pytest.mark.asyncio
+    async def test_backlog_stats(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        count, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert count == 1
+        assert oldest_age is not None and oldest_age >= 0
+
+        await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
+        count, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert count == 0
+        assert oldest_age is None
