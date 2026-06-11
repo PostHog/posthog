@@ -78,9 +78,7 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
         axisColor: readCssVar(style, '--color-graph-axis-label'),
         gridColor: readCssVar(style, '--color-graph-axis-line'),
         crosshairColor: readCssVar(style, '--color-graph-crosshair'),
-        // Data tooltips mirror quill's popover (`.quill-popover__content`), not
-        // its inverse hint tooltip: a card-colored surface with foreground text,
-        // so the panel follows the theme and stays dark in dark mode.
+        // Surface-styled like quill's popover, not its inverse hint tooltip — stays dark in dark mode.
         tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-primary'),
         tooltipColor: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary'),
     }

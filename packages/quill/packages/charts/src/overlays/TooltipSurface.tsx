@@ -2,12 +2,7 @@ import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 
-/**
- * Fallback tooltip colors for hosts that don't supply them on `ChartTheme`.
- * A neutral dark floating panel — a safe standalone default with no theme to
- * follow. When the quill theme reader is used these come from `--card` /
- * `--foreground` instead, so the panel tracks the active theme.
- */
+// Fallback colors for non-quill hosts; quill hosts get --card / --foreground from the theme reader.
 export const TOOLTIP_FALLBACK_BG = '#1d2330'
 export const TOOLTIP_FALLBACK_COLOR = '#ffffff'
 
@@ -18,15 +13,7 @@ interface TooltipSurfaceProps {
     'data-attr'?: string
 }
 
-/**
- * Shared surface for the built-in chart tooltips. Geometry mirrors quill's
- * tooltip (`radius-sm`, compact padding, `text-xs`) and colors mirror quill's
- * popover (card surface, foreground text) — but applied inline, with no shipped
- * stylesheet and no Tailwind scan needed, so the floating panel renders
- * correctly regardless of the consumer's setup. Dimensions reference quill token
- * vars with literal fallbacks; colors stay theme-driven so non-quill hosts can
- * restyle.
- */
+// Styled inline (no shipped stylesheet) so the floating panel renders regardless of host setup.
 export function TooltipSurface({
     children,
     className,
