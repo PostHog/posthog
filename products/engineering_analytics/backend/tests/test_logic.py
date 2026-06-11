@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
@@ -323,6 +324,13 @@ class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
             PRLifecycleEventKind.MERGED,
         ]
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
+
+
+class TestWorkflowHealthWindowCap(BaseTest):
+    @parameterized.expand(["2000-01-01", "-500d"])
+    def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
+        with pytest.raises(ValueError, match="the maximum is 366"):
+            build_workflow_health(team=self.team, date_from=date_from)
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):

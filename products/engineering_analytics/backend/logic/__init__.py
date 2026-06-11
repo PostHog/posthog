@@ -26,6 +26,10 @@ from products.engineering_analytics.backend.logic.queries.workflow_health import
 # ISO8601 are both accepted and resolved against the team's timezone.
 _DEFAULT_WINDOW = "-30d"
 
+# workflow_health zero-fills one daily entry per workflow per day in the window, so an
+# unbounded range would materialize an enormous response. A year is plenty for trends.
+_MAX_WINDOW_DAYS = 366
+
 
 def build_pr_lifecycle(*, team: Team, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
@@ -46,11 +50,12 @@ def build_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> list[WorkflowHealthItem]:
-    return query_workflow_health(
-        team=team,
-        date_from=_parse_date(team, date_from or _DEFAULT_WINDOW),
-        date_to=_parse_date(team, date_to) if date_to else None,
-    )
+    parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    return query_workflow_health(team=team, date_from=parsed_from, date_to=parsed_to)
 
 
 def _parse_date(team: Team, value: str) -> datetime:
