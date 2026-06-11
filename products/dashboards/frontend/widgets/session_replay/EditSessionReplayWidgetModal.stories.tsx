@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { withSessionReplayProjectState } from '../../components/WidgetCard/widgetCardStoryFixtures'
+import {
+    widgetStorybookParameters,
+    withSessionReplayProjectState,
+} from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { EditSessionReplayWidgetModal } from './EditSessionReplayWidgetModal'
@@ -39,6 +42,7 @@ const meta: Meta<typeof EditSessionReplayWidgetModalStory> = {
     component: EditSessionReplayWidgetModalStory,
     parameters: {
         layout: 'fullscreen',
+        ...widgetStorybookParameters,
     },
     decorators: [],
     args: {

@@ -138,6 +138,7 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
@@ -284,6 +285,7 @@ export const urls = {
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
+    projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',

@@ -43,6 +43,12 @@ from .data import BALANCE_TRANSACTIONS
 pytestmark = pytest.mark.usefixtures("minio_client")
 
 
+def _exception_with_code(message: str, code: str) -> Exception:
+    error = Exception(message)
+    error.code = code  # type: ignore[attr-defined]
+    return error
+
+
 @pytest.fixture
 def external_data_source(team):
     source = ExternalDataSource.objects.create(
@@ -982,3 +988,28 @@ class TestCreateWebhook:
         assert result.success is False
         assert result.error is not None
         assert "permission" in result.error.lower()
+
+    @parameterized.expand(
+        [
+            # (name, exception)
+            ("message", Exception("The provided key does not have access to account 'acct_123'.")),
+            ("revoked", Exception("Application access may have been revoked.")),
+            ("account_invalid_code", _exception_with_code("403 Forbidden", "account_invalid")),
+        ]
+    )
+    def test_account_access_error_points_to_manual_setup(self, _name, exception):
+        from posthog.temporal.data_imports.sources.stripe.stripe import create_webhook
+
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.create.side_effect = exception
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = create_webhook("rk_test", "acct_123", "https://x")
+
+        assert result.success is False
+        assert result.error is not None
+        # Account-access errors must surface the actionable account guidance, never the raw fallback
+        # or the generic webhook-scope permission message.
+        assert "account" in result.error.lower()
+        assert "Failed to create webhook automatically" not in result.error
+        assert "permission to create webhooks" not in result.error

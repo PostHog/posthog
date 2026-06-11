@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import structlog
@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.storage import object_storage
+from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -154,15 +155,6 @@ def _build_posthog_code_task_description(
         f"</{_THREAD_CONTEXT_TAG}>\n\n"
         f"{prompt}"
     )
-
-
-@dataclass
-class PostHogCodeSlackMentionWorkflowInputs:
-    event: dict[str, Any]
-    integration_id: int
-    slack_team_id: str
-    # Event that dispatched the workflow
-    slack_event_id: str | None = None
 
 
 def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
@@ -306,6 +298,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if blocked:
                 return
 
+            # Untagged thread replies face the Haiku classifier before any
+            # forward. The webhook handler punted on this so its 3-second ack
+            # budget stays unencumbered; here we run it under Temporal's retry
+            # policy. Drop on chitchat or any failure (default-deny).
+            if inputs.untagged_followup:
+                should_forward = await _execute_posthog_code_activity(
+                    classify_untagged_followup_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event.get("text", ""),
+                )
+                if not should_forward:
+                    return
+
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
                 inputs,
@@ -318,11 +326,27 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if followup_handled:
                 return
 
-            user_id = await _execute_posthog_code_activity(
-                resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
-            )
-            if not user_id:
+            # Untagged thread replies must not fall through to the new-task path.
+            # The user never @mentioned us — they only typed in a thread that
+            # used to have an active task. If the mapping is gone by the time we
+            # got here, the right behaviour is to do nothing.
+            if inputs.untagged_followup:
                 return
+
+            # New starts carry ``user_id`` from routing-time resolution and skip
+            # the activity. Legacy histories started before the field existed
+            # deserialize with ``user_id=None`` and replay through the activity so
+            # the recorded command stream still matches. Drop this fallback (and
+            # make ``user_id`` required on inputs) once the workflow history
+            # retention window has elapsed.
+            if inputs.user_id is not None:
+                user_id = inputs.user_id
+            else:
+                user_id = await _execute_posthog_code_activity(
+                    resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
+                )
+                if not user_id:
+                    return
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
@@ -474,11 +498,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
 
 
-# `api.py` imports the workflow classes above, so keep this module-level import
-# after their definitions to avoid a circular import during module initialization.
-from products.slack_app.backend.api import resolve_slack_user  # noqa: E402
-
-
 async def _gate_on_personal_github(
     inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
@@ -528,6 +547,10 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
+    # Imported lazily to break a circular import: products.slack_app.backend.api
+    # imports the workflow classes defined in this module at its top level.
+    from products.slack_app.backend.api import resolve_slack_user
+
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -1116,7 +1139,7 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
-    # Refuse before the :seedling: reaction or the permalink fetch: a denied
+    # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
     if _block_if_team_over_quota(
         integration=integration,
@@ -1130,7 +1153,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "seedling")
+        _safe_react(slack.client, channel, user_message_ts, "eyes")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1315,7 +1338,7 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
 
     if _parse_rules_command(event_text):
         return False
@@ -1377,6 +1400,12 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
+    # Record the live actor so async reply paths tag them instead of the
+    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
+    if slack_user_id != mapping.latest_actor_slack_user_id:
+        mapping.latest_actor_slack_user_id = slack_user_id
+        mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+
     if task_run.is_terminal:
         return _resume_task_with_new_run(
             mapping,
@@ -1429,9 +1458,9 @@ def forward_posthog_code_followup_activity(
             status_code=result.status_code,
         )
         if result.retryable and result.status_code == 504:
-            # Agent is still processing. relayAgentResponse fires when it
-            # finishes, delivering the correct response to Slack.
-            _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
+            # Agent is still processing — leave the :eyes: reaction up so the thread
+            # reads as in-progress. relayAgentResponse fires when it finishes,
+            # delivering the correct response to Slack.
             _delete_followup_progress(
                 integration_id=inputs.integration_id,
                 channel=channel,
@@ -1449,8 +1478,8 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
-
+    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,
         channel=channel,
@@ -1625,11 +1654,10 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in ("eyes", "seedling"):
-        try:
-            slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
-        except Exception:
-            pass
+    try:
+        slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name="eyes")
+    except Exception:
+        pass
 
     _safe_react(slack.client, channel, user_message_ts, done_emoji)
 
@@ -1692,7 +1720,7 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     latest_text: str | None = None
     latest_agent_timestamp: datetime | None = None
     latest_user_timestamp: datetime | None = None
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
 
     for line in log_content.strip().split("\n"):
         line = line.strip()

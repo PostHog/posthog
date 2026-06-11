@@ -318,7 +318,7 @@ async def _as_async_iter(
 async def _payloads_use_main_key(payloads) -> bool:
     if not payloads:
         return True
-    main_key_codec = codec.EncryptionCodec(codec._prepare_key(settings.TEMPORAL_SECRET_KEY), [])
+    main_key_codec = codec.EncryptionCodec(codec._prepare_key(codec._load_as_bytes(settings.TEMPORAL_SECRET_KEY)), [])
     try:
         await main_key_codec.decode(payloads)
     except InvalidToken:

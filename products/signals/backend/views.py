@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -298,10 +299,11 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return ["task:write"]
 
     def _get_config(self) -> SignalTeamConfig:
-        try:
-            return SignalTeamConfig.objects.get(team=self.team)
-        except SignalTeamConfig.DoesNotExist:
-            raise exceptions.NotFound("No signal config exists for this team.")
+        # Singleton per team with safe defaults. A post_save signal creates it on team
+        # creation, but teams predating that signal (or where it failed) have no row, so
+        # lazily create it here — otherwise the first read/write (e.g. connecting a default
+        # notification channel) would 404.
+        return get_or_create_team_extension(self.team, SignalTeamConfig)
 
     @extend_schema(exclude=True)
     def list(self, request: Request, *args, **kwargs) -> Response:
