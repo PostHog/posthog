@@ -474,12 +474,12 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
     if isinstance(table_type, ast.VirtualTableType) and table_type.field == "poe" and field_type.name == "properties":
         return PropertyScope.PERSON
 
-    table_type = _unwrap_table_type(table_type)
-    if not isinstance(table_type, ast.BaseTableType):
+    unwrapped_table_type = _unwrap_table_type(table_type)
+    if not isinstance(unwrapped_table_type, ast.BaseTableType):
         return PropertyScope.UNKNOWN
 
     try:
-        resolved_table = table_type.resolve_database_table(context)
+        resolved_table = unwrapped_table_type.resolve_database_table(context)
     except (HogQLNotImplementedError, QueryError, ResolutionError):
         return PropertyScope.UNKNOWN
 
