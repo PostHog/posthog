@@ -105,6 +105,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'action-list',
     'cohort',
     'cohort-list',
+    'email-template',
     'error-details',
     'error-issue',
     'error-issue-list',
