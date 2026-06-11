@@ -108,6 +108,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 placeholder="Search for a person by name, email, or ID..."
                                 allowClear
                                 fullWidth
+                                truncate
                                 renderValue={() => {
                                     if (formData.distinct_id) {
                                         return (
@@ -133,13 +134,18 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <LemonLabel>Distinct ID for bucketing</LemonLabel>
                                     <LemonSelect
                                         fullWidth
+                                        truncateText={{ maxWidthClass: 'max-w-full' }}
                                         value={formData.distinct_id}
                                         onChange={(distinctId) => {
                                             if (distinctId) {
                                                 setTestFormData({ distinct_id: distinctId })
                                             }
                                         }}
-                                        options={personDistinctIds.map((id) => ({ value: id, label: id }))}
+                                        options={personDistinctIds.map((id) => ({
+                                            value: id,
+                                            label: id,
+                                            tooltip: id,
+                                        }))}
                                     />
                                     <LemonBanner type="warning">
                                         <div className="text-sm">
