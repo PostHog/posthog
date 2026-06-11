@@ -1,4 +1,4 @@
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 

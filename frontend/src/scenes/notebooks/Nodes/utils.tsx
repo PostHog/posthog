@@ -6,9 +6,10 @@ import posthog from 'posthog-js'
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 
 import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { percentage, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { tryJsonParse } from 'lib/utils/json'
+import { percentage } from 'lib/utils/numbers'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { Group } from '~/types'

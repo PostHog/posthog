@@ -5,7 +5,8 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
+import { dateStringToDayJs, wordPluralize } from 'lib/utils'
+import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { Params } from 'scenes/sceneTypes'
 
