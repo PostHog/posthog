@@ -1,14 +1,12 @@
-import { IconServer } from '@posthog/icons'
+import { IconChevronRight, IconServer } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 export function McpServersSection(): JSX.Element {
     return (
         <Link
             to={urls.settings('mcp-servers')}
-            target="_blank"
             className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
         >
             <div className="flex items-start gap-3 min-w-0">
@@ -21,7 +19,7 @@ export function McpServersSection(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <IconOpenInNew className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
+            <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
         </Link>
     )
 }

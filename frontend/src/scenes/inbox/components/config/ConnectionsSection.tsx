@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { IconCheckCircle, IconGithub } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 export function ConnectionsSection(): JSX.Element {
@@ -36,9 +35,8 @@ export function ConnectionsSection(): JSX.Element {
             <LemonButton
                 type="secondary"
                 size="small"
-                sideIcon={<IconOpenInNew />}
+                sideIcon={<IconChevronRight />}
                 to={urls.settings('environment-integrations', 'integration-github')}
-                targetBlank
             >
                 {hasGithubIntegration ? 'Manage' : 'Connect'}
             </LemonButton>

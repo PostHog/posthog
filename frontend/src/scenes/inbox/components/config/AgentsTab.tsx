@@ -1,10 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { IconOpenInNew, IconSlack } from 'lib/lemon-ui/icons'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
@@ -155,7 +155,6 @@ function SlackSection(): JSX.Element {
     return (
         <Link
             to={urls.settings('environment-integrations', 'integration-slack')}
-            target="_blank"
             className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
         >
             <div className="flex items-start gap-3 min-w-0">
@@ -167,7 +166,7 @@ function SlackSection(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <IconOpenInNew className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
+            <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
         </Link>
     )
 }
