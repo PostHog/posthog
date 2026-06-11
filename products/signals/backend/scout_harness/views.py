@@ -42,7 +42,6 @@ from posthog.permissions import APIScopePermission
 
 from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
-from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -592,12 +591,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, and tune each scout's schedule, enablement, and
     emit posture.
 
-    `list` is read (`signal_scout:read`); `create` and `partial_update` are user-grantable
+    `list` is read (`signal_scout:read`) and side-effect free — the MCP tool is annotated
+    `readOnly`, so it must never write. `create` and `partial_update` are user-grantable
     writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
     authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row; `list` runs the same registration lazily so a
-    new scout is at least visible (and thus tunable via `partial_update`) right away.
+    coordinator tick to auto-register a row.
     """
 
     serializer_class = SignalScoutConfigSerializer
@@ -618,19 +617,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List scout configs",
         description=(
             "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. Any "
-            "`signals-scout-*` skill missing a config gets one auto-registered (default "
-            "schedule) before listing, so a freshly authored scout shows up immediately."
+            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
+            "authored scout skill appears here once its config is registered, either "
+            "explicitly via create or by the coordinator's next tick."
         ),
         operation_id="signals_scout_config_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        # Same lazy registration the coordinator tick performs, so a scout authored seconds
-        # ago is already listable/tunable. Writing on GET is acceptable here: the operation
-        # is idempotent, cheap (one indexed query, rows created only for brand-new skills),
-        # and creates nothing the coordinator wouldn't create on its next tick anyway.
-        register_missing_configs(team_id)
         configs = list(SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name"))
         descriptions = _skill_descriptions_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_descriptions": descriptions})

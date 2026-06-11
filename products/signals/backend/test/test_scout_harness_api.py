@@ -716,17 +716,16 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_list_auto_registers_configs_for_scout_skills_missing_one(self) -> None:
+    def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
+        # The list MCP tool is annotated readOnly — a scout skill without a config must not
+        # get one minted by a GET; registration is the coordinator's or `create`'s job.
         self._make_skill("signals-scout-fresh")
 
         response = self.client.get(self._list_url())
 
         assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert [c["skill_name"] for c in body] == ["signals-scout-fresh"]
-        assert body[0]["enabled"] is True
-        assert body[0]["run_interval_minutes"] == 60
-        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-fresh").exists()
+        assert response.json() == []
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-fresh").exists()
 
     def test_create_registers_config_with_provided_fields(self) -> None:
         self._make_skill("signals-scout-fresh")

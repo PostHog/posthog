@@ -1,10 +1,10 @@
 """Auto-registration of `SignalScoutConfig` rows for `signals-scout-*` skills.
 
 The "author a skill, get a scout" contract: any `signals-scout-*` `LLMSkill` on a team
-gets a `SignalScoutConfig` row (default schedule, enabled) with no further wiring. Two
-callers share this: the Temporal coordinator tick (so enrolled teams reconcile on
-schedule) and the config HTTP surface (so a freshly authored scout is visible and
-tunable immediately, without waiting for the next tick).
+gets a `SignalScoutConfig` row (default schedule, enabled) with no further wiring. The
+Temporal coordinator tick calls this so enrolled teams reconcile on schedule. The HTTP
+surface deliberately does not: reads stay side-effect free, and explicit registration
+goes through the write-scoped config `create` endpoint.
 """
 
 from __future__ import annotations

@@ -5417,7 +5417,7 @@
         }
     },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Any `signals-scout-*` skill missing a config gets one auto-registered (default hourly schedule) before listing, so a freshly authored scout shows up immediately. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",

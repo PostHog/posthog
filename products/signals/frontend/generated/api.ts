@@ -206,7 +206,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string) => {
 }
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. Any `signals-scout-*` skill missing a config gets one auto-registered (default schedule) before listing, so a freshly authored scout shows up immediately.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (

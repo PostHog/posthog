@@ -13,8 +13,8 @@ exact mechanics; and how to test a scout in each.
   skill without one — authoring the skill is enough to get a scout. To configure a fresh
   scout immediately (instead of waiting for the tick), register the config yourself with
   `posthog:signals-scout-config-create`, setting the schedule / emit posture in the same
-  call; `-config-list` also auto-registers missing configs, so a new scout is always
-  visible there right away.
+  call; until one of those happens, the scout has no config row and won't show in
+  `-config-list`.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min). Each tick it bounds
   candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then
   dispatches every **enabled** scout whose schedule is **due** (`last_run_at is None`, or

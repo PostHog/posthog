@@ -131,9 +131,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
    `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
-   (`scout_harness/config_registry.register_missing_configs`, also run lazily by the
-   `signals-scout-config-list` endpoint) — on an enrolled team, authoring a skill is
-   enough to get a scout.
+   (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
+   authoring a skill is enough to get a scout. To register (and tune) one immediately
+   instead, use the `signals-scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`

@@ -40,8 +40,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
 - `config_registry.py`
   `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule
   `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
-  scout"). Called by the coordinator tick and lazily by the config list endpoint, so a
-  freshly authored scout is visible/tunable immediately rather than after the next tick.
+  scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
+  write-scoped config `create` endpoint instead (reads stay side-effect free).
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
@@ -83,8 +83,9 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
-  config for an already-authored skill with its schedule/emit posture in one call,
-  and `list` lazily runs `register_missing_configs` so new scouts always appear.
+  config for an already-authored skill with its schedule/emit posture in one call.
+  `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
+  mints config rows.
 
 ## Mental model
 
