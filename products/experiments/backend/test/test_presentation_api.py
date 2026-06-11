@@ -40,6 +40,43 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            (None, None),
+            (None, []),
+            ([], None),
+        ]
+    )
+    def test_can_list_experiments_with_null_metrics(self, metrics: list | None, metrics_secondary: list | None) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="null-metrics-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Null metrics experiment",
+            feature_flag=flag,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_can_list_eligible_feature_flags(self) -> None:
         FeatureFlag.objects.create(
             team=self.team,

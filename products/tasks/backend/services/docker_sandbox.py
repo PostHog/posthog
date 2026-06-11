@@ -18,8 +18,7 @@ from django.conf import settings
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
-from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.exceptions import (
+from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -27,6 +26,7 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxTimeoutError,
     SnapshotCreationError,
 )
+from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
     BASH_ENV_SCRIPT,
@@ -62,6 +62,20 @@ DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
+
+# A failing `docker build` can emit megabytes of output. Stuffing all of it into a
+# Temporal ApplicationError's details overflows the failure-payload size limit, and
+# Temporal then discards the real error in favor of an opaque "Failure exceeds size
+# limit." Keep the tail — Docker prints the failing step and error there.
+_MAX_CAPTURED_OUTPUT_CHARS = 8000
+
+
+def _truncate_output(output: str | None) -> str:
+    if not output:
+        return ""
+    if len(output) <= _MAX_CAPTURED_OUTPUT_CHARS:
+        return output
+    return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
 
 
 class DockerSandbox(SandboxBase):
@@ -372,14 +386,14 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to create Docker sandbox: {e.stderr}")
             raise SandboxProvisionError(
                 "Failed to create Docker sandbox",
-                {"config_name": config.name, "error": e.stderr},
+                {"config_name": config.name, "error": _truncate_output(e.stderr)},
                 cause=e,
             )
         except Exception as e:
             logger.exception(f"Failed to create Docker sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create Docker sandbox",
-                {"config_name": config.name, "error": str(e)},
+                {"config_name": config.name, "error": _truncate_output(str(e))},
                 cause=e,
             )
 

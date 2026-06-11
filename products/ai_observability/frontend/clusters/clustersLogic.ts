@@ -20,6 +20,7 @@ import type { clustersLogicType } from './clustersLogicType'
 import {
     FILTER_QUERY_MAX_ROWS,
     AI_OBSERVABILITY_CLUSTERS_SCENE_TAG,
+    CLUSTERING_RUNS_LOOKBACK_DAYS,
     MAX_CLUSTERING_RUNS,
     NOISE_CLUSTER_ID,
     OUTLIER_COLOR,
@@ -319,6 +320,10 @@ export const clustersLogic = kea<clustersLogicType>([
                 loadClusteringRuns: async () => {
                     const eventName = eventNameForLevel(values.clusteringLevel)
 
+                    // Look back a wide window rather than a hard 7 days: scheduled runs are
+                    // emitted ~daily but a team can go several days without a fresh one, and a
+                    // narrow window made the page go empty the moment the last run aged out.
+                    // MAX_CLUSTERING_RUNS still bounds the result.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -327,7 +332,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 timestamp
                             FROM events
                             WHERE event = ${eventName}
-                                AND timestamp >= now() - INTERVAL 7 DAY
+                                AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY
                             ORDER BY timestamp DESC
                             LIMIT ${MAX_CLUSTERING_RUNS}
                         `,

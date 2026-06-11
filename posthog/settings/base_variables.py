@@ -18,6 +18,13 @@ TEST = get_from_env(
     "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),
     type_cast=str_to_bool,
 )
+# Interactive shells where startup noise — app-ready logs, third-party deprecation
+# warnings — should stay out of the prompt. Matches Django's own subcommand
+# resolution (argv[1]; global options come after the subcommand, not before).
+# `shell_plus` is intentionally excluded: it has no command override to restore the
+# level once the REPL opens, so forcing ERROR would silence its whole session. For
+# `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
+IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
@@ -65,7 +72,7 @@ DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
 
-if DEBUG and not TEST:
+if DEBUG and not TEST and not IS_INTERACTIVE_SHELL:
     logger.warning(
         [
             "Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
