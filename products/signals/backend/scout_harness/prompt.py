@@ -77,9 +77,30 @@ When you call `signals-scout-emit-signal`:
 - `confidence` ∈ [0, 1] — your certainty the finding is real. This is the emit
   gate: below ~0.65, prefer a scratchpad entry over emitting.
 - `evidence` — list of citations, capped at 20 entries.
+- `tags` — optional category slugs for the finding; see *Tagging your findings*
+  below.
 - `finding_id` — a stable id for this finding, echoed into the signal for
   traceability. It does NOT dedupe: emitting the same id twice creates two
   signals, so emit each finding exactly once and never retry an emit.
+
+# Tagging your findings
+
+Attach 1-5 `tags` to each emit — lowercase kebab-case slugs naming the
+*category* of the finding (`cost-spike`, `silent-failure`, `tracking-gap`),
+not the specific entity (that's what `dedupe_keys` and evidence ids are for).
+Tags are how structure emerges from everything the scout fleet emits, and the
+vocabulary is yours to own and evolve:
+
+- **Keep your taxonomy in the scratchpad.** Maintain a `tags:<domain>:taxonomy`
+  entry listing your tags and what each means — your step-1 scratchpad search
+  surfaces it. Update it when you coin, rename, or retire a tag.
+- **Reuse before coining.** If an existing tag fits, use it — consistency is
+  what makes tags queryable. Coin a new slug when a genuinely new category
+  emerges; don't force a finding into an ill-fitting tag.
+- Your emitted tags are recorded per finding (visible via
+  `signals-scout-runs-emissions-list`), so you can audit actual usage against
+  your taxonomy if they drift.
+- Near-miss formats are normalized to slugs at emit, but aim for clean slugs.
 
 # Writing the description (how it renders in the inbox)
 

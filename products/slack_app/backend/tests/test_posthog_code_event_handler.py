@@ -71,7 +71,7 @@ class TestPostHogCodeEventHandler(TestCase):
             ("app_mention_handled_locally", "app_mention", "handled_locally", 202, True),
             ("app_mention_proxy_failed", "app_mention", "proxy_failed", 502, True),
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
-            ("non_handled_event_type_skips_routing", "message", "handled_locally", 202, False),
+            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
