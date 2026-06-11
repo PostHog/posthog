@@ -41,6 +41,17 @@ def _get_session(client_secret: str) -> requests.Session:
     return make_tracked_session(redact_values=(client_secret,))
 
 
+def _encode_path_segment(value: str) -> str:
+    """Percent-encode a value before interpolating it into a URL path.
+
+    ``account_id`` is a non-secret field a user can edit on an existing source while the
+    saved credentials are preserved. Without encoding, a value containing ``/``, ``?``,
+    ``#``, or ``.`` could redirect the authenticated request to an unintended Backstage
+    endpoint. Encoding with ``safe=""`` keeps every delimiter inside the single path segment.
+    """
+    return quote(value, safe="")
+
+
 def _mint_token(session: requests.Session, client_id: str, client_secret: str) -> str:
     """Exchange client credentials for a bearer token (short-lived)."""
     response = session.post(
@@ -48,6 +59,10 @@ def _mint_token(session: requests.Session, client_id: str, client_secret: str) -
         data={"client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials"},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
+    # Transient token-endpoint failures must be retryable so the re-mint inside the
+    # @retry-decorated fetch backs off instead of failing the whole sync.
+    if response.status_code == 429 or response.status_code >= 500:
+        raise TaboolaRetryableError(f"Taboola token endpoint error (retryable): status={response.status_code}")
     response.raise_for_status()
     return response.json()["access_token"]
 
@@ -87,7 +102,7 @@ def get_rows(
     config = TABOOLA_ENDPOINTS[endpoint]
     session = _get_session(client_secret)
     token = _mint_token(session, client_id, client_secret)
-    account_base = f"{TABOOLA_API_BASE_URL}/{quote(account_id)}"
+    account_base = f"{TABOOLA_API_BASE_URL}/{_encode_path_segment(account_id)}"
 
     @retry(
         retry=retry_if_exception_type((TaboolaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -136,7 +151,7 @@ def get_rows(
 
         for index in range(start_index, len(campaign_ids)):
             campaign_id = campaign_ids[index]
-            items = results_of(fetch(f"{account_base}/campaigns/{quote(campaign_id)}/items/"))
+            items = results_of(fetch(f"{account_base}/campaigns/{_encode_path_segment(campaign_id)}/items/"))
             if items:
                 yield items
             # Save state AFTER yielding so a crash re-yields the in-flight

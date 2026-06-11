@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -45,6 +45,7 @@ class TestToDate:
         "value, expected_iso",
         [
             (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02"),
+            (date(2024, 1, 2), "2024-01-02"),
             ("2024-01-02", "2024-01-02"),
             ("2024-01-02T03:04:05Z", "2024-01-02"),
             ("junk", None),
@@ -172,8 +173,6 @@ class TestReportWindows:
         )
 
         first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        from datetime import timedelta
-
         expected_start = (watermark - timedelta(days=REPORT_LOOKBACK_DAYS)).isoformat()
         assert f"start_date={expected_start}" in first_url
 
