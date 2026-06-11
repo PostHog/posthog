@@ -12,6 +12,7 @@ import {
     personlessDistinctIdCacheOperationsCounter,
 } from '../../worker/ingestion/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
+import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '../config'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -59,7 +60,7 @@ function eventHasGroups(properties: PluginEvent['properties']): boolean {
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    flagCalledPersonlessDefaultTeams: string = '*'
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
 ): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
     const flagCalledDefaultEnabledForTeam = buildIntegerMatcher(flagCalledPersonlessDefaultTeams.trim(), true)
 
@@ -150,9 +151,9 @@ async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPer
                 // The LRU keeps repeat distinct IDs from re-inserting on every event; a stale
                 // hit just means the event goes personless, the same trade-off the batch step
                 // accepts.
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit' })
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'flag_called' })
             } else {
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss' })
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'flag_called' })
                 // The batch step (processPersonlessDistinctIdsBatchStep) only inserts rows for
                 // events with explicit $process_person_profile=false, so record this distinct ID
                 // here. Without the row, a later identify/merge would never re-point these

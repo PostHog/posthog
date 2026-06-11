@@ -19,6 +19,9 @@ import type { PostgresRouterConfig } from '../utils/db/postgres'
 import { isDevEnv, isProdEnv } from '../utils/env-utils'
 import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from './common/outputs'
 
+/** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*' enables the personless default for all teams. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = '*'
+
 // =============================================================================
 // Infrastructure sub-config types
 // These group CommonConfig keys by infrastructure concern for use in server
@@ -273,7 +276,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
-        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,

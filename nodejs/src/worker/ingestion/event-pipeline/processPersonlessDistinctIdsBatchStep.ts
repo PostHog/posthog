@@ -59,14 +59,15 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
             }
 
             if (cacheHits > 0) {
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit' }, cacheHits)
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'batch' }, cacheHits)
             }
 
             const storeCalls = Array.from(entriesByStore.entries()).filter(([, { entries }]) => entries.length > 0)
 
             if (storeCalls.length > 0) {
                 const totalMisses = storeCalls.reduce((sum, [, { entries }]) => sum + entries.length, 0)
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss' }, totalMisses)
+                personlessDistinctIdCacheOperationsCounter.inc(
+                    { operation: 'miss', source: 'batch' }, totalMisses)
 
                 await Promise.all(
                     storeCalls.map(async ([store, { entries }]) => {
