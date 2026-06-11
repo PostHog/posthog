@@ -185,6 +185,27 @@ class TestNotion:
             )
         assert exc_info.value.retry_after is None
 
+    def test_request_retries_chunked_encoding_error(self) -> None:
+        # Notion can break the connection mid-response, which requests surfaces as a
+        # ChunkedEncodingError ("Connection broken: InvalidChunkLength"). It is transient and must be
+        # retried like other connection failures, not propagated as a fatal sync error.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'')")
+            return FakeResponse({"results": []})
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
+
+        assert result == {"results": []}
+        assert attempts["count"] == 2
+
     @parameterized.expand([("5", 5.0), (None, None), ("not-a-number", None)])
     def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
         assert _parse_retry_after(value) == expected
