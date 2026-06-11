@@ -151,6 +151,10 @@ def _inline_metric(metric_type: str) -> dict:
     return {"uuid": str(uuid.uuid4()), "kind": "ExperimentMetric", "metric_type": metric_type}
 
 
+def _funnel_metric() -> dict:
+    return {**_inline_metric("funnel"), "series": [{"kind": "EventsNode", "event": "purchase"}]}
+
+
 @pytest.fixture(autouse=True)
 def _keep_test_connection(request):
     # close_old_connections() would sever the test transaction's connection.
@@ -315,12 +319,7 @@ class TestRunMetricCanary(BaseTest):
         assert result.outcome == OUTCOME_SKIPPED
 
     def test_runs_three_times_and_evaluates(self):
-        metric = {
-            "uuid": str(uuid.uuid4()),
-            "kind": "ExperimentMetric",
-            "metric_type": "funnel",
-            "series": [{"kind": "EventsNode", "event": "purchase"}],
-        }
+        metric = _funnel_metric()
         experiment = self._experiment([metric])
         snapshots = [_snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", _BASE)]
         with patch(
@@ -335,12 +334,7 @@ class TestRunMetricCanary(BaseTest):
         assert len(result.runs) == 3
 
     def test_query_failure_raises_for_temporal_retry(self):
-        metric = {
-            "uuid": str(uuid.uuid4()),
-            "kind": "ExperimentMetric",
-            "metric_type": "funnel",
-            "series": [{"kind": "EventsNode", "event": "purchase"}],
-        }
+        metric = _funnel_metric()
         experiment = self._experiment([metric])
         with patch(
             "products.experiments.backend.temporal.canary_logic._execute_canary_run",
