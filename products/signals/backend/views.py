@@ -1020,11 +1020,12 @@ class SignalReportArtefactViewSet(
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
-    - POST / PATCH / DELETE manage *log* artefacts — the appendable work-log entries
-      (`code_reference`, `code_diff`, `line_reference`, `commit`, `task_run`, `note`).
-      Only log types are accepted; status / pipeline-owned types return 400, and content is
-      validated against the type's schema. Team scoping is enforced by `safely_get_queryset`,
-      so an artefact id from another team / a deleted report 404s.
+    - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
+      Log entries accumulate; status types (judgments, repo selection, suggested reviewers)
+      are latest-wins, so appending a new version supersedes the previous one as the report's
+      canonical status. Content is validated against the type's schema. Team scoping is
+      enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
+      report 404s.
 
     Writes are attributed: to the task named by the `X-PostHog-Task-Id` header (set automatically
     for sandbox agents) when present, else to the requesting user.
@@ -1225,11 +1226,9 @@ class SignalReportArtefactViewSet(
     @validated_request(
         request_serializer=SignalReportArtefactLogCreateSerializer,
         responses={
-            201: OpenApiResponse(
-                response=SignalReportArtefactWriteResponseSerializer, description="Log artefact created."
-            ),
+            201: OpenApiResponse(response=SignalReportArtefactWriteResponseSerializer, description="Artefact created."),
             400: OpenApiResponse(
-                description="Unknown or non-log artefact type, content not matching the type's schema, "
+                description="Unknown artefact type, content not matching the type's schema, "
                 "or an invalid X-PostHog-Task-Id header."
             ),
             404: OpenApiResponse(description="Report not found for this project."),
@@ -1246,12 +1245,13 @@ class SignalReportArtefactViewSet(
                 ),
             ),
         ],
-        summary="Append a log artefact to a report",
+        summary="Append an artefact to a report",
         description=(
-            "Append a work-log entry (code reference, code diff, line reference, commit, "
-            "task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. "
-            "Only log artefact types are accepted; status / pipeline-owned types are rejected. "
-            "Content is validated against the type's schema."
+            "Append an artefact of any type to a report. Everything is append-only: log entries "
+            "(code reference, code diff, line reference, commit, task run, note) accumulate, while "
+            "status types (safety / actionability / priority judgments, repo selection, suggested "
+            "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
+            "report's canonical status. Content is validated against the type's schema."
         ),
         operation_id="signals_report_artefacts_create",
     )
@@ -1267,18 +1267,18 @@ class SignalReportArtefactViewSet(
         if not report_exists:
             raise NotFound()
         artefact_type = request.validated_data["artefact_type"]
-        if artefact_type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+        if artefact_type not in SignalReportArtefact.ArtefactType.values:
             return Response(
                 {
                     "error": (
-                        f"Only log artefact types may be created via this endpoint. Got '{artefact_type}'. "
-                        f"Allowed: {', '.join(sorted(SignalReportArtefact.LOG_ARTEFACT_TYPES))}."
+                        f"Unknown artefact type '{artefact_type}'. "
+                        f"Valid types: {', '.join(sorted(SignalReportArtefact.ArtefactType.values))}."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            artefact = SignalReportArtefact.add_log(
+            artefact = SignalReportArtefact.append(
                 team_id=self.team.id,
                 report_id=report_id,
                 type=artefact_type,
@@ -1295,31 +1295,21 @@ class SignalReportArtefactViewSet(
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
         responses={
-            200: OpenApiResponse(
-                response=SignalReportArtefactWriteResponseSerializer, description="Log artefact updated."
-            ),
-            400: OpenApiResponse(
-                description="Artefact is not a log type, or content does not match the type's schema."
-            ),
+            200: OpenApiResponse(response=SignalReportArtefactWriteResponseSerializer, description="Artefact updated."),
+            400: OpenApiResponse(description="Content does not match the artefact type's schema."),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
-        summary="Replace a log artefact's content",
+        summary="Replace an artefact's content",
         description=(
-            "Replace the content of an existing log artefact, addressed by id. Only log types are "
-            "editable, and the new content is validated against the artefact's type schema. "
-            "Attribution is creation-time only — edits don't reassign it."
+            "Replace the content of an existing artefact, addressed by id. The new content is "
+            "validated against the artefact's type schema. Editing the latest row of a status type "
+            "changes the report's canonical status (latest-wins); to re-assess while keeping history, "
+            "append a new artefact instead. Attribution is creation-time only — edits don't reassign it."
         ),
         operation_id="signals_report_artefacts_partial_update",
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
-        if artefact.type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
-            return Response(
-                {
-                    "error": f"Only log artefacts may be edited via this endpoint. This artefact has type '{artefact.type}'."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
             artefact.update_content(request.validated_data["content"])
         except ArtefactContentValidationError as e:
@@ -1331,23 +1321,18 @@ class SignalReportArtefactViewSet(
 
     @extend_schema(
         responses={
-            204: OpenApiResponse(description="Log artefact deleted."),
-            400: OpenApiResponse(description="Artefact is not a log type."),
+            204: OpenApiResponse(description="Artefact deleted."),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
-        summary="Delete a log artefact",
-        description="Delete a log artefact, addressed by id. Only log types are deletable.",
+        summary="Delete an artefact",
+        description=(
+            "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
+            "the report's canonical status to the previous version (latest-wins over what remains)."
+        ),
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
-        if artefact.type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
-            return Response(
-                {
-                    "error": f"Only log artefacts may be deleted via this endpoint. This artefact has type '{artefact.type}'."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         artefact.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

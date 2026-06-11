@@ -94,9 +94,14 @@ their own `identifier()` pair.
 
 ## Write surface
 
-`SignalReportArtefactViewSet`: POST / PATCH / DELETE for log artefacts (per-type schema
-validation; status types 400), the bespoke `suggested_reviewers` PUT, and the commit `diff`
-action. All gated by `scope_object = "task"` (`task:write`).
+`SignalReportArtefactViewSet`: POST / PATCH / DELETE for artefacts of **any** type — no type is
+writer-restricted ("status" vs "log" classifies semantics, not ownership). POST routes through
+`SignalReportArtefact.append`, which dispatches to the type's append semantics (status →
+latest-wins, finding → keyed by signal_id, dismissal → stacking, log → accumulate); PATCH edits
+in place (an edit to the latest status row changes the canonical status); DELETE of the latest
+status row reverts the canonical status to the previous version. Per-type schema validation
+everywhere, plus the bespoke `suggested_reviewers` PUT (reviewer enrichment) and the commit
+`diff` action. All gated by `scope_object = "task"` (`task:write`).
 
 Custom agents queue log artefacts during a run via `CustomSignalAgent.register_artefact` (or the
 typed `register_note` / `register_code_reference` / `register_code_diff` / `register_line_reference`

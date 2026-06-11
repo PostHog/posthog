@@ -578,11 +578,56 @@ class SignalReportArtefact(UUIDModel):
             team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
         )
 
+    @classmethod
+    def append(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        type: str,
+        content: str | dict | list,
+        attribution: ArtefactAttribution,
+        reevaluate_autostart: bool = True,
+    ) -> "SignalReportArtefact":
+        """Append an artefact of any known type, routing to that type's append semantics.
+
+        Status types are latest-wins (`append_status`), `signal_finding` is keyed by signal_id,
+        `dismissal` entries stack, log types accumulate (`add_log`), and anything else
+        (`video_segment`) is a plain validated append. No type is writer-restricted: an agent
+        can append a new status version just like the pipeline — the newest row of a status
+        type is the report's canonical status.
+        """
+        if type in cls.STATUS_ARTEFACT_TYPES:
+            return cls.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                type=type,
+                content=content,
+                attribution=attribution,
+                reevaluate_autostart=reevaluate_autostart,
+            )
+        if type == cls.ArtefactType.SIGNAL_FINDING:
+            return cls.append_finding(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if type == cls.ArtefactType.DISMISSAL:
+            return cls.append_dismissal(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if type in cls.LOG_ARTEFACT_TYPES:
+            return cls.add_log(
+                team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
+            )
+        return cls._create_validated(
+            team_id=team_id, report_id=report_id, type=type, content=content, attribution=attribution
+        )
+
     def update_content(self, content: str | dict | list) -> None:
         """Replace this artefact's content in place (bumps `updated_at`), validated against the
-        row's type. Attribution is creation-time only — edits don't reassign it."""
+        row's type. Attribution is creation-time only — edits don't reassign it.
+
+        Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
+        so it re-evaluates auto-start the same way appending a new reviewers row does."""
         self.content = validate_artefact_content(self.type, content)
         self.save(update_fields=["content", "updated_at"])
+        if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
 
 class SignalReportTask(UUIDModel):

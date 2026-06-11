@@ -488,8 +488,12 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         return value
 
 
-_LOG_ARTEFACT_TYPES_HELP = (
-    "The log artefact type. One of: " + ", ".join(sorted(SignalReportArtefact.LOG_ARTEFACT_TYPES)) + "."
+_ARTEFACT_TYPES_HELP = (
+    "The artefact type. One of: "
+    + ", ".join(sorted(SignalReportArtefact.ArtefactType.values))
+    + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
+    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "version supersedes the previous one as the report's canonical status."
 )
 
 
@@ -500,17 +504,17 @@ def _validate_artefact_content_is_container(value: object) -> dict | list:
 
 
 class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
-    """Body for appending a log artefact (a work-log entry) to a report.
+    """Body for appending an artefact to a report.
 
-    Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
-    `artefact_type` and is validated against the type's schema
-    (see `products/signals/backend/artefact_schemas.py`).
+    Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+    version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+    against the type's schema (see `products/signals/backend/artefact_schemas.py`).
     """
 
     # Plain CharField (not ChoiceField) on purpose: the value is validated against
-    # `LOG_ARTEFACT_TYPES` in the view, and avoiding a `choices=` enum keeps this off the
+    # `ArtefactType.values` in the view, and avoiding a `choices=` enum keeps this off the
     # collision-prone enum-name path in the generated OpenAPI types.
-    artefact_type = serializers.CharField(help_text=_LOG_ARTEFACT_TYPES_HELP)
+    artefact_type = serializers.CharField(help_text=_ARTEFACT_TYPES_HELP)
     content = serializers.JSONField(
         help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
         "and is validated against its schema.",
@@ -520,11 +524,11 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
         return _validate_artefact_content_is_container(value)
 
     def validate(self, attrs: dict) -> dict:
-        # Per-type schema validation, for log types only — non-log types get the view's
-        # dedicated "only log artefact types" 400 rather than a schema error here. The model
+        # Per-type schema validation, for known types only — unknown types get the view's
+        # dedicated "unknown artefact type" 400 rather than a schema error here. The model
         # helper re-validates as a backstop for non-API writers.
         artefact_type = attrs.get("artefact_type")
-        if artefact_type in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+        if artefact_type in SignalReportArtefact.ArtefactType.values:
             try:
                 validate_artefact_content(artefact_type, attrs["content"])
             except ArtefactContentValidationError as e:
@@ -533,7 +537,7 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
 
 
 class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):
-    """Body for replacing the content of an existing log artefact (addressed by id).
+    """Body for replacing the content of an existing artefact (addressed by id).
 
     Per-type schema validation happens in the view, which knows the artefact's type.
     """

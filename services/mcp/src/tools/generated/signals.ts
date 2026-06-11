@@ -211,7 +211,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "If this report prompts you to do work: first associate your task with the report (inbox-report-tasks-create, once), then log the work as artefacts as you go via inbox-report-artefacts-create — notes, code references, diffs, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). See those tools' descriptions for content shapes."
+            "If this report prompts you to do work: first associate your task with the report (inbox-report-tasks-create, once), then log the work as artefacts as you go via inbox-report-artefacts-create — notes, code references, diffs, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. See those tools' descriptions for content shapes."
         )
     },
 })

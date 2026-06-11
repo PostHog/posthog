@@ -683,25 +683,74 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("safety_judgment",),
-            ("actionability_judgment",),
-            ("priority_judgment",),
-            ("repo_selection",),
-            ("suggested_reviewers",),
-            ("signal_finding",),
-            ("dismissal",),
-            ("video_segment",),
+            ("safety_judgment", {"choice": True}),
+            (
+                "actionability_judgment",
+                {"explanation": "clear fix", "actionability": "immediately_actionable", "already_addressed": False},
+            ),
+            ("priority_judgment", {"explanation": "core flow broken", "priority": "P1"}),
+            ("repo_selection", {"repository": "posthog/posthog", "reason": "where the code lives"}),
+            (
+                "signal_finding",
+                {
+                    "signal_id": "sig-1",
+                    "relevant_code_paths": [],
+                    "relevant_commit_hashes": {},
+                    "data_queried": "events",
+                    "verified": True,
+                },
+            ),
         ]
     )
-    def test_post_rejects_non_log_types(self, artefact_type):
+    def test_post_accepts_status_and_finding_types(self, artefact_type, content):
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            data=json.dumps({"artefact_type": artefact_type, "content": {}}),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["type"] == artefact_type
+
+    def test_post_status_type_is_latest_wins(self):
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content={"explanation": "initial", "priority": "P3"},
+            attribution=ArtefactAttribution.system(),
+        )
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "priority_judgment",
+                    "content": {"explanation": "worse than thought", "priority": "P1"},
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        # Both rows survive (append-only); the newest is canonical on the report read.
+        rows = SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        )
+        assert rows.count() == 2
+        report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert report_response.status_code == status.HTTP_200_OK
+        assert report_response.json()["priority"] == "P1"
+
+    def test_post_status_type_with_invalid_content_returns_400(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "priority_judgment", "content": {"priority": "P9"}}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "log artefact" in response.json()["error"]
 
     def test_post_rejects_unknown_type(self):
         report = self._create_report()
@@ -769,23 +818,33 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert json.loads(artefact.content) == {"note": "after"}
         assert artefact.updated_at is not None
 
-    def test_patch_rejects_status_artefact(self):
-        # suggested_reviewers is a status type — editable only via the bespoke PUT path.
+    def test_patch_updates_status_artefact_validated_against_its_type(self):
         report = self._create_report()
-        artefact = SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=json.dumps([]),
+        artefact = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content={"explanation": "initial", "priority": "P3"},
+            attribution=ArtefactAttribution.system(),
         )
 
+        # Content not matching the row's type schema is rejected…
         response = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps({"content": {"note": "x"}}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Only log artefacts" in response.json()["error"]
+
+        # …while a valid edit lands and changes the canonical status (it's the latest row).
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": {"explanation": "re-judged", "priority": "P0"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert report_response.json()["priority"] == "P0"
 
     def test_patch_other_team_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -821,18 +880,27 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalReportArtefact.objects.filter(id=artefact.id).exists()
 
-    def test_delete_rejects_status_artefact(self):
+    def test_delete_latest_status_artefact_reverts_canonical_to_previous(self):
         report = self._create_report()
-        artefact = SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            content=json.dumps({"choice": True, "explanation": "safe"}),
-        )
+        for priority, explanation in (("P3", "initial"), ("P1", "escalated")):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content={"explanation": explanation, "priority": priority},
+                attribution=ArtefactAttribution.system(),
+            )
+        latest = SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        ).order_by("-created_at")[0]
 
-        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+        response = self.client.delete(self._detail_url(str(report.id), str(latest.id)))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SignalReportArtefact.objects.filter(id=latest.id).exists()
+
+        report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert report_response.status_code == status.HTTP_200_OK
+        assert report_response.json()["priority"] == "P3"
 
     def test_delete_other_team_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

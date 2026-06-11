@@ -33101,7 +33101,7 @@ export namespace Schemas {
     }
 
     /**
-     * Body for replacing the content of an existing log artefact (addressed by id).
+     * Body for replacing the content of an existing artefact (addressed by id).
      *
      * Per-type schema validation happens in the view, which knows the artefact's type.
      */
@@ -39665,14 +39665,14 @@ export namespace Schemas {
     }
 
     /**
-     * Body for appending a log artefact (a work-log entry) to a report.
+     * Body for appending an artefact to a report.
      *
-     * Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
-     * `artefact_type` and is validated against the type's schema
-     * (see `products/signals/backend/artefact_schemas.py`).
+     * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+     * version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+     * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run. */
+      /** The artefact type. One of: actionability_judgment, code_diff, code_reference, commit, dismissal, line_reference, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run, video_segment. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;

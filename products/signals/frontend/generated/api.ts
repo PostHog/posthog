@@ -212,8 +212,8 @@ export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: 
 }
 
 /**
- * Append a work-log entry (code reference, code diff, line reference, commit, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected. Content is validated against the type's schema.
- * @summary Append a log artefact to a report
+ * Append an artefact of any type to a report. Everything is append-only: log entries (code reference, code diff, line reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * @summary Append an artefact to a report
  */
 export const signalsReportArtefactsCreate = async (
     projectId: string,
@@ -234,8 +234,8 @@ export const getSignalsReportArtefactsPartialUpdateUrl = (projectId: string, rep
 }
 
 /**
- * Replace the content of an existing log artefact, addressed by id. Only log types are editable, and the new content is validated against the artefact's type schema. Attribution is creation-time only — edits don't reassign it.
- * @summary Replace a log artefact's content
+ * Replace the content of an existing artefact, addressed by id. The new content is validated against the artefact's type schema. Editing the latest row of a status type changes the report's canonical status (latest-wins); to re-assess while keeping history, append a new artefact instead. Attribution is creation-time only — edits don't reassign it.
+ * @summary Replace an artefact's content
  */
 export const signalsReportArtefactsPartialUpdate = async (
     projectId: string,
@@ -260,8 +260,8 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete a log artefact, addressed by id. Only log types are deletable.
- * @summary Delete a log artefact
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
     projectId: string,

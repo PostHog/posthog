@@ -124,8 +124,8 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Append a work-log entry (code reference, code diff, line reference, commit, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected. Content is validated against the type's schema.
- * @summary Append a log artefact to a report
+ * Append an artefact of any type to a report. Everything is append-only: log entries (code reference, code diff, line reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * @summary Append an artefact to a report
  */
 export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -150,7 +150,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                'The log artefact type. One of: code_diff, code_reference, commit, line_reference, note, task_run.'
+                "The artefact type. One of: actionability_judgment, code_diff, code_reference, commit, dismissal, line_reference, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run, video_segment. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -159,12 +159,12 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` and is validated against the type's schema\n(see `products/signals/backend/artefact_schemas.py`)."
+        "Body for appending an artefact to a report.\n\nEverything is append-only: log artefacts accumulate, status artefacts supersede the previous\nversion (latest-wins). The `content` shape depends on `artefact_type` and is validated\nagainst the type's schema (see `products/signals/backend/artefact_schemas.py`)."
     )
 
 /**
- * Replace the content of an existing log artefact, addressed by id. Only log types are editable, and the new content is validated against the artefact's type schema. Attribution is creation-time only — edits don't reassign it.
- * @summary Replace a log artefact's content
+ * Replace the content of an existing artefact, addressed by id. The new content is validated against the artefact's type schema. Editing the latest row of a status type changes the report's canonical status (latest-wins); to re-assess while keeping history, append a new artefact instead. Attribution is creation-time only — edits don't reassign it.
+ * @summary Replace an artefact's content
  */
 export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this signal report artefact.'),
@@ -184,12 +184,12 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
             .describe("The new artefact payload as a JSON object or array, matching the artefact type's schema."),
     })
     .describe(
-        "Body for replacing the content of an existing log artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
+        "Body for replacing the content of an existing artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
     )
 
 /**
- * Delete a log artefact, addressed by id. Only log types are deletable.
- * @summary Delete a log artefact
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this signal report artefact.'),

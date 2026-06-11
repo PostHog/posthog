@@ -28,16 +28,19 @@ tools:
             destructive: false
             idempotent: false
         enrich_url: '{report_id}'
-        title: Append a log artefact to a report
+        title: Append an artefact to a report
         description: >
-            Append a work-log entry to a signal report so it reads as a living document. `artefact_type` is one of the
-            log types — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents,
-            relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note),
+            Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log
+            types accumulate — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line,
+            contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note),
             `line_reference` (a single line: file_path, line, note), `commit` (one pushed commit: repository, branch,
             commit_sha, message — usually recorded automatically when you push via git_signed_commit, so only create
             one yourself for commits pushed by other means), `task_run` (a reference to a tasks.Task run: task_id,
-            run_id, product, type), or `note` (free-form: note). `content` is a JSON object matching the chosen type
-            and is validated against its schema. Log artefacts accumulate — each call adds a new entry. Writes are
+            run_id, product, type), `note` (free-form: note). Status types are latest-wins — appending a new version
+            supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority
+            P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
+            (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}).
+            `content` is a JSON object matching the chosen type and is validated against its schema. Writes are
             attributed to your task automatically. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
@@ -48,10 +51,10 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Delete a log artefact
+        title: Delete an artefact
         description: >
-            Delete a log artefact by its id when it is no longer correct or relevant. Only log artefacts are deletable;
-            status / pipeline-owned artefacts are not.
+            Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status
+            type (e.g. priority_judgment) reverts the report's canonical status to the previous version.
     inbox-report-artefacts-update:
         operation: signals_report_artefacts_partial_update
         enabled: true
@@ -61,11 +64,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Replace a log artefact's content
+        title: Replace an artefact's content
         description: >
-            Replace the `content` of an existing log artefact, addressed by its id, when new information supersedes it.
-            Only log artefacts (code_reference, code_diff, line_reference, commit, task_run, note) are editable;
-            status / pipeline-owned artefacts are not. The new content is validated against the artefact type's schema.
+            Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it.
+            The new content is validated against the artefact type's schema. Editing the latest row of a status type
+            changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -140,8 +143,9 @@ tools:
             If this report prompts you to do work: first associate your task with the report
             (inbox-report-tasks-create, once), then log the work as artefacts as you go via
             inbox-report-artefacts-create — notes, code references, diffs, and commits pushed outside
-            git_signed_commit (signed pushes are recorded automatically). See those tools' descriptions
-            for content shapes.
+            git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority,
+            actionability, reviewers) are latest-wins — append a new version to re-assess. See those
+            tools' descriptions for content shapes.
     inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true
