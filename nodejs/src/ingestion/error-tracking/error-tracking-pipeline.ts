@@ -17,6 +17,7 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '../common/outputs'
+import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -303,6 +304,7 @@ export function createErrorTrackingPipeline(
                                                         ]
                                                     )
                                                 )
+                                                .pipe(createRecordIngestionLagStep())
                                         )
                                 )
                             })
