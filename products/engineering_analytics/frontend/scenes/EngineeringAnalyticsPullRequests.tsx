@@ -140,6 +140,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     caption={cards ? `across ${pluralize(cards.repos, 'repo')}` : ' '}
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('open')}
+                    active={activeCard === 'open'}
+                    filterHint="Filter the list to open PRs"
                 />
                 <StatCard
                     label="Failing CI"
@@ -148,6 +150,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('failing')}
                     active={activeCard === 'failing'}
+                    filterHint="Filter the list to open PRs with failing CI"
                 />
                 <StatCard
                     label="Stuck > 7d"
@@ -156,6 +159,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('stuck')}
                     active={activeCard === 'stuck'}
+                    filterHint="Filter the list to PRs stuck open for over 7 days"
                 />
             </div>
 

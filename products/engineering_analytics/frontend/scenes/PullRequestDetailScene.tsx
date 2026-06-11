@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
-import { IconArrowRight, IconExternal } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 import {
     LemonButton,
     LemonSkeleton,
@@ -14,13 +15,14 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { PullRequestApi } from '../generated/api.schemas'
-import { githubPrUrl, githubWorkflowUrl } from '../lib/github'
+import { githubPrUrl, githubRunUrl, githubWorkflowUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullRequestDetailLogic'
 
@@ -54,75 +56,110 @@ function verdictTag(conclusion: string | null): { label: string; type: LemonTagT
     return { label, type: 'warning' }
 }
 
-function deltaFrom(start: dayjs.Dayjs, end: string): string {
-    const seconds = dayjs(end).diff(start, 'second')
+function gapBetween(from: string, to: string): string {
+    const seconds = dayjs(to).diff(dayjs(from), 'second')
     return seconds <= 0 ? '<1s' : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-function Milestone({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <span className="flex items-center gap-1 whitespace-nowrap">
-            <span className="font-medium">{label}</span>
-            <span className="text-secondary">{children}</span>
-        </span>
-    )
+interface TimelineNode {
+    key: string
+    label: string
+    at: string
+    dotClass: string
+    /** The connector leading into this node — dashed when the time span is still running. */
+    dashedIncoming?: boolean
+    showTime?: boolean
 }
 
-/** Chronological — a PR's head-SHA runs can start (and finish) after the merge. */
+/**
+ * Horizontal timeline: dots are milestones, the duration above each connector is the
+ * gap between them — where the hours actually went. Chronological — a PR's head-SHA
+ * runs can start (and finish) after the merge.
+ */
 function LifecycleStrip({ summary, openedAt }: { summary: LifecycleSummary; openedAt: string }): JSX.Element {
-    const opened = dayjs(openedAt)
-    const dated: { at: string; node: JSX.Element }[] = [
-        {
-            at: openedAt,
-            node: (
-                <Milestone label="Opened">
-                    <TZLabel time={openedAt} />
-                </Milestone>
-            ),
-        },
+    const nodes: TimelineNode[] = [
+        { key: 'opened', label: 'Opened', at: openedAt, dotClass: 'bg-muted', showTime: true },
     ]
     if (summary.firstCiStartedAt) {
-        dated.push({
+        nodes.push({
+            key: 'ci-start',
+            label: 'First CI run',
             at: summary.firstCiStartedAt,
-            node: <Milestone label="First CI run">+{deltaFrom(opened, summary.firstCiStartedAt)}</Milestone>,
+            dotClass: 'bg-muted',
         })
     }
     if (summary.lastCiFinishedAt) {
-        dated.push({
+        nodes.push({
+            key: 'ci-end',
+            label: 'Last CI verdict',
             at: summary.lastCiFinishedAt,
-            node: <Milestone label="Last CI verdict">+{deltaFrom(opened, summary.lastCiFinishedAt)}</Milestone>,
+            dotClass: 'bg-muted',
         })
     }
     if (summary.mergedAt) {
-        dated.push({
-            at: summary.mergedAt,
-            node: <Milestone label="Merged">+{deltaFrom(opened, summary.mergedAt)}</Milestone>,
-        })
+        nodes.push({ key: 'merged', label: 'Merged', at: summary.mergedAt, dotClass: 'bg-success', showTime: true })
     } else if (summary.closedAt) {
-        dated.push({
-            at: summary.closedAt,
-            node: <Milestone label="Closed without merging">+{deltaFrom(opened, summary.closedAt)}</Milestone>,
+        nodes.push({ key: 'closed', label: 'Closed', at: summary.closedAt, dotClass: 'bg-danger', showTime: true })
+    }
+    nodes.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+
+    const stillOpen = !summary.mergedAt && !summary.closedAt
+    if (stillOpen) {
+        nodes.push({
+            key: 'now',
+            label: 'Still open',
+            at: dayjs().toISOString(),
+            dotClass: 'animate-pulse border-2 border-warning bg-transparent',
+            dashedIncoming: true,
         })
     }
-    dated.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
 
-    const milestones = dated.map((milestone) => milestone.node)
-    if (!summary.mergedAt && !summary.closedAt) {
-        milestones.push(
-            <Milestone label="Still open">
-                {humanFriendlyDuration(dayjs().diff(opened, 'second'), { maxUnits: 2 })} and counting
-            </Milestone>
-        )
-    }
+    // Not necessarily the last node's time: head-SHA runs can outlive the merge.
+    const totalTo = summary.mergedAt ?? summary.closedAt ?? nodes[nodes.length - 1].at
+    const connector = (dashed: boolean | undefined): string =>
+        dashed ? 'w-full border-t border-dashed border-border-bold' : 'h-px w-full bg-border-bold'
 
     return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-surface-primary px-4 py-3 text-sm">
-            {milestones.map((node, index) => (
-                <span key={index} className="flex items-center gap-3">
-                    {index > 0 && <IconArrowRight className="shrink-0 text-tertiary" />}
-                    {node}
+        <div className="flex items-center gap-6 rounded-lg border bg-surface-primary px-5 py-3">
+            <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+                {nodes.map((node, index) => (
+                    <Fragment key={node.key}>
+                        {index > 0 && (
+                            <div className="flex min-w-10 flex-1 flex-col gap-1">
+                                <span className="text-center text-xs leading-4 whitespace-nowrap text-secondary tabular-nums">
+                                    {gapBetween(nodes[index - 1].at, node.at)}
+                                </span>
+                                <span className="flex h-2.5 items-center">
+                                    <span className={connector(node.dashedIncoming)} />
+                                </span>
+                                <span className="text-xs leading-4">&nbsp;</span>
+                            </div>
+                        )}
+                        <div className="flex shrink-0 flex-col items-center gap-1 px-1">
+                            <span className="text-xs font-medium leading-4 whitespace-nowrap">{node.label}</span>
+                            <span className="flex h-2.5 w-full items-center">
+                                <span className={cn('flex-1', index > 0 && connector(node.dashedIncoming))} />
+                                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', node.dotClass)} />
+                                <span
+                                    className={cn(
+                                        'flex-1',
+                                        index < nodes.length - 1 && connector(nodes[index + 1].dashedIncoming)
+                                    )}
+                                />
+                            </span>
+                            <span className="text-xs leading-4 whitespace-nowrap text-tertiary">
+                                {node.showTime ? <TZLabel time={node.at} /> : <>&nbsp;</>}
+                            </span>
+                        </div>
+                    </Fragment>
+                ))}
+            </div>
+            <div className="flex shrink-0 flex-col items-end self-center border-l border-primary pl-6">
+                <span className="text-lg font-semibold leading-6 tabular-nums">{gapBetween(openedAt, totalTo)}</span>
+                <span className="text-xs text-tertiary">
+                    {summary.mergedAt ? 'open → merge' : summary.closedAt ? 'open → close' : 'open so far'}
                 </span>
-            ))}
+            </div>
         </div>
     )
 }
@@ -167,7 +204,11 @@ export function PullRequestDetailScene(): JSX.Element {
             render: (_, run) =>
                 pullRequest ? (
                     <Link
-                        to={githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)}
+                        to={
+                            run.runId != null
+                                ? githubRunUrl(pullRequest.repo.owner, pullRequest.repo.name, run.runId)
+                                : githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)
+                        }
                         target="_blank"
                         className="font-medium"
                     >
