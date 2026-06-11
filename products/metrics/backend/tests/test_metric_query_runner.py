@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from posthog.clickhouse.client.connection import Workload
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     MetricQueryRunner,
     _histogram_quantile,
@@ -341,16 +343,6 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "multi_clause",
-                {
-                    "clauses": (
-                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
-                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
-                    )
-                },
-            ),
-            ("formula", {"formula": "a / b"}),
             (
                 "unsupported_aggregation",
                 {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.MIN),)},
@@ -887,6 +879,191 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
                 "query": {
                     "metricName": "latency",
                     "aggregation": "histogram_quantile",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestFormulaParser:
+    @parameterized.expand(
+        [
+            ("add", "a + b", {"a": 3.0, "b": 4.0}, 7.0),
+            ("precedence", "a + b * 2", {"a": 1.0, "b": 2.0}, 5.0),
+            ("parens", "(a - b) / a", {"a": 10.0, "b": 4.0}, 0.6),
+            ("unary_minus", "-a + 5", {"a": 2.0}, 3.0),
+            ("division_by_zero_yields_zero", "a / b", {"a": 5.0, "b": 0.0}, 0.0),
+            ("number_only_arithmetic", "a * 0 + 1.5", {"a": 9.0}, 1.5),
+        ]
+    )
+    def test_evaluate(self, _name, formula, values, expected):
+        node = parse_formula(formula, frozenset(values))
+        assert abs(evaluate(node, values) - expected) < 1e-9
+
+    @parameterized.expand(
+        [
+            ("unknown_clause", "a + zz", frozenset({"a", "b"})),
+            ("unbalanced_parens", "(a + b", frozenset({"a", "b"})),
+            ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
+            ("empty", "   ", frozenset({"a"})),
+            ("bad_char", "a ^ b", frozenset({"a", "b"})),
+        ]
+    )
+    def test_rejects(self, _name, formula, names):
+        with pytest.raises(ValueError):
+            parse_formula(formula, names)
+
+
+class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        # errors: 2 then 4; requests: 10 then 20 (per-minute buckets)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="errors",
+            points=[(self.anchor + dt.timedelta(seconds=10), 2.0), (self.anchor + dt.timedelta(seconds=70), 4.0)],
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="requests",
+            points=[(self.anchor + dt.timedelta(seconds=10), 10.0), (self.anchor + dt.timedelta(seconds=70), 20.0)],
+        )
+
+    def _request(self, formula=None, clauses=None):
+        return MetricQueryRequest(
+            clauses=clauses
+            or (
+                MetricQueryClause(name="a", metric_name="errors", aggregation=MetricAggregation.SUM),
+                MetricQueryClause(name="b", metric_name="requests", aggregation=MetricAggregation.SUM),
+            ),
+            date_from=self.anchor - dt.timedelta(minutes=1),
+            date_to=self.anchor + dt.timedelta(minutes=2),
+            interval="minute",
+            formula=formula,
+        )
+
+    def test_multi_clause_returns_all_series_on_shared_grid(self):
+        series = run_metric_query(team=self.team, request=self._request())
+        self.assertEqual(len(series), 2)
+        by_clause = {s.clause: s for s in series}
+        self.assertEqual([p.value for p in by_clause["a"].points], [2.0, 4.0])
+        self.assertEqual([p.value for p in by_clause["b"].points], [10.0, 20.0])
+        self.assertEqual(
+            [p.time for p in by_clause["a"].points],
+            [p.time for p in by_clause["b"].points],
+        )
+
+    def test_formula_error_rate(self):
+        series = run_metric_query(team=self.team, request=self._request(formula="a / b"))
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].clause, "formula")
+        self.assertIsNone(series[0].metric_name)
+        self.assertEqual([p.value for p in series[0].points], [0.2, 0.2])
+
+    def test_formula_matches_grouped_series_by_label_set(self):
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        for env, errors, requests in [("prod", 1.0, 10.0), ("dev", 3.0, 6.0)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="errors",
+                points=[(self.anchor + dt.timedelta(seconds=10), errors)],
+                labels={"env": env},
+            )
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="requests",
+                points=[(self.anchor + dt.timedelta(seconds=10), requests)],
+                labels={"env": env},
+            )
+        group = (MetricGroupBy(key="env"),)
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                formula="a / b",
+                clauses=(
+                    MetricQueryClause(
+                        name="a", metric_name="errors", aggregation=MetricAggregation.SUM, group_by=group
+                    ),
+                    MetricQueryClause(
+                        name="b", metric_name="requests", aggregation=MetricAggregation.SUM, group_by=group
+                    ),
+                ),
+            ),
+        )
+        by_env = {s.labels["env"]: [p.value for p in s.points] for s in series}
+        self.assertEqual(by_env, {"prod": [0.1], "dev": [0.5]})
+
+    def test_formula_broadcasts_ungrouped_clause(self):
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        for env, errors in [("prod", 2.0), ("dev", 6.0)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="errors",
+                points=[(self.anchor + dt.timedelta(seconds=10), errors)],
+                labels={"env": env},
+            )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="requests",
+            points=[(self.anchor + dt.timedelta(seconds=10), 20.0)],
+        )
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                formula="a / b",
+                clauses=(
+                    MetricQueryClause(
+                        name="a",
+                        metric_name="errors",
+                        aggregation=MetricAggregation.SUM,
+                        group_by=(MetricGroupBy(key="env"),),
+                    ),
+                    MetricQueryClause(name="b", metric_name="requests", aggregation=MetricAggregation.SUM),
+                ),
+            ),
+        )
+        by_env = {s.labels["env"]: [p.value for p in s.points] for s in series}
+        self.assertEqual(by_env, {"prod": [0.1], "dev": [0.3]})
+
+    def test_unknown_clause_in_formula_raises(self):
+        with self.assertRaises(ValueError):
+            run_metric_query(team=self.team, request=self._request(formula="a / zz"))
+
+    def test_clauses_and_formula_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [
+                        {"name": "a", "metricName": "errors", "aggregation": "sum"},
+                        {"name": "b", "metricName": "requests", "aggregation": "sum"},
+                    ],
+                    "formula": "(b - a) / b",
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        series = response.json()["results"][0]
+        self.assertEqual(series["clause"], "formula")
+        self.assertEqual([p["value"] for p in series["points"]], [0.8, 0.8])
+
+    def test_api_rejects_both_shorthand_and_clauses(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "errors",
+                    "clauses": [{"name": "a", "metricName": "errors"}],
                     "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
                 }
             },

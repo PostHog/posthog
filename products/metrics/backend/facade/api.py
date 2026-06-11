@@ -9,8 +9,9 @@ from typing import Any
 
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryRequest, MetricSeries
+from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryClause, MetricQueryRequest, MetricSeries
 from products.metrics.backend.facade.enums import MetricAggregation
+from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
@@ -60,53 +61,112 @@ def _assemble_series(
     return series[:MAX_SERIES_PER_CLAUSE]
 
 
+def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
+    if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
+        return "p95"
+    if clause.aggregation == MetricAggregation.HISTOGRAM_QUANTILE:
+        return "histogram_quantile"
+    if clause.aggregation in _RUNNER_AGGREGATIONS:
+        return _RUNNER_AGGREGATIONS[clause.aggregation]
+    raise ValueError(f"aggregation {clause.aggregation.value!r} is not supported yet")
+
+
+def _evaluate_formula(
+    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+) -> list[MetricSeries]:
+    """Combine clause results point-by-point on the shared grid.
+
+    Series are matched across clauses by exact label-set equality
+    (Prometheus-style one-to-one vector matching); a clause that produced a
+    single ungrouped series is broadcast to every label-set instead. A
+    label-set missing from any non-broadcast clause is dropped.
+    """
+    node = parse_formula(formula_text, frozenset(series_by_clause))
+
+    broadcasts: dict[str, MetricSeries] = {}
+    grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
+    for name, series_list in series_by_clause.items():
+        if len(series_list) == 1 and not series_list[0].labels:
+            broadcasts[name] = series_list[0]
+        else:
+            grouped[name] = {tuple(sorted(s.labels.items())): s for s in series_list}
+
+    if grouped:
+        label_sets: set[tuple[tuple[str, str], ...]] = set.intersection(
+            *(set(by_labels) for by_labels in grouped.values())
+        )
+    else:
+        label_sets = {()}
+
+    result: list[MetricSeries] = []
+    for label_set in sorted(label_sets):
+        per_clause_points: dict[str, tuple[MetricPoint, ...]] = {
+            name: (grouped[name][label_set].points if name in grouped else broadcasts[name].points)
+            for name in series_by_clause
+        }
+        points = tuple(
+            MetricPoint(
+                time=time,
+                value=evaluate(node, {name: pts[index].value for name, pts in per_clause_points.items()}),
+            )
+            for index, time in enumerate(grid)
+        )
+        result.append(MetricSeries(labels=dict(label_set), points=points, metric_name=None, clause="formula"))
+    return result
+
+
 def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
     series with empty labels, so consumers never branch on single-vs-multi.
 
-    All series share one bucket grid (the union of observed buckets,
-    zero-filled), which is what makes cross-series and cross-clause math
-    line up. Series per clause are capped at `MAX_SERIES_PER_CLAUSE`,
-    keeping the largest ones.
+    Every series of every clause shares one bucket grid (the union of
+    observed buckets, zero-filled), which is what makes cross-series and
+    cross-clause math line up. Series per clause are capped at
+    `MAX_SERIES_PER_CLAUSE`, keeping the largest ones.
 
-    Current scope: one clause; multi-clause and formula raise `ValueError`
-    until their PRs land. The presentation layer surfaces `ValueError` as
-    a 400.
+    With `formula` set, only the formula result series are returned
+    (`clause="formula"`); request the clauses separately if you need the
+    inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
-    if len(request.clauses) != 1:
-        raise ValueError("multi-clause queries are not supported yet")
-    if request.formula is not None:
-        raise ValueError("formulas are not supported yet")
+    rows_by_clause: dict[str, list[dict[str, Any]]] = {}
+    for clause in request.clauses:
+        runner_aggregation = _resolve_runner_aggregation(clause)
+        runner = MetricQueryRunner(
+            team=team,
+            metric_name=clause.metric_name,
+            aggregation=runner_aggregation,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            filters=clause.filters,
+            group_by=clause.group_by,
+            interval=request.interval,
+            quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
+        )
+        rows_by_clause[clause.name] = runner.run()
 
-    clause = request.clauses[0]
-
-    if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
-        runner_aggregation = "p95"
-    elif clause.aggregation == MetricAggregation.HISTOGRAM_QUANTILE:
-        runner_aggregation = "histogram_quantile"
-    elif clause.aggregation in _RUNNER_AGGREGATIONS:
-        runner_aggregation = _RUNNER_AGGREGATIONS[clause.aggregation]
-    else:
-        raise ValueError(f"aggregation {clause.aggregation.value!r} is not supported yet")
-
-    runner = MetricQueryRunner(
-        team=team,
-        metric_name=clause.metric_name,
-        aggregation=runner_aggregation,
-        date_from=request.date_from,
-        date_to=request.date_to,
-        filters=clause.filters,
-        group_by=clause.group_by,
-        interval=request.interval,
-        quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
+    # Validate the formula before any early return so bad formulas always 400.
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
     )
-    rows = runner.run()
-    if not rows:
-        return [MetricSeries(labels={}, points=(), metric_name=clause.metric_name, clause=clause.name)]
 
-    grid = sorted({row["time"] for row in rows})
-    return _assemble_series(rows, metric_name=clause.metric_name, clause_name=clause.name, grid=grid)
+    grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
+    if not grid:
+        empty_clause = "formula" if formula_node_checked is not None else request.clauses[0].name
+        metric_name = None if formula_node_checked is not None else request.clauses[0].metric_name
+        return [MetricSeries(labels={}, points=(), metric_name=metric_name, clause=empty_clause)]
+
+    series_by_clause = {
+        clause.name: _assemble_series(
+            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+        )
+        for clause in request.clauses
+    }
+
+    if request.formula is not None:
+        return _evaluate_formula(request.formula, series_by_clause, grid)
+
+    return [series for clause in request.clauses for series in series_by_clause[clause.name]]
 
 
 def list_metric_names(
