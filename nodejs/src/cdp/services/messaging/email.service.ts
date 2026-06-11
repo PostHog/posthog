@@ -87,7 +87,9 @@ export class EmailService {
 
         try {
             if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
             }
 
             const from = this.resolveFromSender(integration)
