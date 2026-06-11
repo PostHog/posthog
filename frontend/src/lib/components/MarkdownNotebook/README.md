@@ -23,7 +23,11 @@ See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (
 
 ## Supported markdown
 
-Inline: bold (`**`), italic (`*`), underline (`<u>`), strikethrough (`~~`), inline code, links, and hard breaks. Blocks: paragraphs, headings (`#`–`######` parse and round-trip; the UI offers H1–H3), blockquotes (including quoted lists), ordered/unordered lists with nesting, GFM tables with column alignment, fenced code blocks (language tag preserved), dividers (`---`/`***`/`___`, stored as a reserved `Divider` component tag), images (`![alt](src)`, stored as the `Image` component), and JSX-like component tags.
+Inline: bold (`**`/`__`), italic (`*`/`_`, underscores only at word boundaries), underline (`<u>`), strikethrough (`~~`), inline code, links (http/https only; balanced parentheses in hrefs supported), and hard breaks. Blocks: paragraphs, headings (`#`–`######` parse and round-trip; the UI offers H1–H3), blockquotes (including quoted lists), ordered/unordered lists with nesting, GFM tables with column alignment (header and body rows must start with `|`), fenced code blocks (language tag preserved; the serializer picks a fence longer than any backtick run in the content), dividers (`---`/`***`/`___`, stored as a reserved `Divider` component tag), images (`![alt](src)`, stored as the `Image` component), and JSX-like component tags.
+
+### Round-trip guarantee
+
+`parse(serialize(doc))` must preserve the document: the serializer backslash-escapes every character the inline parser would interpret (`escapeInlineMarkdownText`, kept in sync with `INLINE_ESCAPABLE_CHARS`), and `escapeMarkdownLineStart` protects text lines that would otherwise re-parse as a different block type (headings, lists, blockquotes, dividers, component tags). Source text is never dropped: an unterminated component tag stops at the first blank line and degrades to a paragraph, and a component tag with malformed props serializes back from its `raw` source until it is edited. `markdownRoundTrip.test.ts` enforces this with a generated-document fixpoint test — extend it when adding syntax.
 
 ## Visual grouping
 

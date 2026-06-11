@@ -497,7 +497,9 @@ export function shouldUseMarkdownPaste(plainText: string, html: string, parsedDo
 }
 
 export function hasInlineMarkdownSyntax(value: string): boolean {
-    return /(\*\*[^*]+\*\*|`[^`]+`|<u>[\s\S]+<\/u>|\[[^\]]+\]\([^)]+\)|(^|[^*])\*[^*\s][^*]*\*)/.test(value)
+    return /(\*\*[^*]+\*\*|`[^`]+`|<u>[\s\S]+<\/u>|\[[^\]]+\]\([^)]+\)|(^|[^*])\*[^*\s][^*]*\*|~~[^~]+~~|(^|[^A-Za-z0-9])_[^\s_][^_]*_(?![A-Za-z0-9]))/.test(
+        value
+    )
 }
 
 export function rekeyNotebookNodes(nodes: NotebookBlockNode[], seed: string): NotebookBlockNode[] {

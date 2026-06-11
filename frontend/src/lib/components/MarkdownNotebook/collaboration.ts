@@ -79,6 +79,23 @@ export function mergeNotebookMarkdownChanges({
         pushOutputNode(outputNodes, outputIds, localChanged ? localNode : remoteNode)
     })
 
+    // The deletion still wins (re-adding would resurrect deleted blocks on every merge),
+    // but the user must hear about their edit being discarded.
+    baseDocument.nodes.forEach((baseNode) => {
+        if (remoteById.has(baseNode.id)) {
+            return
+        }
+        const localNode = localById.get(baseNode.id)
+        if (localNode && getNodeFingerprint(localNode) !== getNodeFingerprint(baseNode)) {
+            conflicts.push({
+                nodeId: baseNode.id,
+                reason: 'Remote deleted a block that was edited locally',
+                localMarkdown: serializeNode(localNode),
+                remoteMarkdown: '',
+            })
+        }
+    })
+
     localDocument.nodes.forEach((localNode, localIndex) => {
         if (!baseById.has(localNode.id) && !remoteById.has(localNode.id)) {
             if (

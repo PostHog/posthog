@@ -99,17 +99,19 @@ describe('mergeNotebookMarkdownChanges', () => {
         expect(result.mergedMarkdown).toEqual('# Title')
     })
 
-    it('currently lets a remote deletion win over a local edit without reporting a conflict', () => {
-        // Documents the asymmetry with the local-deletion case above: a locally edited block
-        // deleted remotely is dropped silently because re-adding it would resurrect deleted
-        // blocks on every merge.
+    it('lets a remote deletion win over a local edit but reports a conflict', () => {
+        // The deletion wins (re-adding would resurrect deleted blocks on every merge), but the
+        // local user must be told their edit was discarded.
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '# Title\n\nEdited locally',
             localMarkdown: '# Title\n\nEdited locally with changes',
             remoteMarkdown: '# Title',
         })
 
-        expect(result.conflicts).toEqual([])
+        expect(result.conflicts).toHaveLength(1)
+        expect(result.conflicts[0].reason).toEqual('Remote deleted a block that was edited locally')
+        expect(result.conflicts[0].localMarkdown).toEqual('Edited locally with changes')
+        expect(result.conflicts[0].remoteMarkdown).toEqual('')
         expect(result.mergedMarkdown).toEqual('# Title')
     })
 

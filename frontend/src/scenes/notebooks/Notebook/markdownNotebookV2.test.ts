@@ -14,6 +14,7 @@ import {
     buildMarkdownNotebookContent,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
+    getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
     visualizationArtifactContentToNotebookArtifactContent,
@@ -37,6 +38,13 @@ describe('markdownNotebookV2', () => {
         })
         expect(isMarkdownNotebookContent(content)).toBe(true)
         expect(getMarkdownNotebookMarkdown(content)).toEqual('# Activation')
+    })
+
+    it('extracts the title from the first level-1 heading, ignoring code blocks', () => {
+        const content = buildMarkdownNotebookContent('```sh\n# not the title\n```\n\n# Real title\n\nbody')
+
+        expect(getMarkdownNotebookTitle(content)).toEqual('Real title')
+        expect(getMarkdownNotebookTitle(buildMarkdownNotebookContent('just a paragraph'))).toBeNull()
     })
 
     it('appends markdown blocks to v2 notebook content', () => {

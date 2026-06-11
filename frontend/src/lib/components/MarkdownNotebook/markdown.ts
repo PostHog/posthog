@@ -44,6 +44,41 @@ const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
 export const DIVIDER_COMPONENT_TAG = 'Divider'
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+// Every character the serializer may backslash-escape; the inline parser turns `\X` back into
+// the literal character for exactly this set, so the two must stay in sync.
+const INLINE_ESCAPABLE_CHARS = new Set([
+    '\\',
+    '`',
+    '*',
+    '_',
+    '~',
+    '[',
+    ']',
+    '(',
+    ')',
+    '<',
+    '>',
+    '#',
+    '+',
+    '-',
+    '.',
+    '|',
+    '!',
+    '•',
+])
+type InlineEmphasisToken = {
+    token: string
+    markType: 'bold' | 'italic' | 'strike'
+    // Underscore emphasis must not trigger inside words (snake_case), per CommonMark
+    requiresWordBoundary: boolean
+}
+const INLINE_EMPHASIS_TOKENS: InlineEmphasisToken[] = [
+    { token: '**', markType: 'bold', requiresWordBoundary: false },
+    { token: '__', markType: 'bold', requiresWordBoundary: true },
+    { token: '~~', markType: 'strike', requiresWordBoundary: false },
+    { token: '*', markType: 'italic', requiresWordBoundary: false },
+    { token: '_', markType: 'italic', requiresWordBoundary: true },
+]
 let generatedNodeIdCounter = 0
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
@@ -106,15 +141,18 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
 export function serializeNode(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
-        return `${'#'.repeat(node.level ?? 1)} ${serializeInlineNodes(node.children)}`
+        const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
+        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
+            '\n'
+        )
     }
     if (node.type === 'paragraph') {
-        return serializeInlineNodes(node.children)
+        return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
     }
     if (node.type === 'blockquote') {
         return serializeInlineNodes(node.children)
             .split('\n')
-            .map((line) => `> ${line}`)
+            .map((line) => `> ${escapeMarkdownLineStart(line)}`)
             .join('\n')
     }
     if (node.type === 'list') {
@@ -151,7 +189,14 @@ export function serializeNode(node: NotebookBlockNode): string {
         return [serializeRawTableRow(headerCells), serializeRawTableRow(separatorCells), ...bodyRows].join('\n')
     }
     if (node.type === 'code') {
-        return `\`\`\`${node.language ?? ''}\n${node.text}\n\`\`\``
+        // The fence must be longer than any backtick run in the content, so the content can't close it
+        const fence = getCodeBlockFence(node.text)
+        return `${fence}${node.language ?? ''}\n${node.text}\n${fence}`
+    }
+    if (node.type === 'component' && node.errors?.length && node.raw) {
+        // Props that failed to parse exist only in `raw` — re-emitting from `props` would
+        // silently drop the malformed source on the next save
+        return node.raw
     }
     if (node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG) {
         return '---'
@@ -185,30 +230,47 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
     let index = 0
 
     const pushText = (text: string): void => {
-        const unescapedText = unescapeMarkdownText(text)
-        if (unescapedText) {
-            nodes.push({ type: 'text', text: unescapedText, marks: marks.length ? [...marks] : undefined })
+        if (text) {
+            nodes.push({ type: 'text', text, marks: marks.length ? [...marks] : undefined })
         }
     }
 
     while (index < markdown.length) {
-        if (markdown[index] === '\n') {
+        const character = markdown[index]
+
+        if (character === '\n') {
             nodes.push({ type: 'hardBreak' })
             index += 1
             continue
         }
 
-        if (markdown.startsWith('**', index)) {
-            const end = markdown.indexOf('**', index + 2)
+        if (character === '\\') {
+            const nextCharacter = markdown[index + 1]
+            if (nextCharacter !== undefined && INLINE_ESCAPABLE_CHARS.has(nextCharacter)) {
+                pushText(nextCharacter)
+                index += 2
+                continue
+            }
+            pushText('\\')
+            index += 1
+            continue
+        }
+
+        const emphasis = matchEmphasisToken(markdown, index)
+        if (emphasis) {
+            const contentStart = index + emphasis.token.length
+            const end = findEmphasisCloser(markdown, emphasis.token, contentStart, emphasis.requiresWordBoundary)
             if (end !== -1) {
-                nodes.push(...parseInlineMarkdown(markdown.slice(index + 2, end), [...marks, { type: 'bold' }]))
-                index = end + 2
+                nodes.push(
+                    ...parseInlineMarkdown(markdown.slice(contentStart, end), [...marks, { type: emphasis.markType }])
+                )
+                index = end + emphasis.token.length
                 continue
             }
         }
 
         if (markdown.startsWith('<u>', index)) {
-            const end = markdown.indexOf('</u>', index + 3)
+            const end = findTokenOutsideCodeSpans(markdown, '</u>', index + 3)
             if (end !== -1) {
                 nodes.push(...parseInlineMarkdown(markdown.slice(index + 3, end), [...marks, { type: 'underline' }]))
                 index = end + 4
@@ -216,47 +278,28 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
             }
         }
 
-        if (markdown.startsWith('~~', index)) {
-            const end = markdown.indexOf('~~', index + 2)
+        if (character === '`') {
+            const end = findUnescapedToken(markdown, '`', index + 1)
             if (end !== -1) {
-                nodes.push(...parseInlineMarkdown(markdown.slice(index + 2, end), [...marks, { type: 'strike' }]))
-                index = end + 2
-                continue
-            }
-        }
-
-        if (markdown[index] === '`') {
-            const end = markdown.indexOf('`', index + 1)
-            if (end !== -1) {
-                pushTextWithMarks(nodes, markdown.slice(index + 1, end), [...marks, { type: 'code' }])
+                pushTextWithMarks(nodes, unescapeCodeSpanText(markdown.slice(index + 1, end)), [
+                    ...marks,
+                    { type: 'code' },
+                ])
                 index = end + 1
                 continue
             }
         }
 
-        if (markdown[index] === '[') {
-            const labelEnd = markdown.indexOf('](', index)
-            if (labelEnd !== -1) {
-                const hrefEnd = markdown.indexOf(')', labelEnd + 2)
-                if (hrefEnd !== -1) {
-                    const href = sanitizeNotebookLinkHref(markdown.slice(labelEnd + 2, hrefEnd))
-                    nodes.push(
-                        ...parseInlineMarkdown(
-                            markdown.slice(index + 1, labelEnd),
-                            href ? [...marks, { type: 'link', href }] : marks
-                        )
+        if (character === '[') {
+            const link = parseInlineLink(markdown, index)
+            if (link) {
+                nodes.push(
+                    ...parseInlineMarkdown(
+                        link.label,
+                        link.href ? [...marks, { type: 'link', href: link.href }] : marks
                     )
-                    index = hrefEnd + 1
-                    continue
-                }
-            }
-        }
-
-        if (markdown[index] === '*' && !markdown.startsWith('**', index)) {
-            const end = markdown.indexOf('*', index + 1)
-            if (end !== -1) {
-                nodes.push(...parseInlineMarkdown(markdown.slice(index + 1, end), [...marks, { type: 'italic' }]))
-                index = end + 1
+                )
+                index = link.nextIndex
                 continue
             }
         }
@@ -267,6 +310,137 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
     }
 
     return normalizeInlineNodes(nodes)
+}
+
+function matchEmphasisToken(markdown: string, index: number): InlineEmphasisToken | null {
+    for (const emphasis of INLINE_EMPHASIS_TOKENS) {
+        if (!markdown.startsWith(emphasis.token, index)) {
+            continue
+        }
+        // A single `*`/`_` immediately followed by the same character is a doubled delimiter
+        // whose closer was not found — treat it as literal rather than nesting into it.
+        if (emphasis.token.length === 1 && markdown[index + 1] === emphasis.token) {
+            continue
+        }
+        const contentStart = markdown[index + emphasis.token.length]
+        if (contentStart === undefined || /\s/.test(contentStart)) {
+            continue
+        }
+        if (emphasis.requiresWordBoundary && isAsciiAlphaNumeric(markdown[index - 1])) {
+            continue
+        }
+        return emphasis
+    }
+    return null
+}
+
+function findEmphasisCloser(markdown: string, token: string, fromIndex: number, requiresWordBoundary: boolean): number {
+    let searchIndex = fromIndex
+    while (searchIndex < markdown.length) {
+        const position = findTokenOutsideCodeSpans(markdown, token, searchIndex)
+        if (position === -1) {
+            return -1
+        }
+
+        const previousCharacter = markdown[position - 1]
+        const followingCharacter = markdown[position + token.length]
+        if (
+            position > fromIndex &&
+            previousCharacter !== undefined &&
+            !/\s/.test(previousCharacter) &&
+            (!requiresWordBoundary || !isAsciiAlphaNumeric(followingCharacter))
+        ) {
+            return position
+        }
+        searchIndex = position + 1
+    }
+    return -1
+}
+
+// Code spans bind tighter than other inline constructs — a token inside `...` doesn't count.
+// Consumes complete code spans before the candidate and re-searches after them.
+function findTokenOutsideCodeSpans(markdown: string, token: string, fromIndex: number): number {
+    let searchIndex = fromIndex
+    while (searchIndex < markdown.length) {
+        const position = findUnescapedToken(markdown, token, searchIndex)
+        if (position === -1) {
+            return -1
+        }
+
+        const codeStart = findUnescapedToken(markdown, '`', searchIndex)
+        if (codeStart !== -1 && codeStart < position) {
+            const codeEnd = findUnescapedToken(markdown, '`', codeStart + 1)
+            if (codeEnd !== -1) {
+                searchIndex = codeEnd + 1
+                continue
+            }
+        }
+
+        return position
+    }
+    return -1
+}
+
+function findUnescapedToken(markdown: string, token: string, fromIndex: number): number {
+    let position = markdown.indexOf(token, fromIndex)
+    while (position !== -1) {
+        let backslashCount = 0
+        while (markdown[position - backslashCount - 1] === '\\') {
+            backslashCount += 1
+        }
+        if (backslashCount % 2 === 0) {
+            return position
+        }
+        position = markdown.indexOf(token, position + 1)
+    }
+    return -1
+}
+
+function parseInlineLink(
+    markdown: string,
+    index: number
+): { label: string; href: string | null; nextIndex: number } | null {
+    const labelEnd = findTokenOutsideCodeSpans(markdown, '](', index + 1)
+    if (labelEnd === -1) {
+        return null
+    }
+
+    // Hrefs may contain backslash-escaped characters and balanced parentheses (Wikipedia-style URLs)
+    let cursor = labelEnd + 2
+    let parenDepth = 0
+    let rawHref = ''
+    while (cursor < markdown.length) {
+        const character = markdown[cursor]
+        if (
+            character === '\\' &&
+            markdown[cursor + 1] !== undefined &&
+            INLINE_ESCAPABLE_CHARS.has(markdown[cursor + 1])
+        ) {
+            rawHref += markdown[cursor + 1]
+            cursor += 2
+            continue
+        }
+        if (character === ')') {
+            if (parenDepth === 0) {
+                return {
+                    label: markdown.slice(index + 1, labelEnd),
+                    href: sanitizeNotebookLinkHref(rawHref),
+                    nextIndex: cursor + 1,
+                }
+            }
+            parenDepth -= 1
+        }
+        if (character === '(') {
+            parenDepth += 1
+        }
+        rawHref += character
+        cursor += 1
+    }
+    return null
+}
+
+function isAsciiAlphaNumeric(character: string | undefined): boolean {
+    return !!character && /[A-Za-z0-9]/.test(character)
 }
 
 export function serializeInlineNodes(nodes: NotebookInlineNode[]): string {
@@ -444,6 +618,14 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
         nextLineIndex += 1
     }
 
+    // External markdown indents nested items by 2-4 spaces (or marker width); clamp each item
+    // to at most one level deeper than the previous so 4-space nesting doesn't double the depth
+    let previousDepth = -1
+    for (const item of items) {
+        item.depth = Math.min(item.depth, previousDepth + 1)
+        previousDepth = item.depth
+    }
+
     return {
         node: {
             id: '',
@@ -479,6 +661,11 @@ function getListItemDepth(indentation: string): number {
 }
 
 function isTableStart(lines: string[], lineIndex: number): boolean {
+    // Require a leading pipe so prose that merely contains a `|` can't become a table header
+    if (!(lines[lineIndex] ?? '').trim().startsWith('|')) {
+        return false
+    }
+
     const headerCells = splitMarkdownTableRow(lines[lineIndex] ?? '')
     const separatorCells = splitMarkdownTableRow(lines[lineIndex + 1] ?? '')
 
@@ -492,6 +679,10 @@ function parseTableBlock(lines: string[], lineIndex: number): BlockParseResult {
     let nextLineIndex = lineIndex + 2
 
     while (nextLineIndex < lines.length) {
+        // Rows must start with a pipe — a following paragraph containing a `|` is not a row
+        if (!lines[nextLineIndex].trim().startsWith('|')) {
+            break
+        }
         const cells = splitMarkdownTableRow(lines[nextLineIndex])
         if (cells.length < 1) {
             break
@@ -587,7 +778,11 @@ function serializeRawTableRow(cells: string[]): string {
 }
 
 function serializeTableCell(cell: NotebookTableCell): string {
-    return serializeInlineNodes(trimTrailingHardBreaks(cell.children)).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    // Pipes in plain text are already escaped by escapeInlineMarkdownText; this pass only
+    // covers pipes inside code spans (skipping `\X` pairs so they aren't double-escaped)
+    return serializeInlineNodes(trimTrailingHardBreaks(cell.children))
+        .replace(/\\[\s\S]|\|/g, (match) => (match === '|' ? '\\|' : match))
+        .replace(/\n/g, ' ')
 }
 
 function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefined): string {
@@ -605,11 +800,15 @@ function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefin
 
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
     const startLine = lines[lineIndex].trim()
-    const language = startLine.slice(3).trim() || undefined
+    const fenceLength = startLine.match(/^`+/)?.[0].length ?? 3
+    // Only a bare fence at least as long as the opener closes the block, so shorter
+    // fences (or fences with info strings) inside the code stay part of the content
+    const closingFenceRegex = new RegExp(`^\`{${fenceLength},}$`)
+    const language = startLine.slice(fenceLength).trim() || undefined
     const codeLines: string[] = []
     let nextLineIndex = lineIndex + 1
 
-    while (nextLineIndex < lines.length && !lines[nextLineIndex].trim().startsWith('```')) {
+    while (nextLineIndex < lines.length && !closingFenceRegex.test(lines[nextLineIndex].trim())) {
         codeLines.push(lines[nextLineIndex])
         nextLineIndex += 1
     }
@@ -655,22 +854,54 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
     const firstLine = lines[lineIndex].trim()
     const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
     let nextLineIndex = lineIndex
+    let foundTerminator = false
 
-    while (nextLineIndex < lines.length) {
+    // Components are block-level: a blank line ends the scan so an unterminated tag can
+    // never swallow the rest of the document
+    while (nextLineIndex < lines.length && (nextLineIndex === lineIndex || lines[nextLineIndex].trim())) {
         rawLines.push(lines[nextLineIndex])
         const raw = rawLines.join('\n').trim()
         if (raw.endsWith('/>') || (tagName && raw.includes(`</${tagName}>`))) {
+            foundTerminator = true
             break
         }
         nextLineIndex += 1
     }
 
     const raw = rawLines.join('\n').trim()
+    if (!foundTerminator) {
+        return {
+            node: makeComponentFallbackParagraph(raw),
+            nextLineIndex,
+            error: { message: 'Unclosed component tag', raw, line: lineIndex + 1 },
+        }
+    }
+
     const parsed = parseComponentTag(raw)
     return {
-        node: parsed.node,
+        // A malformed tag degrades to a paragraph holding the raw source — source text must
+        // never be dropped from the node tree, or the next save destroys it
+        node: parsed.node ?? makeComponentFallbackParagraph(raw),
         nextLineIndex: nextLineIndex + 1,
         error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
+    }
+}
+
+function makeComponentFallbackParagraph(raw: string): NotebookTextBlockNode {
+    const children: NotebookInlineNode[] = []
+    raw.split('\n').forEach((line, index) => {
+        if (index > 0) {
+            children.push({ type: 'hardBreak' })
+        }
+        if (line) {
+            children.push({ type: 'text', text: line })
+        }
+    })
+
+    return {
+        id: '',
+        type: 'paragraph',
+        children: normalizeInlineNodes(children),
     }
 }
 
@@ -943,30 +1174,49 @@ function serializeInlineNode(node: NotebookInlineNode): string {
         return '\n'
     }
 
-    return normalizeInlineMarks(node.marks ?? []).reduce(
-        (text, mark) => wrapInlineText(text, mark),
-        escapeMarkdownText(node.text)
-    )
+    const marks = normalizeInlineMarks(node.marks ?? [])
+    const isCodeText = marks.some((mark) => mark.type === 'code')
+    const escapedText = isCodeText ? escapeCodeSpanText(node.text) : escapeInlineMarkdownText(node.text)
+
+    return marks.reduce((text, mark) => wrapInlineText(text, mark, marks), escapedText)
 }
 
-function wrapInlineText(text: string, mark: NotebookInlineMark): string {
+function wrapInlineText(text: string, mark: NotebookInlineMark, marks: NotebookInlineMark[]): string {
+    // `***text***` is ambiguous to parse — bold+italic is emitted as `**_text_**` in one step
+    // (outer `**` has no word-boundary rules; the inner `_` is safely flanked by `*`)
+    const hasBoldAndItalic =
+        marks.some((otherMark) => otherMark.type === 'bold') && marks.some((otherMark) => otherMark.type === 'italic')
     if (mark.type === 'bold') {
-        return `**${text}**`
+        return hasBoldAndItalic
+            ? wrapInlineEmphasis(wrapInlineEmphasis(text, '_'), '**')
+            : wrapInlineEmphasis(text, '**')
     }
     if (mark.type === 'italic') {
-        return `*${text}*`
+        return hasBoldAndItalic ? text : wrapInlineEmphasis(text, '*')
     }
     if (mark.type === 'underline') {
         return `<u>${text}</u>`
     }
     if (mark.type === 'strike') {
-        return `~~${text}~~`
+        return wrapInlineEmphasis(text, '~~')
     }
     if (mark.type === 'code') {
-        return `\`${text.replace(/`/g, '\\`')}\``
+        return `\`${text}\``
     }
     const href = sanitizeNotebookLinkHref(mark.href)
-    return href ? `[${text}](${href})` : text
+    return href ? `[${text}](${escapeMarkdownLinkHref(href)})` : text
+}
+
+// Emphasis delimiters are not recognized next to whitespace, so boundary whitespace is
+// hoisted outside the delimiters (`*core* ` instead of `* core *`)
+function wrapInlineEmphasis(text: string, delimiter: string): string {
+    const leading = text.match(/^\s*/)?.[0] ?? ''
+    const trailing = text.length > leading.length ? (text.match(/\s*$/)?.[0] ?? '') : ''
+    const core = text.slice(leading.length, text.length - trailing.length)
+    if (!core) {
+        return text
+    }
+    return `${leading}${delimiter}${core}${delimiter}${trailing}`
 }
 
 function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: NotebookInlineMark[]): void {
@@ -976,7 +1226,7 @@ function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: Not
 }
 
 function findNextInlineToken(markdown: string, startIndex: number): number {
-    const indexes = ['**', '*', '<u>', '~~', '`', '[', '\n']
+    const indexes = ['\\', '**', '*', '__', '_', '<u>', '~~', '`', '[', '\n']
         .map((token) => markdown.indexOf(token, startIndex))
         .filter((index) => index !== -1)
     return indexes.length ? Math.min(...indexes) : markdown.length
@@ -1084,12 +1334,62 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
     return href ? `<a href="${escapeAttribute(href)}">${html}</a>` : html
 }
 
-function escapeMarkdownText(text: string): string {
-    return text.replace(/\\/g, '\\\\')
+// Escapes every character sequence the inline parser would interpret, so that
+// parse(serialize(doc)) preserves literal user text exactly. Mirrored by the `\` branch
+// in parseInlineMarkdown via INLINE_ESCAPABLE_CHARS.
+export function escapeInlineMarkdownText(text: string): string {
+    return text
+        .replace(/[\\`*[\]|]/g, (match) => `\\${match}`)
+        .replace(/~~+/g, (run) => '\\~'.repeat(run.length))
+        .replace(/_/g, (_match, offset: number, source: string) =>
+            // Intraword underscores (snake_case) are never emphasis, keep them readable
+            isAsciiAlphaNumeric(source[offset - 1]) && isAsciiAlphaNumeric(source[offset + 1]) ? '_' : '\\_'
+        )
+        .replace(/<(?=\/?u>)/g, '\\<')
 }
 
-function unescapeMarkdownText(text: string): string {
-    return text.replace(/\\\\/g, '\\')
+export function escapeCodeSpanText(text: string): string {
+    return text.replace(/[\\`]/g, (match) => `\\${match}`)
+}
+
+function unescapeCodeSpanText(text: string): string {
+    return text.replace(/\\([\\`])/g, '$1')
+}
+
+function escapeMarkdownLinkHref(href: string): string {
+    return href.replace(/[\\()]/g, (match) => `\\${match}`)
+}
+
+export function escapeMarkdownBlockLines(serialized: string): string {
+    return serialized.split('\n').map(escapeMarkdownLineStart).join('\n')
+}
+
+// Prevents a serialized text line from being re-parsed as a different block type
+// (heading, list, blockquote, divider, component). Inline-level characters (backtick,
+// `*`, `[`, `|`) are already escaped by escapeInlineMarkdownText.
+export function escapeMarkdownLineStart(line: string): string {
+    const leadingWhitespace = line.match(/^\s*/)?.[0] ?? ''
+    const content = line.slice(leadingWhitespace.length)
+
+    const orderedListMatch = content.match(/^(\d+)([.)])(\s|$)/)
+    if (orderedListMatch) {
+        return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
+    }
+
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z])/.test(content)) {
+        return `${leadingWhitespace}\\${content}`
+    }
+
+    return line
+}
+
+function getCodeBlockFence(text: string): string {
+    let longestRun = 0
+    for (const line of text.split('\n')) {
+        const run = line.trim().match(/^`+/)?.[0].length ?? 0
+        longestRun = Math.max(longestRun, run)
+    }
+    return '`'.repeat(Math.max(3, longestRun + 1))
 }
 
 function escapeMarkdownImageAlt(text: string): string {

@@ -1,10 +1,14 @@
 import {
+    escapeCodeSpanText,
+    escapeInlineMarkdownText,
+    escapeMarkdownBlockLines,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
     serializeNode,
 } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookBlockNode, NotebookComponentProps, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { getInlineText, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
@@ -114,8 +118,9 @@ export function notebookArtifactContentToMarkdown(content: NotebookArtifactConte
     const nodes = content.blocks.flatMap(notebookArtifactBlockToMarkdownNodes)
     const markdown = serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
     const title = normalizeArtifactTitle(content.title)
+    const hasTitleHeading = nodes.some((node) => node.type === 'heading' && (node.level ?? 1) === 1)
 
-    if (!title || /^\s*#\s+/m.test(markdown)) {
+    if (!title || hasTitleHeading) {
         return markdown
     }
 
@@ -156,8 +161,21 @@ export function getMarkdownNotebookTextContent(content: JSONContent | null | und
 }
 
 export function getMarkdownNotebookTitle(content: JSONContent | null | undefined): string | null {
-    const firstHeading = getMarkdownNotebookMarkdown(content).match(/^#\s+(.+)$/m)
-    return firstHeading?.[1]?.trim() || null
+    const markdown = getMarkdownNotebookMarkdown(content)
+    if (!markdown) {
+        return null
+    }
+
+    // Parse instead of regexing the raw markdown, so `# comment` lines inside code blocks
+    // can't be mistaken for the title
+    const firstHeading = parseMarkdownNotebook(markdown).nodes.find(
+        (node) => node.type === 'heading' && (node.level ?? 1) === 1
+    )
+    if (firstHeading?.type !== 'heading') {
+        return null
+    }
+
+    return getInlineText(firstHeading.children).trim() || null
 }
 
 function getMarkdownNotebookNode(content: JSONContent | null | undefined): MarkdownNotebookV2Node | null {
@@ -262,7 +280,7 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
     }
 
     if (node.type === 'paragraph') {
-        return serializeInlineContent(node.content)
+        return escapeMarkdownBlockLines(serializeInlineContent(node.content))
     }
 
     if (node.type === 'blockquote') {
@@ -284,7 +302,12 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
 
     if (node.type === 'codeBlock') {
         const language = typeof node.attrs?.language === 'string' ? node.attrs.language : ''
-        return `\`\`\`${language}\n${serializeInlineContent(node.content)}\n\`\`\``
+        // Code text must stay verbatim (no inline escaping), and serializeNode picks a fence
+        // longer than any backtick run in the content
+        const text = (node.content ?? [])
+            .map((child) => (child.type === 'hardBreak' ? '\n' : (child.text ?? '')))
+            .join('')
+        return serializeNode({ id: '', type: 'code', language: language || undefined, text })
     }
 
     if (node.type === 'table') {
@@ -301,10 +324,22 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
         })
     }
 
-    return (node.content ?? [])
+    const childMarkdown = (node.content ?? [])
         .map((child) => serializeRichContentNode(child, listDepth))
         .filter(Boolean)
         .join('\n\n')
+    if (childMarkdown || !node.type) {
+        return childMarkdown
+    }
+
+    // An unmapped leaf node must not vanish on upgrade — preserve it as a component the
+    // editor renders with its unknown-tag fallback
+    return serializeNode({
+        id: '',
+        type: 'component',
+        tagName: 'UnknownNode',
+        props: { nodeType: node.type, ...getSerializableAttrs(node.attrs) },
+    })
 }
 
 function serializeInlineContent(content: JSONContent[] | undefined): string {
@@ -313,13 +348,16 @@ function serializeInlineContent(content: JSONContent[] | undefined): string {
 
 function serializeInlineNode(node: JSONContent): string {
     if (node.type === 'text') {
-        return applyMarks(node.text ?? '', node.marks)
+        const isCodeText = (node.marks ?? []).some((mark) => mark.type === 'code')
+        // Literal `*`/`` ` ``/`[` in legacy text must not become formatting after the upgrade
+        const escapedText = isCodeText ? escapeCodeSpanText(node.text ?? '') : escapeInlineMarkdownText(node.text ?? '')
+        return applyMarks(escapedText, node.marks)
     }
     if (node.type === 'hardBreak') {
         return '\n'
     }
     if (node.type === NotebookNodeType.Mention) {
-        return typeof node.attrs?.label === 'string' ? node.attrs.label : ''
+        return typeof node.attrs?.label === 'string' ? escapeInlineMarkdownText(node.attrs.label) : ''
     }
     return serializeInlineContent(node.content)
 }
@@ -342,7 +380,8 @@ function applyMarks(text: string, marks: JSONContent['marks']): string {
             return `\`${markedText}\``
         }
         if (mark.type === 'link' && typeof mark.attrs?.href === 'string') {
-            return `[${markedText}](${mark.attrs.href})`
+            const href = sanitizeNotebookLinkHref(mark.attrs.href)
+            return href ? `[${markedText}](${href})` : markedText
         }
         return markedText
     }, text)
@@ -422,7 +461,9 @@ function serializeTable(node: JSONContent): string {
                     .map((child) => serializeRichContentNode(child))
                     .join(' ')
                     .replace(/\s*\n\s*/g, ' ')
-                    .replace(/\|/g, '\\|')
+                    // Plain-text pipes are already escaped inline; only escape the rest (code spans),
+                    // skipping `\X` pairs so they aren't double-escaped
+                    .replace(/\\[\s\S]|\|/g, (match) => (match === '|' ? '\\|' : match))
             )
     )
     const columnCount = Math.max(...serializedRows.map((row) => row.length))

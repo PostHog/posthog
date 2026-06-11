@@ -140,6 +140,10 @@ export function NotebookComponentShell({
             }
             return {
                 ...currentNode,
+                // An intentional edit supersedes any malformed source captured at parse time —
+                // stale `raw` would otherwise win over the new props on serialize
+                raw: undefined,
+                errors: undefined,
                 props: {
                     ...Object.entries(currentNode.props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
                         if (!propKeysToRemove.has(key)) {
