@@ -275,13 +275,21 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const dismiss = useDismiss(context, {
         enabled: visible,
-        // useDismiss only treats the floating + reference elements as "inside". Two things
-        // need explicit exemption: additionalRefs (consumer-registered companion elements)
-        // and deeper-nested popovers (portaled, so DOM-siblings rather than descendants).
+        // useDismiss only treats the floating + reference elements as "inside". Three things
+        // need explicit exemption: elements opting out via CLICK_OUTSIDE_BLOCK_CLASS,
+        // additionalRefs (consumer-registered companion elements), and deeper-nested popovers
+        // (portaled, so DOM-siblings rather than descendants).
         outsidePress: (event) => {
             const target = event.target as Node | null
             if (!target) {
                 return true
+            }
+            // Honor the block class on the floating-ui dismiss path too, not just onClickInside.
+            // A nested menu living in a parent popover's *reference* subtree (e.g. the
+            // TaxonomicFilter category pill in the search input's suffix) inherits the wrong
+            // overlay level, so the level check below can't recognize it as nested.
+            if (target instanceof HTMLElement && target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
+                return false
             }
             if (additionalRefsRef.current.some((r) => r.current?.contains(target))) {
                 return false
