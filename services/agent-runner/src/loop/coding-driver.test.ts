@@ -44,12 +44,14 @@ class FakeCodingSandbox implements CodingSandbox {
         private readonly scriptTurn: (n: number) => HarnessFrame[]
     ) {}
     readonly providerSandboxId = 'fake-container'
+    readonly sent: string[] = []
     private turn = 0
     async command(cmd: {
         method: string
         params?: unknown
     }): Promise<{ jsonrpc: '2.0'; id: string; result?: unknown }> {
         if (cmd.method === 'user_message') {
+            this.sent.push((cmd.params as { content: string }).content)
             this.turn += 1
             for (const f of this.scriptTurn(this.turn)) {
                 this.onFrame?.(f)
@@ -261,6 +263,33 @@ describe('driveCodingSession', () => {
         expect(kinds(h.events).filter((k) => k === 'turn_started')).toHaveLength(2)
         expect(session.conversation.filter((m) => m.role === 'assistant')).toHaveLength(2)
         expect(h.persists).toBe(2)
+    })
+
+    it('on a follow-up re-claim, runs the pending /send — not the original prompt', async () => {
+        const pool = new FakePool((n) => [
+            su({ sessionUpdate: 'agent_message_chunk', content: { text: `reply ${n}` } }),
+            lifecycle('_posthog/turn_complete'),
+        ])
+        // A prior invocation already completed: the conversation ends with an
+        // assistant turn, and the new /send sits in pending_inputs. Re-running
+        // the trailing *user* message here would replay the original prompt.
+        const h = makeDeps(pool, {
+            pending: [[{ role: 'user', content: 'do step two', timestamp: 3 }] as ConversationMessage[]],
+        })
+        const session = makeSession('original prompt')
+        session.conversation.push({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'done step one' }],
+            timestamp: 2,
+        } as ConversationMessage)
+
+        const outcome = await driveCodingSession(rev(), session, h.deps)
+
+        expect(outcome).toEqual({ state: 'completed', turns: 1 })
+        // Exactly the new send reached the harness — the original was not replayed.
+        expect(pool.sandbox?.sent).toEqual(['do step two'])
+        const trace = h.analytics.find((e) => e.kind === 'trace')
+        expect(trace).toMatchObject({ input_state: 'do step two' })
     })
 
     it('fails the turn when the harness streams an error', async () => {

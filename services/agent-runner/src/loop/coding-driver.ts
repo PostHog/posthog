@@ -62,17 +62,6 @@ function userMessageText(msg: ConversationMessage): string | null {
         .trim()
 }
 
-/** The trailing user message — the turn this invocation should start on. */
-function lastUserText(conversation: ConversationMessage[]): string | null {
-    for (let i = conversation.length - 1; i >= 0; i--) {
-        const t = userMessageText(conversation[i])
-        if (t) {
-            return t
-        }
-    }
-    return null
-}
-
 export async function driveCodingSession(
     rev: AgentRevision,
     session: AgentSession,
@@ -305,11 +294,30 @@ export async function driveCodingSession(
         // `connected` frame before relaying the turn (bounded fallback).
         await Promise.race([connected, new Promise((r) => setTimeout(r, 5_000))])
 
+        // Seed the turn queue. The trailing conversation message is only an
+        // unanswered prompt on the very first invocation — on a re-claim after a
+        // /send it's the previous turn's assistant/toolResult, and the new input
+        // sits in `pending_inputs`. So: take the trailing message only when it's
+        // a user turn, then drain pending_inputs for any /send (a follow-up
+        // re-claim, or one that raced in before the first turn). Re-running the
+        // trailing conversation message unconditionally is what made follow-ups
+        // replay the original prompt against a fresh harness.
         const queue: string[] = []
-        const first = lastUserText(session.conversation)
-        if (first) {
-            queue.push(first)
-            traceInput = first
+        const trailing = session.conversation[session.conversation.length - 1]
+        if (trailing?.role === 'user') {
+            const text = userMessageText(trailing)
+            if (text) {
+                queue.push(text)
+                traceInput = text
+            }
+        }
+        for (const msg of await inputs.drainPendingInputs(session.id)) {
+            const text = userMessageText(msg)
+            if (text) {
+                session.conversation.push(msg)
+                queue.push(text)
+                traceInput = traceInput ?? text
+            }
         }
 
         while (queue.length > 0) {
