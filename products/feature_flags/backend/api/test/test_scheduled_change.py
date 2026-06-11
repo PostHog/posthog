@@ -6,9 +6,14 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import serializers, status
 
+from posthog.api.test.test_team import create_team
+from posthog.models.organization import OrganizationMembership
+
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
+
+from ee.api.rbac.test.test_access_control import BaseAccessControlTest
 
 
 class TestScheduledChange(APIBaseTest):
@@ -598,3 +603,167 @@ class TestScheduledChange(APIBaseTest):
         assert scheduled_change.scheduled_at == original_scheduled_at, (
             f"scheduled_at changed to {scheduled_change.scheduled_at} (status={response.status_code})"
         )
+
+
+class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="pak-flag", name="PAK Flag"
+        )
+        self.scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=str(self.feature_flag.id),
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+    def _authenticate_with_scopes(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def test_list_succeeds_with_read_scope(self):
+        self._authenticate_with_scopes(["feature_flag:read"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        ids = [row["id"] for row in response.json()["results"]]
+        assert self.scheduled_change.id in ids
+
+    def test_retrieve_succeeds_with_read_scope(self):
+        self._authenticate_with_scopes(["feature_flag:read"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == self.scheduled_change.id
+
+    @parameterized.expand(["list", "retrieve"])
+    def test_read_forbidden_with_unrelated_scope(self, action: str) -> None:
+        self._authenticate_with_scopes(["dashboard:read"])
+
+        if action == "list":
+            url = f"/api/projects/{self.team.id}/scheduled_changes/"
+        else:
+            url = f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_create_succeeds_with_write_scope(self):
+        self._authenticate_with_scopes(["feature_flag:write"])
+
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=True,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={
+                    "record_id": str(self.feature_flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": "2023-12-09T12:00:00Z",
+                },
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_delete_succeeds_with_write_scope(self):
+        self._authenticate_with_scopes(["feature_flag:write"])
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
+
+    @parameterized.expand(["create", "delete"])
+    def test_write_forbidden_with_read_only_scope(self, action: str) -> None:
+        self._authenticate_with_scopes(["feature_flag:read"])
+
+        if action == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={
+                    "record_id": str(self.feature_flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": "2023-12-09T12:00:00Z",
+                },
+            )
+        else:
+            response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        # The write must not have taken effect.
+        assert ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
+
+    def test_read_scope_is_team_scoped(self):
+        # A schedule under a different team in the same org must not leak through the
+        # team-scoped endpoint, even for a key whose user can access both teams.
+        other_team = create_team(organization=self.organization)
+        other_change = ScheduledChange.objects.create(
+            team=other_team,
+            record_id="999",
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+        self._authenticate_with_scopes(["feature_flag:read"])
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        ids = [row["id"] for row in list_response.json()["results"]]
+        assert other_change.id not in ids
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/{other_change.id}/")
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
+
+
+class TestScheduledChangeAccessControl(BaseAccessControlTest):
+    """Scheduled changes inherit the feature_flag resource, so feature-flag access controls gate reads."""
+
+    def setUp(self):
+        super().setUp()
+        self.feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="ac-flag", name="AC Flag"
+        )
+        self.scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=str(self.feature_flag.id),
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+    def test_member_with_default_access_can_read(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_member_blocked_when_feature_flag_resource_denied(self):
+        # An admin removes feature_flag access org-wide; scheduled changes follow the same resource.
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+        assert list_response.status_code == status.HTTP_403_FORBIDDEN, list_response.json()
+
+        retrieve_response = self.client.get(
+            f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/"
+        )
+        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN, retrieve_response.json()
