@@ -32,15 +32,13 @@ CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
-# Cap for our own exponential backoff (a guess) on 5xx/transient errors.
 MAX_RETRY_WAIT_SECONDS = 30.0
-# Cap for an explicit `Retry-After` from Notion. This is a server instruction, not a guess, so we
-# honor it up to a much higher ceiling: Notion can return windows of several minutes (observed
-# values north of 300s), and capping those at MAX_RETRY_WAIT_SECONDS guaranteed every retry re-hit
-# the 429 before the window cleared, so the error always escaped and failed the sync. The source
-# iterator runs in a thread pool while an independent asyncio heartbeat task keeps the activity
-# alive, so a multi-minute blocking sleep here does not trip the heartbeat timeout.
-MAX_RETRY_AFTER_WAIT_SECONDS = 600.0
+# Notion can ask us to back off for several minutes (observed Retry-After of ~420-460s) when a
+# token is sustained-rate-limited. Honor that header up to this higher ceiling instead of the 30s
+# exponential-backoff cap — otherwise our 5 capped retries (~2 min total) exhaust before the
+# rate-limit window clears, the error escapes, and the non-resumable blocks/comments stream is
+# restarted from scratch only to hit the same wall.
+MAX_RATE_LIMIT_RETRY_AFTER_SECONDS = 600.0
 
 
 class NotionRetryableError(Exception):
@@ -84,7 +82,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_AFTER_WAIT_SECONDS)
+        return min(exc.retry_after, MAX_RATE_LIMIT_RETRY_AFTER_SECONDS)
     return _wait_exponential(retry_state)
 
 
