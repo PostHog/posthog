@@ -70,7 +70,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
         related_query_name="property",
     )
     name = models.CharField(max_length=400)
-    property_type = models.CharField(max_length=50, choices=SchemaPropertyType.choices)
+    property_type = models.CharField(max_length=50, choices=SchemaPropertyType)
     is_required = models.BooleanField(default=False)
     is_optional_in_types = models.BooleanField(default=False)
     description = models.TextField(blank=True)

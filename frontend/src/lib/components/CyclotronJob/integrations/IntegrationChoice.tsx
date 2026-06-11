@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconExternal, IconTrash, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -10,6 +10,7 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
+import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
 // Side-effect import: register all integration setups
@@ -32,12 +33,19 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
+    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
+        useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+    const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
+
+    // The stored value points to an integration that's no longer available (deleted, or
+    // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
+    // would silently mask the missing reference and let stale config keep flowing through
+    // saves. The UI surfaces a warning below instead so the user picks explicitly.
+    const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
     useEffect(() => {
         if (!integrationsLoading && !value && integrationsOfKind?.length) {
@@ -76,17 +84,31 @@ export function IntegrationChoice({
         closeNewIntegrationModal()
     }
 
+    // Stripe sandboxes have a separate client_id from live installs. The Stripe app
+    // forwards is_sandbox=true on the URL it sends users to, so we forward it through
+    // to the authorize endpoint when it's present.
+    const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
+
     const setupDef = getIntegrationSetup(kind)
+    // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
+    // 400s with "Kind not configured". Send users to the settings page instead.
+    const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
         ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
-        : {
-              to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
-              disableClientSideRouting: true,
-              onClick: beforeRedirect,
-              label: integrationsOfKind?.length
-                  ? `Connect to a different integration for ${kindName}`
-                  : `Connect to ${kindName}`,
-          }
+        : oauthUnavailable
+          ? {
+                to: urls.settings('project-integrations'),
+                sideIcon: <IconExternal />,
+                label: `${kindName} is not configured on this instance`,
+            }
+          : {
+                to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
+                disableClientSideRouting: true,
+                onClick: beforeRedirect,
+                label: integrationsOfKind?.length
+                    ? `Connect to a different integration for ${kindName}`
+                    : `Connect to ${kindName}`,
+            }
 
     const button = (
         <LemonMenu
@@ -103,7 +125,7 @@ export function IntegrationChoice({
                                       />
                                   ),
                                   onClick: () => onChange?.(integ.id),
-                                  active: integ.id === value,
+                                  active: matchesIntegrationIdValue(integ.id, value),
                                   label: integ.display_name,
                               })) || []),
                           ],
@@ -120,8 +142,18 @@ export function IntegrationChoice({
                         value
                             ? {
                                   onClick: () => onChange?.(null),
-                                  label: 'Clear',
+                                  label: 'Clear selection',
                                   sideIcon: <IconX />,
+                              }
+                            : null,
+                        integrationKind
+                            ? {
+                                  onClick: () => {
+                                      deleteIntegration(integrationKind.id)
+                                  },
+                                  label: 'Disconnect integration',
+                                  status: 'danger' as const,
+                                  sideIcon: <IconTrash />,
                               }
                             : null,
                     ],
@@ -140,6 +172,14 @@ export function IntegrationChoice({
         <>
             {integrationKind ? (
                 <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : valueIsMissing ? (
+                <div className="flex flex-col gap-2">
+                    <LemonBanner type="warning">
+                        The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
+                        different connection or clear the selection — this connection will fail at runtime otherwise.
+                    </LemonBanner>
+                    {button}
+                </div>
             ) : (
                 button
             )}

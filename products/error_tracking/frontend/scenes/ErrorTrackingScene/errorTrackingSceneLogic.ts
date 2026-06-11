@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -18,15 +19,21 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
-import { ERROR_TRACKING_LISTING_RESOLUTION, syncSearchParams, updateSearchParams } from '../../utils'
+import {
+    ERROR_TRACKING_LISTING_RESOLUTION,
+    ERROR_TRACKING_LOGIC_KEY,
+    syncSearchParams,
+    updateSearchParams,
+} from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
 export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'recommendations'
+export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'recommendations' | 'configuration'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -41,6 +48,14 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV3', 'showQueryV3Switch', 'forceQueryV3'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectedSettingId'],
+            pendingFingerprintIssueStateUpdateLogic,
+            ['currentPendingUpdates'],
         ],
         actions: [
             issueActionsLogic,
@@ -49,6 +64,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             ['setSelectedIssueIds'],
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectSetting'],
         ],
     })),
 
@@ -75,6 +96,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.useQueryV3,
                 s.showQueryV3Switch,
                 s.forceQueryV3,
+                s.currentPendingUpdates,
             ],
             (
                 orderBy,
@@ -87,8 +109,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 orderDirection,
                 useQueryV3,
                 showQueryV3Switch,
-                forceQueryV3
+                forceQueryV3,
+                currentPendingUpdates
             ): DataTableNode => {
+                const v3Active = forceQueryV3 || (showQueryV3Switch && useQueryV3)
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -100,7 +124,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    useQueryV3: forceQueryV3 || (showQueryV3Switch && useQueryV3),
+                    useQueryV3: v3Active,
+                    pendingFingerprintIssueStateUpdates: v3Active ? currentPendingUpdates : undefined,
                 })
             },
         ],
@@ -140,9 +165,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking': (_, params) => {
+            '**/error_tracking': (_, params, hashParams) => {
                 if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
                     actions.setActiveTab(params.activeTab)
+                }
+                if (hashParams.selectedSetting && hashParams.selectedSetting !== values.selectedSettingId) {
+                    actions.selectSetting(hashParams.selectedSetting)
                 }
                 triggerFilterActions(params, values, actions)
             },

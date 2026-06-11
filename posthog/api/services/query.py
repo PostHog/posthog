@@ -30,11 +30,11 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
+from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -177,9 +177,8 @@ def process_query_model(
             joins=join_models,
         )
 
-    try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-    except ValueError:  # This query doesn't run via query runner
+    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context, user=user)
+    if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
                 team,

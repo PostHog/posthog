@@ -7,6 +7,7 @@ import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -137,6 +138,63 @@ describe('personsLogic', () => {
                 .toDispatchActions(['loadPersonSuccess'])
                 .toMatchValues({
                     person: 'person from api',
+                })
+        })
+    })
+
+    describe('loadPersonUUID error handling', () => {
+        it('surfaces a genuine load failure as personError', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: 'boom',
+                })
+        })
+
+        it('swallows an aborted query without surfacing an error', async () => {
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: null,
+                })
+        })
+
+        it('keeps the already-loaded person when an in-flight query is aborted', async () => {
+            const existingPerson: PersonType = {
+                id: 'person-1',
+                uuid: 'uuid-1',
+                distinct_ids: ['some-uuid'],
+                properties: {},
+                is_identified: true,
+                created_at: '2024-01-01',
+            }
+            logic.actions.setPerson(existingPerson)
+
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: existingPerson,
+                    personError: null,
                 })
         })
     })
@@ -454,6 +512,66 @@ describe('personsLogic', () => {
             }).toMatchValues({
                 currentTab: PersonsTabType.EVENTS,
             })
+        })
+    })
+
+    describe('resetEventsQuery', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['did-1'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('did-1')
+            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+        })
+
+        it('eventsQueryIsDirty is false right after the person loads', async () => {
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: false })
+        })
+
+        it('eventsQueryIsDirty becomes true after modifying filters', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'] } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+        })
+
+        it('resetEventsQuery restores the initial query', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'], after: '-7d' } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resetEventsQuery()
+            })
+                .toDispatchActions(['resetEventsQuery', 'setEventsQuery'])
+                .toMatchValues({ eventsQueryIsDirty: false })
+
+            const resetSource = logic.values.eventsQuery?.source as any
+            expect(resetSource).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                personId: 'person-1',
+                after: '-24h',
+            })
+            expect(resetSource.events).toBeUndefined()
         })
     })
 })

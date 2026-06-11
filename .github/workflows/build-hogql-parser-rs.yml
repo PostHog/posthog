@@ -1,0 +1,276 @@
+name: Release hogql-parser-rs
+
+on:
+    pull_request:
+        paths:
+            - rust/hogql/parser/**
+            - .github/workflows/build-hogql-parser-rs.yml
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check-version:
+        name: Check version legitimacy
+        runs-on: ubuntu-22.04
+        timeout-minutes: 5
+        outputs:
+            parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
+            local-version: ${{ steps.version.outputs.local-version }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+
+            - name: Check if rust/hogql/parser/ or the workflow has changed
+              id: changed-files
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              with:
+                  files_yaml: |
+                      parser:
+                      - rust/hogql/parser/**
+                      workflow:
+                      - .github/workflows/build-hogql-parser-rs.yml
+
+            - name: Check if version was bumped
+              shell: bash
+              id: version
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  parser_release_needed='false'
+                  # Local version from the pyproject.toml — single source of truth, matches Cargo.toml.
+                  local=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+                  echo "local-version=$local" >> $GITHUB_OUTPUT
+                  if [[ "$PARSER_CHANGED" == 'true' ]]; then
+                      # 200 = version already on PyPI, 404 = needs release.
+                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")
+                      if [[ "$http_code" == '404' ]]; then
+                          parser_release_needed='true'
+                      elif [[ "$http_code" == '200' ]]; then
+                          message_body="It looks like the code of \`hogql-parser-rs\` changed in this PR, but its version stayed the same at $local. 👀"
+                          message_body+=$'\n'"Bump the version in \`rust/hogql/parser/Cargo.toml\` AND \`rust/hogql/parser/pyproject.toml\` (the two must match) before merging."
+                          if [[ "$IS_FORK" == 'true' ]]; then
+                              message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
+                          fi
+                          existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser-rs.*version stayed the same.*👀")) | .id' | tail -1)
+                          if [[ -n "$existing" ]]; then
+                              gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                          else
+                              gh pr comment "$PR_NUMBER" --body "$message_body"
+                          fi
+                      else
+                          echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser-rs $local; assuming not yet published."
+                          parser_release_needed='true'
+                      fi
+                  fi
+                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
+                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
+                      parser_release_needed='true'
+                  fi
+                  echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
+
+            - name: Sanity check Cargo.toml and pyproject.toml versions match
+              shell: bash
+              run: |
+                  pyproject_v=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+                  cargo_v=$(grep -m1 '^version = ' rust/hogql/parser/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+                  if [[ "$pyproject_v" != "$cargo_v" ]]; then
+                    echo "::error::pyproject.toml version ($pyproject_v) does not match Cargo.toml version ($cargo_v) — they must match."
+                    exit 1
+                  fi
+
+    build-wheels:
+        name: Build wheels on ${{ matrix.os }} (${{ matrix.target }})
+        needs: check-version
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
+        if: needs.check-version.outputs.parser-release-needed == 'true' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-22.04
+                      target: x86_64
+                      manylinux: 2_28
+                    - os: ubuntu-22.04-arm
+                      target: aarch64
+                      manylinux: 2_28
+                    # musllinux: alpine docker users (e.g. distroless setups).
+                    - os: ubuntu-22.04
+                      target: x86_64
+                      manylinux: musllinux_1_2
+                    - os: ubuntu-22.04-arm
+                      target: aarch64
+                      manylinux: musllinux_1_2
+                    - os: macos-14
+                      target: aarch64
+                    - os: macos-15-intel
+                      target: x86_64
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12.10' # 3.12.11/.12 binaries lag on macOS
+
+            - name: Build wheel via maturin
+              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              with:
+                  command: build
+                  target: ${{ matrix.target }}
+                  manylinux: ${{ matrix.manylinux || 'auto' }}
+                  args: --release --out dist --manifest-path rust/hogql/parser/Cargo.toml
+              env:
+                  # Override `rust/.cargo/config.toml`'s `-fuse-ld=lld` (a flox-dev
+                  # optimization that assumes lld is on PATH — GitHub Actions runners
+                  # don't ship it). Empty RUSTFLAGS overrides the file-level config
+                  # per Cargo's precedence rules; the workspace's `tokio_unstable`
+                  # cfg isn't reachable from this crate's dep graph.
+                  RUSTFLAGS: ''
+
+            - name: Build sdist (linux x86_64 manylinux only)
+              if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64' && matrix.manylinux == '2_28'
+              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              with:
+                  command: sdist
+                  args: --out dist --manifest-path rust/hogql/parser/Cargo.toml
+              env:
+                  RUSTFLAGS: ''
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  # `manylinux` is included to disambiguate the two linux runs per
+                  # arch (glibc 2_28 vs musllinux_1_2); macOS rows leave it unset.
+                  name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
+                  path: dist/*
+                  if-no-files-found: error
+
+    publish:
+        name: Publish on PyPI
+        needs: [check-version, build-wheels]
+        environment: pypi-hogql-parser-rs
+        permissions:
+            id-token: write # PyPI trusted publishing + provenance OIDC handshake
+            attestations: write # actions/attest-build-provenance writes here
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        steps:
+            - name: Download all wheel artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: wheels-*
+                  merge-multiple: true
+                  path: dist
+
+            - name: Generate artifact attestations
+              uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+              with:
+                  subject-path: 'dist/*'
+
+            - name: Publish package to PyPI
+              uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+              with:
+                  # Attaches the attestations generated above to the PyPI release.
+                  attestations: true
+                  skip-existing: true
+
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.11.14'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Update hogql-parser-rs in requirements
+              shell: bash
+              env:
+                  RETRIES: 20
+                  VERSION: ${{ needs.check-version.outputs.local-version }}
+              run: |
+                  # `--refresh-package` bypasses the restored uv index cache, which
+                  # otherwise won't have the version we just published. Retry anyway
+                  # in case PyPI propagation lags the publish step.
+                  for i in $(seq 1 "$RETRIES"); do
+                      if uv add --refresh-package hogql-parser-rs "hogql-parser-rs==$VERSION"; then
+                          break
+                      fi
+                      if [[ $i -eq $RETRIES ]]; then
+                        echo "Failed to update hogql-parser-rs in requirements"
+                        exit 1
+                      fi
+                      sleep 0.5
+                  done
+
+            - name: Check for pin changes
+              id: check-pin
+              shell: bash
+              run: |
+                  if git diff --quiet pyproject.toml uv.lock; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Commit pin
+              if: steps.check-pin.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'Use new hogql-parser-rs version'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'pyproject.toml uv.lock'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Verify pin is consistent with the published version
+              shell: bash
+              env:
+                  CHANGED: ${{ steps.check-pin.outputs.changed }}
+                  VERSION: ${{ needs.check-version.outputs.local-version }}
+              run: |
+                  # The commit step is a no-op when pyproject.toml + uv.lock were already
+                  # pre-bumped on the branch to the version we just published — fine.
+                  # Verify the pin is consistent with the published version (i.e. the
+                  # branch is in a deployable state) before declaring success.
+                  if [[ "$CHANGED" != "true" ]]; then
+                    pinned=$(grep -m1 'hogql-parser-rs==' pyproject.toml | sed -E 's/.*hogql-parser-rs==([^"]*).*/\1/')
+                    if [[ "$pinned" != "$VERSION" ]]; then
+                      echo "::error::hogql-parser-rs published to PyPI as $VERSION but pyproject.toml pin says $pinned."
+                      echo "Check the 'Update hogql-parser-rs in requirements' step above for why uv add did not produce a diff."
+                      exit 1
+                    fi
+                    echo "pyproject.toml already pinned to $VERSION; commit-pin no-op is expected."
+                  fi

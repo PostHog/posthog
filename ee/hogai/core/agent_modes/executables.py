@@ -255,6 +255,21 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "default_headers": headers,
         }
 
+    def _get_agent_mode_posthog_properties(self, state: AssistantState) -> dict[str, Any]:
+        """Telemetry props so $ai_generation events can be scoped to a specific agent mode."""
+        supermode = state.supermode
+        supermode_value: str | None
+        if isinstance(supermode, AgentMode):
+            supermode_value = supermode.value
+        elif isinstance(supermode, str):
+            supermode_value = supermode
+        else:
+            supermode_value = None
+        return {
+            "agent_mode": state.agent_mode_or_default.value,
+            "supermode": supermode_value,
+        }
+
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
@@ -283,6 +298,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             conversation_start_dt=state.start_dt,
             billable=True,
             bypass_proxy=is_routing_through_llm_gateway,
+            posthog_properties=self._get_agent_mode_posthog_properties(state),
             **gateway_kwargs,
         )
 
@@ -453,13 +469,25 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         )
 
         try:
-            result = await tool.ainvoke(
-                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
-            )
-            if not isinstance(result, LangchainToolMessage):
-                raise ValueError(
-                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+            # tool_call.id is typed as str|None in some LangChain shapes; OTel rejects None
+            # attribute values with a warning, so include the id only when present.
+            tool_span_attributes: dict[str, str | int] = {
+                "posthog_ai.tool_name": tool_call.name,
+                "posthog_ai.team_id": self._team.id,
+            }
+            if tool_call.id is not None:
+                tool_span_attributes["posthog_ai.tool_call_id"] = tool_call.id
+            with _tracer.start_as_current_span("posthog_ai.tool.invoke", attributes=tool_span_attributes):
+                result = await tool.ainvoke(
+                    ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
+                    config=config,
                 )
+                # Keep the type-mismatch raise inside the span so OTel records the exception
+                # on the tool.invoke span rather than on its (unrelated) parent.
+                if not isinstance(result, LangchainToolMessage):
+                    raise ValueError(
+                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                    )
 
             # Track successful tool execution
             user_distinct_id = self._get_user_distinct_id(config)

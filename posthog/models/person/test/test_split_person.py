@@ -7,6 +7,7 @@ from posthog.models import Person
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.util import person_created, person_distinct_id_created
+from posthog.personhog_client.fake_client import fake_personhog_client
 
 
 @patch("posthog.models.person.util.create_person")
@@ -227,6 +228,94 @@ class TestSplitPerson(BaseTest):
         assert len(person_calls) == 1
         assert person_calls[0].kwargs["version"] == 5 + 101
 
+    def test_partial_split_moves_only_specified_distinct_ids(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["keep1", "move1", "keep2", "move2", "keep3"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "mega@example.com", "name": "Mega"},
+        )
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=["move1", "move2"])
+
+        # Original person keeps its properties intact — this is the key partial-split guarantee.
+        person.refresh_from_db()
+        assert person.properties == {"email": "mega@example.com", "name": "Mega"}
+
+        # Kept distinct_ids remain on the original person.
+        for did in ["keep1", "keep2", "keep3"]:
+            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
+            assert pdi.person_id == person.id
+
+        # Moved distinct_ids each land on their own new person.
+        pdi_move1 = PersonDistinctId.objects.get(team=self.team, distinct_id="move1")
+        pdi_move2 = PersonDistinctId.objects.get(team=self.team, distinct_id="move2")
+        assert pdi_move1.person_id != person.id
+        assert pdi_move2.person_id != person.id
+        assert pdi_move1.person_id != pdi_move2.person_id
+
+        assert mock_create_pdi.call_count == 2
+        assert mock_create_person.call_count == 2
+
+    def test_partial_split_rejects_unknown_distinct_id(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person)
+
+        with self.assertRaises(ValueError):
+            person.split_person(main_distinct_id=None, distinct_ids_to_split=["id1", "not_on_this_person"])
+
+        # Nothing should have moved.
+        for did in ["id1", "id2"]:
+            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
+            assert pdi.person_id == person.id
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    def test_partial_split_ignores_main_distinct_id_and_max_splits(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["a", "b", "c", "d"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "kept@example.com"},
+        )
+
+        # main_distinct_id and max_splits should both be ignored when the explicit list is given.
+        person.split_person(main_distinct_id="a", max_splits=1, distinct_ids_to_split=["b", "c"])
+
+        person.refresh_from_db()
+        assert person.properties == {"email": "kept@example.com"}
+
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="a").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="d").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="b").person_id != person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="c").person_id != person.id
+
+    def test_partial_split_empty_list_is_noop(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["id1", "id2"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "noop@example.com"},
+        )
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=[])
+
+        person.refresh_from_db()
+        assert person.properties == {"email": "noop@example.com"}
+        for did in ["id1", "id2"]:
+            assert PersonDistinctId.objects.get(team=self.team, distinct_id=did).person_id == person.id
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    def test_partial_split_dedupes_duplicates(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person)
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=["id2", "id2"])
+
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="id1").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="id2").person_id != person.id
+        assert mock_create_pdi.call_count == 1
+        assert mock_create_person.call_count == 1
+
     def test_split_many_distinct_ids(self, mock_create_pdi, mock_create_person):
         distinct_ids = ["main"] + [f"id_{i}" for i in range(100)]
         person = self._create_person_with_distinct_ids(distinct_ids, mock_create_pdi, mock_create_person)
@@ -246,3 +335,129 @@ class TestSplitPerson(BaseTest):
 
         assert mock_create_pdi.call_count == 100
         assert mock_create_person.call_count == 100
+
+
+@patch("posthog.models.person.util.create_person")
+@patch("posthog.models.person.util.create_person_distinct_id")
+class TestSplitPersonPersonhogRouting(BaseTest):
+    """Verify split_person routes reads through personhog when enabled."""
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(person_created, sender=Person)
+        post_save.disconnect(person_distinct_id_created, sender=PersonDistinctId)
+
+    def tearDown(self):
+        post_save.connect(person_created, sender=Person)
+        post_save.connect(person_distinct_id_created, sender=PersonDistinctId)
+        super().tearDown()
+
+    def _create_person_with_distinct_ids(
+        self,
+        distinct_ids: list[str],
+        mock_create_pdi,
+        mock_create_person,
+        properties: dict | None = None,
+        version: int = 0,
+    ) -> Person:
+        person = Person.objects.create(
+            team=self.team,
+            properties=properties or {},
+            version=version,
+        )
+        for distinct_id in distinct_ids:
+            PersonDistinctId.objects.create(
+                team=self.team,
+                person=person,
+                distinct_id=distinct_id,
+            )
+        mock_create_pdi.reset_mock()
+        mock_create_person.reset_mock()
+        return person
+
+    def test_split_uses_personhog_data_not_orm(self, mock_create_pdi, mock_create_person):
+        # DB has version=5, but personhog returns version=20.
+        # If the split uses personhog data, new persons get version 20+101=121.
+        # If it fell through to ORM, they'd get 5+101=106.
+        person = self._create_person_with_distinct_ids(
+            ["id1", "id2", "id3"], mock_create_pdi, mock_create_person, version=5
+        )
+
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person.id,
+                uuid=str(person.uuid),
+                distinct_ids=["id1", "id2", "id3"],
+                version=20,
+            )
+
+            person.split_person(main_distinct_id="id1")
+
+            fake.assert_called("get_person", times=1)
+            fake.assert_called("get_distinct_ids_for_person", times=1)
+
+        pdi_id1 = PersonDistinctId.objects.get(team=self.team, distinct_id="id1")
+        pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
+        assert pdi_id1.person_id == person.id
+        assert pdi_id2.person_id != person.id
+
+        new_person = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
+        assert new_person.version == 20 + 101
+
+    def test_split_falls_back_to_orm_on_personhog_failure(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person, version=3)
+
+        with fake_personhog_client() as fake:
+            # Don't seed the fake — get_person returns empty, which triggers
+            # a None return from the converter, causing _personhog_routed to
+            # catch the error and fall back to ORM.
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person.id,
+                uuid=str(person.uuid),
+                distinct_ids=["id1", "id2"],
+                version=3,
+            )
+            # Simulate a gRPC failure by making get_person raise
+            call_count = 0
+
+            def failing_get_person(request):
+                nonlocal call_count
+                call_count += 1
+                raise RuntimeError("simulated gRPC failure")
+
+            fake.get_person = failing_get_person
+
+            person.split_person(main_distinct_id="id1")
+
+        assert call_count == 1
+
+        pdi_id1 = PersonDistinctId.objects.get(team=self.team, distinct_id="id1")
+        pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
+        assert pdi_id1.person_id == person.id
+        assert pdi_id2.person_id != person.id
+
+        new_person = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
+        assert new_person.version == 3 + 101
+
+    def test_split_from_stub_person_clears_properties(self, mock_create_pdi, mock_create_person):
+        """Verify split works when called on a stub Person(pk=..., team_id=...)
+        rather than a DB-fetched instance — this is how the Celery task invokes it."""
+        person = self._create_person_with_distinct_ids(
+            ["id1", "id2"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "test@example.com"},
+        )
+
+        stub = Person(pk=person.id, team_id=self.team.id)
+        stub.split_person(main_distinct_id=None)
+
+        person.refresh_from_db()
+        assert person.properties == {}
+
+        pdi_id1 = PersonDistinctId.objects.get(team=self.team, distinct_id="id1")
+        pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
+        assert pdi_id1.person_id == person.id
+        assert pdi_id2.person_id != person.id

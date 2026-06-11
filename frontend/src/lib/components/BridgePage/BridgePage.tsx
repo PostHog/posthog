@@ -3,10 +3,9 @@ import './BridgePage.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+import { WelcomeLogo } from 'scenes/authentication/shared/WelcomeLogo'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
@@ -82,13 +81,14 @@ export function BridgePage({
                                         <LaptopHog4 alt="" draggable="false" />
                                     )}
                                     {message ? (
-                                        <CSSTransition
-                                            in={messageShowing}
-                                            timeout={200}
-                                            classNames="BridgePage__left__message-"
+                                        <div
+                                            className={clsx(
+                                                'BridgePage__left__message',
+                                                messageShowing && 'BridgePage__left__message--visible'
+                                            )}
                                         >
-                                            <div className="BridgePage__left__message">{message}</div>
-                                        </CSSTransition>
+                                            {message}
+                                        </div>
                                     ) : null}
                                 </div>
                             )}

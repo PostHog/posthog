@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -21,14 +21,8 @@ import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLog
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
-export interface EndpointLogicProps {
-    tabId: string
-}
-
 export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
-    props({} as EndpointLogicProps),
-    key((props) => props.tabId),
     connect(() => ({
         actions: [
             endpointsLogic,
@@ -76,6 +70,7 @@ export const endpointLogic = kea<endpointLogicType>([
         clearMaterializationStatus: true,
         deleteEndpointFailure: () => ({}),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
+        saveTagsInline: (tags: string[]) => ({ tags }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -121,6 +116,12 @@ export const endpointLogic = kea<endpointLogicType>([
             null as EndpointVersionType | null,
             {
                 loadEndpoint: () => null,
+            },
+        ],
+        versions: [
+            [] as EndpointVersionType[],
+            {
+                loadEndpoint: () => [],
             },
         ],
         // Extend the loader reducer to clear on action
@@ -181,7 +182,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => {
+    listeners(({ actions, values }) => {
         const reloadMaterializationStatus = debounce((name: string, version?: number): void => {
             actions.loadMaterializationStatus({ name, version })
         }, 2000)
@@ -283,6 +284,29 @@ export const endpointLogic = kea<endpointLogicType>([
                     lemonToast.error(`Failed to update endpoint: ${queryError}`)
                 } else {
                     lemonToast.error('Failed to update endpoint')
+                }
+            },
+            saveTagsInline: async ({ tags }, breakpoint) => {
+                const endpoint = values.endpoint
+                if (!endpoint) {
+                    return
+                }
+                actions.loadEndpointSuccess({ ...endpoint, tags } as EndpointVersionType)
+
+                await breakpoint(250)
+
+                try {
+                    const saved = await api.endpoint.update(endpoint.name, { tags } as Partial<EndpointRequest>)
+                    breakpoint()
+
+                    actions.loadEndpointSuccess(saved as EndpointVersionType)
+                    actions.loadEndpoints()
+                } catch (error: any) {
+                    if (error.isBreakpoint) {
+                        throw error
+                    }
+                    actions.loadEndpointSuccess(endpoint)
+                    lemonToast.error('Failed to save tags')
                 }
             },
             deleteEndpoint: async ({ name }) => {

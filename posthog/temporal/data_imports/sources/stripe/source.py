@@ -1,9 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -19,6 +16,8 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -27,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -44,14 +44,20 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeValidationError,
+    _all_known_webhook_events,
+    check_endpoint_permissions as check_stripe_endpoint_permissions,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
     stripe_source,
+    update_webhook_events,
     validate_credentials as validate_stripe_credentials,
 )
 
@@ -76,39 +82,9 @@ PERMISSIONS = [
     "rak_transfer_read",
     "rak_connected_account_read",
     "rak_payment_method_read",
-    "rak_webhook_endpoint_write",
+    "rak_webhook_write",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
-
-
-def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WAREHOUSE_WEBHOOK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @SourceRegistry.register
@@ -137,7 +113,7 @@ class StripeSource(
             name=SchemaExternalDataSourceType.STRIPE,
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
-            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
+            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
@@ -152,8 +128,26 @@ class StripeSource(
                         name="auth_method",
                         label="Authentication type",
                         required=True,
-                        defaultValue="oauth",
+                        defaultValue="api_key",
                         options=[
+                            SourceFieldSelectConfigOption(
+                                label="Restricted API key",
+                                value="api_key",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="stripe_secret_key",
+                                            label="API key",
+                                            type=SourceFieldInputConfigType.PASSWORD,
+                                            required=False,
+                                            placeholder="rk_live_...",
+                                            caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
+                                            secret=True,
+                                        ),
+                                    ],
+                                ),
+                            ),
                             SourceFieldSelectConfigOption(
                                 label="OAuth connection",
                                 value="oauth",
@@ -169,22 +163,6 @@ class StripeSource(
                                     ],
                                 ),
                             ),
-                            SourceFieldSelectConfigOption(
-                                label="Restricted API key",
-                                value="api_key",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldInputConfig(
-                                            name="stripe_secret_key",
-                                            label="API key",
-                                            type=SourceFieldInputConfigType.PASSWORD,
-                                            required=False,
-                                            placeholder="rk_live_...",
-                                        ),
-                                    ],
-                                ),
-                            ),
                         ],
                     ),
                     SourceFieldInputConfig(
@@ -193,6 +171,7 @@ class StripeSource(
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="stripe_account_id",
+                        secret=False,
                     ),
                 ],
             ),
@@ -239,6 +218,7 @@ If automatic creation failed due to a permissions error and you're using a restr
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="whsec_...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -250,13 +230,19 @@ If automatic creation failed due to a permissions error and you're using a restr
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
-            "PermissionError": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
+            # Surface Stripe's raw permission message — it names the specific scope that's missing
+            # (e.g. "Having the 'rak_payment_method_read' permission would allow this request to
+            # continue"), which is more actionable than a generic "check your permissions" toast.
+            # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
+            # message reaches this layer, so it stays toast-sized.
+            "PermissionError": None,
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your Stripe account.",
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
+            "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
         }
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
@@ -269,6 +255,11 @@ If automatic creation failed due to a permissions error and you're using a restr
             raise ValueError("Missing Stripe integration ID")
 
         integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
+
+        oauth_integration = OauthIntegration(integration)
+        if oauth_integration.access_token_expired():
+            oauth_integration.refresh_access_token()
+
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
         return integration.access_token
@@ -279,13 +270,20 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                # Webhook-only endpoints (e.g. Discount) have no list API and therefore no
+                # incremental fields, but they must still expose webhook support so the
+                # warehouse pipeline can route events into the correct table.
+                supports_webhooks=(
+                    STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                    or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
+                ),
+                webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
@@ -303,17 +301,69 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
+        # No schema_name → basic auth probe. With schema_name → probe that endpoint.
+        endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, schema_name):
+            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
+        except StripeAuthenticationError as e:
+            if config.auth_method.selection == "oauth":
+                return (
+                    False,
+                    "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+                )
+            return (
+                False,
+                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+            )
         except StripePermissionError as e:
-            missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Stripe credentials lack permissions for {missing_resources}"
+            # 403s are self-explanatory — the resource name tells the customer which Stripe scope
+            # to enable. Stripe's verbose error (request id, status, headers) bloats the toast
+            # without adding signal, so render a plain resource list.
+            return (
+                False,
+                f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
+            )
+        except StripeValidationError as e:
+            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
+            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
+            # resource name. Fold any 403s collected before the unknown error into the same toast.
+            # Guard against empty / whitespace-only error strings so we never crash the response
+            # path while reporting a different error.
+            def _first_line(msg: str) -> str:
+                lines = (msg or "").splitlines()
+                return lines[0][:200] if lines else "(no detail)"
+
+            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
+            message = f"Stripe validation failed — {details}"
+            if e.missing_permissions:
+                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
+            return False, message
         except Exception as e:
             return False, str(e)
+
+    def get_endpoint_permissions(
+        self, config: StripeSourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        # 401 → mark every endpoint with the auth error so caller can surface it once.
+        try:
+            api_key = self._get_api_key(config, team_id)
+        except ValueError as e:
+            # Known credential-config issues from _get_api_key — message is curated and safe to surface.
+            return dict.fromkeys(endpoints, str(e))
+        except Exception as e:
+            # Unknown failure (OAuth refresh, integration lookup, etc.). Capture for triage but
+            # render a generic reason so we never leak an unintended message to the UI.
+            capture_exception(e)
+            return dict.fromkeys(endpoints, "Stripe credentials are not available")
+
+        try:
+            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+        except StripeAuthenticationError as e:
+            return dict.fromkeys(endpoints, e.stripe_message)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
@@ -324,6 +374,24 @@ If automatic creation failed due to a permissions error and you're using a restr
     def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
         return create_webhook(api_key, config.stripe_account_id, webhook_url)
+
+    def get_desired_webhook_events(
+        self, config: StripeSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        # Every mappable event, not just the selected tables — auto-heals webhooks created
+        # before RESOURCE_TO_STRIPE_WEBHOOK_EVENT gained new resources.
+        return _all_known_webhook_events()
+
+    def sync_webhook_events(
+        self,
+        config: StripeSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        api_key = self._get_api_key(config, team_id)
+        desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
+        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int

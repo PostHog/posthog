@@ -16,22 +16,22 @@ export const PropertyGroupOperatorApi = {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `gte` - gte
+ * * `lte` - lte
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_after` - is_date_after
+ * * `is_date_before` - is_date_before
+ * * `in` - in
+ * * `not_in` - not_in
  */
 export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
@@ -61,42 +61,38 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `event_metadata` - event_metadata
+ * * `feature` - feature
+ * * `person` - person
+ * * `cohort` - cohort
+ * * `element` - element
+ * * `static-cohort` - static-cohort
+ * * `dynamic-cohort` - dynamic-cohort
+ * * `precalculated-cohort` - precalculated-cohort
+ * * `group` - group
+ * * `recording` - recording
+ * * `log_entry` - log_entry
+ * * `behavioral` - behavioral
+ * * `session` - session
+ * * `hogql` - hogql
+ * * `data_warehouse` - data_warehouse
+ * * `data_warehouse_person_property` - data_warehouse_person_property
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `log` - log
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
+ * * `span` - span
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ * * `revenue_analytics` - revenue_analytics
+ * * `flag` - flag
+ * * `workflow_variable` - workflow_variable
  */
-export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
-export const Type3f6EnumApi = {
+export const PropertyFilterTypeEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -126,64 +122,65 @@ export const Type3f6EnumApi = {
     WorkflowVariable: 'workflow_variable',
 } as const
 
+export const PropertyItemApiType = { ...PropertyFilterTypeEnumApi, ...BlankEnumApi } as const
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: Type3f6EnumApi | BlankEnumApi
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 export interface PropertyApi {
     /**
- You can use a simplified version:
-```json
-{
-    "properties": [
-        {
-            "key": "email",
-            "value": "x@y.com",
-            "operator": "exact",
-            "type": "event"
-        }
-    ]
-}
-```
-
-Or you can create more complicated queries with AND and OR:
-```json
-{
-    "properties": {
-        "type": "AND",
-        "values": [
-            {
-                "type": "OR",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            },
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            }
-        ]
-    ]
-}
-```
-
-
-* `AND` - AND
-* `OR` - OR */
+     *  You can use a simplified version:
+     * ```json
+     * {
+     *     "properties": [
+     *         {
+     *             "key": "email",
+     *             "value": "x@y.com",
+     *             "operator": "exact",
+     *             "type": "event"
+     *         }
+     *     ]
+     * }
+     * ```
+     *
+     * Or you can create more complicated queries with AND and OR:
+     * ```json
+     * {
+     *     "properties": {
+     *         "type": "AND",
+     *         "values": [
+     *             {
+     *                 "type": "OR",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             },
+     *             {
+     *                 "type": "AND",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             }
+     *         ]
+     *     ]
+     * }
+     * ```
+     *
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
     type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }
 
-export interface PersonApi {
+export interface PersonRecordApi {
     /** Numeric person ID. */
     readonly id: number
     /** Display name derived from person properties (email, name, or username). */
@@ -202,16 +199,16 @@ export interface PersonApi {
     readonly last_seen_at: string | null
 }
 
-export interface PaginatedPersonListApi {
+export interface PaginatedPersonRecordListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     count?: number
-    results?: PersonApi[]
+    results?: PersonRecordApi[]
 }
 
-export interface PatchedPersonApi {
+export interface PatchedPersonRecordApi {
     /** Numeric person ID. */
     readonly id?: number
     /** Display name derived from person properties (email, name, or username). */
@@ -233,6 +230,24 @@ export interface PatchedPersonApi {
 export interface PersonDeletePropertyRequestApi {
     /** The property key to remove from this person. */
     $unset: string
+}
+
+export interface PersonSplitRequestApi {
+    /**
+     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+     * @nullable
+     */
+    main_distinct_id?: string | null
+    /**
+     * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+     * @nullable
+     */
+    distinct_ids_to_split?: string[] | null
+}
+
+export interface PersonSplitResponseApi {
+    /** Always `true` when the split task was enqueued. The split itself runs asynchronously — a 201 response means the task was accepted, not that the merge state has already been updated. */
+    success: boolean
 }
 
 export interface PersonUpdatePropertyRequestApi {
@@ -325,29 +340,6 @@ export interface PersonPropertiesAtTimeMetadataApi {
 }
 
 /**
- * The parameters passed to the query
- */
-export type PersonPropertiesAtTimeDebugApiParams = { [key: string]: unknown }
-
-export type PersonPropertiesAtTimeDebugApiEventsItem = { [key: string]: unknown }
-
-/**
- * Serializer for the debug information (only available to staff users).
- */
-export interface PersonPropertiesAtTimeDebugApi {
-    /** The ClickHouse query that was executed */
-    query: string
-    /** The parameters passed to the query */
-    params: PersonPropertiesAtTimeDebugApiParams
-    /** Number of events found */
-    events_found: number
-    /** Raw events that were used to build the properties */
-    events: PersonPropertiesAtTimeDebugApiEventsItem[]
-    /** Error message if debug query failed */
-    error?: string
-}
-
-/**
  * Serializer for the point-in-time person properties response.
  */
 export interface PersonPropertiesAtTimeResponseApi {
@@ -370,8 +362,6 @@ export interface PersonPropertiesAtTimeResponseApi {
     last_seen_at: string | null
     /** Metadata about the point-in-time query */
     point_in_time_metadata: PersonPropertiesAtTimeMetadataApi
-    /** Debug information (only available when debug=true and DEBUG=True) */
-    debug?: PersonPropertiesAtTimeDebugApi
 }
 
 export type PersonsListParams = {
@@ -442,14 +432,14 @@ export const PersonsPartialUpdateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieve2Params = {
-    format?: PersonsActivityRetrieve2Format
+export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieve2Format =
-    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
+export type PersonsActivityRetrieveFormat =
+    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
-export const PersonsActivityRetrieve2Format = {
+export const PersonsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -501,14 +491,14 @@ export const PersonsUpdatePropertyCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat
+export type PersonsAllActivityRetrieveParams = {
+    format?: PersonsAllActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieveFormat =
-    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
+export type PersonsAllActivityRetrieveFormat =
+    (typeof PersonsAllActivityRetrieveFormat)[keyof typeof PersonsAllActivityRetrieveFormat]
 
-export const PersonsActivityRetrieveFormat = {
+export const PersonsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -624,30 +614,6 @@ export const PersonsFunnelCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat
-}
-
-export type PersonsFunnelCorrelationRetrieveFormat =
-    (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
-
-export const PersonsFunnelCorrelationRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat
-}
-
-export type PersonsFunnelCorrelationCreateFormat =
-    (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
-
-export const PersonsFunnelCorrelationCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat
 }
@@ -661,10 +627,6 @@ export const PersonsLifecycleRetrieveFormat = {
 } as const
 
 export type PersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */

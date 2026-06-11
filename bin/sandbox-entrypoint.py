@@ -6,9 +6,9 @@ Four modes, dispatched at the bottom of this file:
 
   1. Root phase (UID 0): create sandbox user, seed SSH/git config, re-exec
      as the sandbox user. Workspace is already populated by bin/sandbox.
-  2. User phase (default): launch tmux with claude immediately in window 0
-     and a setup window in window 1; PID 1 poll-blocks on the tmux session.
-  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 1. Installs deps
+  2. User phase (default): launch tmux with claude immediately in window 1
+     and a setup window in window 2; PID 1 poll-blocks on the tmux session.
+  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 2. Installs deps
      (Python/Node/Rust in parallel), migrates, seeds demo data, spawns the
      phrocs window, then exec's into bash -l so the window stays usable.
   4. Cache-init phase (SANDBOX_MODE=cache-init): one-shot cache warming for
@@ -20,22 +20,35 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import stat
 import time
 import shutil
+import socket
 import traceback
 import subprocess
+import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from textwrap import dedent
 
 WORKSPACE = Path("/workspace")
-SANDBOX_HOME = Path("/tmp/sandbox-home")
+# The sandbox user's $HOME. The base image creates this user at runtime (it's
+# UID-agnostic and shared); the per-user tools image creates it at build time.
+# Both must agree on this path, so it is mirrored by SANDBOX_HOME_IN_CONTAINER
+# in bin/sandbox_tools.py — keep the two in sync.
+SANDBOX_HOME = Path("/home/sandbox")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
 # Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
 STATUS_FILE = Path("/tmp/sandbox-status")
+
+# The host's detached restore writes its status here: "done" once the (cache)
+# ClickHouse RESTORE has fully landed, or a failure reason if it dies before the
+# database is ready. The setup window waits for "done" before migrating and
+# aborts on a failure reason instead of timing out. Written by bin/sandbox.
+RESTORE_STATUS_FILE = Path("/tmp/sandbox-restore-status")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,6 +122,10 @@ def export_environment(uid: int, gid: int) -> None:
     """Write env vars to /etc/environment and /etc/profile.d for SSH sessions."""
     extra_vars = {
         "HOME": str(SANDBOX_HOME),
+        # flox sets VIRTUAL_ENV by sourcing the venv's activate; the sandbox
+        # never activates. bin/hogli and bin/ruff.sh prefer it over PATH. Equal
+        # to UV_PROJECT_ENVIRONMENT, so uv sync emits no mismatch warning.
+        "VIRTUAL_ENV": "/cache/python",
         "UV_CACHE_DIR": "/cache/uv",
         "UV_LINK_MODE": "copy",
         "XDG_CACHE_HOME": "/tmp/sandbox-cache",
@@ -180,18 +197,73 @@ def start_sshd(uid: int, gid: int) -> None:
     log("sshd listening on port 2222")
 
 
+def _strip_host_permissions(settings_path: Path) -> None:
+    """Strip permission policy so host rules can't override sandbox bypass mode.
+
+    deny survives bypass by design; defaultMode in settings.local.json would
+    shadow bypassPermissions in settings.json. allow is moot under bypass.
+    """
+    if not settings_path.exists():
+        return
+    try:
+        settings = json.loads(settings_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+    perms = settings.get("permissions")
+    if not isinstance(perms, dict):
+        return
+    perms.pop("allow", None)
+    perms.pop("deny", None)
+    perms.pop("defaultMode", None)
+    if not perms:
+        settings.pop("permissions", None)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+
+def _force_sandbox_claude_defaults(settings_path: Path) -> None:
+    """Make the sandbox's Claude default to max effort + bypass permissions.
+
+    The sandbox is a disposable, isolated container — the safety friction that
+    justifies permission prompts on the host doesn't apply here, and the Claude
+    window boots unattended in tmux. Plugins and theme survive the merge;
+    allow/deny lists are stripped separately by _strip_host_permissions.
+    """
+    try:
+        settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        settings = {}
+
+    settings["effortLevel"] = "max"
+    # Equivalent of --dangerously-skip-permissions; the second key suppresses
+    # the one-time confirmation so the unattended tmux window doesn't block.
+    settings.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
+    settings["skipDangerousModePermissionPrompt"] = True
+    # Auto-approve the repo's checked-in .mcp.json servers (phrocs, traffic-sim)
+    # so they load on the unattended boot without the approval prompt.
+    settings["enableAllProjectMcpServers"] = True
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+
 def copy_claude_auth(uid: int, gid: int) -> None:
     """Copy Claude Code auth files into the sandbox home."""
     claude_dir = SANDBOX_HOME / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
 
-    for name in (".credentials.json", "settings.json", "settings.local.json"):
+    for name in (".credentials.json", "settings.json", "settings.local.json", "CLAUDE.md"):
         src = Path(f"/tmp/claude-auth/{name}")
         if src.exists():
             shutil.copy2(src, claude_dir / name)
 
+    _strip_host_permissions(claude_dir / "settings.json")
+    _strip_host_permissions(claude_dir / "settings.local.json")
+    _force_sandbox_claude_defaults(claude_dir / "settings.json")
+
+    # bin/sandbox ships a finalized .claude.json (installMethod stripped, MCP
+    # servers merged under the /workspace project); just place it. is_file()
+    # skips the /dev/null mount used when there's nothing to ship.
     src = Path("/tmp/claude-auth.json")
-    if src.exists():
+    if src.is_file():
         shutil.copy2(src, SANDBOX_HOME / ".claude.json")
 
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
@@ -235,6 +307,8 @@ def root_phase() -> None:
     create_sandbox_user(uid, gid)
 
     # Must run before export_environment snapshots os.environ into /etc/profile.d.
+    # The user's sandbox.env secrets are already in os.environ (compose env_file),
+    # so export_environment propagates them to every shell and the Claude tree.
     _configure_ssh_agent_env()
     export_environment(uid, gid)
 
@@ -402,6 +476,18 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
+    # The child must never return to the caller. If an exception unwinds past
+    # os.fork(), run_setup's "JetBrains is non-fatal" guard catches it and the
+    # forked child then falls through and re-runs the rest of run_setup,
+    # spawning a duplicate phrocs window. Always terminate the child here.
+    try:
+        _run_jetbrains_child(idea_script, data_dir_name)
+    except Exception:
+        traceback.print_exc()
+    os._exit(0)
+
+
+def _run_jetbrains_child(idea_script: Path, data_dir_name: str) -> None:
     # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
     log_path = "/tmp/sandbox-jetbrains.log"
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
@@ -448,7 +534,7 @@ def setup_jetbrains_background() -> None:
             <application>
               <component name="ProjectJdkTable">
                 <jdk version="2">
-                  <name value="Python 3.12 (sandbox)" />
+                  <name value="Python 3.13 (sandbox)" />
                   <type value="Python SDK" />
                   <homePath value="/cache/python/bin/python3" />
                   <roots>
@@ -481,7 +567,7 @@ def setup_jetbrains_background() -> None:
         dedent("""\
             <?xml version="1.0" encoding="UTF-8"?>
             <project version="4">
-              <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (sandbox)" project-jdk-type="Python SDK" />
+              <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.13 (sandbox)" project-jdk-type="Python SDK" />
               <component name="TestRunnerService">
                 <option name="PROJECT_TEST_RUNNER" value="py.test" />
               </component>
@@ -490,7 +576,6 @@ def setup_jetbrains_background() -> None:
     )
 
     info(f"{data_dir_name} backend ready")
-    os._exit(0)
 
 
 def _setup_user_env() -> None:
@@ -499,6 +584,8 @@ def _setup_user_env() -> None:
     os.environ.update(
         {
             "HOME": str(SANDBOX_HOME),
+            # Mirror export_environment so the tmux/claude tree gets VIRTUAL_ENV.
+            "VIRTUAL_ENV": "/cache/python",
             "UV_CACHE_DIR": "/cache/uv",
             "UV_LINK_MODE": "copy",
             "XDG_CACHE_HOME": "/tmp/sandbox-cache",
@@ -536,8 +623,8 @@ def user_phase() -> None:
 
     _write_status("booting")
 
-    # Window 0: claude (launched immediately, may lack hogli until uv sync finishes)
-    # Window 1: setup (deps, migrations, then spawns phrocs in window 2)
+    # Window 1: claude (launched immediately, may lack hogli until uv sync finishes)
+    # Window 2: setup (deps, migrations, then spawns phrocs in window 3)
     tmux = ["tmux", "-L", "sandbox"]
     run(
         [
@@ -555,10 +642,6 @@ def user_phase() -> None:
             "claude",
         ]
     )
-    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
-    # Scoped to claude window only so setup/phrocs close normally.
-    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
-
     run(
         [
             *tmux,
@@ -587,33 +670,114 @@ def user_phase() -> None:
     sys.exit(1)
 
 
+def _port_open(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def _clickhouse_ready() -> bool:
+    """True once ClickHouse answers a trivial query over HTTP."""
+    try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- URL is a hardcoded constant, no user-controlled value
+        with urllib.request.urlopen("http://clickhouse:8123/", data=b"SELECT 1", timeout=3) as resp:
+            return resp.read().strip() == b"1"
+    except OSError:
+        return False
+
+
+def _restore_status() -> str | None:
+    """What the host's detached restore last wrote: "done", a failure reason, or
+    None if it hasn't written yet. The setup window waits for "done" (cache
+    creates) and aborts on a failure reason instead of timing out.
+    """
+    if RESTORE_STATUS_FILE.exists():
+        return RESTORE_STATUS_FILE.read_text().strip() or None
+    return None
+
+
+def _restore_failed_reason() -> str | None:
+    """The failure reason if the restore reported one, else None ("done" is success)."""
+    status = _restore_status()
+    return status if status and status != "done" else None
+
+
+def _wait_for(
+    label: str,
+    ready: Callable[[], bool],
+    timeout: int = 300,
+    fail_check: Callable[[], str | None] | None = None,
+) -> None:
+    """Poll `ready` until true, updating the status bar; raise on timeout.
+
+    `fail_check` returns a reason string to abort early. It's checked *after*
+    `ready`, so a restore that already signalled success wins over a late failure.
+    """
+    _write_status(f"waiting for {label}")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready():
+            return
+        if fail_check and (reason := fail_check()):
+            raise RuntimeError(reason)
+        time.sleep(2)
+    raise RuntimeError(f"{label} not ready within {timeout}s")
+
+
+def _wait_for_databases() -> None:
+    """Block until infra is ready before migrating.
+
+    Postgres restores before its container boots, so a reachable db is already
+    restored. ClickHouse restores onto a *running* server, and the database can
+    appear mid-restore — so for a cache-backed create we wait for the "done" status
+    the host writes once its synchronous RESTORE has fully landed, not on a probe.
+    """
+    _wait_for(
+        "Postgres",
+        lambda: run_quiet(["psql", "-h", "db", "-U", "posthog", "-d", "posthog", "-tAc", "SELECT 1"]).returncode == 0,
+        fail_check=_restore_failed_reason,
+    )
+    if os.environ.get("SANDBOX_USE_CACHE") == "1":
+        _wait_for("ClickHouse cache restore", lambda: _restore_status() == "done", fail_check=_restore_failed_reason)
+    else:
+        _wait_for("ClickHouse", _clickhouse_ready, fail_check=_restore_failed_reason)
+    _wait_for("Kafka", lambda: _port_open("kafka", 9092), fail_check=_restore_failed_reason)
+
+
 def run_setup() -> None:
-    """Tmux window 1: install deps, migrate, seed data, spawn phrocs, exec bash.
+    """Tmux window 2: install deps, migrate, seed data, spawn phrocs, exec bash.
 
     On failure, writes "SETUP FAILED" to the status bar and drops into bash
-    so the user can diagnose. Claude keeps running in window 0 either way.
+    so the user can diagnose. Claude keeps running in window 1 either way.
     """
     _setup_user_env()
+    # The status file can linger in /tmp across a stop/start; clear it before
+    # waiting so a stale "done"/failure from a previous boot can't trip this one.
+    # On a cache create the host worker writes the fresh status later.
+    RESTORE_STATUS_FILE.unlink(missing_ok=True)
     _write_status("setup starting")
 
     try:
-        # Kafka is health-gated by compose, safe to call early.
-        create_kafka_topics()
-
-        def install_python_and_migrate() -> None:
-            install_python_deps()
-            _write_status("running migrations")
-            run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-            _write_status("seeding demo data")
-            ensure_demo_data()
-
+        # Deps need no database, so install them while the host brings up and
+        # restores infra in the background.
         _run_parallel(
             {
-                "python deps + migrations": install_python_and_migrate,
+                "python deps": install_python_deps,
                 "node deps": install_node_deps,
                 "rust crates": fetch_rust_crates,
             }
         )
+
+        # Gate DB work on infra being ready (and the cache restore having landed)
+        # so we never migrate a half-restored database.
+        _wait_for_databases()
+        create_kafka_topics()
+        _write_status("running migrations")
+        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+        _write_status("seeding demo data")
+        ensure_demo_data()
 
         # generate_mprocs_config needs the hogli symlink created by install_python_deps.
         generate_mprocs_config()
@@ -628,24 +792,30 @@ def run_setup() -> None:
         lock = WORKSPACE / "bin/start.lock"
         lock.unlink(missing_ok=True)
 
-        _write_status("sandbox ready")
+        _write_status("C-b 1 claude  C-b 2 setup  C-b 3 phrocs  C-b d detach  mouse enabled")
 
         # Spawn phrocs in its own tmux window.
         run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
 
         print(  # noqa: T201
-            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+            "\nSetup complete — see status bar for keybinding hints.\n",
             flush=True,
         )
-    except Exception:
+    except Exception as e:
         traceback.print_exc()
-        _write_status("!! SETUP FAILED — see window 1")
+        _write_status("!! SETUP FAILED. Ctrl-b 1 returns to claude")
         print(  # noqa: T201
-            "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
-            "\n!!! claude is still running in window 0 against whatever managed to come up."
-            "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
+            f"\n\n!!! Setup failed: {e}"
+            "\n!!! Traceback above. This window is now a bash shell; claude is still running in window 1."
+            "\n!!! Fix the issue, then `tmux new-window bin/start --phrocs` when ready.\n",
             flush=True,
         )
+        # Pull the user's view to this window so the failure can't be missed,
+        # but leave claude running in window 1, since they may already be working.
+        # select before rename, so the "setup" target still resolves.
+        tmux = ["tmux", "-L", "sandbox"]
+        subprocess.run([*tmux, "select-window", "-t", "posthog:setup"])
+        subprocess.run([*tmux, "rename-window", "-t", "posthog:setup", "⚠ SETUP FAILED"])
 
     # Exec into bash so this window stays usable (both success and failure).
     os.execvp("bash", ["bash", "-l"])

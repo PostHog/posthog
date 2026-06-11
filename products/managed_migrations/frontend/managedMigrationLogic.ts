@@ -23,6 +23,7 @@ export interface ManagedMigrationForm {
     s3_region?: string
     s3_bucket?: string
     s3_prefix?: string
+    endpoint_url?: string
     // date range specific fields
     start_date?: string
     end_date?: string
@@ -41,6 +42,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     s3_region: '',
     s3_bucket: '',
     s3_prefix: '',
+    endpoint_url: '',
     content_type: 'captured',
     start_date: '',
     end_date: '',
@@ -72,6 +74,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             {
                 loadMigrations: async () => {
                     const projectId = ApiConfig.getCurrentProjectId()
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/${projectId}/managed_migrations`)
                     return response.results
                 },
@@ -154,6 +157,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         s3_region: values.s3_region,
                         s3_bucket: values.s3_bucket,
                         s3_prefix: values.s3_prefix,
+                        ...(values.endpoint_url ? { endpoint_url: values.endpoint_url } : {}),
                     }
 
                     if (values.content_type === 'amplitude') {
@@ -177,6 +181,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     }
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
                     return response
                 } catch (error: any) {
@@ -203,6 +208,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         pauseMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
                 lemonToast.success('Migration paused successfully')
                 actions.loadMigrations()
@@ -213,6 +219,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         resumeMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
                 lemonToast.success('Migration resumed successfully')
                 actions.loadMigrations()

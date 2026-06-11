@@ -19,13 +19,14 @@ from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel, Field
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import (
+from products.posthog_ai.backend.models.assistant import (
     Conversation,
     ConversationCheckpoint,
     ConversationCheckpointBlob,
     ConversationCheckpointWrite,
 )
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 
 class TestDjangoCheckpointer(NonAtomicBaseTest):

@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
@@ -29,13 +31,30 @@ interface SyncsTabProps {
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
+    const logic = sourceSettingsLogic({ id, availableSources: {} })
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
-        sourceSettingsLogic({ id, availableSources: {} })
-    )
-    const { loadMoreJobs, setSelectedSchemas } = useActions(sourceSettingsLogic({ id, availableSources: {} }))
+    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
+    const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
+
+    // Apply a `?schema=<name>` deep link once on mount so links from the schemas list and the
+    // schema configuration page land here pre-filtered to a single schema.
+    useEffect(() => {
+        const schemaParam = router.values.searchParams.schema
+        if (schemaParam) {
+            setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    useEffect(() => {
+        if (!source || source.access_method === 'direct') {
+            return
+        }
+
+        void loadJobs()
+    }, [loadJobs, source])
 
     const schemaOptions = [...(source?.schemas ?? [])]
         .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))
@@ -76,12 +95,26 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
                         title: 'Schema',
                         render: (_, job) => {
                             const name = job.schema.label ?? job.schema.name
+                            // CDC `cdc_table_mode='both'` produces two ExternalDataJob rows per sync —
+                            // one for the consolidated table, one for the cdc-only history table.
+                            // Show a badge so they're distinguishable in the UI.
+                            const cdcWriteModeLabel =
+                                job.cdc_write_mode === 'scd2_append'
+                                    ? 'CDC history'
+                                    : job.cdc_write_mode === 'incremental_merge'
+                                      ? 'consolidated'
+                                      : null
                             return (
                                 <span className="flex items-center gap-1">
                                     {name}
                                     {job.schema.sync_type === 'cdc' && (
                                         <LemonTag type="highlight" size="small">
                                             CDC
+                                        </LemonTag>
+                                    )}
+                                    {cdcWriteModeLabel && (
+                                        <LemonTag type="muted" size="small">
+                                            {cdcWriteModeLabel}
                                         </LemonTag>
                                     )}
                                 </span>

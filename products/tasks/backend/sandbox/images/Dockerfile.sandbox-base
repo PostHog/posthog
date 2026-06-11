@@ -6,6 +6,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+# Remove gh CLI telemetry
+ENV GH_TELEMETRY=false
+
 # Install system packages (expanded for coding environments)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -58,8 +61,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
+# Install ruff and ty
+# uv comes from its pinned, registry-verified official image (same pattern as the
+# main Dockerfile) rather than piping a remote installer script to a shell.
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
+ARG RUFF_VERSION=0.14.11
+ARG TY_VERSION=0.0.29
+RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
+    UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ty==${TY_VERSION}" && \
+    ruff --version && \
+    ty --version
+
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.89.0
+ARG GH_CLI_VERSION=2.93.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -68,12 +82,18 @@ RUN set -eux; \
     rm /tmp/gh.deb
 
 # Install agentsh for runtime egress policy enforcement
-ARG AGENTSH_TAG=v0.16.7
+ARG AGENTSH_TAG=v0.18.3
 RUN set -eux; \
     version="${AGENTSH_TAG#v}"; \
     arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) agentsh_sha256="4ac486eea1e10600c29078a7a992d2067774edfb66be1318a2acf1fcf8b6d774" ;; \
+      arm64) agentsh_sha256="d1393a27943d207442ea077b1d36d9561a8af5613e7b67d9f7d4fafd00626c6b" ;; \
+      *) echo "Unsupported architecture for agentsh: $arch" >&2; exit 1 ;; \
+    esac; \
     curl -fsSL -o /tmp/agentsh.deb \
       "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_${arch}.deb" && \
+    echo "${agentsh_sha256}  /tmp/agentsh.deb" | sha256sum -c - && \
     dpkg -i /tmp/agentsh.deb && \
     rm /tmp/agentsh.deb && \
     agentsh --version && \
@@ -107,6 +127,11 @@ RUN chmod +x /tmp/install-skills.sh && \
 # GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
 RUN git config --global user.email "code@posthog.com" && \
     git config --global user.name "PostHog Code"
+
+# Block `git commit`/`git push` so unsigned commits cannot leave the sandbox
+COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
+RUN chmod +x /opt/posthog/bin/git
+ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1

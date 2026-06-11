@@ -76,6 +76,7 @@ function createMockPostgres(): jest.Mocked<PersonRepository> {
         fetchPerson: jest.fn(),
         fetchPersonsByDistinctIds: jest.fn(),
         fetchPersonsByPersonIds: jest.fn(),
+        fetchDistinctIdsForPersons: jest.fn(),
         createPerson: jest.fn(),
         updatePerson: jest.fn(),
         updatePersonAssertVersion: jest.fn(),
@@ -124,6 +125,11 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             upsertHashKeyOverrides: () => ({}),
             deleteHashKeyOverridesByTeams: () => ({}),
             checkCohortMembership: () => ({ memberships: [] }),
+            countCohortMembers: () => ({ count: 0n }),
+            deleteCohortMember: () => ({ deleted: false }),
+            deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+            insertCohortMembers: () => ({ insertedCount: 0n }),
+            listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
             updatePersonProperties: () => ({}),
         })
     })
@@ -213,7 +219,8 @@ describe('PersonHogPersonRepository', () => {
                 } else {
                     expect(mockPostgres.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
                         [{ teamId: TEAM_ID, distinctId: 'user-123' }],
-                        true
+                        true,
+                        undefined
                     )
                     expect(handlers.getPersonsByDistinctIds).not.toHaveBeenCalled()
                 }
@@ -250,7 +257,8 @@ describe('PersonHogPersonRepository', () => {
                 } else {
                     expect(mockPostgres.fetchPersonsByPersonIds).toHaveBeenCalledWith(
                         [{ teamId: TEAM_ID, personId: TEST_PERSON.uuid }],
-                        true
+                        true,
+                        undefined
                     )
                     expect(handlers.getPersonsByUuids).not.toHaveBeenCalled()
                 }

@@ -71,7 +71,6 @@ const meta: Meta<StoryArgs> = {
                     isAuthenticated: props.unauthenticated ?? true,
                     supportedCompression: ['gzip', 'gzip-js', 'lz64'],
                     featureFlags: {
-                        'web-experiments': true,
                         'web-vitals': true,
                         'web-vitals-toolbar': true,
                     },
@@ -80,6 +79,7 @@ const meta: Meta<StoryArgs> = {
                     },
                 },
                 '/api/element/stats/': listHeatmapStatsAPIResponse,
+                '/api/heatmap/': { results: [] },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,

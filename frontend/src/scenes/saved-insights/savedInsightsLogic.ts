@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
@@ -8,10 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -32,7 +29,11 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
+export interface SavedInsightListItem extends QueryBasedInsightModel {
+    search_match_type?: 'exact' | 'similar' | null
+}
+
+export interface InsightsResult extends CountedPaginatedResponse<SavedInsightListItem> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */
@@ -83,10 +84,8 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
-    tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
-        actions: [listSelectionLogic({ resource: 'insights' }), ['bulkUpdateTagsSuccess']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -144,7 +143,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             results: [insight, ...response.results],
                             filters,
                             offset: params.offset,
-                        } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
+                        } as InsightsResult
                     } catch {
                         // no insight with this ID found, discard
                     }
@@ -163,7 +162,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     ...response,
                     filters,
                     offset: params.offset,
-                } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
+                } as InsightsResult
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await insightsApi.update(insight.id, {
@@ -381,11 +380,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 actions.loadInsights()
             }
         },
-        bulkUpdateTagsSuccess: () => {
-            actions.loadInsights()
-        },
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -414,7 +410,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             loadInsights: changeUrl,
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

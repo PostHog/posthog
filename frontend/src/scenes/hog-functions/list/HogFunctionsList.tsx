@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconBell } from '@posthog/icons'
@@ -47,10 +47,14 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'error-tracking': {
         label: 'Error tracking',
-        url: urls.settings('environment-error-tracking', 'error-tracking-alerting'),
+        url: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
+    'health-alerts': {
+        label: 'Health alerts',
+        url: urls.healthAlerts(),
+    },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
@@ -90,14 +94,17 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
     )
 }
 
-const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+// `returnTo` only applies to the canonical hog-function path; legacy plugin and
+// batch-export scenes don't read it.
+export const urlForHogFunction = (hogFunction: HogFunctionType, returnTo?: string): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
     }
     if (hogFunction.id.startsWith('batch-export-')) {
         return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }
-    return urls.hogFunction(hogFunction.id)
+    const path = urls.hogFunction(hogFunction.id)
+    return returnTo ? combineUrl(path, { returnTo }).url : path
 }
 
 export function HogFunctionList({
@@ -106,6 +113,7 @@ export function HogFunctionList({
     emptyText,
     onDeleteHogFunction,
     onEditHogFunction,
+    returnTo,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
@@ -113,6 +121,7 @@ export function HogFunctionList({
     emptyText?: string
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
+    returnTo?: string
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -145,13 +154,14 @@ export function HogFunctionList({
             {
                 title: 'Name',
                 sticky: true,
-                sorter: true,
+                sorter: (a, b) =>
+                    (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true }),
                 key: 'name',
                 dataIndex: 'name',
                 render: (_, hogFunction) => {
                     return (
                         <LemonTableLink
-                            to={urlForHogFunction(hogFunction)}
+                            to={urlForHogFunction(hogFunction, returnTo)}
                             onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
@@ -238,7 +248,7 @@ export function HogFunctionList({
                                                   // TRICKY: Hack for now to just link out to the full view
                                                   {
                                                       label: 'View & configure',
-                                                      to: urlForHogFunction(hogFunction),
+                                                      to: urlForHogFunction(hogFunction, returnTo),
                                                   },
                                               ]
                                             : [
@@ -294,10 +304,11 @@ export function HogFunctionList({
         isManualFunction,
         onDeleteHogFunction,
         onEditHogFunction,
+        returnTo,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <div className="@container flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
             <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
@@ -306,31 +317,25 @@ export function HogFunctionList({
                     onChange={(e) => setFilters({ search: e })}
                 />
                 {!hideFeedback ? (
-                    <Link
-                        className="hidden @lg:inline text-sm font-semibold"
-                        subtle
-                        onClick={() => openFeedbackDialog(props.type)}
-                    >
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <div className="hidden @lg:flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
+                <div className="flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
                     <span className="text-xs xl:text-sm">Created by:</span>
                     <MemberSelect
                         value={filters.createdBy || null}
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
-                <div className="hidden @lg:block">
-                    <LemonCheckbox
-                        label="Show paused"
-                        bordered
-                        size="small"
-                        checked={filters.showPaused}
-                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                    />
-                </div>
+                <LemonCheckbox
+                    label="Show paused"
+                    bordered
+                    size="small"
+                    checked={filters.showPaused}
+                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                />
                 {extraControls}
             </div>
 

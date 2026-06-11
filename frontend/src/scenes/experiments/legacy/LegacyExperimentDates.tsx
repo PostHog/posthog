@@ -1,17 +1,15 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Label } from 'lib/ui/Label/Label'
 
-import { experimentLogic } from '../experimentLogic'
-import { LegacyExperimentDate } from './LegacyExperimentDate'
+import { LegacyExperimentDate, legacyExperimentLogic } from '~/scenes/experiments/legacy'
 
 /**
  * @deprecated use the ExperimentDuration component instead
  */
 export function LegacyExperimentDates(): JSX.Element | null {
-    const { experiment } = useValues(experimentLogic)
-    const { changeExperimentStartDate, changeExperimentEndDate } = useActions(experimentLogic)
+    const { experiment } = useValues(legacyExperimentLogic)
     const { created_at, start_date, end_date } = experiment
 
     // If the experiment has no start date and no creation date, don't show anything
@@ -33,19 +31,8 @@ export function LegacyExperimentDates(): JSX.Element | null {
     // If the experiment has a start date, show the start date and end date
     return (
         <>
-            <LegacyExperimentDate
-                label="Start Date"
-                date={start_date}
-                data-attr="experiment-start-date"
-                onChange={changeExperimentStartDate}
-            />
-            <LegacyExperimentDate
-                label="End Date"
-                date={end_date}
-                data-attr="experiment-end-date"
-                selectionLimitDate={start_date}
-                onChange={changeExperimentEndDate}
-            />
+            <LegacyExperimentDate label="Start Date" date={start_date} data-attr="experiment-start-date" />
+            <LegacyExperimentDate label="End Date" date={end_date} data-attr="experiment-end-date" />
         </>
     )
 }

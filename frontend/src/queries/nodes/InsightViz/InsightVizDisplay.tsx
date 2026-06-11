@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -128,7 +129,6 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
         useValues(insightLogic)
-    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -150,9 +150,10 @@ export function InsightVizDisplay({
         series,
         insightData,
         validationError,
+        validationErrorCode,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
-    const { loadData } = useActions(insightVizDataLogic(insightProps))
+    const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
@@ -192,13 +193,35 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
+            const isUnsupportedDataWarehouseSettings =
+                validationErrorCode === 'data_warehouse_series_unsupported_settings'
+            const resetCta = isUnsupportedDataWarehouseSettings ? (
+                <LemonButton
+                    type="primary"
+                    loading={insightDataLoading}
+                    onClick={() =>
+                        updateQuerySource({
+                            filterTestAccounts: false,
+                            properties: undefined,
+                            samplingFactor: undefined,
+                        })
+                    }
+                >
+                    Reset unsupported settings
+                </LemonButton>
+            ) : undefined
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
-                    onRetry={() => {
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }}
+                    onRetry={
+                        resetCta
+                            ? undefined
+                            : () => {
+                                  loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                              }
+                    }
+                    cta={resetCta}
                 />
             )
         }
@@ -381,11 +404,6 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Check feature flag
-        if (!hasAIAnalysis) {
-            return null
-        }
-
         // Only show in view mode
         if (editMode) {
             return null
@@ -401,7 +419,7 @@ export function InsightVizDisplay({
             return null
         }
 
-        return <InsightAIAnalysis query={querySource} />
+        return <InsightAIAnalysis />
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor

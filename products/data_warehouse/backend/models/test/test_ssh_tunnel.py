@@ -1,6 +1,6 @@
 import pytest
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 
 
 @pytest.mark.parametrize("port,expected", [(5432, True), (80, False), (443, False)])

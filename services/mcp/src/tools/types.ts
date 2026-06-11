@@ -1,17 +1,23 @@
 import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
-import type { ApiRedactedPersonalApiKey } from '@/schema/api'
+import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 
 export type CloudRegion = 'us' | 'eu'
 
 export type SessionState = {
     uuid: string
 }
+
+export type CachedUser = ApiUser
+export type CachedOrg = Schemas.OrganizationBasic
+export type CachedProject = Schemas.ProjectBackwardCompat
 
 export type State = {
     projectId: string | undefined
@@ -20,18 +26,22 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
-    aiConsentGiven: boolean | undefined
-    aiConsentFetchedAt: number | undefined
+    mcpClientName: string | undefined
+    mcpClientVersion: string | undefined
+    mcpProtocolVersion: string | undefined
+    mcpConsumer: string | undefined
+    mcpVendorClient: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
-    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined>
+    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedUser'>, CachedUser | undefined> &
+    Record<PrefixedString<'cachedUserFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &
+    Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
+    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined>
 
 export type Env = {
-    /**
-     * Inkeep API key for the PostHog Agent Toolkit.
-     * Setting this enables the 'docs-search' tool.
-     */
-    INKEEP_API_KEY: string | undefined
     /**
      * Custom API base URL for self-hosted PostHog instances.
      *
@@ -40,6 +50,16 @@ export type Env = {
      * Only set this for self-hosted PostHog deployments.
      */
     POSTHOG_API_BASE_URL: string | undefined
+    /**
+     * Public-facing PostHog URL used when rendering links the user clicks
+     * (e.g. `_posthogUrl` in tool responses).
+     *
+     * When `POSTHOG_API_BASE_URL` is set to a cluster-internal hostname for outbound
+     * API traffic (the Hono deployment in PostHog Production), this should be set to
+     * the corresponding public URL (e.g. https://us.posthog.com) so rendered links
+     * remain clickable. Falls back to `POSTHOG_API_BASE_URL` when unset.
+     */
+    POSTHOG_PUBLIC_URL: string | undefined
     /**
      * Base URL for serving MCP UI app static assets.
      * When using Workers Static Assets, this is the Worker's own public URL.
@@ -73,6 +93,20 @@ export type Context = {
     env: Env
     stateManager: StateManager
     sessionManager: SessionManager
+    /**
+     * Resolve the current user's PostHog distinct ID. Cached by the MCP class —
+     * safe to call repeatedly. Exposed on the context so tool handlers (e.g. the
+     * exec wrapper) can attach `_analytics` without depending on the MCP class.
+     */
+    getDistinctId: () => Promise<string>
+    /**
+     * Capture a PostHog analytics event with the same context (mcp_client_name,
+     * session id, $groups, etc.) that the MCP class attaches to its own events.
+     * Best-effort — never throws and silently swallows failures so analytics
+     * cannot fail a tool call. Workspace context is auto-resolved from the
+     * stateManager when not provided.
+     */
+    trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
@@ -96,8 +130,6 @@ export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> =
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
-    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
-    mcpVersion?: number
 }
 
 export type ZodObjectAny = z.ZodType<any>
@@ -111,8 +143,13 @@ export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 
 export type PostHogToolMeta = {
-    /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
-    responseFormat?: 'json'
+    /**
+     * Output format for the tool response.
+     * `'optimized'` surfaces the LLM-friendly formatter output (from `ee/hogai/context/insight/format/`)
+     * via `formatted_results` when available; `'json'` returns raw JSON-stringified content. When unset,
+     * the text content is TOON-encoded by default.
+     */
+    outputFormat?: 'optimized' | 'json'
 }
 
 export type ToolMeta = {

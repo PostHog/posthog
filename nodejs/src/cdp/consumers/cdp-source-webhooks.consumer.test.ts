@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -111,13 +112,18 @@ describe('SourceWebhooksConsumer', () => {
 
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
+        let mockQueueHogflowInvocationsSpy: jest.SpyInstance
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, createCdpConsumerDeps(hub))
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
-            mockQueueInvocationsSpy = jest.spyOn(
-                api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],
+            mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
+            mockQueueHogflowInvocationsSpy = jest.spyOn(
+                api['cdpSourceWebhooksConsumer']['hogflowQueue'],
                 'queueInvocations'
             )
             app = setupExpressApp()
@@ -475,8 +481,8 @@ describe('SourceWebhooksConsumer', () => {
                     status: 'queued',
                 })
                 expect(mockExecuteSpy).toHaveBeenCalledTimes(1)
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
                 expect(call.queue).toEqual('hogflow')
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
@@ -530,9 +536,9 @@ describe('SourceWebhooksConsumer', () => {
                 // (this is what actually captures the event)
                 expect(mockQueueInvocationResults).not.toHaveBeenCalled()
 
-                // Verify the workflow invocation was queued
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                // Verify the workflow invocation was queued to hogflowQueue
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const invocation = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
 
                 expect(invocation.state.event).toMatchObject({
                     event: 'my-event',

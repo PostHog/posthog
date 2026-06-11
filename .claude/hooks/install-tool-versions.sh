@@ -55,7 +55,7 @@ print(uv_ver, python_ver, pnpm_ver)
 CURRENT_UV=$(uv --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
 
 if [ -n "$REQUIRED_UV" ]; then
-    # ~= means compatible release: ~=0.10.2 allows >=0.10.2, <0.11.0
+    # ~= means compatible release: ~=0.11.11 allows >=0.11.11, <0.12.0
     REQ_MAJOR_MINOR=$(echo "$REQUIRED_UV" | cut -d. -f1,2)
     CUR_MAJOR_MINOR=$(echo "$CURRENT_UV" | cut -d. -f1,2)
     if [ "$CUR_MAJOR_MINOR" != "$REQ_MAJOR_MINOR" ] || [ "$(printf '%s\n' "$REQUIRED_UV" "$CURRENT_UV" | sort -V | head -1)" != "$REQUIRED_UV" ]; then

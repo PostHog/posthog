@@ -47,6 +47,9 @@
                           $virt_bot_name: {
                             hidden: False
                           },
+                          $virt_bot_operator: {
+                            hidden: False
+                          },
                           $virt_is_bot: {
                             hidden: False
                           },
@@ -325,7 +328,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -338,6 +340,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -361,6 +366,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -381,7 +388,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -394,6 +400,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -417,6 +426,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -437,7 +448,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -450,6 +460,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -473,6 +486,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -493,7 +508,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -506,6 +520,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -529,6 +546,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -573,7 +592,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -586,6 +604,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -609,6 +630,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -629,7 +652,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -642,6 +664,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -665,6 +690,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -685,7 +712,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -698,6 +724,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -721,6 +750,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -1506,7 +1537,6 @@
                                     "distinct_id"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
                                   join_table: {
                                     fields: {
                                       distinct_id: {
@@ -1527,6 +1557,8 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
+                                  resolver: "person_distinct_id_overrides",
+                                  resolver_params: {},
                                   to_field: None
                                 }
                                 table_type: <recursion ...>
@@ -1585,7 +1617,6 @@
                             "distinct_id"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               distinct_id: {
@@ -1606,6 +1637,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "person_distinct_id_overrides",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -1844,7 +1877,6 @@
                                     "fingerprint"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
                                   join_table: {
                                     fields: {
                                       fingerprint: {
@@ -1862,6 +1894,8 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
+                                  resolver: "error_tracking_issue_fingerprint_overrides",
+                                  resolver_params: {},
                                   to_field: None
                                 }
                                 table_type: <recursion ...>
@@ -1920,7 +1954,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               fingerprint: {
@@ -1938,6 +1971,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_issue_fingerprint_overrides",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -2251,6 +2286,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {
@@ -2603,7 +2641,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -2624,6 +2661,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -2685,7 +2724,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -2706,6 +2744,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -3039,7 +3079,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -3057,6 +3096,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -3118,7 +3159,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -3136,6 +3176,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -3251,7 +3293,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3264,6 +3305,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3287,6 +3331,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3326,7 +3372,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3339,6 +3384,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3362,6 +3410,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3401,7 +3451,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3414,6 +3463,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3437,6 +3489,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3476,7 +3530,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3489,6 +3542,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3512,6 +3568,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3551,7 +3609,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3564,6 +3621,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3587,6 +3647,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3626,7 +3688,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3639,6 +3700,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3662,6 +3726,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3701,7 +3767,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3714,6 +3779,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -3737,6 +3805,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -4927,6 +4997,9 @@
                           $virt_bot_name: {
                             hidden: False
                           },
+                          $virt_bot_operator: {
+                            hidden: False
+                          },
                           $virt_is_bot: {
                             hidden: False
                           },
@@ -5205,7 +5278,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5218,6 +5290,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5241,6 +5316,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5261,7 +5338,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5274,6 +5350,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5297,6 +5376,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5317,7 +5398,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5330,6 +5410,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5353,6 +5436,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5373,7 +5458,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5386,6 +5470,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5409,6 +5496,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5453,7 +5542,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5466,6 +5554,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5489,6 +5580,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5509,7 +5602,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5522,6 +5614,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5545,6 +5640,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -5565,7 +5662,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -5578,6 +5674,9 @@
                                 hidden: False
                               },
                               first_seen: {
+                                hidden: False
+                              },
+                              fp_hash: {
                                 hidden: False
                               },
                               issue_description: {
@@ -5601,6 +5700,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -6387,7 +6488,6 @@
                                       "distinct_id"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
                                     join_table: {
                                       fields: {
                                         distinct_id: {
@@ -6408,6 +6508,8 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
+                                    resolver: "person_distinct_id_overrides",
+                                    resolver_params: {},
                                     to_field: None
                                   }
                                   table_type: <recursion ...>
@@ -6466,7 +6568,6 @@
                               "distinct_id"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 distinct_id: {
@@ -6487,6 +6588,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "person_distinct_id_overrides",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -6725,7 +6828,6 @@
                                       "fingerprint"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
                                     join_table: {
                                       fields: {
                                         fingerprint: {
@@ -6743,6 +6845,8 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
+                                    resolver: "error_tracking_issue_fingerprint_overrides",
+                                    resolver_params: {},
                                     to_field: None
                                   }
                                   table_type: <recursion ...>
@@ -6801,7 +6905,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 fingerprint: {
@@ -6819,6 +6922,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_issue_fingerprint_overrides",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -7086,6 +7191,9 @@
                               hidden: False
                             },
                             $virt_bot_name: {
+                              hidden: False
+                            },
+                            $virt_bot_operator: {
                               hidden: False
                             },
                             $virt_is_bot: {
@@ -7435,7 +7543,6 @@
                                           "distinct_id"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
                                         join_table: {
                                           fields: {
                                             distinct_id: {
@@ -7456,6 +7563,8 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
+                                        resolver: "person_distinct_id_overrides",
+                                        resolver_params: {},
                                         to_field: None
                                       }
                                       table_type: <recursion ...>
@@ -7517,7 +7626,6 @@
                                   "distinct_id"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
                                 join_table: {
                                   fields: {
                                     distinct_id: {
@@ -7538,6 +7646,8 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
+                                resolver: "person_distinct_id_overrides",
+                                resolver_params: {},
                                 to_field: None
                               }
                               table_type: <recursion ...>
@@ -7871,7 +7981,6 @@
                                           "fingerprint"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
                                         join_table: {
                                           fields: {
                                             fingerprint: {
@@ -7889,6 +7998,8 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
+                                        resolver: "error_tracking_issue_fingerprint_overrides",
+                                        resolver_params: {},
                                         to_field: None
                                       }
                                       table_type: <recursion ...>
@@ -7950,7 +8061,6 @@
                                   "fingerprint"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
                                 join_table: {
                                   fields: {
                                     fingerprint: {
@@ -7968,6 +8078,8 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
+                                resolver: "error_tracking_issue_fingerprint_overrides",
+                                resolver_params: {},
                                 to_field: None
                               }
                               table_type: <recursion ...>
@@ -8083,7 +8195,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8096,6 +8207,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8119,6 +8233,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8158,7 +8274,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8171,6 +8286,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8194,6 +8312,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8233,7 +8353,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8246,6 +8365,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8269,6 +8391,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8308,7 +8432,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8321,6 +8444,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8344,6 +8470,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8383,7 +8511,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8396,6 +8523,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8419,6 +8549,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8458,7 +8590,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8471,6 +8602,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8494,6 +8628,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8533,7 +8669,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 assigned_role_id: {
@@ -8546,6 +8681,9 @@
                                   hidden: False
                                 },
                                 first_seen: {
+                                  hidden: False
+                                },
+                                fp_hash: {
                                   hidden: False
                                 },
                                 issue_description: {
@@ -8569,6 +8707,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_fingerprint_issue_state",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -8968,6 +9108,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -9315,7 +9458,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -9336,6 +9478,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -9397,7 +9541,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -9418,6 +9561,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -9751,7 +9896,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -9769,6 +9913,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -9830,7 +9976,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -9848,6 +9993,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -9963,7 +10110,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -9976,6 +10122,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -9999,6 +10148,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10038,7 +10189,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10051,6 +10201,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10074,6 +10227,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10113,7 +10268,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10126,6 +10280,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10149,6 +10306,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10188,7 +10347,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10201,6 +10359,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10224,6 +10385,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10263,7 +10426,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10276,6 +10438,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10299,6 +10464,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10338,7 +10505,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10351,6 +10517,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10374,6 +10543,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10413,7 +10584,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10426,6 +10596,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -10449,6 +10622,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10564,6 +10739,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -10914,7 +11092,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -10935,6 +11112,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -10996,7 +11175,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -11017,6 +11195,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -11350,7 +11530,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -11368,6 +11547,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -11429,7 +11610,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -11447,6 +11627,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -11562,7 +11744,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11575,6 +11756,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11598,6 +11782,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11637,7 +11823,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11650,6 +11835,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11673,6 +11861,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11712,7 +11902,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11725,6 +11914,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11748,6 +11940,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11787,7 +11981,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11800,6 +11993,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11823,6 +12019,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11862,7 +12060,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11875,6 +12072,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11898,6 +12098,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11937,7 +12139,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11950,6 +12151,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -11973,6 +12177,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -12012,7 +12218,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12025,6 +12230,9 @@
                         hidden: False
                       },
                       first_seen: {
+                        hidden: False
+                      },
+                      fp_hash: {
                         hidden: False
                       },
                       issue_description: {
@@ -12048,6 +12256,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -12164,6 +12374,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -12402,6 +12615,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -12913,7 +13129,11 @@
           nullable: False
           repeat: False
         }
-        value: (1, 2, 3)
+        value: (
+          1,
+          2,
+          3
+        )
       }
     ]
     type: {
@@ -12965,6 +13185,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {
@@ -13239,6 +13462,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -13517,6 +13743,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -13835,6 +14064,9 @@
                                 hidden: False
                               },
                               $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_bot_operator: {
                                 hidden: False
                               },
                               $virt_is_bot: {
@@ -14161,6 +14393,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -14330,8 +14565,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: {
@@ -14341,7 +14577,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14362,6 +14597,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "person_distinct_ids",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -14445,6 +14682,9 @@
                     $virt_bot_name: {
                       hidden: False
                     },
+                    $virt_bot_operator: {
+                      hidden: False
+                    },
                     $virt_is_bot: {
                       hidden: False
                     },
@@ -14616,8 +14856,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: {
@@ -14627,7 +14868,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14648,6 +14888,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "person_distinct_ids",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -14728,6 +14970,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {
@@ -14898,7 +15143,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -14919,6 +15163,8 @@
                   top_level_settings: None,
                   workload: None
                 },
+                resolver: "person_distinct_ids",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -14999,6 +15245,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -15171,7 +15420,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15192,6 +15440,8 @@
                   top_level_settings: None,
                   workload: None
                 },
+                resolver: "person_distinct_ids",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -15294,8 +15544,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -15375,6 +15626,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -15610,6 +15864,9 @@
                           hidden: False
                         },
                         $virt_bot_name: {
+                          hidden: False
+                        },
+                        $virt_bot_operator: {
                           hidden: False
                         },
                         $virt_is_bot: {
@@ -15857,6 +16114,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {

@@ -156,11 +156,11 @@ class TracedScorer(Scorer):
 
         original_client = getattr(self._inner, "client", None) if has_client else None
         if has_client:
-            self._inner.client = self._traced_clients.openai_llm_client
+            self._inner.client = self._traced_clients.openai_llm_client  # ty: ignore[invalid-assignment]
 
         original_anthropic = getattr(self._inner, "anthropic_client", None) if has_anthropic else None
         if has_anthropic:
-            self._inner.anthropic_client = self._traced_clients.anthropic_client
+            self._inner.anthropic_client = self._traced_clients.anthropic_client  # ty: ignore[invalid-assignment]
 
         ctx = {"trace_id": scorer_trace_id, **self._eval_metadata} if scorer_trace_id else None
         token = _scorer_context.set(ctx)
@@ -169,9 +169,9 @@ class TracedScorer(Scorer):
         finally:
             _scorer_context.reset(token)
             if has_client:
-                self._inner.client = original_client
+                self._inner.client = original_client  # ty: ignore[invalid-assignment]
             if has_anthropic:
-                self._inner.anthropic_client = original_anthropic
+                self._inner.anthropic_client = original_anthropic  # ty: ignore[invalid-assignment]
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
         case_name = _case_name_from_kwargs(kwargs)

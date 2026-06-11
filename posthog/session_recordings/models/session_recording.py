@@ -179,7 +179,7 @@ class SessionRecording(UUIDTModel):
                 logger.warning("personhog_load_person_failure", team_id=self.team.pk, exc_info=True)
 
         try:
-            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
+            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(  # nosemgrep: no-direct-persons-db-orm
                 persondistinctid__distinct_id=self.distinct_id,
                 persondistinctid__team_id=self.team.pk,
                 team=self.team,

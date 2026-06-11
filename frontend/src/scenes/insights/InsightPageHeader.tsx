@@ -4,9 +4,8 @@ import { useMemo } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
@@ -18,18 +17,37 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isDataVisualizationNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isGroupsQuery,
+    isInsightQueryNode,
+} from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
+import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
+
+function supportsMetadataGeneration(node: Record<string, any> | null): boolean {
+    return isInsightQueryNode(node) || isActorsQuery(node) || isEventsQuery(node) || isGroupsQuery(node)
+}
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { insightMode, filtersOverride, variablesOverride, dashboardId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
-        useValues(insightLogic(insightLogicProps))
+    const {
+        insightProps,
+        canEditInsight,
+        insight,
+        insightChanged,
+        insightSaving,
+        // `dashboardItemId` is legacy naming for the insight's own short_id — this is true when the insight is saved, not when it's on a dashboard
+        hasDashboardItemId: isSavedInsight,
+        insightLoading,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -38,9 +56,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightDataLogic(insightProps)
     )
     const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
     const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -54,7 +69,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const readDataMaxToolProps = useMemo(
         () =>
-            hasDashboardItemId && insight?.short_id
+            isSavedInsight && insight?.short_id
                 ? {
                       identifier: 'read_data' as const,
                       context: {
@@ -67,12 +82,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                       },
                   }
                 : undefined,
-        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+        [isSavedInsight, insight?.short_id, insight?.id, insightDisplayName, query]
     )
 
     useMaxTool({
         identifier: 'upsert_alert',
-        active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
+        active: canCreateAlertForInsight && isSavedInsight && !!insight.id,
         context: useMemo(
             () => ({
                 insight_id: insight.id,
@@ -86,6 +101,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     return (
         <>
             <InsightSidePanelContent insightLogicProps={insightLogicProps} />
+            <InsightSceneMenuBar insightLogicProps={insightLogicProps} />
 
             <SceneTitleSection
                 name={defaultInsightName || ''}
@@ -107,18 +123,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
-                onGenerateMetadata={canAccessAutoname && insightQuery ? generateInsightMetadata : undefined}
-                isGeneratingMetadata={canAccessAutoname && generatedInsightMetadataLoading}
+                onGenerateMetadata={supportsMetadataGeneration(insightQuery) ? generateInsightMetadata : undefined}
+                isGeneratingMetadata={generatedInsightMetadataLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
-                saveOnBlur
+                saveOnBlur={insightMode !== ItemMode.Edit}
                 descriptionMaxLength={400}
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
-                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
+                        {insightMode === ItemMode.Edit && isSavedInsight && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
@@ -130,6 +146,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             >
                                 Cancel
                             </LemonButton>
+                        )}
+
+                        {insightMode !== ItemMode.Edit && isSavedInsight && insight.short_id && (
+                            <InsightSubscribeProminentButton insightShortId={insight.short_id} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -177,7 +197,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         ? saveInsight(redirectToViewMode)
                                         : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
                                 }
-                                isSaved={hasDashboardItemId}
+                                isSaved={isSavedInsight}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}

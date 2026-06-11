@@ -1,21 +1,18 @@
 import os
 import json
-from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
 import openai
 import structlog
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.responses import Response as OpenAIResponse
 from prometheus_client import Histogram
 
 from posthog.temporal.session_replay.session_summary.state import generate_state_id_from_session_ids
 
 from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
+from ee.hogai.session_summaries.llm.call import call_llm
 from ee.hogai.session_summaries.session.output_data import (
     SessionSummaryIssueTypes,
     SessionSummarySerializer,
@@ -61,17 +58,9 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk | OpenAIResponse) -> str:
-    """Return text content from a ChatCompletion or streaming chunk."""
-    if isinstance(llm_response, OpenAIResponse):
-        return llm_response.output_text
-    if not llm_response or not llm_response.choices:
-        return ""  # If no choices generated yet
-    if isinstance(llm_response, ChatCompletion):
-        content = llm_response.choices[0].message.content
-    elif isinstance(llm_response, ChatCompletionChunk):
-        content = llm_response.choices[0].delta.content
-    return content if content else ""
+def get_raw_content(llm_response: OpenAIResponse) -> str:
+    """Return text content from an OpenAI Response."""
+    return llm_response.output_text
 
 
 def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializer) -> list[str]:
@@ -103,20 +92,15 @@ def _convert_llm_content_to_session_summary(
     summary_prompt: str,
     session_start_time_str: str,
     session_duration: int,
-    final_validation: bool = False,
 ) -> SessionSummarySerializer | None:
     """Parse and enrich LLM YAML output, returning a schema object."""
-    # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
         raw_content=content,
         allowed_event_ids=allowed_event_ids,
         session_id=session_id,
-        final_validation=final_validation,
     )
     if not raw_session_summary:
-        # If parsing fails, this chunk is incomplete or call response is hallucinated, so skipping it.
         return None
-    # Enrich session summary with events metadata
     session_summary = enrich_raw_session_summary_with_meta(
         raw_session_summary=raw_session_summary,
         simplified_events_mapping=simplified_events_mapping,
@@ -127,11 +111,10 @@ def _convert_llm_content_to_session_summary(
         session_start_time_str=session_start_time_str,
         session_duration=session_duration,
         session_id=session_id,
-        final_validation=final_validation,
     )
 
     # Track generation for history of experiments. Don't run in tests.
-    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
+    if os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
         _track_session_summary_generation(
             summary_prompt=summary_prompt,
             raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
@@ -215,7 +198,7 @@ async def get_llm_session_group_patterns_combination(
         input_prompt=prompt.patterns_prompt,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_SYNC_MODEL,
+        model=SESSION_SUMMARIES_MODEL,
         trace_id=trace_id,
         user_id=user_id,
         user_distinct_id=user_distinct_id,
@@ -278,13 +261,12 @@ async def get_llm_single_session_summary(
             session_start_time_str=session_start_time_str,
             session_duration=session_duration,
             summary_prompt=summary_prompt,
-            final_validation=True,
         )
         if not session_summary:
             msg = f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
             logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
             raise ValueError(msg)
-        # If parsing succeeds, yield the new chunk
+        # Return the parsed session summary
         return session_summary
     except (SummaryValidationError, ValueError) as err:
         # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).
@@ -300,141 +282,6 @@ async def get_llm_single_session_summary(
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
             f"Error calling LLM for session_id {session_id} by user {user_id}: {err}",
-            session_id=session_id,
-            user_id=user_id,
-            signals_type="session-summaries",
-        )
-        raise ExceptionToRetry() from err
-
-
-async def stream_llm_single_session_summary(
-    summary_prompt: str,
-    user_id: int,
-    model_to_use: str,
-    allowed_event_ids: list[str],
-    session_id: str,
-    simplified_events_mapping: dict[str, list[Any]],
-    event_ids_mapping: dict[str, str],
-    simplified_events_columns: list[str],
-    url_mapping_reversed: dict[str, str],
-    window_mapping_reversed: dict[str, str],
-    session_start_time_str: str,
-    session_duration: int,
-    system_prompt: str | None = None,
-    trace_id: str | None = None,
-    user_distinct_id: str | None = None,
-    trigger_session_id: str | None = None,
-) -> AsyncGenerator[str, None]:
-    """Stream LLM summary for a session, yielding JSON chunks."""
-    try:
-        accumulated_content = ""
-        accumulated_usage = 0
-        stream = await stream_llm(
-            input_prompt=summary_prompt,
-            session_id=session_id,
-            system_prompt=system_prompt,
-            trace_id=trace_id,
-            model=model_to_use,
-            user_id=user_id,
-            user_distinct_id=user_distinct_id,
-            trigger_session_id=trigger_session_id,
-        )
-        async for chunk in stream:
-            accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
-            raw_content = get_raw_content(chunk)
-            if not raw_content:
-                # If no content provided yet (for example, first streaming response), skip the chunk
-                continue
-            accumulated_content += raw_content
-            try:
-                intermediate_summary = _convert_llm_content_to_session_summary(
-                    content=accumulated_content,
-                    allowed_event_ids=allowed_event_ids,
-                    session_id=session_id,
-                    simplified_events_mapping=simplified_events_mapping,
-                    event_ids_mapping=event_ids_mapping,
-                    simplified_events_columns=simplified_events_columns,
-                    url_mapping_reversed=url_mapping_reversed,
-                    window_mapping_reversed=window_mapping_reversed,
-                    session_start_time_str=session_start_time_str,
-                    session_duration=session_duration,
-                    summary_prompt=summary_prompt,
-                    final_validation=False,
-                )
-                if not intermediate_summary:
-                    continue
-                intermediate_summary_str = json.dumps(intermediate_summary.data)
-                # If parsing succeeds, yield the new chunk
-                yield intermediate_summary_str
-            except SummaryValidationError:
-                # We can accept incorrect schemas because of incomplete chunks, ok to skip some.
-                # The stream should be retried only at the very end, when we have all the data.
-                continue
-            except ValueError as err:
-                # The only way to raise ValueError is data hallucinations and inconsistencies (like missing mapping data).
-                # Such exceptions should be retried as early as possible to decrease the latency of the stream.
-                logger.exception(
-                    f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (stream): {err}",
-                    session_id=session_id,
-                    user_id=user_id,
-                    signals_type="session-summaries",
-                )
-                raise ExceptionToRetry() from err
-    except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
-        # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
-        logger.exception(
-            f"Error streaming LLM for session_id {session_id} by user {user_id}: {err}",
-            session_id=session_id,
-            user_id=user_id,
-            signals_type="session-summaries",
-        )
-        raise ExceptionToRetry() from err
-    finally:
-        # Safety check to prevent hanging connections if the processing fails
-        if stream is not None:
-            try:
-                await stream.close()
-            except Exception:
-                logger.warning(
-                    "Failed to close LLM stream",
-                    session_id=session_id,
-                    user_id=user_id,
-                    signals_type="session-summaries",
-                )
-
-    # Final validation of accumulated content (to decide if to retry the whole stream or not)
-    try:
-        if accumulated_usage:
-            TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
-        final_summary = _convert_llm_content_to_session_summary(
-            content=accumulated_content,
-            allowed_event_ids=allowed_event_ids,
-            session_id=session_id,
-            simplified_events_mapping=simplified_events_mapping,
-            event_ids_mapping=event_ids_mapping,
-            simplified_events_columns=simplified_events_columns,
-            url_mapping_reversed=url_mapping_reversed,
-            window_mapping_reversed=window_mapping_reversed,
-            session_start_time_str=session_start_time_str,
-            session_duration=session_duration,
-            summary_prompt=summary_prompt,
-            final_validation=True,
-        )
-        if not final_summary:
-            logger.exception(
-                f"Final LLM content validation failed for session_id {session_id}",
-                session_id=session_id,
-                user_id=user_id,
-                signals_type="session-summaries",
-            )
-            raise ValueError("Final content validation failed")
-        final_summary_str = json.dumps(final_summary.data)
-        # If parsing succeeds, yield the final validated summary
-        yield final_summary_str
-    # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
-    except (SummaryValidationError, ValueError) as err:
-        logger.exception(
-            f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
             session_id=session_id,
             user_id=user_id,
             signals_type="session-summaries",

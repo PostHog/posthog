@@ -178,8 +178,8 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 return
             }
 
-            // Handle sequence shortcuts (no modifier keys, not in editable elements)
-            if (isEditableElement(event) || event.altKey) {
+            // Handle sequence shortcuts (no modifier keys, not in editable elements, not mid-IME-composition)
+            if (isEditableElement(event) || event.altKey || event.isComposing) {
                 return
             }
 

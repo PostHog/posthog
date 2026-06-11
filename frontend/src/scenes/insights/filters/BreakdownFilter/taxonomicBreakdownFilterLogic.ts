@@ -45,7 +45,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     connect((props: TaxonomicBreakdownFilterLogicProps) => ({
         values: [
             insightVizDataLogic(props.insightProps),
-            ['currentDataWarehouseSchemaColumns', 'hasDataWarehouseSeries'],
+            ['currentDataWarehouseSchemaColumns', 'hasDataWarehouseSeries', 'isSingleSeriesDefinition'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
             featureFlagLogic,
@@ -152,19 +152,23 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         addBreakdownDisabledReason: [
-            (s, p) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries, p.isFunnels],
+            (s, p) => [
+                s.breakdownFilter,
+                s.isMultipleBreakdownsEnabled,
+                s.hasDataWarehouseSeries,
+                p.isFunnels,
+                p.isTrends,
+                s.isSingleSeriesDefinition,
+            ],
             (
                 { breakdown, breakdowns, breakdown_type },
                 isMultipleBreakdownsEnabled,
                 hasDataWarehouseSeries,
-                isFunnels
+                isFunnels,
+                isTrends,
+                isSingleSeriesDefinition
             ): string | null => {
-                // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
-                if (
-                    isMultipleBreakdownsEnabled &&
-                    !hasDataWarehouseSeries &&
-                    (!breakdown_type || isMultipleBreakdownType(breakdown_type))
-                ) {
+                if (isMultipleBreakdownsEnabled && (!breakdown_type || isMultipleBreakdownType(breakdown_type))) {
                     if (!!breakdowns && breakdowns.length >= MAX_TRENDS_BREAKDOWNS) {
                         return `You can break down trends by up to ${MAX_TRENDS_BREAKDOWNS} properties. Remove one to add another.`
                     }
@@ -176,6 +180,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     isFunnels && breakdown_type === 'cohort' && Array.isArray(breakdown) && breakdown.length >= 1
                 if (hasFunnelCohortBreakdown) {
                     return 'Funnels support a single cohort breakdown. Remove the existing one to change it.'
+                }
+
+                if (isTrends && !isSingleSeriesDefinition && hasDataWarehouseSeries) {
+                    return 'Breakdowns are not supported for multiple series types when at least one of them is a data warehouse series.'
                 }
 
                 if (!Array.isArray(breakdown) && breakdown != null) {
@@ -221,6 +229,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownLimit: [
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
+        ],
+        // Cohort breakdowns are over a user-picked set, so there's nothing to truncate
+        // and no long-tail to bucket as "Other". The global options panel is empty in that case.
+        hasGlobalBreakdownOptions: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter) => breakdownFilter?.breakdown_type !== 'cohort',
         ],
         normalizeBreakdownUrl: [
             (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],

@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import cast
 
 from django.conf import settings
 
@@ -34,4 +35,4 @@ def duckgres_cursor() -> Iterator[psycopg.Cursor[DictRow]]:
     ) as conn:
         with conn.cursor() as cur:
             cur.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(_STATEMENT_TIMEOUT_MS)))
-            yield cur
+            yield cast(psycopg.Cursor[DictRow], cur)

@@ -20,7 +20,6 @@ from posthog.constants import (
     FunnelOrderType,
 )
 from posthog.models import Entity, Filter, Team
-from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
 from posthog.models.property.util import (
     box_value,
@@ -37,6 +36,8 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
 from posthog.utils import generate_short_id, relative_date_parse
+
+from products.actions.backend.models.util import format_action_filter
 
 
 class ClickhouseFunnelBase(ABC):
@@ -125,7 +126,7 @@ class ClickhouseFunnelBase(ABC):
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action(self._team.pk).name
         else:
-            name = step.id
+            name = str(step.id) if step.id is not None else None
 
         return {
             "action_id": step.id,
@@ -289,7 +290,6 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
-            settings={"enable_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -461,6 +461,8 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         for exclusion_id, entity in enumerate(self._filter.exclusions):
+            if entity.funnel_from_step is None:
+                continue
             step_cols = self._get_step_col(
                 entity,
                 entity.funnel_from_step,
@@ -817,10 +819,11 @@ class ClickhouseFunnelBase(ABC):
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
+            attribution_prop_alias = "prop_attribution"
             prop_conditional = (
-                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
+                f"notEmpty(arrayFilter(x -> notEmpty(x), {attribution_prop_alias}))"
                 if self._query_has_array_breakdown()
-                else "isNotNull(prop)"
+                else f"isNotNull({attribution_prop_alias})"
             )
 
             aggregate_operation = (
@@ -829,9 +832,13 @@ class ClickhouseFunnelBase(ABC):
                 else "argMaxIf"
             )
 
-            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            breakdown_window_selector = (
+                f"{aggregate_operation}({attribution_prop_alias}, timestamp, {prop_conditional})"
+            )
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window]), basic_prop_params
+            return ",".join(
+                [basic_prop_selector, f"prop_basic as {attribution_prop_alias}", prop_window]
+            ), basic_prop_params
         else:
             # ALL_EVENTS
             return ",".join([basic_prop_selector, "prop_basic as prop"]), basic_prop_params

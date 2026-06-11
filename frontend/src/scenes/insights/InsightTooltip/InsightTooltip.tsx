@@ -9,6 +9,7 @@ import { IconX } from '@posthog/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -136,13 +137,32 @@ export function InsightTooltip({
         weekStartDay,
     })
 
+    const shortFormattedDate = getFormattedDate(date, {
+        interval,
+        dateRange,
+        timezone,
+        weekStartDay,
+        short: true,
+    })
+
     const concreteTooltipTitle = altTitle ? getTooltipTitle(seriesData, altTitle, formattedDate) : null
+
+    const fullDateTitle = date
+        ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+        : null
 
     const title: ReactNode | null =
         concreteTooltipTitle ||
-        (date
-            ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
-            : null)
+        (date ? (
+            // Only the column-per-entity layout is width-constrained enough to need the date shortened.
+            itemizeEntitiesAsColumns ? (
+                <Tooltip title={fullDateTitle}>
+                    <span>{shortFormattedDate}</span>
+                </Tooltip>
+            ) : (
+                fullDateTitle
+            )
+        ) : null)
     const rightTitle: ReactNode | null = altRightTitle
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null
@@ -157,7 +177,7 @@ export function InsightTooltip({
                 title,
                 sticky: true,
                 render: function renderDatum(_, datum) {
-                    return <div className="whitespace-nowrap">{datum.datumTitle}</div>
+                    return <div className="datum-title">{datum.datumTitle}</div>
                 },
             },
         ]
@@ -186,7 +206,6 @@ export function InsightTooltip({
                                     hideBreakdown
                                     hideCompare
                                     hideIcon
-                                    allowWrap
                                 />,
                                 seriesColumn,
                                 colIdx
@@ -270,6 +289,7 @@ export function InsightTooltip({
 
     columns.push({
         key: 'datum',
+        className: 'datum-column',
         width: 200,
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
@@ -282,7 +302,6 @@ export function InsightTooltip({
                     hideBreakdown
                     hideCompare
                     hideIcon
-                    allowWrap
                 />,
                 datum,
                 rowIdx

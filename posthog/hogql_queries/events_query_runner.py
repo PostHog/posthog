@@ -24,15 +24,17 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
-from posthog.models import Action, Person
-from posthog.models.action.action import ActionStepJSON
+from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
-from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.utils import relative_date_parse
+
+from products.actions.backend.models.action import Action, ActionStepJSON
 
 logger = structlog.get_logger(__name__)
 
@@ -71,7 +73,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
         return cast(
             InsightActorsQueryRunner,
-            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
+            get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+            ),
         )
 
     def validate(self) -> None:
@@ -160,12 +164,54 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return val.isoformat()
         return str(val)
 
+    def _raise_on_restricted_property_select(self, select: list[ast.Expr]) -> None:
+        # User-authored ``select`` entries that explicitly reference a restricted event or person
+        # property must fail loudly — the printer's silent JSONDropKeys strip would otherwise turn
+        # the request into an empty string, which is surprising when the field name was typed by hand.
+        from posthog.hogql.errors import ResolutionError
+        from posthog.hogql.visitor import TraversingVisitor
+
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        restricted_event_props = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        restricted_person_props = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.PERSON,
+        )
+        if not restricted_event_props and not restricted_person_props:
+            return
+
+        class _Checker(TraversingVisitor):
+            def visit_field(self, node: ast.Field) -> None:
+                chain = [str(c) for c in node.chain]
+                # ``properties.<name>`` on the events table.
+                if len(chain) >= 2 and chain[0] == "properties" and chain[1] in restricted_event_props:
+                    raise ResolutionError(f"Access to property '{chain[1]}' is restricted")
+                # ``person.properties.<name>`` (or ``poe.properties.<name>``) on the joined person.
+                if (
+                    len(chain) >= 3
+                    and chain[0] in ("person", "poe")
+                    and chain[1] == "properties"
+                    and chain[2] in restricted_person_props
+                ):
+                    raise ResolutionError(f"Access to property '{chain[2]}' is restricted")
+
+        checker = _Checker()
+        for expr in select:
+            checker.visit(expr)
+
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
                 select_input, select = self.select_cols()
+                self._raise_on_restricted_property_select(select)
 
             with self.timings.measure("aggregations"):
                 group_by: list[ast.Expr] = [column for column in select if not has_aggregation(column)]
@@ -374,6 +420,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 return stmt
 
     def _calculate(self) -> EventsQueryResponse:
+        # Tag here (not in `to_query()`) so platform code that calls `to_query()` as a
+        # sub-query helper — e.g. `hogql_cohort_query.py` — doesn't false-positive when
+        # the `select` / `where` strings it builds are platform constants. User-facing
+        # `EventsQuery` execution always lands in `_calculate()` via the runner.
+        tag_contains_user_hogql()
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
@@ -381,6 +432,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
 
         # Convert star field from tuple to dict in each result
@@ -434,17 +486,22 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
 
                 distinct_to_person: dict[str, Person] = {}
-                # Process distinct_ids in batches to avoid overwhelming PostgreSQL
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
-                    requested_batch = set(batch_distinct_ids)
-                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    for person in persons:
-                        if person:
-                            for person_distinct_id in person.distinct_ids:
-                                if person_distinct_id in requested_batch:
-                                    distinct_to_person[person_distinct_id] = person
+                    distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
+
+                # Load restricted person properties to strip from the side-channel result
+                from products.access_control.backend.property_access_control import (
+                    get_restricted_property_names,
+                    strip_restricted_properties,
+                )
+
+                restricted_person_props = get_restricted_property_names(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    property_type=PropertyDefinition.Type.PERSON,
+                )
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
@@ -453,10 +510,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         self.paginator.results[index] = list(result)
                         if distinct_to_person.get(distinct_id):
                             person = distinct_to_person[distinct_id]
+                            properties = strip_restricted_properties(person.properties or {}, restricted_person_props)
                             self.paginator.results[index][column_index] = {
                                 "uuid": person.uuid,
                                 "created_at": person.created_at,
-                                "properties": person.properties or {},
+                                "properties": properties,
                                 "distinct_id": distinct_id,
                             }
                         else:
@@ -572,6 +630,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         response = execute_hogql_query(
             query=session_check_query,
             team=self.team,
+            user=self.user,
             query_type="EventsQuerySessionRecordingsCheck",
             timings=self.timings,
             modifiers=self.modifiers,

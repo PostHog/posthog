@@ -23,6 +23,9 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
+    readonly personsModal: Locator
+    readonly personsModalViewEventsButton: Locator
+
     readonly trends: TrendsInsight
     readonly funnels: FunnelsInsight
     readonly retention: RetentionInsight
@@ -38,7 +41,10 @@ export class InsightPage {
         this.editButton = page.getByTestId('insight-edit-button')
         this.cancelButton = page.getByTestId('insight-cancel-edit-button')
         this.topBarName = page.getByTestId('scene-name')
-        this.activeTab = page.getByRole('tab', { selected: true })
+        this.activeTab = page.locator('.LemonTabs__tab--active')
+
+        this.personsModal = page.getByTestId('persons-modal')
+        this.personsModalViewEventsButton = page.getByTestId('person-modal-view-events')
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
@@ -56,7 +62,7 @@ export class InsightPage {
 
     async goToNewInsight(type: InsightType): Promise<InsightPage> {
         await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
-        await this.page.getByRole('tab', { selected: true }).waitFor({ state: 'visible' })
+        await this.activeTab.waitFor({ state: 'visible' })
         return this
     }
 
@@ -92,11 +98,15 @@ export class InsightPage {
     async save(): Promise<void> {
         const originalUrl = this.page.url()
         const originalPathname = new URL(originalUrl).pathname
+
+        // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
+        await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
+
         const saveRequestPromise = this.page.waitForResponse(
             (response) =>
                 /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
                 ['POST', 'PATCH'].includes(response.request().method()),
-            { timeout: 60000 }
+            { timeout: 30000 }
         )
 
         await this.saveButton.click()

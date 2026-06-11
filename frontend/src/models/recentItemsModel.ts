@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -13,6 +14,10 @@ const RECENTS_FETCH_LIMIT = 20
 export const recentItemsModel = kea<recentItemsModelType>([
     path(['models', 'recentItemsModel']),
 
+    connect(() => ({
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+    })),
+
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
     }),
@@ -22,12 +27,22 @@ export const recentItemsModel = kea<recentItemsModelType>([
             [] as FileSystemEntry[],
             {
                 loadRecents: async () => {
-                    const response = await api.fileSystem.list({
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                        limit: RECENTS_FETCH_LIMIT,
-                    })
-                    return response.results
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return []
+                    }
+
+                    try {
+                        const response = await api.fileSystem.list({
+                            orderBy: '-last_viewed_at',
+                            notType: 'folder',
+                            limit: RECENTS_FETCH_LIMIT,
+                        })
+                        return response.results
+                    } catch {
+                        // Recents are a non-essential homepage widget — transient failures (offline,
+                        // aborted navigation, blocked requests) shouldn't surface as captured exceptions.
+                        return []
+                    }
                 },
             },
         ],
@@ -35,15 +50,25 @@ export const recentItemsModel = kea<recentItemsModelType>([
             {} as Record<string, string>,
             {
                 loadSceneLogViews: async () => {
-                    const results = await api.fileSystemLogView.list({ type: 'scene' })
-                    const record: Record<string, string> = {}
-                    for (const { ref, viewed_at } of results) {
-                        const current = record[ref]
-                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
-                            record[ref] = viewed_at
-                        }
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return {}
                     }
-                    return record
+
+                    try {
+                        const results = await api.fileSystemLogView.list({ type: 'scene' })
+                        const record: Record<string, string> = {}
+                        for (const { ref, viewed_at } of results) {
+                            const current = record[ref]
+                            if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                                record[ref] = viewed_at
+                            }
+                        }
+                        return record
+                    } catch {
+                        // See loadRecents: this is a best-effort homepage widget, so transient
+                        // fetch failures should degrade to an empty result rather than throw.
+                        return {}
+                    }
                 },
             },
         ],
@@ -90,7 +115,22 @@ export const recentItemsModel = kea<recentItemsModelType>([
         ],
     }),
 
+    listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (!currentTeam) {
+                return
+            }
+
+            actions.loadRecents()
+            actions.loadSceneLogViews()
+        },
+    })),
+
     afterMount(({ actions }) => {
+        if (!ApiConfig.hasCurrentTeamId()) {
+            return
+        }
+
         actions.loadRecents()
         actions.loadSceneLogViews()
     }),

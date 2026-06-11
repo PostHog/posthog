@@ -11,7 +11,7 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
         return 'Session replay · Session segment cluster'
     }
     if (source_product === 'llm_analytics' && source_type === 'evaluation') {
-        return 'LLM analytics · Evaluation'
+        return 'AI observability · Evaluation'
     }
     if (source_product === 'zendesk' && source_type === 'ticket') {
         return 'Zendesk · Ticket'

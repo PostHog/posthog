@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonCard } from '@posthog/lemon-ui'
 
 import { StopSignHog } from 'lib/components/hedgehogs'
-import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
+import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 

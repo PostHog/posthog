@@ -1,7 +1,7 @@
 import json
 import time
 import datetime
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -10,27 +10,25 @@ from django.contrib.auth import (
     authenticate,
     login,
     logout as auth_logout,
-    views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
-from django.dispatch import receiver
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_http_methods
 
 import structlog
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
-from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -51,6 +49,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.two_factor_session import (
     _obfuscate_token,
     clear_two_factor_session_flags,
@@ -59,6 +58,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -75,12 +75,6 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
-USER_AUTH_METHOD_MISMATCH = Counter(
-    "user_auth_method_mismatches_sso_enforcement",
-    "A user successfully authenticated with a different method than the one they're required to use",
-    labelnames=["login_method", "sso_enforced_method", "user_uuid"],
-)
-
 
 class WebauthnCredentialPrecheck(TypedDict):
     id: str
@@ -88,31 +82,7 @@ class WebauthnCredentialPrecheck(TypedDict):
     transports: list[str]
 
 
-@receiver(user_logged_in)
-def post_login(sender, user, request: HttpRequest, **kwargs):
-    """
-    Runs after every user login (including tests)
-    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
-    """
-
-    if hasattr(request, "backend"):
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
-        if sso_enforcement is not None and sso_enforcement != request.backend.name:
-            USER_AUTH_METHOD_MISMATCH.labels(
-                login_method=request.backend.name, sso_enforced_method=sso_enforcement, user_uuid=user.uuid
-            ).inc()
-
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
-
-    # Cache device info on signup to skip login notification for this device
-    if user.last_login is None:
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
-        check_and_cache_login_device(user.id, country, short_user_agent)
-
-
-@csrf_protect
+@require_http_methods(["POST"])
 def logout(request):
     clear_two_factor_session_flags(request)
 
@@ -123,13 +93,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    # Preserve any safe `next` param
-    next_param = request.GET.get("next")
-    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        auth_logout(request)
-        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+    auth_logout(request)
 
-    return auth_views.logout_then_login(request)
+    next_url = request.POST.get("next")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect_to_login(next_url, login_url=settings.LOGIN_URL)
+
+    return redirect(settings.LOGIN_URL)
 
 
 def axes_locked_out(*args, **kwargs):
@@ -152,13 +122,13 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # This is the default case - for regular login, we flush the session (log out)
         request.session.flush()
     else:
-        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
-        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+        # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
-            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+            f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
-        request.GET = query_dict  # type: ignore[assignment]
+        request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
@@ -191,6 +161,30 @@ class EmailMFARequired(APIException):
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+
+
+def is_email_verified_for_login(user: User) -> bool:
+    """
+    Send a verification email when the login policy requires it.
+
+    Returns whether login may continue for this user. Legacy users with a null
+    verification state are still allowed to sign in.
+    """
+    if not is_email_available():
+        return True
+
+    if user.is_email_verified is True:
+        return True
+
+    if is_email_verification_disabled(user):
+        return True
+
+    EmailVerifier.create_token_and_send_email_verification(user)
+    if user.is_email_verified is False:
+        return False
+
+    # legacy None users are still allowed to log in
+    return True
 
 
 class LoginSerializer(serializers.Serializer):
@@ -272,9 +266,6 @@ class LoginSerializer(serializers.Serializer):
         )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
-        from axes.exceptions import AxesBackendPermissionDenied
-        from axes.handlers.proxy import AxesProxyHandler
-
         handler = AxesProxyHandler
         axes_credentials = {"username": validated_data["email"]}
 
@@ -283,7 +274,7 @@ class LoginSerializer(serializers.Serializer):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
-            Optional[User],
+            User | None,
             authenticate(
                 request,
                 email=validated_data["email"],
@@ -299,16 +290,11 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
-            EmailVerifier.create_token_and_send_email_verification(user)
-            # If it's None, we want to let them log in still since they are an existing user
-            # If it's False, we want to tell them to check their email
-            if user.is_email_verified is False:
-                raise serializers.ValidationError(
-                    "Your account is awaiting verification. Please check your email for a verification link.",
-                    code="not_verified",
-                )
+        if not is_email_verified_for_login(user):
+            raise serializers.ValidationError(
+                "Your account is awaiting verification. Please check your email for a verification link.",
+                code="not_verified",
+            )
 
         clear_two_factor_session_flags(request)
 
@@ -341,6 +327,9 @@ class LoginSerializer(serializers.Serializer):
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
+        # Log successful authentication with axes
+        handler.user_logged_in(None, user=user, request=axes_request)
+
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
 
@@ -349,7 +338,7 @@ class LoginSerializer(serializers.Serializer):
         request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
-        if not was_authenticated_before_login_attempt:
+        if not was_authenticated_before_login_attempt and not has_valid_known_device_cookie(request, user):
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
@@ -424,6 +413,61 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             if e.__class__.__name__ == "AxesBackendPermissionDenied":
                 return axes_locked_out(request)
             raise
+
+
+# Known good emails seeded by setup_dev / generate_demo_data so the frontend can
+# label them. Anything else is shown without a label.
+DEV_LOGIN_KNOWN_EMAIL_LABELS = {
+    "test@posthog.com": "Default test user",
+}
+
+
+class DevLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        write_only=True,
+        help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        return {"success": True}
+
+    def create(self, validated_data: dict[str, str]) -> Any:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        request = self.context["request"]
+        try:
+            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found", code="user_not_found")
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+
+class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """
+    Dev-only convenience endpoint. Lists active users and lets the login UI
+    one-click sign in as any of them without a password. Returns 404 unless
+    both DEBUG and ALLOW_DEV_LOGIN are enabled.
+    """
+
+    queryset = User.objects.none()
+    serializer_class = DevLoginSerializer
+    permission_classes = (permissions.AllowAny,)
+
+    def list(self, request: Request) -> Response:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        for entry in users:
+            entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
+
+        return Response({"users": users})
 
 
 class TwoFactorSerializer(serializers.Serializer):
@@ -908,6 +952,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         user.set_password(password)
         user.requested_password_reset_at = None
+        # Possessing the unique reset token (only ever delivered by email via
+        # send_password_reset) proves the user owns this address, regardless of
+        # whether they came in as None (legacy / agentic-provisioned), False
+        # (invite-accept, Vercel-provisioned), or True.
+        user.is_email_verified = True
         user.save()
 
         report_user_password_reset(user)
@@ -980,7 +1029,7 @@ password_reset_token_generator = PasswordResetTokenGenerator()
 
 
 def social_login_notification(
-    strategy: DjangoStrategy, backend, user: Optional[User] = None, is_new: bool = False, **kwargs
+    strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
     """Final pipeline step to notify on OAuth/SAML login"""
     if not user:
@@ -994,7 +1043,10 @@ def social_login_notification(
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        backend_name = getattr(backend, "name", "")
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+        if not has_valid_known_device_cookie(request, user):
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            backend_name = getattr(backend, "name", "")
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+            )

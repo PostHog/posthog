@@ -106,6 +106,7 @@ describe('PersonCreateService', () => {
             expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
                 value: Buffer.from('test'),
                 key: null,
+                teamId,
             })
         })
 

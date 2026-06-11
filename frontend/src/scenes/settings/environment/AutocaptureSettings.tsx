@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -113,7 +113,8 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 label="Enable web vitals autocapture"
                 bordered
             />
-            <p className="mt-8">
+            <LemonDivider />
+            <p>
                 You can also choose to only capture specific web vitals metrics. By default, all four core web vitals
                 metrics are captured: CLS, FCP, LCP, and INP.
             </p>

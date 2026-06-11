@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -33,7 +32,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { EventFilterManager } from '../ingestion/common/event-filters'
+import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
@@ -59,7 +58,7 @@ import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/ov
 import { HealthCheckResultOk, PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerComponent } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
@@ -96,7 +95,6 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
-        | 'TASKS_PER_WORKER'
         | 'TASK_TIMEOUT'
         | 'POSTHOG_API_KEY'
         | 'POSTHOG_HOST_URL'
@@ -123,6 +121,11 @@ const messagesProcessed = new Counter({
 const batchErrors = new Counter({
     name: 'ingestion_api_batch_errors_total',
     help: 'Total number of batch processing errors',
+})
+
+const batchCapacityRejections = new Counter({
+    name: 'ingestion_api_batch_capacity_rejections_total',
+    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
 })
 
 /**
@@ -227,7 +230,6 @@ export class IngestionApiServer implements NodeServer {
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -260,7 +262,6 @@ export class IngestionApiServer implements NodeServer {
             integrationManager,
             monitoringOutputs: ingestionOutputs,
             teamManager,
-            internalCaptureService,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -289,13 +290,15 @@ export class IngestionApiServer implements NodeServer {
             })
         }
 
-        const eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.redisPool, {
-            pipeline: 'analytics',
-            staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
-            staticSkipPersonTokens: this.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
-            staticForceOverflowTokens:
-                this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
-        })
+        const { value: eventIngestionRestrictionManager, stop: stopEventIngestionRestrictionManager } =
+            await new EventIngestionRestrictionManagerComponent(this.redisPool, {
+                pipeline: 'analytics',
+                staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+                staticSkipPersonTokens:
+                    this.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+                staticForceOverflowTokens:
+                    this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+            }).start()
 
         const personsStore: PersonsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
@@ -333,7 +336,8 @@ export class IngestionApiServer implements NodeServer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -343,12 +347,14 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
+        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            eventFilterManager: new EventFilterManager(this.postgres),
+            eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
             promiseScheduler: this.promiseScheduler,
@@ -371,6 +377,8 @@ export class IngestionApiServer implements NodeServer {
             onShutdown: async () => {
                 await this.topHog.stop()
                 await this.hogTransformer.stop()
+                await eventFilterManagerStarted.stop()
+                await stopEventIngestionRestrictionManager()
             },
             healthcheck: () => this.isHealthy(),
         }
@@ -379,7 +387,9 @@ export class IngestionApiServer implements NodeServer {
 
     private async handleIngestRequest(
         req: { body: IngestBatchRequest },
-        res: { status: (code: number) => { json: (body: IngestBatchResponse) => void } }
+        res: {
+            status: (code: number) => { json: (body: IngestBatchResponse) => void }
+        }
     ): Promise<void> {
         const { batch_id, messages: serializedMessages } = req.body
 
@@ -396,6 +406,29 @@ export class IngestionApiServer implements NodeServer {
             const batch = messages.map((message) => createOkContext({ message }, { message }))
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
+                // Capacity rejection should not happen under correct consumer
+                // behavior — the Rust consumer holds a per-worker Semaphore
+                // sized to INGESTION_WORKER_CONCURRENT_BATCHES and is supposed
+                // to wait (natural backpressure) before sending a batch that
+                // would exceed the worker's capacity. If we land here, the
+                // consumer's tracking is wrong or its env-var value disagrees
+                // with ours. Respond 503 so the consumer surfaces it as a
+                // distinct error (TransportError::WorkerBusy) and the alarm is
+                // visible in `ingestion_api_batch_capacity_rejections_total`.
+                // Use the typed `kind` discriminator (not the human-readable
+                // `reason` string) so a future BatchingPipeline message tweak
+                // can't silently downgrade us to a fall-through 500 — which
+                // the Rust transport treats as retriable.
+                if (feedResult.kind === 'at_capacity') {
+                    batchCapacityRejections.inc()
+                    res.status(503).json({
+                        batch_id: batch_id ?? '',
+                        status: 'error',
+                        accepted: 0,
+                        error: feedResult.reason,
+                    })
+                    return
+                }
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
@@ -409,9 +442,6 @@ export class IngestionApiServer implements NodeServer {
 
             // Wait for all side effects — the HTTP response is the ACK to the
             // Rust consumer, so all work must finish before responding.
-            // Note: the joined pipeline has a hardcoded concurrency of 1, so
-            // feed() will reject if a batch is already being processed. This
-            // is fine for now since we process each request sequentially.
             await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
 
             batchesProcessed.inc()

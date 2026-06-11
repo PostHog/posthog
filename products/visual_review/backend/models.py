@@ -6,7 +6,10 @@ import uuid
 
 from django.db import models
 
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
 from .facade.enums import (
+    ActorType,
     ClassificationReason,
     ReviewDecision,
     ReviewState,
@@ -18,7 +21,7 @@ from .facade.enums import (
 )
 
 
-class Repo(models.Model):
+class Repo(ProductTeamModel):
     """
     A visual review repo tied to a GitHub repository.
 
@@ -26,10 +29,8 @@ class Repo(models.Model):
     repo_full_name is kept for API calls and display, auto-updated on rename detection.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # References posthog.Team in the main database — no FK constraint because
-    # this model lives in a separate product database.
-    team_id = models.BigIntegerField(db_index=True)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
     repo_external_id = models.BigIntegerField()
@@ -78,17 +79,16 @@ class Repo(models.Model):
         return kid, secret_hex
 
 
-class Artifact(models.Model):
+class Artifact(ProductTeamModel):
     """
     Content-addressed image storage.
 
     Same hash = same artifact. Deduplicated across all runs in a repo.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
-    # Denormalized from repo.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     content_hash = models.CharField(max_length=128, db_index=True)
     storage_path = models.CharField(max_length=1024)
@@ -96,6 +96,8 @@ class Artifact(models.Model):
     width = models.PositiveIntegerField(null=True, blank=True)
     height = models.PositiveIntegerField(null=True, blank=True)
     size_bytes = models.PositiveIntegerField(null=True, blank=True)
+
+    thumbnail = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -108,20 +110,19 @@ class Artifact(models.Model):
         return f"{self.content_hash[:12]}..."
 
 
-class Run(models.Model):
+class Run(ProductTeamModel):
     """
     A visual test run from CI.
 
     Created when CI posts a manifest. Tracks status through diff processing.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
-    # Denormalized from repo.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
+    run_type = models.CharField(max_length=64, default=RunType.OTHER)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -182,17 +183,16 @@ class Run(models.Model):
         return f"Run {self.id} ({self.status})"
 
 
-class RunSnapshot(models.Model):
+class RunSnapshot(ProductTeamModel):
     """
     A single snapshot within a run.
 
     Links current captured image to baseline. Stores diff results.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
-    # Denormalized from run.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
 
@@ -231,9 +231,33 @@ class RunSnapshot(models.Model):
         "ToleratedHash", on_delete=models.SET_NULL, null=True, blank=True, related_name="matched_snapshots"
     )
 
-    # Diff metrics
+    # Frozen at run finalization — reflects quarantine policy at that point in time
+    is_quarantined = models.BooleanField(default=False)
+
+    # Diff metrics. `diff_percentage` always means "fraction of pixels that
+    # differ" — the previous behavior where the SSIM tier overwrote this with
+    # SSIM dissimilarity is gone (split into `ssim_score` + `change_kind`
+    # below). Pre-split rows have been backfilled accordingly: SSIM-tier
+    # rows have `diff_percentage = NULL`, `ssim_score` derived from the
+    # original dissimilarity, and `change_kind = 'structural'`.
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
+    # SSIM score (0.0–1.0). 1.0 = identical, lower = more structurally
+    # different. Populated for every diffed snapshot regardless of which
+    # tier classified it.
+    ssim_score = models.FloatField(null=True, blank=True)
+    # Categorical: see ChangeKind enum. Empty for snapshots that haven't
+    # been diffed (NEW, REMOVED, exact-match UNCHANGED).
+    change_kind = models.CharField(max_length=24, blank=True, default="")
+    # System-computed metadata produced by the diff pipeline (not the
+    # uploader's `metadata` field above, which is for ingestion-time
+    # context like browser/viewport). Storage is JSONB but the Python
+    # shape is governed by `DiffMetadata` in `diff_metadata.py` — all
+    # writes go through `.model_dump()` and reads through
+    # `.model_validate()`. Currently holds `cluster_summary`; future
+    # additions like `engine_version` land alongside without a schema
+    # migration.
+    diff_metadata = models.JSONField(default=dict, blank=True)
 
     # Review state — only set on actionable snapshots (CHANGED, NEW, REMOVED).
     # Empty for unchanged snapshots that don't need review.
@@ -273,7 +297,7 @@ class RunSnapshot(models.Model):
         return f"{self.identifier} ({self.result})"
 
 
-class ToleratedHash(models.Model):
+class ToleratedHash(ProductTeamModel):
     """
     Previously seen alternate hashes that were determined acceptable for a
     specific baseline and snapshot identifier, allowing future runs to skip
@@ -284,9 +308,9 @@ class ToleratedHash(models.Model):
     baseline_hash no longer matches.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
     baseline_hash = models.CharField(max_length=128)
@@ -299,10 +323,12 @@ class ToleratedHash(models.Model):
 
     # Which run caused this toleration to be recorded
     source_run = models.ForeignKey(Run, on_delete=models.SET_NULL, null=True, blank=True)
-    # Who marked it (for human reason)
     created_by_id = models.BigIntegerField(null=True, blank=True)
 
+    diff_percentage = models.FloatField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -317,3 +343,57 @@ class ToleratedHash(models.Model):
 
     def __str__(self) -> str:
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
+
+
+class QuarantinedIdentifier(ProductTeamModel):
+    """
+    Tracks quarantine events for snapshot identifiers.
+
+    Each row is a quarantine event — multiple rows per identifier form
+    a history. The active quarantine is the latest row where expires_at
+    is NULL or in the future. Unquarantining sets expires_at = now()
+    rather than deleting, preserving the audit trail.
+
+    Quarantined snapshots are still captured, classified, and diffed
+    (for metrics), but excluded from the gate at run finalization.
+    The decision is frozen on RunSnapshot.is_quarantined so historical
+    runs remain stable even if quarantine policy changes later.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
+
+    identifier = models.CharField(max_length=512)
+    run_type = models.CharField(max_length=64)
+    reason = models.CharField(max_length=255)
+    source = models.CharField(
+        max_length=10,
+        choices=[(a.value, a.value) for a in ActorType],
+        default=ActorType.HUMAN,
+    )
+
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    # The run whose failing snapshot prompted the quarantine. Nullable because
+    # quarantines can also be created from the snapshot history page where no
+    # specific failing run is in context, and entries pre-dating this column
+    # have no source. SET_NULL so a deleted/archived Run doesn't cascade-drop
+    # the quarantine — the audit trail (reason, who, when) still matters.
+    source_run = models.ForeignKey(
+        Run,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="originated_quarantines",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} ({self.reason[:40]})"

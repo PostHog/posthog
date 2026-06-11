@@ -111,7 +111,12 @@ async fn main() {
     let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let _root_span = tracing::info_span!("service", pod = %pod).entered();
 
-    let mut manager = lifecycle::Manager::builder("capture")
+    // Use OTEL_SERVICE_NAME (set per-variant by the chart's releaseName) as the
+    // lifecycle Manager identity so `common/lifecycle` metrics carry the correct
+    // `service_name` label. This binary is shared by capture, capture-replay,
+    // capture-mirrored, and capture-ai deployments — hardcoding a literal here
+    // would collapse their lifecycle metrics into a single bucket in Grafana.
+    let mut manager = lifecycle::Manager::builder(config.otel_service_name.as_str())
         .with_trap_signals(true)
         .with_prestop_check(true)
         .with_health_poll_interval(Duration::from_secs(2))
@@ -125,7 +130,7 @@ async fn main() {
         .expect("could not bind port");
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
 
-    let components = setup::build_components(config, handles).await;
+    let components = setup::build_components(config, std::env::vars().collect(), handles).await;
 
     serve(listener, components).await;
 

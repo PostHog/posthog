@@ -1,18 +1,26 @@
-import { IconSend } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
-
-import { TZLabel } from 'lib/components/TZLabel'
-
+import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 import {
     SubscriptionDeliveryStatusEnumApi,
     SubscriptionsDeliveriesListStatus as SubscriptionDeliveriesListStatusByValue,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
+import { TZLabel } from 'lib/components/TZLabel'
+
+import type { DeliveryFeedback } from '../subscriptionSceneLogic'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -20,10 +28,10 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
-function deliveryStatusTag(status: SubscriptionDeliveryApi['status']): JSX.Element {
+function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
     let tagType: 'success' | 'danger' | 'warning' | 'default'
-    switch (status) {
+    switch (row.status) {
         case SubscriptionDeliveryStatusEnumApi.Starting:
             label = 'Starting'
             tagType = 'default'
@@ -41,8 +49,22 @@ function deliveryStatusTag(status: SubscriptionDeliveryApi['status']): JSX.Eleme
             tagType = 'warning'
             break
         default:
-            label = status
+            label = row.status
             tagType = 'default'
+    }
+    const failureMessage = (row.error as { message?: unknown } | null)?.message
+    if (
+        row.status === SubscriptionDeliveryStatusEnumApi.Failed &&
+        typeof failureMessage === 'string' &&
+        failureMessage
+    ) {
+        return (
+            <Tooltip title={failureMessage}>
+                <LemonTag type={tagType} className="cursor-help">
+                    {label}
+                </LemonTag>
+            </Tooltip>
+        )
     }
     return <LemonTag type={tagType}>{label}</LemonTag>
 }
@@ -69,6 +91,35 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
+function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+    return (
+        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
+            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+            {summary}
+        </div>
+    )
+}
+
+// Module-scope const keeps the reference stable across parent re-renders.
+const DELIVERY_TABLE_EXPANDABLE = {
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
+    expandedRowRender: (row: SubscriptionDeliveryApi) =>
+        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+}
+
+// Only called from storybook visual tests — production use ignores the optional set.
+function buildExpandable(initiallyExpandedIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+    isRowExpanded?: (row: SubscriptionDeliveryApi) => number
+} {
+    if (!initiallyExpandedIds || initiallyExpandedIds.size === 0) {
+        return DELIVERY_TABLE_EXPANDABLE
+    }
+    return {
+        ...DELIVERY_TABLE_EXPANDABLE,
+        isRowExpanded: (row) => (initiallyExpandedIds.has(row.id) ? 1 : -1),
+    }
+}
+
 function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
     return [
         {
@@ -85,7 +136,7 @@ function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
             title: 'Status',
             key: 'status',
             className: DELIVERY_TABLE_CELL_CLASS,
-            render: (_v, row) => deliveryStatusTag(row.status),
+            render: (_v, row) => deliveryStatusTag(row),
         },
         {
             title: 'Trigger',
@@ -144,6 +195,55 @@ function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
 }
 
 const deliveryColumns = buildDeliveryColumns()
+
+function buildFeedbackColumn(
+    deliveryFeedback: Record<string, DeliveryFeedback>,
+    recentlyThankedDeliveries: Record<string, true>,
+    onDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback) => void
+): LemonTableColumns<SubscriptionDeliveryApi>[number] {
+    return {
+        title: 'Useful?',
+        key: 'feedback',
+        className: DELIVERY_TABLE_CELL_CLASS,
+        render: (_v, row) => {
+            if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
+                return <span className="text-secondary">—</span>
+            }
+            if (recentlyThankedDeliveries[row.id]) {
+                return <span className="text-secondary whitespace-nowrap">Thanks!</span>
+            }
+            // Recorded feedback highlights the chosen side; clicking the other side switches the vote
+            // (analysis takes the latest event per person + delivery, so switching just wins).
+            const recorded = deliveryFeedback[row.id]
+            return (
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconThumbsUp />}
+                        active={recorded === 'positive'}
+                        tooltip={
+                            recorded === 'positive' ? 'You marked this report as useful' : 'This report was useful'
+                        }
+                        onClick={recorded === 'positive' ? undefined : () => onDeliveryFeedback(row.id, 'positive')}
+                        data-attr="subscription-delivery-feedback-positive"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconThumbsDown />}
+                        active={recorded === 'negative'}
+                        tooltip={
+                            recorded === 'negative'
+                                ? 'You marked this report as not useful'
+                                : 'This report was not useful'
+                        }
+                        onClick={recorded === 'negative' ? undefined : () => onDeliveryFeedback(row.id, 'negative')}
+                        data-attr="subscription-delivery-feedback-negative"
+                    />
+                </div>
+            )
+        },
+    }
+}
 
 const DELIVERY_STATUS_FILTER_OPTIONS: { label: string; value: DeliveryListStatusFilter | null }[] = [
     { label: 'All statuses', value: null },
@@ -215,6 +315,18 @@ export type SubscriptionDeliveryHistoryProps = {
     /** When set, empty table shows this as the primary action (e.g. send a test delivery). */
     onTestDelivery?: () => void
     testDeliveryLoading?: boolean
+    /** When set (AI-prompt subscriptions), completed rows show thumbs up/down feedback buttons. */
+    onDeliveryFeedback?: (deliveryId: string, feedback: DeliveryFeedback) => void
+    /** Feedback already recorded (persisted per browser), keyed by delivery id — those rows show the chosen option. */
+    deliveryFeedback?: Record<string, DeliveryFeedback>
+    /** Deliveries thanked moments ago — those rows briefly show "Thanks!" before settling into the chosen option. */
+    recentlyThankedDeliveries?: Record<string, true>
+    /**
+     * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
+     * on first render. Used exclusively by visual regression tests to capture the
+     * expanded-row state; production callers should not pass this prop.
+     */
+    __storyOnlyInitiallyExpandedDeliveryIds?: ReadonlySet<string>
 }
 
 export function SubscriptionDeliveryHistory({
@@ -225,6 +337,10 @@ export function SubscriptionDeliveryHistory({
     onDeliveryStatusFilterChange,
     onTestDelivery,
     testDeliveryLoading = false,
+    onDeliveryFeedback,
+    deliveryFeedback = {},
+    recentlyThankedDeliveries = {},
+    __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -235,6 +351,10 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
+    const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
+    const columns = onDeliveryFeedback
+        ? [...deliveryColumns, buildFeedbackColumn(deliveryFeedback, recentlyThankedDeliveries, onDeliveryFeedback)]
+        : deliveryColumns
 
     return (
         <>
@@ -274,13 +394,14 @@ export function SubscriptionDeliveryHistory({
                 {showTable ? (
                     <LemonTable
                         dataSource={deliveriesPage?.results ?? []}
-                        columns={deliveryColumns}
+                        columns={columns}
                         loading={deliveriesPageLoading}
                         loadingSkeletonRows={8}
                         rowKey="id"
                         nouns={['delivery', 'deliveries']}
                         emptyState={tableEmptyState}
                         data-attr="subscription-deliveries-table"
+                        expandable={expandable}
                         pagination={{
                             controlled: true,
                             pageSize: 50,

@@ -15,11 +15,16 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
-from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
+from products.data_warehouse.backend.direct_postgres import (
+    DIRECT_POSTGRES_CATALOG_OPTION,
+    DIRECT_POSTGRES_SCHEMA_OPTION,
+    DIRECT_POSTGRES_TABLE_OPTION,
+)
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
+from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
 
 
 class TestTable(BaseTest):
@@ -53,6 +58,70 @@ class TestTable(BaseTest):
 
         assert isinstance(definition, DirectPostgresTable)
         assert definition.postgres_table_name == table_name
+
+    def test_direct_postgres_table_uses_physical_schema_and_table_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="public.accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_POSTGRES_SCHEMA_OPTION: "public",
+                DIRECT_POSTGRES_TABLE_OPTION: "accounts",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.name == "public.accounts"
+        assert definition.postgres_schema == "public"
+        assert definition.postgres_table_name == "accounts"
+
+    def test_direct_postgres_table_supports_catalog_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="system.query_log",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_POSTGRES_CATALOG_OPTION: "ducklake",
+                DIRECT_POSTGRES_SCHEMA_OPTION: "system",
+                DIRECT_POSTGRES_TABLE_OPTION: "query_log",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.postgres_catalog == "ducklake"
+        assert definition.to_printed_postgres(context=None) == "ducklake.system.query_log"
 
     def test_direct_postgres_table_cannot_be_printed_to_clickhouse(self):
         source = ExternalDataSource.objects.create(
@@ -141,7 +210,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Int64"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}}
@@ -152,7 +221,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(Int64)"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
@@ -163,7 +232,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nothing"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nothing", "hogql": "UnknownDatabaseField", "valid": True}}
@@ -174,7 +243,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "DateTime(6, 'UTC')"]]
             columns = table.get_columns()
             assert columns == {
@@ -187,7 +256,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Array(String)"]]
             columns = table.get_columns()
             assert columns == {
@@ -200,7 +269,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(DateTime(6, 'UTC'))"]]
             columns = table.get_columns()
             assert columns == {
@@ -213,7 +282,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Map(String, Map(String, Array(UInt64)))"]]
             columns = table.get_columns()
             assert columns == {
@@ -232,7 +301,7 @@ class TestTable(BaseTest):
 
         clickhouse_type = "Tuple(data Tuple(`$event_schema` Tuple(version Nullable(String)), client_id Nullable(String), client_name Nullable(String), connection Nullable(String), connection_id Nullable(String), date Nullable(String), details Tuple(actions Tuple(executions Array(Nullable(String))), completedAt Nullable(Int64), elapsedTime Nullable(Int64), initiatedAt Nullable(Int64), prompts Array(Tuple(completedAt Nullable(Int64), connection Nullable(String), connection_id Nullable(String), elapsedTime Nullable(Int64), flow Nullable(String), identity Nullable(String), initiatedAt Nullable(Int64), name Nullable(String), stats Tuple(loginsCount Nullable(Int64)), strategy Nullable(String), timers Tuple(rules Nullable(Int64)), url Nullable(String), user_id Nullable(String), user_name Nullable(String))), session_id Nullable(String), stats Tuple(loginsCount Nullable(Int64))), hostname Nullable(String), ip Nullable(String), log_id Nullable(String), strategy Nullable(String), strategy_type Nullable(String), type Nullable(String), user_agent Nullable(String), user_id Nullable(String), user_name Nullable(String)), log_id Nullable(String))"
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", clickhouse_type]]
             columns = table.get_columns()
             assert columns == {
@@ -249,7 +318,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id-hype", "String"]]
             columns = table.get_columns()
             assert columns == {
@@ -259,6 +328,44 @@ class TestTable(BaseTest):
                     "valid": True,
                 }
             }
+
+    @parameterized.expand(
+        [
+            ("get_columns", "id,Int64\n"),
+            ("get_count", "42\n"),
+        ]
+    )
+    def test_chdb_introspection_escapes_single_quotes_in_placeholders(self, method_name: str, chdb_csv: str):
+        # Regression test: placeholder values flowing into the chdb query must be
+        # escaped, otherwise a single quote in a credential or url_pattern breaks
+        # out of the string literal and chdb (multi-statement) runs attacker SQL.
+        malicious_secret = "s3cr'; SELECT 1--"
+        credential = DataWarehouseCredential.objects.create(
+            access_key="key", access_secret=malicious_secret, team=self.team
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com/data.parquet",
+            credential=credential,
+            format="Parquet",
+            team=self.team,
+        )
+
+        chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch("chdb.query", return_value=chdb_result) as chdb_query,
+        ):
+            getattr(table, method_name)()
+
+        assert chdb_query.called, "chdb.query should have been invoked on the chdb path"
+        rendered_query: str = chdb_query.call_args.args[0]
+        assert malicious_secret not in rendered_query, (
+            f"Unescaped secret leaked into chdb query, enabling SQL injection: {rendered_query}"
+        )
+        assert "s3cr\\'; SELECT 1--" in rendered_query, (
+            f"Expected single quote to be escaped as \\' in chdb query: {rendered_query}"
+        )
 
     def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -536,11 +643,42 @@ class TestTable(BaseTest):
         )
 
         with patch(
-            "products.data_warehouse.backend.models.table.sync_execute",
+            "products.warehouse_sources.backend.models.table.sync_execute",
             side_effect=ServerException("Expected end of line", code=code),
         ):
             with pytest.raises(Exception, match="CSV parsing failed"):
                 table._validate_csv_double_quotes_setting()
+
+    @parameterized.expand(
+        [
+            ("empty_folder_code_636_silent", 636, False),
+            ("other_server_error_captured", 499, True),
+        ]
+    )
+    def test_get_max_value_for_column_handles_clickhouse_errors(
+        self, _name: str, error_code: int, should_capture: bool
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_parquet",
+            url_pattern="https://example.com/test.parquet",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=ServerException("boom", code=error_code),
+            ),
+            patch("products.warehouse_sources.backend.models.table.capture_exception") as mock_capture,
+        ):
+            result = table.get_max_value_for_column("id")
+
+        assert result is None
+        assert mock_capture.called is should_capture
 
     def test_is_csv_format_for_non_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -555,7 +693,7 @@ class TestTable(BaseTest):
 
     def test_is_csv_format_for_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+        with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
                 name="test_csv",
                 url_pattern="https://example.com/test.csv",
@@ -567,7 +705,7 @@ class TestTable(BaseTest):
 
     def test_hogql_definition_sets_raw_settings_for_csv_with_double_quotes(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+        with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
                 name="rfc_csv",
                 url_pattern="https://example.com/test.csv",
@@ -586,7 +724,7 @@ class TestTable(BaseTest):
 
     def test_hogql_definition_sets_false_for_csv_with_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+        with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
                 name="legacy_csv",
                 url_pattern="https://example.com/test.csv",
@@ -618,7 +756,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is None
 
     def test_remove_named_tuples_backtick_quoted(self):
-        from products.data_warehouse.backend.models.util import remove_named_tuples
+        from products.warehouse_sources.backend.models.util import remove_named_tuples
 
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"

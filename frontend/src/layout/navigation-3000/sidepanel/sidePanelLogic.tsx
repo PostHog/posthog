@@ -2,12 +2,12 @@ import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { SidePanelTab } from '~/types'
+import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
@@ -36,16 +36,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['scenePanelIsPresent'],
             preflightLogic,
             ['isCloudOrDev'],
-            settingsLogic({}),
-            ['sections as settingsSections'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
 
     selectors({
         enabledTabs: [
-            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev, s.settingsSections],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, settingsSections) => {
+            (s) => [
+                s.sceneSidePanelContext,
+                s.currentTeam,
+                s.scenePanelIsPresent,
+                s.isCloudOrDev,
+                s.hasAvailableFeature,
+            ],
+            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, hasAvailableFeature) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -55,7 +61,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 
-                if (sceneSidePanelContext?.activity_scope) {
+                if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
                     tabs.push(SidePanelTab.Activity)
                 }
                 tabs.push(SidePanelTab.Discussion)
@@ -71,13 +77,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
-                if (
-                    sceneSidePanelContext.settings_section &&
-                    settingsSections.some((section) => section.id === sceneSidePanelContext.settings_section)
-                ) {
-                    tabs.push(SidePanelTab.Settings)
-                }
-
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
                 }
@@ -91,7 +90,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (s) => [s.enabledTabs],
             (enabledTabs): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

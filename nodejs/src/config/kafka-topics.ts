@@ -23,7 +23,6 @@ export const KAFKA_EVENTS_DEAD_LETTER_QUEUE = `${prefix}events_dead_letter_queue
 export const KAFKA_GROUPS = `${prefix}clickhouse_groups${suffix}`
 export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
-export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`
 export const KAFKA_APP_METRICS_2 = `${prefix}clickhouse_app_metrics2${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
 
@@ -47,6 +46,9 @@ export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_js
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
+// per-invocation result rows for hog functions and hog flows
+export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
+
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
@@ -54,7 +56,6 @@ export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickho
 export const KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = `${prefix}clickhouse_prefiltered_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}clickhouse_precalculated_person_properties${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
-export const KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = `${prefix}cohort_membership_changed_trigger${suffix}`
 export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requests${suffix}`
 
 // Error tracking topics
@@ -78,6 +79,11 @@ export const KAFKA_TRACES_INGESTION = `${prefix}ingestion-traces${suffix}`
 export const KAFKA_TRACES_INGESTION_DLQ = `${prefix}ingestion-traces-dlq${suffix}`
 export const KAFKA_TRACES_INGESTION_OVERFLOW = `${prefix}ingestion-traces-overflow${suffix}`
 export const KAFKA_TRACES_CLICKHOUSE = `${prefix}clickhouse_traces${suffix}`
+// Metrics ingestion topics
+export const KAFKA_METRICS_INGESTION = `${prefix}metrics_ingestion${suffix}`
+export const KAFKA_METRICS_INGESTION_DLQ = `${prefix}metrics_ingestion_dlq${suffix}`
+export const KAFKA_METRICS_INGESTION_OVERFLOW = `${prefix}metrics_ingestion_overflow${suffix}`
+export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics
 export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`

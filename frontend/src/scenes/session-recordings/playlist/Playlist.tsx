@@ -4,26 +4,22 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useRef, useState } from 'react'
 
-import { IconMagicWand, IconSidebarClose } from '@posthog/icons'
+import { IconSidebarClose } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonSkeleton,
-    LemonTag,
     Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
@@ -74,9 +70,6 @@ export function Playlist({
     description,
     selectInitialItem,
 }: PlaylistProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
-
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
@@ -101,9 +94,8 @@ export function Playlist({
         visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
-        summarizeDisabledReason,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
+    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
 
@@ -261,7 +253,7 @@ export function Playlist({
                             setFilters={setFilters}
                             totalFiltersCount={totalFiltersCount}
                             currentSessionRecordingId={activeSessionRecordingId}
-                            onReload={() => loadSessionRecordings()}
+                            onReload={() => maybeLoadSessionRecordings()}
                         />
                     </DraggableToNotebook>
                 </div>
@@ -282,9 +274,9 @@ export function Playlist({
                     className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-                        <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
-                            <div className="flex flex-col gap-1">
-                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                        <div className="relative">
+                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                                <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
                                     <div className="flex items-center gap-0.5">
                                         <LemonButton
@@ -306,9 +298,9 @@ export function Playlist({
                                         />
                                     </div>
                                 </div>
-                                <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                            </div>
-                        </DraggableToNotebook>
+                            </DraggableToNotebook>
+                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                        </div>
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
@@ -349,25 +341,6 @@ export function Playlist({
                             )}
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION_BUTTON] && (
-                        <LemonButton
-                            icon={<IconMagicWand />}
-                            type="primary"
-                            onClick={() => {
-                                askSidePanelMax('Summarize recordings based on the current filters')
-                            }}
-                            fullWidth
-                            size="small"
-                            className="mt-2"
-                            disabledReason={summarizeDisabledReason}
-                            data-attr="summarize-from-list-recordings-button"
-                        >
-                            Summarize these recordings
-                            <LemonTag type="warning" size="small" className="ml-auto uppercase">
-                                Beta
-                            </LemonTag>
-                        </LemonButton>
-                    )}
                 </div>
             </div>
         </div>

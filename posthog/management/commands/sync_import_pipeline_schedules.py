@@ -4,7 +4,7 @@ from products.data_warehouse.backend.data_load.service import (
     external_data_workflow_exists,
     sync_external_data_job_workflow,
 )
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 class Command(BaseCommand):

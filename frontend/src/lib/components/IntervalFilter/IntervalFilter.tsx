@@ -19,8 +19,8 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
     const { updateQuerySource, setIsIntervalManuallySet } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <>
-            <span>
+        <span className="flex items-center gap-2">
+            <span className="@max-[780px]:hidden">
                 <span className="hidden md:inline">grouped </span>by
             </span>
             {isIntervalManuallySet ? (
@@ -54,7 +54,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                     }))}
                 />
             )}
-        </>
+        </span>
     )
 }
 

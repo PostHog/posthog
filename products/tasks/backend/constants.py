@@ -1,6 +1,10 @@
 from typing import Literal, get_args
 
-ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
+MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+
+ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 

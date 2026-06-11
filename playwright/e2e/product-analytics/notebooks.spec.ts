@@ -134,10 +134,17 @@ test.describe('Notebooks', () => {
         await test.step('remove the insight from the notebook', async () => {
             await notebook.removeInsightNode()
             await expect(notebook.insightNodes).toHaveCount(0)
+            // Dismiss any modal/overlay that may remain after node removal
+            await page.keyboard.press('Escape')
+            await expect(page.locator('.ReactModal__Overlay')).toHaveCount(0, { timeout: 5000 })
         })
 
         await test.step('type text content in the notebook', async () => {
             const savePromise = notebook.waitForSave()
+            // Click the editor container to trigger trailing paragraph creation,
+            // then wait for the editable textbox to appear
+            await page.locator('.NotebookEditor').click()
+            await expect(notebook.editor).toBeVisible()
             await notebook.editor.click()
             await notebook.editor.press('End')
             await notebook.editor.press('Enter')

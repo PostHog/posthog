@@ -7,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.event_usage import (
     EventSource,
     get_event_source,
@@ -30,6 +31,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -52,6 +55,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": "posthog/cursor 1.0",
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -75,6 +80,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": "claude-code",
                     "mcp_client_version": "1.2.3",
@@ -93,6 +100,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -112,6 +121,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -130,6 +141,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -157,6 +170,40 @@ class TestReportUserAction(BaseTest):
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
         assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
+
+    @parameterized.expand(
+        [
+            ("plain", "claude-code/1.2.3", "claude-code/1.2.3"),
+            ("control_chars_stripped", "claude-code/1.2.3\r\nX-Evil: 1", "claude-code/1.2.3X-Evil: 1"),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_user_agent_header_reaches_capture(self, _name, header_value, expected, mock_capture):
+        factory = APIRequestFactory()
+        request = factory.get("/fake", headers={"User-Agent": header_value})
+
+        report_user_action(self.user, "test event", request=request)
+
+        assert mock_capture.call_args[1]["properties"]["user_agent"] == expected
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, "personal_api_key"),
+            ("oauth", AccessMethod.OAUTH, "oauth"),
+            ("id_jag", AccessMethod.ID_JAG, "id_jag"),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, "project_secret_api_key"),
+            ("team_secret_token", AccessMethod.TEAM_SECRET_TOKEN, "team_secret_token"),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_access_method_from_query_tags_reaches_capture(self, _name, tagged, expected, mock_capture):
+        factory = APIRequestFactory()
+        request = factory.get("/fake")
+
+        with tags_context(access_method=tagged):
+            report_user_action(self.user, "test event", request=request)
+
+        assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_request_passes_properties_unchanged(self, mock_capture):
@@ -225,20 +272,68 @@ class TestGetEventSource(BaseTest):
     def test_web_via_session_authentication(self):
         from rest_framework.authentication import SessionAuthentication
 
-        request = SimpleNamespace(META={}, successful_authenticator=SessionAuthentication())
+        request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
 
     def test_web_via_session_key_fallback(self):
-        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key="abc123"))
+        request = SimpleNamespace(META={}, headers={}, session=SimpleNamespace(session_key="abc123"))
         assert get_event_source(request) == EventSource.WEB
 
     def test_api_when_session_is_dict(self):
-        request = SimpleNamespace(META={}, session={})
+        request = SimpleNamespace(META={}, headers={}, session={})
         assert get_event_source(request) == EventSource.API
 
     def test_api_when_session_key_is_none(self):
-        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key=None))
+        request = SimpleNamespace(META={}, headers={}, session=SimpleNamespace(session_key=None))
         assert get_event_source(request) == EventSource.API
+
+    def test_x_posthog_client_mcp_header_returns_mcp_source(self):
+        factory = APIRequestFactory()
+        request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert get_event_source(request) == EventSource.MCP
+
+    @parameterized.expand(
+        [
+            ("wizard_with_mcp_ua_and_header", "posthog/wizard 1.0 posthog/mcp-server", "mcp", EventSource.WIZARD),
+            ("wizard_with_mcp_ua_no_header", "posthog/wizard 1.0 posthog/mcp-server", None, EventSource.WIZARD),
+            ("wizard_no_mcp_ua_with_header", "posthog/wizard 1.0", "mcp", EventSource.WIZARD),
+            (
+                "terraform_with_mcp_ua_and_header",
+                "posthog/terraform-provider 1.0 posthog/mcp-server",
+                "mcp",
+                EventSource.TERRAFORM,
+            ),
+            (
+                "terraform_with_mcp_ua_no_header",
+                "posthog/terraform-provider 1.0 posthog/mcp-server",
+                None,
+                EventSource.TERRAFORM,
+            ),
+            ("terraform_no_mcp_ua_with_header", "posthog/terraform-provider 1.0", "mcp", EventSource.TERRAFORM),
+            (
+                "posthog_code_with_mcp_ua_and_header",
+                "posthog/code 1.2.3 posthog/mcp-server",
+                "mcp",
+                EventSource.POSTHOG_CODE,
+            ),
+            (
+                "posthog_code_with_mcp_ua_no_header",
+                "posthog/code 1.2.3 posthog/mcp-server",
+                None,
+                EventSource.POSTHOG_CODE,
+            ),
+            ("posthog_code_no_mcp_ua_with_header", "posthog/code 1.2.3", "mcp", EventSource.POSTHOG_CODE),
+        ]
+    )
+    def test_outer_caller_user_agent_wins_over_mcp_signals(self, _name, user_agent, x_posthog_client, expected):
+        # Wizard / posthog-code / terraform all wrap MCP. Regardless of which MCP signal is
+        # present (UA token, X-Posthog-Client header, or both), the outer caller's UA must win.
+        factory = APIRequestFactory()
+        kwargs = {"HTTP_USER_AGENT": user_agent}
+        if x_posthog_client is not None:
+            kwargs["HTTP_X_POSTHOG_CLIENT"] = x_posthog_client
+        request = factory.get("/fake", **kwargs)
+        assert get_event_source(request) == expected
 
 
 class TestGetMcpProperties(BaseTest):

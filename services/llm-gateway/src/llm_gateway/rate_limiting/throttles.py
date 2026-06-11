@@ -21,8 +21,9 @@ class ThrottleContext:
     request_id: str | None = None
     end_user_id: str | None = None
     plan_key: str | None = None
-    in_trial_period: bool = True
     seat_created_at: str | None = None
+    billing_period_start: str | None = None
+    ai_credits_exhausted: bool = False
 
 
 @dataclass
@@ -32,6 +33,8 @@ class ThrottleResult:
     detail: str = "Rate limit exceeded"
     scope: str | None = None
     retry_after: int | None = None
+    used_usd: float | None = None
+    limit_usd: float | None = None
 
     @classmethod
     def allow(cls) -> ThrottleResult:
@@ -44,8 +47,18 @@ class ThrottleResult:
         detail: str = "Rate limit exceeded",
         scope: str | None = None,
         retry_after: int | None = None,
+        used_usd: float | None = None,
+        limit_usd: float | None = None,
     ) -> ThrottleResult:
-        return cls(allowed=False, status_code=status_code, detail=detail, scope=scope, retry_after=retry_after)
+        return cls(
+            allowed=False,
+            status_code=status_code,
+            detail=detail,
+            scope=scope,
+            retry_after=retry_after,
+            used_usd=used_usd,
+            limit_usd=limit_usd,
+        )
 
 
 class Throttle(ABC):

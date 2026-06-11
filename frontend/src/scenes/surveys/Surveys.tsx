@@ -7,21 +7,21 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationsList } from 'scenes/surveys/components/SurveyNotificationsList'
 import { SurveysTable } from 'scenes/surveys/components/SurveysTable'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, SurveyEventName } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
-import { SurveysDisabledBanner } from './SurveySettings'
+import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -104,19 +104,12 @@ function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
                 sceneInset={true}
             />
-            {tab === SurveysTabs.Notifications && (
-                <>
-                    <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        type="destination"
-                        subTemplateIds={['survey-response']}
-                        forceFilterGroups={[{ events: [{ id: SurveyEventName.SENT, type: 'events' }] }]}
-                    />
-                </>
-            )}
+            {tab === SurveysTabs.Settings && <SurveySettings />}
+            {tab === SurveysTabs.Notifications && <SurveyNotificationsList />}
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 

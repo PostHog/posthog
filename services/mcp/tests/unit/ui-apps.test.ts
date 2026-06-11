@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildAppStubHtml } from '@/resources/ui-apps'
+import { DISPATCHABLE_APP_KEYS, UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
+
+import { generateDispatchModule, resolveDetailApp, resolveListApp } from '../../scripts/generate-ui-apps'
 
 describe('ui-apps', () => {
     describe('buildAppStubHtml', () => {
@@ -71,7 +74,6 @@ describe('ui-apps', () => {
                     MCP_APPS_BASE_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
-                    INKEEP_API_KEY: undefined,
                     POSTHOG_API_BASE_URL: undefined,
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
@@ -102,7 +104,7 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
-            expect(server.registerResource).toHaveBeenCalledTimes(21)
+            expect(server.registerResource).toHaveBeenCalledTimes(UI_APPS.length)
         })
 
         it('registers apps with correct names and URIs', async () => {
@@ -116,7 +118,10 @@ describe('ui-apps', () => {
             expect(registeredNames).toContain('MCP Apps Debug')
             expect(registeredNames).toContain('Query Results')
             expect(registeredNames).toContain('PostHog Feature Flag')
+            expect(registeredNames).toContain('PostHog Feature Flag Testing')
             expect(registeredNames).toContain('PostHog Experiment Results')
+
+            expect(URI_MAP['feature-flag-testing']).toBe('ui://posthog/feature-flag-testing.html')
         })
 
         it('includes base URL in CSP resourceDomains', async () => {
@@ -200,6 +205,46 @@ describe('ui-apps', () => {
             const result = await handler(new URL('ui://posthog/debug.html'))
 
             expect(result.contents[0].mimeType).toBe('text/html;profile=mcp-app')
+        })
+    })
+
+    describe('render-ui dispatch', () => {
+        it('DISPATCHABLE_APP_KEYS excludes custom apps', () => {
+            expect(DISPATCHABLE_APP_KEYS).toContain('survey')
+            expect(DISPATCHABLE_APP_KEYS).toContain('survey-list')
+            for (const customKey of ['debug', 'query-results', 'render-ui', 'visual-review-snapshots']) {
+                expect(DISPATCHABLE_APP_KEYS).not.toContain(customKey)
+            }
+        })
+
+        it('generates a dispatch entry per detail/list app and a Content component for list apps', () => {
+            const code = generateDispatchModule([
+                {
+                    appKey: 'survey',
+                    type: 'detail',
+                    config: resolveDetailApp(
+                        'survey',
+                        { type: 'detail', view_prop: 'survey' },
+                        'products/surveys/mcp/apps'
+                    ),
+                },
+                {
+                    appKey: 'survey-list',
+                    type: 'list',
+                    config: resolveListApp(
+                        'survey-list',
+                        { type: 'list', detail_tool: 'survey-get' },
+                        'products/surveys/mcp/apps'
+                    ),
+                },
+            ])
+
+            expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
+            expect(code).toContain(
+                "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
+            )
+            expect(code).toContain('function SurveyListContent(')
+            expect(code).toContain("name: 'survey-get'")
         })
     })
 })

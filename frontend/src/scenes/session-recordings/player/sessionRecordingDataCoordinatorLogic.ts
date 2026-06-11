@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -10,7 +11,6 @@ import {
     SnapshotStore,
     SourceLoadingState,
 } from '@posthog/replay-shared'
-import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 
@@ -85,7 +85,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'registerWindowId',
                 ],
                 eventsLogic,
-                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
+                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess', 'loadFullEventDataSuccess'],
                 commentsLogic,
                 [
                     'loadRecordingComments',
@@ -175,6 +175,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadEventsSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        // loadFullEventData shares the sessionEventsData loader, so while it is in flight
+        // fullyLoaded is false — re-check once it settles or the loaded report can be skipped
+        loadFullEventDataSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
 

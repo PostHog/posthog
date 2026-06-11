@@ -134,6 +134,11 @@ pub const TRACES_AVRO_SCHEMA: &str = r#"
     "name": "status_message",
     "type": ["null", "string"],
     "doc": "Status message"
+    },
+    {
+    "name": "bytes_uncompressed",
+    "type": ["null", "long"],
+    "doc": "Logical content size of the row (sum of byte lengths of string/map/array fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
     }
 ]
 }"#;

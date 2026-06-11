@@ -478,6 +478,63 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
 
+    def test_cannot_assign_owner_from_another_organization(self):
+        """Owner must belong to the current organization (PATCH)."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        other_org = create_organization(name="other org")
+        other_user = create_user("other-user-patch@example.com", "pass", other_org)
+
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="owner_patch_event", owner=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event.id}/",
+            {"owner": other_user.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert other_user.email.encode() not in response.content
+
+        event.refresh_from_db()
+        assert event.owner_id == self.user.id
+
+    def test_cannot_create_with_owner_from_another_organization(self):
+        """Owner must belong to the current organization (POST)."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        other_org = create_organization(name="other org")
+        other_user = create_user("other-user-post@example.com", "pass", other_org)
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "owner_post_event", "owner": other_user.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert other_user.email.encode() not in response.content
+        assert not EnterpriseEventDefinition.objects.filter(name="owner_post_event", team=self.demo_team).exists()
+
+    def test_can_assign_owner_from_same_organization(self):
+        """Assigning an owner who is in the same org should still work."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        same_org_user = create_user("same-org@example.com", "pass", self.organization)
+
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="same_org_owner_event", owner=self.user
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event.id}/",
+            {"owner": same_org_user.id},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["owner"]["id"] == same_org_user.id
+
+        event.refresh_from_db()
+        assert event.owner_id == same_org_user.id
+
     def test_create_event_definition_with_hidden(self):
         """Test creating a hidden event definition"""
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))

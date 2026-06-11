@@ -12,23 +12,23 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
 
 
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
-    with timings.measure("for_events"):
+    with timings.measure("for_events", emit_span=True):
         for event in team.revenue_analytics_config.events:
             yield SourceHandle(type="events", team=team, event=event)
 
-    with timings.measure("for_schema_sources"):
+    with timings.measure("for_schema_sources", emit_span=True):
         queryset = (
             ExternalDataSource.objects.filter(
                 team_id=team.pk,

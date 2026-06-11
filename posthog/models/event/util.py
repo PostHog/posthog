@@ -7,13 +7,12 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from dateutil.parser import isoparse
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
@@ -174,20 +173,21 @@ def bulk_create_events(
         #  use person properties mapping to populate person properties in given event
         team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
+        person_created_at: Any
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
             person_id = person.uuid
-            person_created_at = person.created_at
+            person_created_at = person.created_at or datetime64_default_timestamp
         else:
             try:
-                person = Person.objects.get(
+                person = Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
                     persondistinctid__distinct_id=event["distinct_id"],
                     persondistinctid__team_id=team_id,
                 )
                 person_properties = person.properties
                 person_id = person.uuid
-                person_created_at = person.created_at
+                person_created_at = person.created_at or datetime64_default_timestamp
             except Person.DoesNotExist:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
@@ -204,29 +204,25 @@ def bulk_create_events(
         }
 
         # Populate group properties as well
+        from posthog.models.group.util import get_group_by_key
+
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                try:
-                    group = Group.objects.get(
-                        team_id=team_id,
-                        group_type_index=group_type_index,
-                        group_key=value,
-                    )
-                    group_property_key = f"group{group_type_index}_properties"
-                    group_created_at_key = f"group{group_type_index}_created_at"
-
-                    event = {
-                        **event,
-                        group_property_key: {
-                            **group.group_properties,
-                            **event.get(group_property_key, {}),
-                        },
-                        group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
-                    }
-
-                except Group.DoesNotExist:
+                group = get_group_by_key(team_id, int(group_type_index), value)
+                if group is None:
                     continue
+                group_property_key = f"group{group_type_index}_properties"
+                group_created_at_key = f"group{group_type_index}_created_at"
+
+                event = {
+                    **event,
+                    group_property_key: {
+                        **group.group_properties,
+                        **event.get(group_property_key, {}),
+                    },
+                    group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
+                }
         properties = event.get("properties", {})
 
         event = {
@@ -274,6 +270,7 @@ def bulk_create_events(
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
+@extend_schema_serializer(component_name="EventElement")
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -327,7 +324,21 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        return parse_properties(event["properties"])
+        props = parse_properties(event["properties"])
+        restricted = self.context.get("restricted_event_properties")
+        if restricted:
+            props = {k: v for k, v in props.items() if k not in restricted}
+
+        restricted_person = self.context.get("restricted_person_properties")
+        if restricted_person:
+            for key in ("$set", "$set_once"):
+                nested = props.get(key)
+                if isinstance(nested, dict):
+                    props[key] = {k: v for k, v in nested.items() if k not in restricted_person}
+            unset = props.get("$unset")
+            if isinstance(unset, list):
+                props["$unset"] = [k for k in unset if k not in restricted_person]
+        return props
 
     @extend_schema_field(serializers.CharField())
     def get_event(self, event):
@@ -344,11 +355,14 @@ class ClickhouseEventSerializer(serializers.Serializer):
             return None
 
         person = self.context["people"][event["distinct_id"]]
+        restricted = self.context.get("restricted_person_properties", set())
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
             "properties": {
-                key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
+                key: person.properties[key]
+                for key in ["email", "name", "username"]
+                if key in person.properties and key not in restricted
             },
         }
 

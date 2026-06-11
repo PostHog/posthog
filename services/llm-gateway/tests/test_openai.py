@@ -1,8 +1,12 @@
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
+from llm_gateway.main import RequestLoggingMiddleware
+from llm_gateway.request_context import get_posthog_properties
+from tests.conftest import create_test_app
 
 DANGEROUS_PARAMS: list[tuple[str, str]] = [
     ("api_key", "sk-stolen-key"),
@@ -86,6 +90,54 @@ class TestChatCompletionsEndpoint:
         assert data["id"] == "chatcmpl-123"
         assert data["object"] == "chat.completion"
         assert data["usage"]["total_tokens"] == 15
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_posthog_property_headers_reach_request_context(
+        self,
+        mock_completion: MagicMock,
+        mock_db_pool: MagicMock,
+        valid_request_body: dict,
+        mock_openai_response: dict,
+    ) -> None:
+        # Build a prod-like app: RequestLoggingMiddleware establishes the base RequestContext
+        # that apply_posthog_context_from_headers mutates. The shared conftest app omits it.
+        app = create_test_app(mock_db_pool)
+        app.add_middleware(RequestLoggingMiddleware)
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        captured: dict[str, Any] = {}
+
+        def _capture(*args: Any, **kwargs: Any) -> MagicMock:
+            captured["properties"] = get_posthog_properties()
+            return mock_response
+
+        mock_completion.side_effect = _capture
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/chat/completions",
+                json=valid_request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "x-posthog-property-team_id": "42",
+                    "x-posthog-property-$ai_billable": "false",
+                },
+            )
+
+        assert response.status_code == 200
+        assert captured["properties"] == {"team_id": "42", "$ai_billable": "false"}
 
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
@@ -225,3 +277,83 @@ class TestChatCompletionsEndpoint:
         assert "base_url" not in forwarded_metadata["nested"]
         assert forwarded_metadata["safe"] == "value"
         assert forwarded_metadata["nested"]["keep"] == "ok"
+
+
+class TestUnsupportedModelRejection:
+    """Gemini/Vertex models must be rejected before reaching litellm, which would
+    otherwise raise ImportError from vertex_llm_base because we don't install
+    litellm[google]."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini/gemini-3-pro-preview",
+            "gemini/gemini-1.5-pro",
+            "vertex_ai/gemini-1.5-pro",
+            "vertex_ai-language-models/text-bison",
+            "GEMINI/gemini-pro",  # case-insensitive prefix match
+            # Bare gemini-* names (most commonly seen in the pod crash logs).
+            # These may not be in the litellm cost registry yet, so we match
+            # them by name prefix rather than relying on registry lookup.
+            "gemini-3-pro-preview",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "Gemini-3-Pro-Preview",  # case-insensitive
+        ],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_unsupported_model_prefix_returns_400(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        model: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={"model": model, "messages": [{"role": "user", "content": "Hi"}]},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_supported"
+        mock_completion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_unsupported_provider_via_registry_returns_400(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        # Bare model name (no prefix) where litellm's registry identifies the
+        # provider as vertex_ai — we still need to catch this.
+        from llm_gateway.rate_limiting.model_cost_service import ModelCostService
+        from llm_gateway.services.model_registry import ModelRegistryService
+
+        fake_costs = {
+            "gemini-pro-bare": {
+                "litellm_provider": "vertex_ai",
+                "max_input_tokens": 1000,
+                "supports_vision": False,
+                "mode": "chat",
+            },
+        }
+
+        def fake_get_costs(self: ModelCostService, model: str):
+            return fake_costs.get(model)
+
+        ModelRegistryService.reset_instance()
+        ModelCostService.reset_instance()
+        try:
+            with patch.object(ModelCostService, "get_costs", fake_get_costs):
+                response = authenticated_client.post(
+                    "/v1/chat/completions",
+                    json={"model": "gemini-pro-bare", "messages": [{"role": "user", "content": "Hi"}]},
+                    headers={"Authorization": "Bearer phx_test_key"},
+                )
+        finally:
+            ModelRegistryService.reset_instance()
+            ModelCostService.reset_instance()
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_supported"
+        mock_completion.assert_not_called()

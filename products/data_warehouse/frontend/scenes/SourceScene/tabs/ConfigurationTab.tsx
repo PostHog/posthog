@@ -12,6 +12,7 @@ import { SourceFormComponent } from 'products/data_warehouse/frontend/shared/com
 
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { buildKeaFormDefaultFromSourceDetails } from '../../NewSourceScene/sourceWizardLogic'
+import { CDCSection } from './CDCSection'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 interface ConfigurationTabProps {
@@ -21,7 +22,7 @@ interface ConfigurationTabProps {
 export const ConfigurationTab = ({ id }: ConfigurationTabProps): JSX.Element => {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
     }
 
@@ -79,7 +80,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
-                <div className="mt-4 flex flex-row justify-end gap-2">
+                <div className="my-4 flex flex-row justify-end gap-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.ExternalDataSource}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -97,6 +98,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     </AccessControlAction>
                 </div>
             </Form>
+            <CDCSection source={source} />
         </>
     )
 }

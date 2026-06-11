@@ -1,7 +1,10 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from rest_framework.status import HTTP_200_OK, HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
+from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
+
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestDebugCHQuery(APIBaseTest):
@@ -27,73 +30,64 @@ class TestDebugCHQuery(APIBaseTest):
             resp = self.client.get("/api/debug_ch_queries/")
             self.assertEqual(resp.status_code, HTTP_200_OK)
 
+    def _create_pat(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
 
-class TestDebugCHQueryProfile(APIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
-    def test_non_staff_gets_403(self):
-        self.user.is_staff = False
+    def test_slowest_queries_pat_requires_scope_and_staff(self):
+        # Without the query_performance scope, even a staff user is rejected.
+        self.user.is_staff = True
         self.user.save()
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": "SELECT 1"}, format="json")
+        token = self._create_pat(scopes=["experiment:read"])
+        self.client.logout()
+
+        resp = self.client.get(
+            "/api/debug_ch_queries/slowest_queries/?hours=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
 
-    def test_rejects_empty_query(self):
+    def test_slowest_queries_wildcard_pat_rejected(self):
+        # A full-access (`*`) PAT must NOT satisfy the query_performance:read requirement —
+        # this scope is INTERNAL and only programmatically-minted tokens carry it explicitly.
         self.user.is_staff = True
         self.user.save()
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": ""}, format="json")
-        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+        token = self._create_pat(scopes=["*"])
+        self.client.logout()
 
-    @patch("posthog.api.debug_ch_queries.get_client_from_pool")
-    def test_returns_profile_query_id(self, mock_get_client):
-        self.user.is_staff = True
-        self.user.save()
+        resp = self.client.get(
+            "/api/debug_ch_queries/slowest_queries/?hours=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN, resp.content)
 
-        mock_client = MagicMock()
-        mock_get_client.return_value.__enter__ = MagicMock(return_value=mock_client)
-        mock_get_client.return_value.__exit__ = MagicMock(return_value=False)
+    def test_slowest_queries_pat_with_scope_but_non_staff_rejected(self):
+        # Scope grants the PAT past the scope check; is_staff still gates the action.
+        self.assertFalse(self.user.is_staff)
+        token = self._create_pat(scopes=["query_performance:read"])
+        self.client.logout()
 
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": "SELECT 1"}, format="json")
-        self.assertEqual(resp.status_code, HTTP_200_OK)
-        data = resp.json()
-        self.assertIn("profile_query_id", data)
-        self.assertIn("execution_time_ms", data)
-        self.assertTrue(data["profile_query_id"].startswith("profile_"))
-
-
-class TestDebugCHQueryProfileResults(APIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
-    def test_non_staff_gets_403(self):
-        self.user.is_staff = False
-        self.user.save()
-        resp = self.client.get("/api/debug_ch_queries/profile_results/?profile_query_id=test")
+        resp = self.client.get(
+            "/api/debug_ch_queries/slowest_queries/?hours=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
 
-    def test_missing_query_id_gets_400(self):
+    @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
+    def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True
         self.user.save()
-        resp = self.client.get("/api/debug_ch_queries/profile_results/")
-        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+        token = self._create_pat(scopes=["query_performance:read"])
+        self.client.logout()
 
-    @patch("posthog.api.debug_ch_queries.sync_execute")
-    def test_returns_202_when_pending(self, mock_sync_execute):
-        self.user.is_staff = True
-        self.user.save()
-        mock_sync_execute.return_value = []
-
-        resp = self.client.get("/api/debug_ch_queries/profile_results/?profile_query_id=profile_abc")
-        self.assertEqual(resp.status_code, HTTP_202_ACCEPTED)
-        self.assertEqual(resp.json()["status"], "pending")
-
-    @patch("posthog.api.debug_ch_queries.sync_execute")
-    def test_returns_folded_stacks(self, mock_sync_execute):
-        self.user.is_staff = True
-        self.user.save()
-        mock_sync_execute.return_value = [("main;foo;bar", 10), ("main;baz", 5)]
-
-        resp = self.client.get("/api/debug_ch_queries/profile_results/?profile_query_id=profile_abc")
-        self.assertEqual(resp.status_code, HTTP_200_OK)
-        data = resp.json()
-        self.assertEqual(data["status"], "complete")
-        self.assertEqual(data["folded_stacks"], ["main;foo;bar 10", "main;baz 5"])
-        self.assertEqual(data["sample_count"], 15)
+        resp = self.client.get(
+            "/api/debug_ch_queries/slowest_queries/?hours=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)

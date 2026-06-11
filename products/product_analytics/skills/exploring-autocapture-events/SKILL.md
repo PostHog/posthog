@@ -4,8 +4,10 @@ description: >
   Guides exploration of $autocapture events captured by posthog-js to understand user interactions,
   find CSS selectors (especially data-attr attributes), evaluate selector uniqueness, query matching
   clicks ad-hoc, and create actions. Use when the user asks about autocapture data, wants to find
-  what users are clicking, needs to build actions from click events, or asks about elements_chain.
-  Only applies to projects using posthog-js autocapture.
+  what users are clicking, needs to build actions from click events, asks about elements_chain,
+  wants to build a trend or funnel filtered by clicks or other autocapture interactions, asks which
+  properties autocapture sends, or asks how to filter $autocapture events. Only applies to projects
+  using posthog-js autocapture.
 ---
 
 # Exploring autocapture events
@@ -30,6 +32,20 @@ The `events` table provides fast access to common element fields without parsing
 | `elements_chain_elements` | Array(String) | Useful tag names: a, button, input, select, textarea, label                                            |
 
 Use materialized columns for exploration queries whenever possible — they avoid regex parsing.
+
+## Canonical autocapture properties
+
+Every `$autocapture` event from posthog-js ships with a fixed set of properties.
+Do not query the schema to "look them up" — they are these:
+
+| Property          | Examples                          | Notes                                                       |
+| ----------------- | --------------------------------- | ----------------------------------------------------------- |
+| `$event_type`     | `click`, `submit`, `change`       | the kind of interaction                                     |
+| `$el_text`        | `Sign up`, `Submit`               | text of the clicked element                                 |
+| `$current_url`    | `https://app.example.com/pricing` | page the interaction happened on                            |
+| `$elements_chain` | semicolon-separated chain         | parsed via the `elements_chain*` materialized columns above |
+
+Standard event properties (`$browser`, `$os`, `$device_type`, etc.) are also present.
 
 ## Workflow
 
@@ -101,7 +117,60 @@ If the selector alone is not unique enough, layer on additional filters:
 Re-run the uniqueness check after each refinement.
 Only include filters that are needed — fewer filters means more resilience to minor DOM changes.
 
-### 6. Use in ad-hoc queries
+### 6. Filter autocapture inside an insight query
+
+When the user wants a funnel, trend, or other insight, the filter shape is different from HogQL.
+Each step in a `FunnelsQuery` / `TrendsQuery` is an `EventsNode` (or `ActionsNode`) with `event: "$autocapture"` and a `properties` array.
+
+Two distinct property `type` values matter — they are not interchangeable:
+
+- **`type: "element"`** — keys: `selector`, `tag_name`, `text`, `href`. Matched against the parsed `elements_chain`. Operator support is split:
+  - `selector` and `tag_name` only support `exact` and `is_not` — anything else raises `NotImplementedError` in the query compiler (`posthog/hogql/property.py`).
+  - `text` and `href` accept the full string operator set (`exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`).
+- **`type: "event"`** — keys: any of the canonical autocapture properties (`$event_type`, `$el_text`, `$current_url`) or anything else on the event. Standard event-property operators (`exact`, `icontains`, `regex`, etc.).
+
+Example funnel from clicking one button to clicking another:
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    {
+      "kind": "EventsNode",
+      "event": "$autocapture",
+      "properties": [
+        {
+          "type": "element",
+          "key": "selector",
+          "value": ["[data-attr=\"autocapture-series-save-as-action-banner-shown\"]"],
+          "operator": "exact"
+        }
+      ]
+    },
+    {
+      "kind": "EventsNode",
+      "event": "$autocapture",
+      "properties": [
+        {
+          "type": "element",
+          "key": "selector",
+          "value": ["[data-attr=\"autocapture-save-as-action\"]"],
+          "operator": "exact"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Two things easy to get wrong:
+
+- `value` is an array even when matching a single selector
+- The selector string includes the `[data-attr="..."]` wrapper — it is a CSS selector, not a bare attribute value
+
+Decision rule: prefer an action (`ActionsNode` referencing an existing action — see Step 8) when the interaction will be referenced more than once; inline `type: "element"` / `type: "event"` filters when it's a one-off insight; raw HogQL (Step 7) when joining across events or doing custom aggregations.
+
+### 7. Use in ad-hoc queries
 
 The discovered selector can be used directly in HogQL without creating an action.
 
@@ -152,7 +221,7 @@ FROM (
 
 For recurring analysis, prefer creating an action (next step) or using `posthog:query-trends` / `posthog:query-funnel` with the action.
 
-### 7. Create an action
+### 8. Create an action
 
 Actions are the durable version of ad-hoc selector queries.
 Once the criteria uniquely identify the interaction, create an action using `posthog:action-create`.
@@ -198,5 +267,4 @@ WHERE matchesAction('Clicked checkout button')
 - Use `LIMIT` generously when sampling `elements_chain` — the strings can be long
 - The `elements_chain =~` operator matches CSS selectors as regex internally;
   prefer materialized columns when possible for performance
-- `$autocapture` events also carry standard properties like `$current_url`, `$browser`, `$os`
 - This workflow only applies to posthog-js — other SDKs do not capture elements

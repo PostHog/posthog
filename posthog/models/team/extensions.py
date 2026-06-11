@@ -94,7 +94,7 @@ class TeamExtensionDescriptor:
         self.module_path = module_path
         self.class_name = class_name
         self.defaults = defaults
-        self._model_class: type | None = None
+        self._model_class: type[models.Model] | None = None
         self.attr_name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:

@@ -1,5 +1,6 @@
 import { DiffEditor } from '@monaco-editor/react'
 
+import 'lib/monaco/monacoEnvironment'
 import {
     ActivityLogItem,
     HumanizedChange,

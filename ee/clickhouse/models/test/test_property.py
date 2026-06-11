@@ -17,7 +17,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
@@ -35,6 +34,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
 from posthog.queries.util import PersonPropertiesMode
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -1267,7 +1268,7 @@ def test_breakdown_query_expression_materialised(
 ):
     from posthog.models.team import util
 
-    util.can_enable_actor_on_events = True
+    util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
     materialize(table, breakdown[0], table_column="properties")
     actual = get_single_or_multi_property_string_expr(
@@ -1788,6 +1789,36 @@ def test_prop_filter_json_extract_materialized(
     expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert uuids == expected
+
+
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
+    test_events, clean_up_materialised_columns, team
+):
+    column = materialize("events", "email", is_nullable=True)
+    cases = [
+        (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
+        (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 27)),
+    ]
+
+    for property, expected_event_indexes in cases:
+        query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+
+        assert column.name not in query
+        assert "JSONHas" in query
+
+        uuids = sorted(
+            [
+                str(uuid)
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                    {"team_id": team.pk, **params},
+                )
+            ]
+        )
+        expected = sorted([test_events[index] for index in expected_event_indexes])
+
+        assert uuids == expected
 
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)

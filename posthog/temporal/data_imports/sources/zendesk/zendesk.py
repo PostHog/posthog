@@ -1,15 +1,14 @@
 import base64
 from typing import Any, Optional
 
-import dlt
-import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
+from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
-from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -17,7 +16,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "brands": {
             "name": "brands",
             "table_name": "brands",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -38,7 +36,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "organizations": {
             "name": "organizations",
             "table_name": "organizations",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -59,7 +56,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "groups": {
             "name": "groups",
             "table_name": "groups",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -82,7 +78,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "sla_policies": {
             "name": "sla_policies",
             "table_name": "sla_policies",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -100,7 +95,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "users": {
             "name": "users",
             "table_name": "users",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -126,7 +120,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_fields": {
             "name": "ticket_fields",
             "table_name": "ticket_fields",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -150,7 +143,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_events": {
             "name": "ticket_events",
             "table_name": "ticket_events",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -179,7 +171,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "tickets": {
             "name": "tickets",
             "table_name": "tickets",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -189,14 +180,19 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),
             "endpoint": {
                 "data_selector": "tickets",
-                "path": "/api/v2/incremental/tickets",
-                "paginator": ZendeskTicketsIncrementalEndpointPaginator(),
+                # Cursor-based incremental export. The time-based export
+                # (`/api/v2/incremental/tickets`) deadlocks when >1000 tickets
+                # share a `generated_timestamp`: the page never advances past
+                # that timestamp, so pagination loops forever re-fetching the
+                # same boundary page. Cursor pagination is immune to this.
+                "path": "/api/v2/incremental/tickets/cursor",
+                "paginator": ZendeskTicketsCursorIncrementalPaginator(),
                 "params": {
                     "per_page": 1000,
                     "start_time": {
                         "type": "incremental",
                         "cursor_path": "generated_timestamp",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     },
                 },
             },
@@ -205,7 +201,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_metric_events": {
             "name": "ticket_metric_events",
             "table_name": "ticket_metric_events",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -236,29 +231,53 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     return resources[name]
 
 
-class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
+class ZendeskTicketsCursorIncrementalPaginator(BasePaginator):
+    """Cursor-based pagination for Zendesk's incremental tickets export.
+
+    The first request is seeded with `start_time` (resolved from the incremental
+    cursor); every subsequent request follows the opaque `after_cursor` token.
+    Unlike the time-based export, the cursor encodes the stream position rather
+    than a timestamp, so it can't get pinned when many tickets share a
+    `generated_timestamp`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._after_cursor: Optional[str] = None
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
-
-        self._next_start_time = None
 
         if not res:
             self._has_next_page = False
             return
 
-        if not res["end_of_stream"]:
-            self._has_next_page = True
+        if "end_of_stream" not in res:
+            raise ValueError("Zendesk cursor export response is missing 'end_of_stream'")
 
-            last_value_in_response = res["tickets"][-1]["generated_timestamp"]
-            self._next_start_time = last_value_in_response
-        else:
+        if res["end_of_stream"]:
             self._has_next_page = False
+            return
+
+        # `end_of_stream` is False, so the stream continues and a valid, advancing
+        # `after_cursor` must be present. A missing or non-advancing cursor is an
+        # invalid/partial response — raise so the activity retries instead of
+        # committing truncated data as a successful sync.
+        after_cursor = res.get("after_cursor")
+        if not after_cursor or after_cursor == self._after_cursor:
+            raise ValueError("Zendesk cursor export returned end_of_stream=False without an advancing after_cursor")
+
+        self._after_cursor = after_cursor
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         if request.params is None:
             request.params = {}
 
-        request.params["start_time"] = self._next_start_time
+        # After the first page we paginate purely by cursor; drop the seed
+        # `start_time` so it doesn't conflict with the `cursor` param.
+        request.params.pop("start_time", None)
+        request.params["cursor"] = self._after_cursor
 
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
@@ -280,9 +299,11 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
 
     def update_request(self, request: Request) -> None:
         request.url = self._next_page
+        # next_page is a full URL that already contains all query params —
+        # clear params to avoid duplicates when prepare_request merges them.
+        request.params = {}
 
 
-@dlt.source(max_table_nesting=0)
 def zendesk_source(
     subdomain: str,
     api_key: str,
@@ -303,7 +324,6 @@ def zendesk_source(
             },
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -314,12 +334,12 @@ def zendesk_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
-    res = requests.get(
+    res = make_tracked_session().get(
         f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
         headers={"Authorization": f"Basic {basic_token}"},
     )

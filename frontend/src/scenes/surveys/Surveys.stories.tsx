@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -254,6 +255,12 @@ export default meta
 type Story = StoryObj<{}>
 export const SurveysList: Story = {}
 
+export const SurveysGlobalSettings: Story = {
+    parameters: {
+        pageUrl: urls.surveys(SurveysTabs.Settings),
+    },
+}
+
 export const NewSurvey: Story = {
     parameters: {
         pageUrl: urls.survey('new'),
@@ -396,6 +403,7 @@ export const NewSurveyWithHTMLQuestionDescription: Story = {
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: Story = {
+    tags: ['test-skip-webkit'], // webkit crashes on Playwright 1.60.0 (Target crashed)
     render: () => {
         useDelayedOnMountEffect(() => {
             surveyLogic({ id: 'new' }).mount()

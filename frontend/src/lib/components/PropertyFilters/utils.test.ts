@@ -353,20 +353,24 @@ describe('createDefaultPropertyFilter()', () => {
         )
     })
 
-    it('creates a standard event property filter with Exact operator', () => {
+    it.each([
+        ['$browser', PropertyOperator.Exact],
+        ['$current_url', PropertyOperator.IContains],
+        ['$pathname', PropertyOperator.IContains],
+    ])('defaults the %s event property filter to the %s operator', (propertyKey, expectedOperator) => {
         const result = createDefaultPropertyFilter(
             null,
-            '$browser',
+            propertyKey,
             PropertyFilterType.Event,
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
         expect(result).toEqual(
             expect.objectContaining({
-                key: '$browser',
+                key: propertyKey,
                 value: null,
                 type: PropertyFilterType.Event,
-                operator: PropertyOperator.Exact,
+                operator: expectedOperator,
             })
         )
     })
@@ -386,5 +390,46 @@ describe('createDefaultPropertyFilter()', () => {
             noopDescribeProperty
         )
         expect(result).toEqual(expect.objectContaining({ operator: PropertyOperator.IsNot }))
+    })
+
+    it('pre-fills value from selectedItem.matchedValue when matchedOn is "value"', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty,
+            { matchedOn: 'value', matchedValue: 'frank@posthog.com' }
+        )
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: 'user.email',
+                value: ['frank@posthog.com'],
+                operator: PropertyOperator.Exact,
+            })
+        )
+    })
+
+    it('does not pre-fill value when matchedOn is "key"', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty,
+            { matchedOn: 'key', matchedValue: 'frank@posthog.com' }
+        )
+        expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
+    })
+
+    it('does not pre-fill value when selectedItem is omitted', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty
+        )
+        expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
     })
 })

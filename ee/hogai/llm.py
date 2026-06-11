@@ -32,14 +32,22 @@ BILLING_SKIPPED_COUNTER = Counter(
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
-All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
+All PostHog app URLs must use root-relative paths starting with `/`, without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs. Never use relative paths like `../` or `./` — always start with `/`.
 Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
 
 Key URL patterns:
+- Dashboard: `/dashboard/<id>`, e.g. `/dashboard/12345`
+- Insights: `/insights/<short_id>`, e.g. `/insights/abc123`
 - Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
+{{#person_on_events_enabled}}
+Person-on-events mode is enabled. When querying `person.properties.*` on the events table, values reflect what was set at the time the event was ingested, not the person's current value. The same person can have different property values across different events. Do not suggest workarounds for "query-time" person properties.
+{{/person_on_events_enabled}}
+{{^person_on_events_enabled}}
+Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred.
+{{/person_on_events_enabled}}
 """.strip()
 
 # https://platform.openai.com/docs/guides/flex-processing
@@ -102,6 +110,7 @@ class MaxChatMixin(BaseModel):
             "user_full_name": self.user.get_full_name(),
             "user_email": self.user.email,
             "deployment_region": region,
+            "person_on_events_enabled": self.team.person_on_events_querying_enabled,
         }
 
     @sync_to_async
@@ -162,7 +171,7 @@ class MaxChatMixin(BaseModel):
         posthog_props = dict(self.posthog_properties or {})
         posthog_props["$ai_billable"] = self._get_effective_billable()
         posthog_props["team_id"] = self.team.id
-        posthog_props["ai_product"] = "posthog_ai"
+        posthog_props.setdefault("ai_product", "posthog_ai")
 
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
