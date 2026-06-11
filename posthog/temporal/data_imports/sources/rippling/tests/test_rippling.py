@@ -8,6 +8,7 @@ from unittest import mock
 from posthog.temporal.data_imports.sources.rippling.rippling import (
     PAGE_SIZE,
     RipplingResumeConfig,
+    _absolutize_next_url,
     _build_params,
     _build_url,
     _format_filter_timestamp,
@@ -50,7 +51,6 @@ class TestFormatFilterTimestamp:
 class TestBuildParams:
     def test_incremental_builds_odata_filter_and_sort(self):
         params = _build_params(
-            RIPPLING_ENDPOINTS["workers"],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 10, 1, tzinfo=UTC),
             incremental_field="updated_at",
@@ -62,7 +62,6 @@ class TestBuildParams:
 
     def test_incremental_honors_created_at_cursor(self):
         params = _build_params(
-            RIPPLING_ENDPOINTS["workers"],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 10, 1, tzinfo=UTC),
             incremental_field="created_at",
@@ -73,7 +72,6 @@ class TestBuildParams:
 
     def test_incremental_without_last_value_falls_back_to_full_refresh_sort(self):
         params = _build_params(
-            RIPPLING_ENDPOINTS["workers"],
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
             incremental_field="updated_at",
@@ -84,7 +82,6 @@ class TestBuildParams:
 
     def test_full_refresh_sorts_on_stable_creation_date(self):
         params = _build_params(
-            RIPPLING_ENDPOINTS["companies"],
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
             incremental_field=None,
@@ -100,6 +97,34 @@ class TestBuildUrl:
         parsed = urlparse(url)
         assert parsed.netloc == "rest.ripplingapis.com"
         assert parse_qs(parsed.query)["filter"] == ["updated_at ge 2024-10-01T00:00:00"]
+
+
+class TestAbsolutizeNextUrl:
+    @pytest.mark.parametrize(
+        "next_link, expected",
+        [
+            ("/workers?cursor=abc", "https://rest.ripplingapis.com/workers?cursor=abc"),
+            (
+                "https://rest.ripplingapis.com/workers?cursor=xyz",
+                "https://rest.ripplingapis.com/workers?cursor=xyz",
+            ),
+        ],
+    )
+    def test_allows_on_domain_links(self, next_link, expected):
+        assert _absolutize_next_url(next_link) == expected
+
+    @pytest.mark.parametrize(
+        "next_link",
+        [
+            "https://attacker.example/workers",
+            "//attacker.example/workers",
+            "http://rest.ripplingapis.com/workers",
+            "https://rest.ripplingapis.com.attacker.example/workers",
+        ],
+    )
+    def test_rejects_off_domain_links(self, next_link):
+        with pytest.raises(ValueError):
+            _absolutize_next_url(next_link)
 
 
 class TestValidateCredentials:

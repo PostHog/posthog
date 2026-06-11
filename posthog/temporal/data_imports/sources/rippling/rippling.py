@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -11,9 +11,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS, RipplingEndpointConfig
+from posthog.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
 
 RIPPLING_BASE_URL = "https://rest.ripplingapis.com"
+RIPPLING_HOST = urlsplit(RIPPLING_BASE_URL).netloc
 # Rippling list pages cap at 100 items.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -47,7 +48,6 @@ def _format_filter_timestamp(value: Any) -> str:
 
 
 def _build_params(
-    config: RipplingEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
@@ -66,6 +66,19 @@ def _build_params(
         params["order_by"] = "created_at"
 
     return params
+
+
+def _absolutize_next_url(next_link: str) -> str:
+    """Absolutize a pagination link against the Rippling host, rejecting off-domain targets.
+
+    The session carries the user's bearer token in its default headers, so a malicious or
+    buggy `next_link` pointing at another host could leak that token. Only https URLs on the
+    Rippling API host (or relative paths resolving to it) are allowed."""
+    next_url = urljoin(RIPPLING_BASE_URL, next_link)
+    parts = urlsplit(next_url)
+    if parts.scheme != "https" or parts.netloc != RIPPLING_HOST:
+        raise ValueError(f"Rippling pagination link points off-domain: {next_link}")
+    return next_url
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -108,7 +121,7 @@ def get_rows(
     else:
         url = _build_url(
             config.path,
-            _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field),
+            _build_params(should_use_incremental_field, db_incremental_field_last_value, incremental_field),
         )
 
     @retry(
@@ -142,8 +155,9 @@ def get_rows(
         if not next_link:
             break
 
-        # next_link can be a relative path; absolutize against the API host.
-        next_url = urljoin(RIPPLING_BASE_URL, next_link)
+        # next_link can be a relative path; absolutize against the API host and
+        # reject any off-domain target before reusing the token-bearing session.
+        next_url = _absolutize_next_url(next_link)
         # Save state AFTER yielding the page so a crash re-yields the last page
         # (merge dedupes on primary key) rather than skipping it.
         resumable_source_manager.save_state(RipplingResumeConfig(next_url=next_url))
