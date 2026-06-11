@@ -61,6 +61,30 @@ def _render_triage(researched: ResearchedDeprecationList) -> str:
     )
 
 
+def _render_remediation_note(ranked: list[ResearchedDeprecation]) -> str:
+    """Prescribe the existing-rows migration for findings in persisted template code.
+
+    CDP destination templates are compiled into per-customer ``HogFunction`` rows, so a
+    source-only template fix repairs *new* destinations while every existing one stays broken.
+    The implementation brief (Create PR / autostart) is built from this description, so the
+    fix instructions must be explicit here.
+    """
+    if not any(finding.usage.persisted_per_row for finding in ranked):
+        return ""
+    return (
+        "\n\n**Remediation note (persisted template code):** the flagged call site(s) are compiled "
+        "into persisted `HogFunction` rows, so changing the template source only fixes newly "
+        "created destinations — existing customer destinations keep running the old code. A "
+        "complete fix PR must also migrate existing rows: add a `replaceOptions` entry "
+        "(template_id + from_string/to_string) to "
+        "`posthog/management/commands/update_hog_function_code.py` for the change, verified with "
+        "`--dry-run` first — the established pattern for template API bumps. Exception: if the new "
+        "code requires customer action that cannot be applied silently (e.g. a new OAuth scope "
+        "needing re-consent), do NOT force-migrate rows; state that explicitly in the PR and rely "
+        "on the in-app 'new template version' prompt instead."
+    )
+
+
 class ApiDeprecationAgent(CustomSignalAgent):
     """Triages detected API usages, researches them against vendor docs, and reports the cited deprecations."""
 
@@ -90,6 +114,7 @@ class ApiDeprecationAgent(CustomSignalAgent):
         self.register_description(
             f"{len(ranked)} deprecated third-party API usage(s), grounded in vendor documentation:\n\n"
             + "\n".join(_render_finding(f, today) for f in ranked)
+            + _render_remediation_note(ranked)
             + _render_triage(researched)
         )
         self.register_actionability(
