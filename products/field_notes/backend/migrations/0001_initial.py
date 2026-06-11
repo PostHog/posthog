@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
                     models.TextField(help_text="The note the user wrote about the element."),
                 ),
                 (
-                    "note_status",
+                    "field_note_status",
                     models.CharField(
                         choices=[
                             ("pending", "Pending"),
@@ -133,7 +133,7 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_field_note",
                 "indexes": [
                     models.Index(
-                        fields=["team_id", "note_status"],
+                        fields=["team_id", "field_note_status"],
                         name="field_note_team_status_idx",
                     ),
                     models.Index(fields=["team_id", "host"], name="field_note_team_host_idx"),

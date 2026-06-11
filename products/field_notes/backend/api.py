@@ -67,7 +67,7 @@ class FieldNoteSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Serialized autocapture-style element chain from the element up to the document root.",
     )
-    note_status = serializers.ChoiceField(
+    field_note_status = serializers.ChoiceField(
         choices=FieldNote.Status.choices,
         required=False,
         help_text="Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.",
@@ -91,7 +91,7 @@ class FieldNoteSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "comment",
-            "note_status",
+            "field_note_status",
             "resolution",
             "url",
             "host",
@@ -114,7 +114,7 @@ class FieldNoteSerializer(serializers.ModelSerializer):
         # Field notes are always born `pending`; status/resolution are agent-only and only
         # settable via update — strip them so a write-scoped toolbar token can't forge a
         # pre-resolved field note with a fabricated resolution note.
-        validated_data.pop("note_status", None)
+        validated_data.pop("field_note_status", None)
         validated_data.pop("resolution", None)
         field_note = FieldNote.objects.create(
             team=team,
@@ -129,7 +129,7 @@ class FieldNoteSerializer(serializers.ModelSerializer):
     list=extend_schema(
         parameters=[
             OpenApiParameter(
-                "note_status",
+                "field_note_status",
                 type=str,
                 enum=FieldNote.Status.values,
                 required=False,
@@ -160,11 +160,11 @@ class FieldNoteViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id)
-        note_status = self.request.query_params.get("note_status")
-        if note_status:
-            if note_status not in FieldNote.Status.values:
-                raise ValidationError({"note_status": f"Must be one of: {', '.join(FieldNote.Status.values)}"})
-            queryset = queryset.filter(note_status=note_status)
+        field_note_status = self.request.query_params.get("field_note_status")
+        if field_note_status:
+            if field_note_status not in FieldNote.Status.values:
+                raise ValidationError({"field_note_status": f"Must be one of: {', '.join(FieldNote.Status.values)}"})
+            queryset = queryset.filter(field_note_status=field_note_status)
         host = self.request.query_params.get("host")
         if host:
             queryset = queryset.filter(host=host)

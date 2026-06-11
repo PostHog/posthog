@@ -22,8 +22,8 @@ class FieldNote(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     comment = models.TextField(help_text="The note the user wrote about the element.")
-    # Field named `note_status` (not `status`) to avoid a drf-spectacular enum-name collision.
-    note_status = models.CharField(
+    # Field named `field_note_status` (not `status`) to avoid a drf-spectacular enum-name collision.
+    field_note_status = models.CharField(
         max_length=20,
         choices=Status.choices,
         default=Status.PENDING,
@@ -68,7 +68,7 @@ class FieldNote(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
     class Meta:
         db_table = "posthog_field_note"
         indexes = [
-            models.Index(fields=["team_id", "note_status"], name="field_note_team_status_idx"),
+            models.Index(fields=["team_id", "field_note_status"], name="field_note_team_status_idx"),
             models.Index(fields=["team_id", "host"], name="field_note_team_host_idx"),
         ]
 

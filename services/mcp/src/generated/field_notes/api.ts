@@ -21,12 +21,12 @@ export const FieldNotesListParams = /* @__PURE__ */ zod.object({
 })
 
 export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
-    host: zod.string().optional().describe('Filter to field notes made on this hostname (e.g. `app.example.com`).'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    note_status: zod
+    field_note_status: zod
         .enum(['acknowledged', 'dismissed', 'pending', 'resolved'])
         .optional()
         .describe('Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).'),
+    host: zod.string().optional().describe('Filter to field notes made on this hostname (e.g. `app.example.com`).'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

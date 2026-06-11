@@ -18730,10 +18730,10 @@ export namespace Schemas {
      * * `resolved` - Resolved
      * * `dismissed` - Dismissed
      */
-    export type NoteStatusEnum = typeof NoteStatusEnum[keyof typeof NoteStatusEnum];
+    export type FieldNoteStatusEnum = typeof FieldNoteStatusEnum[keyof typeof FieldNoteStatusEnum];
 
 
-    export const NoteStatusEnum = {
+    export const FieldNoteStatusEnum = {
       Pending: 'pending',
       Acknowledged: 'acknowledged',
       Resolved: 'resolved',
@@ -18753,7 +18753,7 @@ export namespace Schemas {
        * * `acknowledged` - Acknowledged
        * * `resolved` - Resolved
        * * `dismissed` - Dismissed */
-      note_status?: NoteStatusEnum;
+      field_note_status?: FieldNoteStatusEnum;
       /**
          * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
          * @nullable
@@ -30422,7 +30422,7 @@ export namespace Schemas {
        * * `acknowledged` - Acknowledged
        * * `resolved` - Resolved
        * * `dismissed` - Dismissed */
-      note_status?: NoteStatusEnum;
+      field_note_status?: FieldNoteStatusEnum;
       /**
          * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
          * @nullable
@@ -49771,6 +49771,10 @@ export namespace Schemas {
 
     export type FieldNotesListParams = {
     /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus;
+    /**
      * Filter to field notes made on this hostname (e.g. `app.example.com`).
      */
     host?: string;
@@ -49779,19 +49783,15 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
-     */
-    note_status?: FieldNotesListNoteStatus;
-    /**
      * The initial index from which to return the results.
      */
     offset?: number;
     };
 
-    export type FieldNotesListNoteStatus = typeof FieldNotesListNoteStatus[keyof typeof FieldNotesListNoteStatus];
+    export type FieldNotesListFieldNoteStatus = typeof FieldNotesListFieldNoteStatus[keyof typeof FieldNotesListFieldNoteStatus];
 
 
-    export const FieldNotesListNoteStatus = {
+    export const FieldNotesListFieldNoteStatus = {
       Acknowledged: 'acknowledged',
       Dismissed: 'dismissed',
       Pending: 'pending',

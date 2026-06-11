@@ -32,9 +32,9 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/`,
             query: {
+                field_note_status: params.field_note_status,
                 host: params.host,
                 limit: params.limit,
-                note_status: params.note_status,
                 offset: params.offset,
             },
         })
@@ -44,7 +44,7 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
                 pickResponseFields(item, [
                     'id',
                     'comment',
-                    'note_status',
+                    'field_note_status',
                     'resolution',
                     'url',
                     'host',

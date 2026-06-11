@@ -13,9 +13,9 @@
  * * `resolved` - Resolved
  * * `dismissed` - Dismissed
  */
-export type NoteStatusEnumApi = (typeof NoteStatusEnumApi)[keyof typeof NoteStatusEnumApi]
+export type FieldNoteStatusEnumApi = (typeof FieldNoteStatusEnumApi)[keyof typeof FieldNoteStatusEnumApi]
 
-export const NoteStatusEnumApi = {
+export const FieldNoteStatusEnumApi = {
     Pending: 'pending',
     Acknowledged: 'acknowledged',
     Resolved: 'resolved',
@@ -106,7 +106,7 @@ export interface FieldNoteApi {
      * * `acknowledged` - Acknowledged
      * * `resolved` - Resolved
      * * `dismissed` - Dismissed */
-    note_status?: NoteStatusEnumApi
+    field_note_status?: FieldNoteStatusEnumApi
     /**
      * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
      * @nullable
@@ -202,7 +202,7 @@ export interface PatchedFieldNoteApi {
      * * `acknowledged` - Acknowledged
      * * `resolved` - Resolved
      * * `dismissed` - Dismissed */
-    note_status?: NoteStatusEnumApi
+    field_note_status?: FieldNoteStatusEnumApi
     /**
      * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
      * @nullable
@@ -262,6 +262,10 @@ export interface PatchedFieldNoteApi {
 
 export type FieldNotesListParams = {
     /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus
+    /**
      * Filter to field notes made on this hostname (e.g. `app.example.com`).
      */
     host?: string
@@ -270,18 +274,15 @@ export type FieldNotesListParams = {
      */
     limit?: number
     /**
-     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
-     */
-    note_status?: FieldNotesListNoteStatus
-    /**
      * The initial index from which to return the results.
      */
     offset?: number
 }
 
-export type FieldNotesListNoteStatus = (typeof FieldNotesListNoteStatus)[keyof typeof FieldNotesListNoteStatus]
+export type FieldNotesListFieldNoteStatus =
+    (typeof FieldNotesListFieldNoteStatus)[keyof typeof FieldNotesListFieldNoteStatus]
 
-export const FieldNotesListNoteStatus = {
+export const FieldNotesListFieldNoteStatus = {
     Acknowledged: 'acknowledged',
     Dismissed: 'dismissed',
     Pending: 'pending',

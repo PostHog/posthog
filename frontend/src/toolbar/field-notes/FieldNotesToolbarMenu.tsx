@@ -10,8 +10,8 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { fieldNotesLogic } from './fieldNotesLogic'
 
 export function FieldNotesToolbarMenu(): JSX.Element {
-    const { fieldNotes, fieldNotesLoading, isAnnotating, deletingId } = useValues(fieldNotesLogic)
-    const { startAnnotating, stopAnnotating, deleteFieldNote } = useActions(fieldNotesLogic)
+    const { fieldNotes, fieldNotesLoading, isFieldNoting, deletingId } = useValues(fieldNotesLogic)
+    const { startFieldNote, stopFieldNote, deleteFieldNote } = useActions(fieldNotesLogic)
 
     return (
         <ToolbarMenu>
@@ -32,9 +32,9 @@ export function FieldNotesToolbarMenu(): JSX.Element {
                         fullWidth
                         center
                         icon={<IconCursorClick />}
-                        onClick={() => (isAnnotating ? stopAnnotating() : startAnnotating())}
+                        onClick={() => (isFieldNoting ? stopFieldNote() : startFieldNote())}
                     >
-                        {isAnnotating ? 'Cancel — click an element…' : 'Add a field note'}
+                        {isFieldNoting ? 'Cancel — click an element…' : 'Add a field note'}
                     </LemonButton>
 
                     <div className="space-y-1">

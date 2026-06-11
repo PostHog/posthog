@@ -14,11 +14,11 @@ const COMMENT_BOX_WIDTH = 320
 // here (not in the toolbar menu popup) decouples it from the menu's open/close/blur
 // lifecycle, so selecting an element reliably opens the write box.
 export function FieldNotesOverlay(): JSX.Element | null {
-    const { isAnnotating, hoverElementRect, selectedElementRect, selectedElement, comment, submitResultLoading } =
+    const { isFieldNoting, hoverElementRect, selectedElementRect, selectedElement, comment, submitResultLoading } =
         useValues(fieldNotesLogic)
-    const { stopAnnotating, setComment, submitFieldNote, clearSelection } = useActions(fieldNotesLogic)
+    const { stopFieldNote, setComment, submitFieldNote, clearSelection } = useActions(fieldNotesLogic)
 
-    if (!isAnnotating && !selectedElement) {
+    if (!isFieldNoting && !selectedElement) {
         return null
     }
 
@@ -33,9 +33,9 @@ export function FieldNotesOverlay(): JSX.Element | null {
     return (
         <>
             {selectedElementRect && <ElementHighlight rect={selectedElementRect} isSelected />}
-            {isAnnotating && hoverElementRect && <ElementHighlight rect={hoverElementRect} />}
+            {isFieldNoting && hoverElementRect && <ElementHighlight rect={hoverElementRect} />}
 
-            {isAnnotating && !selectedElement && (
+            {isFieldNoting && !selectedElement && (
                 <div
                     className="fixed flex items-center gap-3 text-white text-sm font-medium"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -57,7 +57,7 @@ export function FieldNotesOverlay(): JSX.Element | null {
                     <span>Click an element to add a note</span>
                     <button
                         type="button"
-                        onClick={() => stopAnnotating()}
+                        onClick={() => stopFieldNote()}
                         className="p-1.5 rounded-full border-none cursor-pointer flex items-center justify-center"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ background: 'rgba(255, 255, 255, 0.2)', color: '#fff' }}

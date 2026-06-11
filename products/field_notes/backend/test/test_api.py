@@ -29,7 +29,7 @@ class TestFieldNotesAPI(APIBaseTest):
         created = self._create()
         self.assertEqual(created["comment"], VALID_PAYLOAD["comment"])
         self.assertEqual(created["host"], "app.example.com")
-        self.assertEqual(created["note_status"], "pending")
+        self.assertEqual(created["field_note_status"], "pending")
         self.assertEqual(created["created_by"]["id"], self.user.pk)
 
         field_note = FieldNote.objects.for_team(self.team.id).get(id=created["id"])
@@ -40,11 +40,13 @@ class TestFieldNotesAPI(APIBaseTest):
         resolved = self._create(comment="already done")
         self.client.patch(
             f"/api/projects/{self.team.id}/field_notes/{resolved['id']}/",
-            data={"note_status": "resolved"},
+            data={"field_note_status": "resolved"},
         )
         self._create(host="other.example.com")
 
-        pending = self.client.get(f"/api/projects/{self.team.id}/field_notes/?note_status=pending").json()["results"]
+        pending = self.client.get(f"/api/projects/{self.team.id}/field_notes/?field_note_status=pending").json()[
+            "results"
+        ]
         self.assertEqual(len(pending), 2)
 
         by_host = self.client.get(f"/api/projects/{self.team.id}/field_notes/?host=other.example.com").json()["results"]
@@ -55,21 +57,21 @@ class TestFieldNotesAPI(APIBaseTest):
         created = self._create()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/field_notes/{created['id']}/",
-            data={"note_status": "resolved", "resolution": "Tightened the label spacing"},
+            data={"field_note_status": "resolved", "resolution": "Tightened the label spacing"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["note_status"], "resolved")
+        self.assertEqual(response.json()["field_note_status"], "resolved")
         self.assertEqual(response.json()["resolution"], "Tightened the label spacing")
 
     def test_create_ignores_status_and_resolution(self):
         # A write-scoped toolbar token must not be able to forge a pre-resolved field_note.
-        created = self._create(note_status="resolved", resolution="forged")
-        self.assertEqual(created["note_status"], "pending")
+        created = self._create(field_note_status="resolved", resolution="forged")
+        self.assertEqual(created["field_note_status"], "pending")
         self.assertIsNone(created["resolution"])
 
     def test_list_rejects_invalid_status_filter(self):
         self._create()
-        response = self.client.get(f"/api/projects/{self.team.id}/field_notes/?note_status=Resolved")
+        response = self.client.get(f"/api/projects/{self.team.id}/field_notes/?field_note_status=Resolved")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(

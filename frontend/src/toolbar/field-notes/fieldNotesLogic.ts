@@ -34,7 +34,7 @@ function capturePageContext(): PageContext {
 export interface FieldNote {
     id: string
     comment: string
-    note_status: 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
+    field_note_status: 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
     resolution: string | null
     url: string
     host: string
@@ -60,8 +60,8 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
     actions({
         showButtonFieldNotes: true,
         hideButtonFieldNotes: true,
-        startAnnotating: true,
-        stopAnnotating: true,
+        startFieldNote: true,
+        stopFieldNote: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         // Snapshot the page context at select time — on an SPA the URL can change before save.
         selectElement: (element: HTMLElement) => ({ element, page: capturePageContext() }),
@@ -77,7 +77,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             [] as FieldNote[],
             {
                 loadFieldNotes: async () => {
-                    const response = await toolbarFetch('/api/projects/@current/field_notes/?note_status=pending')
+                    const response = await toolbarFetch('/api/projects/@current/field_notes/?field_note_status=pending')
                     if (!response.ok) {
                         return values.fieldNotes
                     }
@@ -96,11 +96,11 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 hideButtonFieldNotes: () => false,
             },
         ],
-        isAnnotating: [
+        isFieldNoting: [
             false,
             {
-                startAnnotating: () => true,
-                stopAnnotating: () => false,
+                startFieldNote: () => true,
+                stopFieldNote: () => false,
                 selectElement: () => false,
                 hideButtonFieldNotes: () => false,
             },
@@ -109,7 +109,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             null as HTMLElement | null,
             {
                 setHoverElement: (_, { element }) => element,
-                stopAnnotating: () => null,
+                stopFieldNote: () => null,
                 selectElement: () => null,
                 hideButtonFieldNotes: () => null,
             },
@@ -270,7 +270,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
     events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.onMouseOver = (e: MouseEvent): void => {
-                if (!values.isAnnotating) {
+                if (!values.isFieldNoting) {
                     return
                 }
                 const target = e.target as HTMLElement
@@ -279,7 +279,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 }
             }
             cache.onClick = (e: MouseEvent): void => {
-                if (!values.isAnnotating) {
+                if (!values.isFieldNoting) {
                     return
                 }
                 const target = e.target as HTMLElement
@@ -301,8 +301,8 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 }
             }
             cache.onKeyDown = (e: KeyboardEvent): void => {
-                if (e.key === 'Escape' && values.isAnnotating) {
-                    actions.stopAnnotating()
+                if (e.key === 'Escape' && values.isFieldNoting) {
+                    actions.stopFieldNote()
                 }
             }
             document.addEventListener('mouseover', cache.onMouseOver, true)

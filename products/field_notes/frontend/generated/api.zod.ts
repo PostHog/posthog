@@ -31,7 +31,7 @@ export const fieldNotesCreateBodyScreenshotUrlMax = 2048
 
 export const FieldNotesCreateBody = /* @__PURE__ */ zod.object({
     comment: zod.string().max(fieldNotesCreateBodyCommentMax).describe('The note the user wrote about the element.'),
-    note_status: zod
+    field_note_status: zod
         .enum(['pending', 'acknowledged', 'resolved', 'dismissed'])
         .describe(
             '\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
@@ -104,7 +104,7 @@ export const fieldNotesUpdateBodyScreenshotUrlMax = 2048
 
 export const FieldNotesUpdateBody = /* @__PURE__ */ zod.object({
     comment: zod.string().max(fieldNotesUpdateBodyCommentMax).describe('The note the user wrote about the element.'),
-    note_status: zod
+    field_note_status: zod
         .enum(['pending', 'acknowledged', 'resolved', 'dismissed'])
         .describe(
             '\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
@@ -181,7 +181,7 @@ export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(fieldNotesPartialUpdateBodyCommentMax)
         .optional()
         .describe('The note the user wrote about the element.'),
-    note_status: zod
+    field_note_status: zod
         .enum(['pending', 'acknowledged', 'resolved', 'dismissed'])
         .describe(
             '\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
