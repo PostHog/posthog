@@ -70,6 +70,33 @@
             ],
             "description": "Column names for primary key deduplication."
         },
+        "row_filters": {
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "column": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [">", ">=", "<", "<=", "=", "!="],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Comparison value; must match the column's type."
+                            }
+                        },
+                        "required": ["column", "operator", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+        },
         "should_sync": {
             "type": "boolean"
         },
