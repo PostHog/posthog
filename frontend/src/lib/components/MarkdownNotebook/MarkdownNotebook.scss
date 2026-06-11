@@ -249,14 +249,15 @@
 }
 
 .MarkdownNotebook__blockquote-group {
-    --markdown-notebook-quote-indent: calc(1rem + 3px + 0.75rem);
+    --markdown-notebook-quote-indent: calc(1.75rem + 3px);
 
     box-sizing: border-box;
-    padding: 0.125rem 0 0.125rem 0.75rem;
-    margin: 0.5rem 0 0.5rem 1rem;
+    padding: 1rem 0 1rem calc(1.25rem - 3px);
+    margin: 0.5rem -1rem 0.5rem calc(-1rem - 3px);
     font-style: italic;
     color: var(--color-text-primary);
-    border-left: 3px solid var(--markdown-notebook-quote-gutter);
+    background: color-mix(in sRGB, var(--markdown-notebook-quote-gutter) 10%, transparent);
+    border-left: 6px solid var(--markdown-notebook-quote-gutter);
 }
 
 .MarkdownNotebook__text-group .MarkdownNotebook__text-block:focus {
